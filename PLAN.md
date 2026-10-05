@@ -47,7 +47,9 @@ MVP에서 지원하는 workflow는 다음 두 가지입니다.
 
 - 앱이 생성한 결과물은 `C:\Users\azzib\Desktop\ComfyUI\common\output\from_home_server` 아래에 처음부터 저장합니다.
 - 앱의 결과물 조회 및 폴더 이동 범위도 이 폴더 **내부로 제한**합니다. ComfyUI 웹에서 직접 만든 결과물과 구분합니다.
-- Anima의 `Image Saver Simple.path`, MiniMax H3의 video combine `filename_prefix`를 요청마다 설정해 저장 위치를 지정합니다.
+- **두 workflow의 폴더 구조와 파일 이름 규칙을 통일**합니다. 경로에서 어떤 workflow로 생성했는지만 구분되면 됩니다.
+- 기본 규칙은 `from_home_server/{workflow}/{YYYY-MM-DD}/{batch_id}/{request_id}.{확장자}`로 계획합니다. `workflow`는 `anima` 또는 `minimax_h3`처럼 짧고 고정된 이름을 사용합니다. `request_id`는 앱이 제출 전에 발급해 파일명 충돌을 막습니다. 실제 saver node가 덧붙이는 번호나 보조 파일명은 첫 시제품에서 확인합니다.
+- Anima의 `Image Saver Simple.path`와 `filename`, MiniMax H3의 video combine `filename_prefix`에 앱이 **동일한 규칙으로 만든 경로·이름**을 요청마다 전달합니다. 두 node의 내부 저장 방식 차이는 workflow adapter가 처리합니다.
 - 결과물 목록의 기준은 파일 시스템의 **현재 상태**입니다. 앱 시작 시 읽고 사용자가 새로고침할 수 있습니다.
 - 결과물 파일 경로를 DB에서 지속적으로 추적하거나 이동 후 DB 경로를 갱신하지 않습니다. Windows Explorer에서 직접 이동·삭제한 내용도 다음 조회에 반영합니다.
 - MVP에는 앱 전용 휴지통과 앱 내 삭제 기능을 두지 않습니다. 앱에서 폴더 이동은 허용하며, 이동 후 ComfyUI 웹의 기존 결과물 참조가 깨져도 괜찮습니다.
@@ -72,7 +74,6 @@ MVP에서 지원하는 workflow는 다음 두 가지입니다.
 
 아래 항목은 아직 확정하지 않았습니다. 구현 전 또는 첫 시제품을 확인하면서 결정할 수 있습니다.
 
-1. `from_home_server` 아래의 기본 폴더 이름 규칙: workflow/날짜/Batch ID 등의 조합.
-2. 앱에서 실행 중인 요청을 취소할 때의 UI와 범위: 대기 중인 요청 삭제와 이미 실행 중인 요청 중단을 구분.
-3. Mobile 입력 upload 및 ComfyUI에 전달하기 위해 생성한 임시 파일의 정리 시점.
-4. 결과물 저장 node가 실제 환경에서 지정한 하위 폴더에 저장하고 결과 정보를 반환하는지 두 workflow별 확인.
+1. 앱에서 실행 중인 요청을 취소할 때의 UI와 범위: 대기 중인 요청 삭제와 이미 실행 중인 요청 중단을 구분.
+2. Mobile 입력 upload 및 ComfyUI에 전달하기 위해 생성한 임시 파일의 정리 시점.
+3. 결과물 저장 node가 실제 환경에서 지정한 하위 폴더에 저장하고 결과 정보를 반환하는지 두 workflow별 확인.
