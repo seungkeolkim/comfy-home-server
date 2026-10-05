@@ -1,0 +1,374 @@
+{
+  "2568": {
+    "inputs": {
+      "frame_rate": [
+        "2730",
+        8
+      ],
+      "codec": "Auto",
+      "container": "Auto",
+      "bit_depth": "Auto",
+      "quality": 22,
+      "log_level": "Standard",
+      "pingpong": false,
+      "save_metadata": true,
+      "filename_prefix": "video/%date:yyyy-MM-dd%/%date:hhmmss%",
+      "save_output": true,
+      "pass_frames": false,
+      "crop_to_audio": false,
+      "audio_codec": "Auto",
+      "audio_bitrate": "192k",
+      "save_first_frame": false,
+      "save_last_frame": false,
+      "images": [
+        "1512:2671",
+        0
+      ],
+      "audio": [
+        "1512:2782",
+        0
+      ]
+    },
+    "class_type": "DaSiWa_EnhancedVideoCombine",
+    "_meta": {
+      "title": "DaSiWa Enhanced Video Combine"
+    }
+  },
+  "2678": {
+    "inputs": {
+      "stack_data": "[{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1},{\"on\":true,\"lora\":\"None\",\"str\":1,\"vs\":1,\"as\":1}]",
+      "model_type": "Basic",
+      "use_cache": false,
+      "model": [
+        "2730",
+        5
+      ],
+      "clip": [
+        "1512:2587",
+        0
+      ]
+    },
+    "class_type": "DaSiWa_LTX2LoraLoader",
+    "_meta": {
+      "title": "Advanced LoRA Loader"
+    }
+  },
+  "2730": {
+    "inputs": {
+      "mode": "FL2VA",
+      "prompt": "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 2) aligns with the end mark of the target video.\n\nintegrated_multimodal_description: \n\noverall_soundscape: \n\nnon_diegetic_music: N/A",
+      "width": 608,
+      "height": 448,
+      "duration": 10,
+      "ref_image_size": "match",
+      "timeline_data": "{\"version\":1,\"items\":[],\"prompt_blocks\":[],\"builder_state\":{\"version\":1,\"mode\":\"FL2VA\",\"imd\":\"\",\"soundscape\":\"\",\"music\":\"\",\"duration\":10,\"ref\":{\"subject_defs\":[],\"summary_types\":[\"reference generation\"],\"summary_text\":\"\",\"retention\":[],\"style_line\":\"\",\"detail\":\"\",\"soundscape\":\"\",\"music\":\"\"},\"prompt_mode\":\"simple\",\"simple_prompt\":\"How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 2) aligns with the end mark of the target video.\\n\\nintegrated_multimodal_description: \\n\\noverall_soundscape: \\n\\nnon_diegetic_music: N/A\"},\"resolution\":{\"aspect\":\"auto\",\"resolution\":\"0.26 MP - Preview\",\"input_scaling\":\"Fit\",\"custom_aspect_w\":16,\"custom_aspect_h\":9,\"custom_mp\":1,\"custom_width\":1344,\"custom_height\":768},\"resolved_prompt\":\"How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 2) aligns with the end mark of the target video.\\n\\nintegrated_multimodal_description: \\n\\noverall_soundscape: \\n\\nnon_diegetic_music: N/A\",\"field_heights\":{\"simple_prompt\":600.8515625,\"ref_detailed_description\":208.5},\"refmods\":[]}",
+      "builder_state": "{\"version\":1,\"mode\":\"FL2VA\",\"imd\":\"\",\"soundscape\":\"\",\"music\":\"\",\"duration\":10,\"ref\":{\"subject_defs\":[],\"summary_types\":[\"reference generation\"],\"summary_text\":\"\",\"retention\":[],\"style_line\":\"\",\"detail\":\"\",\"soundscape\":\"\",\"music\":\"\"},\"prompt_mode\":\"simple\",\"simple_prompt\":\"How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns with the 0.00-second mark of the target video; Picture 2 (from Shot 2) aligns with the end mark of the target video.\\n\\nintegrated_multimodal_description: \\n\\noverall_soundscape: \\n\\nnon_diegetic_music: N/A\"}",
+      "frame_rate": 24,
+      "fl2va_model": [
+        "1512:1536",
+        0
+      ],
+      "ref2va_model": [
+        "1512:2663",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3Director",
+    "_meta": {
+      "title": "MiniMax H3 Director"
+    }
+  },
+  "2737": {
+    "inputs": {
+      "max_resolution": 512,
+      "jpeg_quality": 80,
+      "suppress_default_preview": true,
+      "preview_frames": 120,
+      "preview_fps": 8,
+      "tiny_vae": "taeh3.safetensors",
+      "model": [
+        "1512:2692",
+        0
+      ]
+    },
+    "class_type": "ModelPreviewOverrideKJ",
+    "_meta": {
+      "title": "Model Preview Override"
+    }
+  },
+  "2739": {
+    "inputs": {
+      "seed_value": 6422591502768860000,
+      "seed_control_state": "{\"mode\":\"random\",\"last_seed\":\"6422591502768860283\",\"recent\":[\"6422591502768860283\",\"4435156484355342733\",\"15945511825868789641\",\"4361925370190953356\",\"11016312116854480818\",\"1281549414158554595\",\"10798644958545210721\",\"2877805492292372133\",\"11651629423710585380\",\"3845521724600349208\"]}"
+    },
+    "class_type": "DaSiWa_SeedControl",
+    "_meta": {
+      "title": "Seed Control"
+    }
+  },
+  "1512:2586": {
+    "inputs": {
+      "unet_name": "MiniMaxH3\\dasiwa_minimax_h3_ref2va_v2_pruned_hybrid_turbo_int8_row-wise_convrot_runtime_mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "확산 모델 로드"
+    }
+  },
+  "1512:2587": {
+    "inputs": {
+      "clip_name": "qwen3vl_32b_minimax_h3_int4_convrot.safetensors",
+      "type": "minimax",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "CLIP 로드"
+    }
+  },
+  "1512:2584": {
+    "inputs": {
+      "vae_name": "MiniMaxH3\\minimax_h3_video_vae_int8_convrot.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE Video"
+    }
+  },
+  "1512:2720": {
+    "inputs": {
+      "attention": "comfy kitchen attention",
+      "model": [
+        "1512:2588",
+        0
+      ]
+    },
+    "class_type": "ModelAttentionBackend",
+    "_meta": {
+      "title": "ModelAttentionBackend"
+    }
+  },
+  "1512:2719": {
+    "inputs": {
+      "attention": "comfy kitchen attention",
+      "model": [
+        "1512:2586",
+        0
+      ]
+    },
+    "class_type": "ModelAttentionBackend",
+    "_meta": {
+      "title": "ModelAttentionBackend"
+    }
+  },
+  "1512:1536": {
+    "inputs": {
+      "enable_fp16_accumulation": true,
+      "model": [
+        "1512:2719",
+        0
+      ]
+    },
+    "class_type": "ModelPatchTorchSettings",
+    "_meta": {
+      "title": "Model Patch Torch Settings"
+    }
+  },
+  "1512:2663": {
+    "inputs": {
+      "enable_fp16_accumulation": true,
+      "model": [
+        "1512:2720",
+        0
+      ]
+    },
+    "class_type": "ModelPatchTorchSettings",
+    "_meta": {
+      "title": "Model Patch Torch Settings"
+    }
+  },
+  "1512:2671": {
+    "inputs": {
+      "samples": [
+        "1512:2591",
+        0
+      ],
+      "vae": [
+        "1512:2584",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE 디코드"
+    }
+  },
+  "1512:2588": {
+    "inputs": {
+      "unet_name": "MiniMaxH3\\dasiwa_minimax_h3_ref2va_v2_pruned_hybrid_turbo_int8_row-wise_convrot_runtime_mixed.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "확산 모델 로드"
+    }
+  },
+  "1512:2590": {
+    "inputs": {
+      "scheduler": "simple",
+      "steps": 8,
+      "denoise": 1,
+      "model": [
+        "2678",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "기본 스케줄러"
+    }
+  },
+  "1512:2679": {
+    "inputs": {
+      "scheduler": "simple",
+      "steps": 8,
+      "denoise": 1,
+      "model": [
+        "2678",
+        0
+      ]
+    },
+    "class_type": "BasicScheduler",
+    "_meta": {
+      "title": "기본 스케줄러"
+    }
+  },
+  "1512:2598": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "KSampler (선택)"
+    }
+  },
+  "1512:2585": {
+    "inputs": {
+      "vae_name": "MiniMaxH3\\minimax_h3_audio_vae_fp32.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "Load VAE Audio"
+    }
+  },
+  "1512:2782": {
+    "inputs": {
+      "samples": [
+        "1512:2591",
+        0
+      ],
+      "vae": [
+        "1512:2585",
+        0
+      ]
+    },
+    "class_type": "VAEDecodeAudio",
+    "_meta": {
+      "title": "오디오 VAE 디코드"
+    }
+  },
+  "1512:2592": {
+    "inputs": {
+      "model": [
+        "2737",
+        0
+      ],
+      "conditioning": [
+        "1512:2701",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "기본 가이드"
+    }
+  },
+  "1512:2692": {
+    "inputs": {
+      "shift_video": 6,
+      "shift_audio": 3,
+      "model": [
+        "2678",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3SigmaShift",
+    "_meta": {
+      "title": "MiniMax H3 Sigma Shift"
+    }
+  },
+  "1512:2701": {
+    "inputs": {
+      "clip": [
+        "2678",
+        1
+      ],
+      "vae": [
+        "1512:2584",
+        0
+      ],
+      "guide": [
+        "2730",
+        0
+      ],
+      "audio_vae": [
+        "1512:2585",
+        0
+      ]
+    },
+    "class_type": "MiniMaxH3DirectorGuide",
+    "_meta": {
+      "title": "MiniMax H3 Director Guide"
+    }
+  },
+  "1512:2774": {
+    "inputs": {
+      "chunk_length": 85,
+      "temporal_overlap": 17,
+      "anchor_strength": 0.999
+    },
+    "class_type": "MMH3TemporalSplitParams",
+    "_meta": {
+      "title": "MMH3 Temporal Split Params"
+    }
+  },
+  "1512:2591": {
+    "inputs": {
+      "noise": [
+        "2739",
+        1
+      ],
+      "guider": [
+        "1512:2592",
+        0
+      ],
+      "sampler": [
+        "1512:2598",
+        0
+      ],
+      "sigmas": [
+        "1512:2590",
+        0
+      ],
+      "latent_image": [
+        "1512:2701",
+        1
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "고급 사용자 정의 샘플러"
+    }
+  }
+}

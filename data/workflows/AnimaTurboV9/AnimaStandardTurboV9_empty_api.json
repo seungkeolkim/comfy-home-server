@@ -1,0 +1,660 @@
+{
+  "1": {
+    "inputs": {
+      "unet_name": "anima_turboV11.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "확산 모델 로드"
+    }
+  },
+  "3": {
+    "inputs": {
+      "wildcard_text": "newest, masterpiece, best quality, score_7,\n1girl, solo, looking at viewer,",
+      "populated_text": "newest, masterpiece, best quality, score_7,\n1girl, solo, looking at viewer,",
+      "mode": "populate",
+      "seed": [
+        "24",
+        0
+      ],
+      "Select to add Wildcard": "Select the Wildcard to add to the text"
+    },
+    "class_type": "ImpactWildcardProcessor",
+    "_meta": {
+      "title": "POSITIVE"
+    }
+  },
+  "4": {
+    "inputs": {
+      "wildcard_text": "worst quality, low quality, lowres, score_1, score_2, score_3, blurry, jpeg artifacts, bad anatomy, watermark, artist name, ",
+      "populated_text": "worst quality, low quality, lowres, score_1, score_2, score_3, blurry, jpeg artifacts, bad anatomy, watermark, artist name, ",
+      "mode": "populate",
+      "seed": [
+        "24",
+        0
+      ],
+      "Select to add Wildcard": "Select the Wildcard to add to the text"
+    },
+    "class_type": "ImpactWildcardProcessor",
+    "_meta": {
+      "title": "NEGATIVE"
+    }
+  },
+  "5": {
+    "inputs": {
+      "__lm_autocomplete_meta_text": {
+        "version": 1,
+        "textWidgetName": "text"
+      },
+      "text": "<lora:83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained:0.75><lora:ZWX35T0XHS8F2YDKJ620G66Z70:0.45:0.45> <lora:tawawa_jitome-chan:0.65:0.65> <lora:haruxxxsanekaki-AnimaB_V10-V1-FFTD-000020:0.70> <lora:zhibuji_loom_v1:0.78> <lora:Flat painting style:0.70> <lora:83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained:0.75> <lora:ZWX35T0XHS8F2YDKJ620G66Z70:0.45> <lora:83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained:0.75> <lora:ZWX35T0XHS8F2YDKJ620G66Z70:0.45>",
+      "loras": {
+        "__value__": [
+          {
+            "name": "83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained",
+            "strength": 0.75,
+            "active": true,
+            "expanded": false,
+            "clipStrength": 0.75,
+            "selected": false,
+            "locked": false
+          },
+          {
+            "name": "ZWX35T0XHS8F2YDKJ620G66Z70",
+            "strength": 0.45,
+            "active": true,
+            "expanded": false,
+            "clipStrength": 0.45,
+            "selected": false,
+            "locked": false
+          },
+          {
+            "name": "tawawa_jitome-chan",
+            "strength": 0.65,
+            "active": false,
+            "expanded": false,
+            "clipStrength": 0.65,
+            "selected": false,
+            "locked": false
+          },
+          {
+            "name": "haruxxxsanekaki-AnimaB_V10-V1-FFTD-000020",
+            "strength": 0.7,
+            "active": false,
+            "expanded": false,
+            "clipStrength": 0.7,
+            "selected": false,
+            "locked": false
+          },
+          {
+            "name": "zhibuji_loom_v1",
+            "strength": 0.78,
+            "active": false,
+            "expanded": false,
+            "clipStrength": 0.78,
+            "selected": false,
+            "locked": false
+          },
+          {
+            "name": "Flat painting style",
+            "strength": 0.7,
+            "active": true,
+            "expanded": false,
+            "clipStrength": 0.7,
+            "selected": false,
+            "locked": false
+          }
+        ]
+      },
+      "model": [
+        "1",
+        0
+      ],
+      "clip": [
+        "18",
+        0
+      ]
+    },
+    "class_type": "Lora Loader (LoraManager)",
+    "_meta": {
+      "title": "Lora Loader (LoraManager)"
+    }
+  },
+  "6": {
+    "inputs": {
+      "seed": [
+        "24",
+        0
+      ],
+      "steps": [
+        "24",
+        1
+      ],
+      "cfg": [
+        "24",
+        2
+      ],
+      "sampler_name": [
+        "27",
+        0
+      ],
+      "scheduler": [
+        "26",
+        0
+      ],
+      "denoise": [
+        "24",
+        5
+      ],
+      "model": [
+        "5",
+        0
+      ],
+      "positive": [
+        "53",
+        0
+      ],
+      "negative": [
+        "54",
+        0
+      ],
+      "latent_image": [
+        "34",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "7": {
+    "inputs": {
+      "model_name": "bbox/face_yolov9c.pt"
+    },
+    "class_type": "UltralyticsDetectorProvider",
+    "_meta": {
+      "title": "Default DetectorProvider"
+    }
+  },
+  "8": {
+    "inputs": {
+      "model_name": "sam_vit_b_01ec64.pth",
+      "device_mode": "AUTO"
+    },
+    "class_type": "SAMLoader",
+    "_meta": {
+      "title": "SAMLoader (Impact)"
+    }
+  },
+  "13": {
+    "inputs": {
+      "filename": "%time_%basemodelname_%seed",
+      "path": "",
+      "extension": "png",
+      "lossless_webp": true,
+      "quality_jpeg_or_webp": 100,
+      "optimize_png": false,
+      "embed_workflow": true,
+      "save_workflow_as_json": false,
+      "counter": 0,
+      "time_format": "%Y-%m-%d-%H%M%S",
+      "show_preview": true,
+      "images": [
+        "35",
+        0
+      ],
+      "metadata": [
+        "57",
+        0
+      ]
+    },
+    "class_type": "Image Saver Simple",
+    "_meta": {
+      "title": "Image Saver Simple"
+    }
+  },
+  "18": {
+    "inputs": {
+      "clip_name": "qwen_3_06b_base.safetensors",
+      "type": "stable_diffusion",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "CLIP 로드"
+    }
+  },
+  "19": {
+    "inputs": {
+      "wildcard": "",
+      "Select to add LoRA": "Select the LoRA to add to the text",
+      "Select to add Wildcard": "Select the Wildcard to add to the text",
+      "model": [
+        "28",
+        0
+      ],
+      "clip": [
+        "5",
+        1
+      ],
+      "vae": [
+        "23",
+        0
+      ],
+      "positive": [
+        "53",
+        0
+      ],
+      "negative": [
+        "54",
+        0
+      ],
+      "bbox_detector": [
+        "7",
+        0
+      ],
+      "sam_model_opt": [
+        "8",
+        0
+      ]
+    },
+    "class_type": "ToDetailerPipe",
+    "_meta": {
+      "title": "ToDetailerPipe"
+    }
+  },
+  "23": {
+    "inputs": {
+      "vae_name": "qwen_image_vae.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "VAE 로드"
+    }
+  },
+  "24": {
+    "inputs": {
+      "seed": 42,
+      "steps": 12,
+      "cfg": 1,
+      "sampler": "er_sde",
+      "scheduler": "simple",
+      "denoise": 1
+    },
+    "class_type": "Input Parameters (Image Saver)",
+    "_meta": {
+      "title": "Input Parameters (Image Saver)"
+    }
+  },
+  "26": {
+    "inputs": {
+      "text": "simple",
+      "anything": [
+        "24",
+        4
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "27": {
+    "inputs": {
+      "text": "er_sde",
+      "anything": [
+        "24",
+        3
+      ]
+    },
+    "class_type": "easy showAnything",
+    "_meta": {
+      "title": "Show Any"
+    }
+  },
+  "28": {
+    "inputs": {
+      "strength": 1,
+      "model": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "DifferentialDiffusion",
+    "_meta": {
+      "title": "차등 확산"
+    }
+  },
+  "34": {
+    "inputs": {
+      "select": 1,
+      "sel_mode": false,
+      "input1": [
+        "55",
+        0
+      ]
+    },
+    "class_type": "ImpactSwitch",
+    "_meta": {
+      "title": "Switch (Any)"
+    }
+  },
+  "35": {
+    "inputs": {
+      "samples": [
+        "6",
+        0
+      ],
+      "vae": [
+        "23",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE 디코드"
+    }
+  },
+  "38": {
+    "inputs": {
+      "string_a": [
+        "43",
+        0
+      ],
+      "string_b": [
+        "3",
+        0
+      ],
+      "delimiter": ","
+    },
+    "class_type": "StringConcatenate",
+    "_meta": {
+      "title": "연결"
+    }
+  },
+  "39": {
+    "inputs": {
+      "value": 1536
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Max Size"
+    }
+  },
+  "40": {
+    "inputs": {
+      "string": [
+        "38",
+        0
+      ],
+      "regex_pattern": "^,|,$",
+      "replace": "",
+      "case_insensitive": true,
+      "multiline": false,
+      "dotall": false,
+      "count": 0
+    },
+    "class_type": "RegexReplace",
+    "_meta": {
+      "title": "정규식 치환"
+    }
+  },
+  "42": {
+    "inputs": {
+      "string_a": [
+        "40",
+        0
+      ],
+      "string_b": [
+        "5",
+        3
+      ],
+      "delimiter": ""
+    },
+    "class_type": "StringConcatenate",
+    "_meta": {
+      "title": "연결"
+    }
+  },
+  "43": {
+    "inputs": {
+      "group_mode": true,
+      "default_active": false,
+      "allow_strength_adjustment": {
+        "__value__": []
+      },
+      "toggle_trigger_words": {
+        "__value__": [
+          {
+            "text": "@ohyg3",
+            "active": false,
+            "highlighted": false,
+            "strength": null,
+            "items": [
+              {
+                "text": "@ohyg3",
+                "active": true,
+                "highlighted": false,
+                "strength": null
+              }
+            ]
+          },
+          {
+            "text": "aosiai123",
+            "active": false,
+            "highlighted": false,
+            "strength": null,
+            "items": [
+              {
+                "text": "aosiai123",
+                "active": true,
+                "highlighted": false,
+                "strength": null
+              }
+            ]
+          },
+          {
+            "text": "Flat painting style",
+            "active": false,
+            "highlighted": false,
+            "strength": null,
+            "items": [
+              {
+                "text": "Flat painting style",
+                "active": true,
+                "highlighted": false,
+                "strength": null
+              }
+            ]
+          }
+        ]
+      },
+      "orinalMessage": "@ohyg3,, aosiai123,, Flat painting style",
+      "trigger_words": [
+        "5",
+        2
+      ]
+    },
+    "class_type": "TriggerWord Toggle (LoraManager)",
+    "_meta": {
+      "title": "TriggerWord Toggle (LoraManager)"
+    }
+  },
+  "44": {
+    "inputs": {
+      "value": 512
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "Guide Size"
+    }
+  },
+  "45": {
+    "inputs": {
+      "value": 1024
+    },
+    "class_type": "easy int",
+    "_meta": {
+      "title": "Width"
+    }
+  },
+  "47": {
+    "inputs": {
+      "value": 2.5
+    },
+    "class_type": "PrimitiveFloat",
+    "_meta": {
+      "title": "BBOX Crop Factor"
+    }
+  },
+  "48": {
+    "inputs": {
+      "value": 1536
+    },
+    "class_type": "easy int",
+    "_meta": {
+      "title": "Height"
+    }
+  },
+  "50": {
+    "inputs": {
+      "value": false
+    },
+    "class_type": "PrimitiveBoolean",
+    "_meta": {
+      "title": "Tiled Detailer"
+    }
+  },
+  "51": {
+    "inputs": {
+      "value": 1
+    },
+    "class_type": "easy int",
+    "_meta": {
+      "title": "Batch Size"
+    }
+  },
+  "53": {
+    "inputs": {
+      "text": [
+        "40",
+        0
+      ],
+      "clip": [
+        "5",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Positive Prompt)"
+    }
+  },
+  "54": {
+    "inputs": {
+      "text": [
+        "4",
+        0
+      ],
+      "clip": [
+        "5",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncode",
+    "_meta": {
+      "title": "CLIP Text Encode (Negative Prompt)"
+    }
+  },
+  "55": {
+    "inputs": {
+      "width": [
+        "45",
+        0
+      ],
+      "height": [
+        "48",
+        0
+      ],
+      "batch_size": [
+        "51",
+        0
+      ]
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "빈 잠재 이미지"
+    }
+  },
+  "56": {
+    "inputs": {
+      "id": 1,
+      "widget_name": "unet_name",
+      "return_all": false,
+      "node_title": "",
+      "allowed_float_decimals": 2
+    },
+    "class_type": "WidgetToString",
+    "_meta": {
+      "title": "Widget To String"
+    }
+  },
+  "57": {
+    "inputs": {
+      "modelname": [
+        "56",
+        0
+      ],
+      "positive": [
+        "42",
+        0
+      ],
+      "negative": [
+        "4",
+        0
+      ],
+      "width": [
+        "45",
+        0
+      ],
+      "height": [
+        "48",
+        0
+      ],
+      "seed_value": [
+        "24",
+        0
+      ],
+      "steps": [
+        "24",
+        1
+      ],
+      "cfg": [
+        "24",
+        2
+      ],
+      "sampler_name": [
+        "27",
+        0
+      ],
+      "scheduler_name": [
+        "26",
+        0
+      ],
+      "denoise": [
+        "24",
+        5
+      ],
+      "clip_skip": 0,
+      "additional_hashes": "",
+      "download_civitai_data": true,
+      "easy_remix": false,
+      "custom": ""
+    },
+    "class_type": "Image Saver Metadata",
+    "_meta": {
+      "title": "Image Saver Metadata"
+    }
+  }
+}

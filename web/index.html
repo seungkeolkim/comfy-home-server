@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Comfy Home Server</title>
+    <link rel="stylesheet" href="/app.css" />
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <section id="login-screen" class="login-screen hidden">
+      <form id="login-form" class="login-card">
+        <span class="brand-mark">CH</span>
+        <p class="eyebrow">HOME STUDIO</p>
+        <h1>Comfy Home Server</h1>
+        <p class="muted">생성 작업과 결과물을 한 곳에서 확인하세요.</p>
+        <label for="login-password">비밀번호</label>
+        <input
+          id="login-password"
+          type="password"
+          autocomplete="current-password"
+          required
+          autofocus
+        />
+        <button type="submit" class="button primary wide">들어가기</button>
+        <p id="login-error" class="form-error" role="alert"></p>
+      </form>
+    </section>
+
+    <div id="application" class="application hidden">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">CH</span>
+          <div><strong>Comfy Home</strong><small>SERVER</small></div>
+        </div>
+        <nav aria-label="주 메뉴">
+          <button class="nav-button active" data-view="generate">
+            <span>✦</span> 생성
+          </button>
+          <button class="nav-button" data-view="jobs">
+            <span>◷</span> 작업
+          </button>
+          <button class="nav-button" data-view="outputs">
+            <span>▧</span> 결과물
+          </button>
+          <button class="nav-button" data-view="prompts">
+            <span>☷</span> Prompt
+          </button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div id="connection-status" class="connection-status">
+            <span class="status-dot"></span> 연결 확인 중
+          </div>
+          <button id="logout-button" class="text-button">로그아웃</button>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">YOUR CREATIVE SPACE</p>
+            <h1 id="page-title">생성</h1>
+          </div>
+          <div class="topbar-right">
+            <span id="active-count" class="active-count">작업 0</span
+            ><button id="refresh-button" class="button subtle">새로고침</button>
+          </div>
+        </header>
+        <div id="notice" class="notice hidden" role="status"></div>
+
+        <section id="view-generate" class="view">
+          <div class="section-intro">
+            <h2>새 Batch</h2>
+            <p>Workflow와 Prompt를 선택하고 제출 전에 조합을 확인하세요.</p>
+          </div>
+          <div class="form-grid">
+            <div class="panel stack">
+              <div class="panel-heading">
+                <span class="step">01</span>
+                <h3>기본 설정</h3>
+              </div>
+              <label for="generate-workflow">Workflow</label>
+              <select id="generate-workflow">
+                <option value="anima">Anima Turbo V9 · 이미지</option>
+                <option value="minimax_h3">DaSiWa MiniMax H3 · 영상</option>
+              </select>
+              <label for="generate-preset">Prompt preset</label>
+              <select id="generate-preset">
+                <option value="">직접 작성</option>
+              </select>
+              <div class="inline-actions">
+                <button
+                  id="edit-preset-button"
+                  class="button subtle"
+                  type="button"
+                >
+                  Prompt 편집</button
+                ><button
+                  id="save-current-preset-button"
+                  class="button subtle"
+                  type="button"
+                >
+                  새 preset 저장
+                </button>
+              </div>
+              <label for="generate-prefix">공통 Prompt</label>
+              <textarea
+                id="generate-prefix"
+                rows="5"
+                placeholder="공통으로 사용할 Prompt를 입력하세요."
+              ></textarea>
+              <label for="generate-suffix">마무리 Prompt</label>
+              <textarea
+                id="generate-suffix"
+                rows="2"
+                placeholder="선택 사항"
+              ></textarea>
+              <label for="generate-negative">Negative Prompt</label>
+              <textarea
+                id="generate-negative"
+                rows="2"
+                placeholder="Anima에서 사용합니다."
+              ></textarea>
+              <div class="field-row">
+                <div>
+                  <label for="generate-separator">문구 구분자</label
+                  ><input id="generate-separator" value=", " />
+                </div>
+                <div>
+                  <label for="generate-count">생성 수</label
+                  ><input
+                    id="generate-count"
+                    type="number"
+                    min="1"
+                    max="100"
+                    value="1"
+                  />
+                </div>
+              </div>
+            </div>
+            <div class="panel stack">
+              <div class="panel-heading">
+                <span class="step">02</span>
+                <h3>상황 선택</h3>
+              </div>
+              <p class="hint">
+                체크한 상황 중 하나가 요청마다 선택됩니다. 내부 선택지는
+                wildcard로 확장됩니다.
+              </p>
+              <div id="generate-scenarios" class="scenario-choices empty-state">
+                등록된 상황이 없습니다. Prompt 화면에서 추가하세요.
+              </div>
+              <div class="panel-divider"></div>
+              <div class="panel-heading">
+                <span class="step">03</span>
+                <h3>Workflow 옵션</h3>
+              </div>
+              <div id="anima-options" class="stack compact">
+                <div class="field-row">
+                  <div>
+                    <label for="anima-width">너비</label
+                    ><input
+                      id="anima-width"
+                      type="number"
+                      min="1"
+                      value="1024"
+                    />
+                  </div>
+                  <div>
+                    <label for="anima-height">높이</label
+                    ><input
+                      id="anima-height"
+                      type="number"
+                      min="1"
+                      value="1536"
+                    />
+                  </div>
+                </div>
+                <div class="field-row">
+                  <div>
+                    <label for="anima-steps">Steps</label
+                    ><input id="anima-steps" type="number" min="1" value="12" />
+                  </div>
+                  <div>
+                    <label for="anima-cfg">CFG</label
+                    ><input id="anima-cfg" type="number" step="0.1" value="1" />
+                  </div>
+                </div>
+                <label for="anima-batch-size">Workflow 내부 batch size</label
+                ><input id="anima-batch-size" type="number" min="1" value="1" />
+              </div>
+              <div id="minimax-options" class="stack compact hidden">
+                <label for="minimax-images"
+                  >입력 이미지 · 여러 파일 또는 폴더</label
+                >
+                <input
+                  id="minimax-images"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                />
+                <input
+                  id="minimax-directory"
+                  type="file"
+                  webkitdirectory
+                  multiple
+                  aria-label="폴더에서 이미지 선택"
+                />
+                <p id="selected-images" class="hint">
+                  선택한 이미지가 없습니다.
+                </p>
+                <div class="field-row">
+                  <div>
+                    <label for="minimax-width">너비</label
+                    ><input
+                      id="minimax-width"
+                      type="number"
+                      min="1"
+                      value="720"
+                    />
+                  </div>
+                  <div>
+                    <label for="minimax-height">높이</label
+                    ><input
+                      id="minimax-height"
+                      type="number"
+                      min="1"
+                      value="720"
+                    />
+                  </div>
+                </div>
+                <div class="field-row">
+                  <div>
+                    <label for="minimax-duration">길이 · 초</label
+                    ><input
+                      id="minimax-duration"
+                      type="number"
+                      min="0.1"
+                      step="0.1"
+                      value="10"
+                    />
+                  </div>
+                  <div>
+                    <label for="minimax-frame-rate">Frame rate</label
+                    ><input
+                      id="minimax-frame-rate"
+                      type="number"
+                      min="1"
+                      value="24"
+                    />
+                  </div>
+                </div>
+                <label for="minimax-upscale">Upscale</label
+                ><select id="minimax-upscale">
+                  <option value="off">사용 안 함</option>
+                  <option value="simple">Simple 2×</option>
+                  <option value="model">Model 2×</option>
+                  <option value="rtx">RTX 2×</option>
+                </select>
+                <label for="minimax-upscale-model"
+                  >Upscale model 이름 · model 선택 시</label
+                ><input
+                  id="minimax-upscale-model"
+                  value="2x-AnimeSharpV4_RCAN.safetensors"
+                />
+              </div>
+            </div>
+          </div>
+          <div class="panel stack lora-panel">
+            <div class="panel-heading">
+              <span class="step">04</span>
+              <h3>LoRA</h3>
+              <button
+                id="refresh-loras-button"
+                class="button subtle small"
+                type="button"
+              >
+                목록 새로고침
+              </button>
+            </div>
+            <p class="hint">
+              ComfyUI가 인식한 파일에서 선택합니다. 필요한 것만 이번 Batch에
+              적용됩니다.
+            </p>
+            <div class="field-row lora-add">
+              <select id="available-loras">
+                <option value="">LoRA 목록을 불러오는 중</option></select
+              ><button id="add-lora-button" class="button subtle" type="button">
+                추가
+              </button>
+            </div>
+            <div id="selected-loras" class="selected-loras"></div>
+          </div>
+          <div class="panel submit-panel">
+            <div>
+              <strong>제출 전 확인</strong>
+              <p class="hint">
+                미리보기는 실제 Impact wildcard 결과를 보여줍니다.
+              </p>
+            </div>
+            <div class="inline-actions">
+              <button id="preview-button" class="button subtle" type="button">
+                Prompt 미리보기</button
+              ><button id="submit-button" class="button primary" type="button">
+                Batch 제출
+              </button>
+            </div>
+          </div>
+          <div id="preview-results" class="preview-results hidden"></div>
+        </section>
+
+        <section id="view-jobs" class="view hidden">
+          <div class="section-intro">
+            <h2>작업 상태</h2>
+            <p>앱에서 제출한 요청과 ComfyUI 접수 상태를 확인합니다.</p>
+          </div>
+          <div id="jobs-list" class="stack"></div>
+        </section>
+
+        <section id="view-outputs" class="view hidden">
+          <div class="section-intro">
+            <h2>결과물</h2>
+            <p id="output-location">
+              from_home_server의 현재 파일 상태를 보여줍니다.
+            </p>
+          </div>
+          <div class="toolbar">
+            <div class="inline-actions">
+              <span id="output-count" class="hint"></span
+              ><button
+                id="clear-output-filter"
+                class="button subtle small hidden"
+              >
+                전체 보기
+              </button>
+            </div>
+            <button id="refresh-outputs-button" class="button subtle">
+              폴더 새로고침
+            </button>
+          </div>
+          <div id="outputs-grid" class="outputs-grid"></div>
+        </section>
+
+        <section id="view-prompts" class="view hidden">
+          <div class="section-intro">
+            <h2>Prompt builder</h2>
+            <p>상황을 읽기 쉬운 단위로 편집하고 버전으로 저장합니다.</p>
+          </div>
+          <div class="panel stack">
+            <div class="field-row">
+              <div>
+                <label for="preset-name">Preset 이름</label
+                ><input id="preset-name" placeholder="예: 캐릭터 이미지 실험" />
+              </div>
+              <div>
+                <label for="preset-workflow">Workflow</label
+                ><select id="preset-workflow">
+                  <option value="anima">Anima Turbo V9</option>
+                  <option value="minimax_h3">MiniMax H3</option>
+                </select>
+              </div>
+            </div>
+            <label for="preset-prefix">공통 Prompt</label
+            ><textarea id="preset-prefix" rows="5"></textarea>
+            <label for="preset-suffix">마무리 Prompt</label
+            ><textarea id="preset-suffix" rows="3"></textarea>
+            <label for="preset-negative">Negative Prompt</label
+            ><textarea id="preset-negative" rows="3"></textarea>
+            <label for="preset-separator">문구 구분자</label
+            ><input id="preset-separator" value=", " />
+            <div class="panel-divider"></div>
+            <div class="panel-heading">
+              <h3>상황</h3>
+              <button
+                id="add-scenario-button"
+                class="button subtle small"
+                type="button"
+              >
+                상황 추가
+              </button>
+            </div>
+            <div id="scenario-editor" class="stack"></div>
+            <div class="inline-actions">
+              <button
+                id="save-preset-button"
+                class="button primary"
+                type="button"
+              >
+                새 버전 저장</button
+              ><span id="preset-version" class="hint"></span>
+            </div>
+          </div>
+          <div class="panel stack">
+            <div class="panel-heading"><h3>저장된 preset</h3></div>
+            <div id="preset-list" class="preset-list"></div>
+            <div id="preset-version-history" class="preset-list"></div>
+          </div>
+        </section>
+      </main>
+
+      <nav class="mobile-nav" aria-label="Mobile 메뉴">
+        <button data-view="generate" class="active">✦<span>생성</span></button
+        ><button data-view="jobs">◷<span>작업</span></button
+        ><button data-view="outputs">▧<span>결과물</span></button
+        ><button data-view="prompts">☷<span>Prompt</span></button>
+      </nav>
+    </div>
+  </body>
+</html>
