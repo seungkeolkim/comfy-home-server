@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,7 +34,10 @@ def load_config(config_path: Path | None = None) -> AppConfig:
 
     server_data = config_data["server"]
     comfy_data = config_data["comfy"]
-    output_directory = Path(comfy_data["output_directory"]).expanduser().resolve()
+    configured_output_directory = os.environ.get(
+        "HOME_SERVER_COMFY_OUTPUT_DIRECTORY", str(comfy_data["output_directory"])
+    )
+    output_directory = Path(configured_output_directory).expanduser().resolve()
     managed_folder = str(comfy_data["managed_output_folder"])
     managed_directory = (output_directory / managed_folder).resolve()
 
@@ -46,7 +50,7 @@ def load_config(config_path: Path | None = None) -> AppConfig:
         host=str(server_data["host"]),
         port=int(server_data["port"]),
         password=str(server_data["password"]),
-        comfy_endpoint=str(comfy_data["endpoint"]).rstrip("/"),
+        comfy_endpoint=os.environ.get("HOME_SERVER_COMFY_ENDPOINT", str(comfy_data["endpoint"])).rstrip("/"),
         comfy_output_directory=output_directory,
         managed_output_directory=managed_directory,
         runtime_directory=PROJECT_DIRECTORY / "runtime",

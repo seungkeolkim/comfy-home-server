@@ -2,7 +2,25 @@
 
 ComfyUI API에 Anima 이미지와 DaSiWa MiniMax H3 영상을 bulk로 제출하고, 집 안과 mobile에서 결과물을 확인하는 웹 앱입니다. 기획 결정사항은 [PLAN.md](PLAN.md)에 기록했습니다.
 
-## 시작
+## Docker Compose 실행
+
+Docker Desktop의 Linux container를 사용합니다. `.env.example`을 `.env`로 복사하고 `COMFY_MANAGED_OUTPUT_DIRECTORY`를 Windows의 ComfyUI `output/from_home_server` 절대 경로로 설정하세요. `.env`는 Git에서 제외됩니다. `config.toml`의 비밀번호와 로컬 실행 설정은 그대로 사용하고, 컨테이너 안에서만 ComfyUI 주소와 output 경로를 환경변수로 바꿉니다.
+
+```powershell
+Copy-Item .env.example .env
+# .env의 COMFY_MANAGED_OUTPUT_DIRECTORY를 실제 경로로 수정
+docker compose up -d --build
+docker compose ps
+docker compose logs -f home-server
+```
+
+`home_server/`, `web/`, `data/workflows/`, `config.toml`은 읽기 전용으로 mount합니다. `runtime/`과 ComfyUI의 `output/from_home_server`만 쓰기 가능하며 기존 SQLite DB와 로그를 계속 사용합니다. Python 코드 변경은 컨테이너 안의 Uvicorn reload가 감지합니다. `web/` 변경은 브라우저 새로고침으로 반영되고, workflow JSON은 작업 제출 시 다시 읽습니다. 의존성 변경은 `docker compose up -d --build`, `config.toml` 변경은 `docker compose restart home-server`로 반영하세요.
+
+reload 시 로그인 session이 초기화되고 제출 중인 작업이 중단될 수 있습니다.
+
+상태는 `docker compose ps`, 로그는 `docker compose logs -f home-server`, 종료는 `docker compose down`으로 관리합니다. Docker Desktop의 일반 bridge network와 `host.docker.internal:8188`로 Windows의 ComfyUI에 접속합니다.
+
+## Python 직접 실행
 
 Python 3.11 이상에서 실행합니다.
 

@@ -1,0 +1,51 @@
+services:
+  home-server:
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - "8388:8388"
+    environment:
+      TZ: Asia/Seoul
+      HOME_SERVER_COMFY_ENDPOINT: http://host.docker.internal:8188
+      HOME_SERVER_COMFY_OUTPUT_DIRECTORY: /comfy-output
+    volumes:
+      - type: bind
+        source: ./home_server
+        target: /app/home_server
+        read_only: true
+      - type: bind
+        source: ./web
+        target: /app/web
+        read_only: true
+      - type: bind
+        source: ./data/workflows
+        target: /app/data/workflows
+        read_only: true
+      - type: bind
+        source: ./config.toml
+        target: /app/config.toml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ./runtime
+        target: /app/runtime
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${COMFY_MANAGED_OUTPUT_DIRECTORY:?Set COMFY_MANAGED_OUTPUT_DIRECTORY in .env}
+        target: /comfy-output/from_home_server
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8388/api/session', timeout=3).read()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"

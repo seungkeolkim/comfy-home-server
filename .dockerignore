@@ -1,0 +1,11 @@
+.git/
+.venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+runtime/
+old_codes/
+tests/
+.env
+config.toml
+data/workflows/AnimaTurboV9/sample_prompt.txt
