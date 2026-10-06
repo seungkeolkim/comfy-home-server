@@ -20,6 +20,8 @@ reload 시 로그인 session이 초기화되고 제출 중인 작업이 중단�
 
 상태는 `docker compose ps`, 로그는 `docker compose logs -f home-server`, 종료는 `docker compose down`으로 관리합니다. Docker Desktop의 일반 bridge network와 `host.docker.internal:8188`로 Windows의 ComfyUI에 접속합니다.
 
+Compose는 Windows의 8388과 38388 포트를 컨테이너 8388로 공개합니다. 외부에서 38388로 접속하려면 공유기 포트 전달과 Windows 방화벽에서도 해당 경로가 허용되어야 합니다.
+
 ## Python 직접 실행
 
 Python 3.11 이상에서 실행합니다.
