@@ -3,3 +3,5 @@ __pycache__/
 .venv/
 runtime/
 *.pyc
+old_codes/
+/data/workflows/AnimaTurboV9/sample_prompt.txt
