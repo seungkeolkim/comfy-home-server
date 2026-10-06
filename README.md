@@ -34,6 +34,7 @@ MiniMax H3는 브라우저에서 여러 이미지를 선택하거나 폴더를 �
 ## 저장 위치
 
 - Prompt, 작업 기록 SQLite, 임시 upload: 프로젝트의 `runtime/`
+- 앱 로그: `runtime/logs/home_server.log` (5 MB마다 회전, 이전 로그 5개 보관). 콘솔에도 출력합니다.
 - Workflow 원본: 프로젝트의 `data/workflows/`
 - 생성물: `config.toml`의 `comfy.output_directory` 아래 `comfy.managed_output_folder`
 

@@ -22,6 +22,7 @@ from pydantic import BaseModel, Field
 from .comfy_client import ComfyClient
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
+from .logging_setup import configure_application_logging
 from .prompt_builder import choose_scenario, compile_prompt, compile_selected_prompt
 from .workflows import load_workflows, prepare_anima, prepare_minimax
 
@@ -104,8 +105,20 @@ class HomeServer:
         self.comfy = ComfyClient(config.comfy_endpoint)
         self.sessions: dict[str, float] = {}
         self.login_failures: dict[str, list[float]] = {}
+        self.comfy_queue_available: bool | None = None
         self.submission_tasks: set[asyncio.Task[Any]] = set()
         self._mark_interrupted_submissions()
+
+    def record_comfy_connection(self, connected: bool, error_type: str | None = None) -> None:
+        """ComfyUI 연결 상태가 바뀔 때만 로그를 남깁니다."""
+
+        if self.comfy_queue_available == connected:
+            return
+        self.comfy_queue_available = connected
+        if connected:
+            LOGGER.info("ComfyUI 연결 확인")
+        else:
+            LOGGER.warning("ComfyUI 연결 실패: error_type=%s", error_type)
 
     def _mark_interrupted_submissions(self) -> None:
         """이전 실행에서 제출되지 못한 작업을 자동 재실행 없이 표시합니다."""
@@ -137,6 +150,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     async def lifespan(application: FastAPI):
         """서버 종료 시 HTTP 연결과 제출 task를 정리합니다."""
 
+        log_path = configure_application_logging(server.config.runtime_directory)
+        LOGGER.info("서버 시작: 로그 파일=%s", log_path)
         monitor_task = asyncio.create_task(_monitor_jobs(server))
         try:
             yield
@@ -148,6 +163,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if server.submission_tasks:
                 await asyncio.gather(*server.submission_tasks, return_exceptions=True)
             await server.comfy.close()
+            LOGGER.info("서버 종료")
 
     app = FastAPI(title="Comfy Home Server", lifespan=lifespan)
     app.state.home_server = server
@@ -166,7 +182,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             origin = request.headers.get("origin")
             if origin and origin != f"{request.url.scheme}://{request.headers.get('host', '')}":
                 return JSONResponse({"detail": "허용되지 않은 요청 출처입니다."}, status_code=403)
-        return await call_next(request)
+        try:
+            response = await call_next(request)
+        except Exception:
+            LOGGER.exception("HTTP 요청 처리 실패: %s %s", request.method, request.url.path)
+            raise
+        if response.status_code >= 500:
+            LOGGER.error("HTTP 요청 실패: %s %s status=%s", request.method, request.url.path, response.status_code)
+        return response
 
     @app.get("/")
     async def home_page():
@@ -193,14 +216,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         remote_address = request.client.host if request.client else "unknown"
         recent_failures = [attempt for attempt in server.login_failures.get(remote_address, []) if time.time() - attempt < 60]
         if len(recent_failures) >= 10:
+            LOGGER.warning("로그인 시도 제한: address=%s", remote_address)
             raise HTTPException(429, "잠시 후 다시 시도해 주세요.")
         if not hmac.compare_digest(payload.password, server.config.password):
             recent_failures.append(time.time())
             server.login_failures[remote_address] = recent_failures
+            LOGGER.warning("로그인 실패: address=%s", remote_address)
             raise HTTPException(401, "비밀번호가 맞지 않습니다.")
         server.login_failures.pop(remote_address, None)
         session_token = secrets.token_urlsafe(32)
         server.sessions[session_token] = time.time() + 7 * 24 * 3600
+        LOGGER.info("로그인 성공: address=%s", remote_address)
         response = JSONResponse({"authenticated": True})
         response.set_cookie("home_session", session_token, httponly=True, samesite="strict", max_age=7 * 24 * 3600)
         return response
@@ -230,9 +256,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             queue = await server.comfy.queue()
             connected = True
             queue_count = len(queue.get("queue_pending", []))
-        except Exception:
+            server.record_comfy_connection(True)
+        except Exception as exception:
             connected = False
             queue_count = None
+            server.record_comfy_connection(False, type(exception).__name__)
         return {"comfy_connected": connected, "queue_pending": queue_count, "output_directory": str(server.config.managed_output_directory)}
 
     @app.get("/api/presets")
@@ -370,6 +398,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         submission_task = asyncio.create_task(_submit_jobs(server, submitted_jobs))
         server.submission_tasks.add(submission_task)
         submission_task.add_done_callback(server.submission_tasks.discard)
+        LOGGER.info("Batch 생성: batch_id=%s workflow=%s count=%s", batch_id, payload.workflow, len(submitted_jobs))
         return {"batch_id": batch_id, "request_ids": [job["request_id"] for job in submitted_jobs]}
 
     @app.get("/api/jobs")
@@ -395,6 +424,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(409, "ComfyUI 대기열에서 이 요청을 찾지 못했습니다.")
         await server.comfy.cancel_pending(job["prompt_id"])
         server.database.update_job(request_id, "cancelled")
+        LOGGER.info("작업 취소: request_id=%s prompt_id=%s", request_id, job["prompt_id"])
         return {"status": "cancelled"}
 
     @app.get("/api/outputs")
@@ -462,6 +492,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             shutil.move(str(source_path), str(destination_path))
         except OSError as exception:
             raise HTTPException(409, f"파일을 이동할 수 없습니다: {exception}") from exception
+        LOGGER.info("결과물 이동: source=%s destination=%s", payload.source, destination_path)
         return {"path": destination_path.relative_to(server.config.managed_output_directory).as_posix()}
 
     return app
@@ -516,8 +547,10 @@ async def _submit_jobs(server: HomeServer, jobs: list[dict[str, Any]]) -> None:
                                             "scenario": scenario.get("name") if scenario else None,
                                             "wildcard_seed": wildcard_seed, "settings": request_settings},
                 )
+                LOGGER.info("작업 접수: request_id=%s prompt_id=%s", request_id, prompt_id)
             except Exception as exception:
                 server.database.update_job(request_id, "failed", str(exception))
+                LOGGER.error("작업 제출 실패: request_id=%s error_type=%s", request_id, type(exception).__name__)
     finally:
         for job in jobs:
             upload_id = job["detail"].get("upload_id")
@@ -534,16 +567,22 @@ async def _refresh_jobs(server: HomeServer) -> None:
         return
     try:
         queue = await server.comfy.queue()
-    except Exception:
+        server.record_comfy_connection(True)
+    except Exception as exception:
+        server.record_comfy_connection(False, type(exception).__name__)
         return
     running_ids = {str(item[1]) for item in queue.get("queue_running", [])}
     pending_ids = {str(item[1]) for item in queue.get("queue_pending", [])}
     for job in active_jobs:
         prompt_id = job["prompt_id"]
         if prompt_id in running_ids:
-            server.database.update_job(job["request_id"], "running")
+            if job["status"] != "running":
+                server.database.update_job(job["request_id"], "running")
+                LOGGER.info("작업 실행: request_id=%s prompt_id=%s", job["request_id"], prompt_id)
         elif prompt_id in pending_ids:
-            server.database.update_job(job["request_id"], "pending")
+            if job["status"] != "pending":
+                server.database.update_job(job["request_id"], "pending")
+                LOGGER.info("작업 대기: request_id=%s prompt_id=%s", job["request_id"], prompt_id)
         else:
             try:
                 history = await server.comfy.history(prompt_id)
@@ -557,8 +596,10 @@ async def _refresh_jobs(server: HomeServer) -> None:
             if status_name == "success":
                 _normalize_single_output(server, job)
                 server.database.update_job(job["request_id"], "completed")
+                LOGGER.info("작업 완료: request_id=%s prompt_id=%s", job["request_id"], prompt_id)
             elif status_name in {"error", "interrupted"}:
                 server.database.update_job(job["request_id"], "failed", status_name)
+                LOGGER.error("작업 실패: request_id=%s prompt_id=%s status=%s", job["request_id"], prompt_id, status_name)
 
 
 async def _monitor_jobs(server: HomeServer) -> None:

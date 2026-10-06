@@ -3,6 +3,7 @@
 )
 
 $ErrorActionPreference = 'Stop'
+$env:PYTHONUTF8 = '1'
 $projectDirectory = $PSScriptRoot
 $virtualEnvironmentDirectory = Join-Path $projectDirectory '.venv'
 $virtualEnvironmentPython = Join-Path $virtualEnvironmentDirectory 'Scripts\python.exe'

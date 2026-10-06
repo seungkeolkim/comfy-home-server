@@ -116,6 +116,12 @@ def test_login_batch_and_output_folder_boundary(tmp_path: Path) -> None:
         assert not image_path.exists()
         assert client.post("/api/outputs/move", json={"source": "../secret.png", "destination_folder": "sorted"}).status_code == 422
 
+    log_text = (tmp_path / "runtime" / "logs" / "home_server.log").read_text(encoding="utf-8")
+    assert "Batch 생성" in log_text
+    assert "작업 접수" in log_text
+    assert "test-password" not in log_text
+    assert "a portrait" not in log_text
+
 
 def test_single_video_output_uses_common_request_name(tmp_path: Path) -> None:
     """MiniMax saver의 자동 접미사를 단일 결과물에서만 제거합니다."""
