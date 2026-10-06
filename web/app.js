@@ -300,7 +300,7 @@ function renderScenarioEditor() {
       <header><input data-scenario-field="name" aria-label="상황 이름" placeholder="상황 이름" value="${escapeHtml(scenario.name || "")}"><button class="icon-button" data-remove-scenario="${index}" title="상황 제거">×</button></header>
       <div class="field-row"><div><label>캐릭터 구성</label><textarea data-scenario-field="characters" rows="2" placeholder="{캐릭터 A|캐릭터 B}">${escapeHtml(scenario.characters || "")}</textarea></div><div><label>상황 표현</label><textarea data-scenario-field="situation" rows="2">${escapeHtml(scenario.situation || "")}</textarea></div></div>
       <div class="field-row"><div><label>세부 동작 · 선택</label><textarea data-scenario-field="details" rows="2">${escapeHtml(scenario.details || "")}</textarea></div><div><label>표정·감정선</label><textarea data-scenario-field="emotion" rows="2">${escapeHtml(scenario.emotion || "")}</textarea></div></div>
-      <div class="field-row"><div><label>장소 · 선택</label><input data-scenario-field="location" value="${escapeHtml(scenario.location || "")}"></div><div><label>선택 가중치</label><input data-scenario-field="weight" type="number" min="0.1" step="0.1" value="${escapeHtml(scenario.weight ?? 1)}"></div></div>
+      <div class="field-row"><div><label>장소 · 선택</label><textarea data-scenario-field="location" rows="2">${escapeHtml(scenario.location || "")}</textarea></div><div><label>선택 가중치</label><input data-scenario-field="weight" type="number" min="0.1" step="0.1" value="${escapeHtml(scenario.weight ?? 1)}"></div></div>
     </article>`,
         )
         .join("")
