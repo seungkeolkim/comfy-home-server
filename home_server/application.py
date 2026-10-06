@@ -11,7 +11,6 @@ import shutil
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +23,7 @@ from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
 from .logging_setup import configure_application_logging
 from .prompt_builder import choose_scenario, compile_prompt, compile_selected_prompt, plain_prompt
-from .workflows import load_workflows, prepare_anima, prepare_minimax
+from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
 
 
 MEDIA_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mkv", ".mov"}
@@ -404,14 +403,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 raise HTTPException(422, f"업로드 파일이 없습니다: {upload_id}")
 
         batch_id = uuid.uuid4().hex[:12]
-        date_folder = datetime.now().strftime("%Y-%m-%d")
         request_settings = dict(payload.settings)
         if payload.workflow == "anima":
             request_settings.pop("batch_size", None)
         submitted_jobs = []
         for upload_id in upload_ids:
             request_id = uuid.uuid4().hex[:12]
-            output_stem = f"{server.config.managed_output_directory.name}/{payload.workflow}/{date_folder}/{batch_id}/{request_id}"
+            output_stem = f"{server.config.managed_output_directory.name}/{payload.workflow}/{WORKFLOW_OUTPUT_NAMES[payload.workflow]}"
             job = {
                 "request_id": request_id, "batch_id": batch_id, "workflow": payload.workflow,
                 "status": "submitting", "output_stem": output_stem,
@@ -454,11 +452,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return {"status": "cancelled"}
 
     @app.get("/api/outputs")
-    async def outputs(limit: int = 500, prefix: str = ""):
+    async def outputs(limit: int = 500, prefix: str = "", request_id: str = ""):
         """관리 output 폴더의 현재 파일을 새로 읽습니다."""
 
         selected_limit = max(1, min(limit, 2000))
         normalized_prefix = prefix.replace("\\", "/")
+        selected_output_paths = None
+        if request_id:
+            job = server.database.get_job(request_id)
+            if job is None:
+                raise HTTPException(404, "작업을 찾을 수 없습니다.")
+            resolved_detail = job["detail"].get("resolved", {})
+            if "output_paths" in resolved_detail:
+                selected_output_paths = set(resolved_detail["output_paths"])
+            elif "%" in job["output_stem"]:
+                selected_output_paths = set()
+            else:
+                normalized_prefix = "/".join(job["output_stem"].split("/")[1:])
         if normalized_prefix:
             try:
                 server.managed_path(normalized_prefix)
@@ -473,6 +483,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     continue
                 relative_path = output_path.relative_to(server.config.managed_output_directory).as_posix()
                 if normalized_prefix and not relative_path.startswith(normalized_prefix):
+                    continue
+                if selected_output_paths is not None and relative_path not in selected_output_paths:
                     continue
                 file_stat = output_path.stat()
             except OSError:
@@ -626,8 +638,8 @@ async def _refresh_jobs(server: HomeServer) -> None:
             status = record.get("status", {})
             status_name = str(status.get("status_str", ""))
             if status_name == "success":
-                _normalize_single_output(server, job)
-                server.database.update_job(job["request_id"], "completed")
+                output_paths = _history_output_paths(server, record, job["workflow"])
+                server.database.complete_job(job["request_id"], output_paths)
                 LOGGER.info("작업 완료: request_id=%s prompt_id=%s", job["request_id"], prompt_id)
             elif status_name in {"error", "interrupted"}:
                 server.database.update_job(job["request_id"], "failed", status_name)
@@ -645,34 +657,32 @@ async def _monitor_jobs(server: HomeServer) -> None:
         await asyncio.sleep(1)
 
 
-def _normalize_single_output(server: HomeServer, job: dict[str, Any]) -> None:
-    """출력 파일이 하나일 때 custom saver의 접미사를 제거합니다."""
+def _history_output_paths(server: HomeServer, record: dict[str, Any], workflow: str) -> list[str]:
+    """Saver의 실제 출력 경로를 history에서 읽고 관리 폴더 내부인지 검증합니다."""
 
-    output_components = job["output_stem"].split("/")
-    if not output_components or output_components[0] != server.config.managed_output_directory.name:
-        return
-    relative_stem = "/".join(output_components[1:])
-    try:
-        target_stem = server.managed_path(relative_stem)
-    except ValueError:
-        return
-    output_folder = target_stem.parent
-    if not output_folder.is_dir():
-        return
-    matching_files = [
-        candidate for candidate in output_folder.glob(f"{target_stem.name}*")
-        if candidate.is_file() and candidate.suffix.lower() in MEDIA_EXTENSIONS
-    ]
-    if len(matching_files) != 1:
-        return
-    source_file = matching_files[0]
-    destination_file = output_folder / f"{target_stem.name}{source_file.suffix}"
-    if source_file == destination_file or destination_file.exists():
-        return
-    try:
-        source_file.rename(destination_file)
-    except OSError:
-        LOGGER.warning("완료 파일의 이름을 정리하지 못했습니다: %s", source_file)
+    saver_identifier = "13" if workflow == "anima" else "2568"
+    saver_outputs = record.get("outputs", {}).get(saver_identifier, {})
+    output_paths = []
+    managed_folder_name = server.config.managed_output_directory.name
+    for output_kind in ("images", "gifs"):
+        for output_asset in saver_outputs.get(output_kind, []):
+            if output_asset.get("type") != "output":
+                continue
+            subfolder = str(output_asset.get("subfolder", "")).replace("\\", "/")
+            if not subfolder.startswith(f"{managed_folder_name}/"):
+                continue
+            relative_folder = subfolder[len(managed_folder_name) + 1:]
+            filename = str(output_asset.get("filename", ""))
+            if not filename or "/" in filename or "\\" in filename:
+                continue
+            relative_path = f"{relative_folder}/{filename}"
+            try:
+                output_path = server.managed_path(relative_path)
+            except ValueError:
+                continue
+            if output_path.suffix.lower() in MEDIA_EXTENSIONS and relative_path not in output_paths:
+                output_paths.append(relative_path)
+    return output_paths
 
 
 app = create_app()

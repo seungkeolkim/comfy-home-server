@@ -14,6 +14,11 @@ WORKFLOW_FILES = {
     "minimax_h3": "DasiwaMinimaxH3/DasiwaMinimaxH3WorkflowsT2VA_cMMH3V23_bypassfix_empty",
 }
 
+WORKFLOW_OUTPUT_NAMES = {
+    "anima": "%time_%seed",
+    "minimax_h3": "%date:yyMMdd_HHmmss%_%seed%",
+}
+
 
 def load_workflows(workflow_directory: Path, workflow_name: str) -> tuple[dict[str, Any], dict[str, Any]]:
     """선택한 workflow의 API JSON과 UI JSON을 읽습니다."""
@@ -45,6 +50,33 @@ def update_ui_widget(ui_workflow: dict[str, Any], node_id: str, name: str, value
         return
 
 
+def connect_ui_seed(metadata_workflow: dict[str, Any]) -> None:
+    """MiniMax metadata에도 sampling seed와 Saver의 연결을 기록합니다."""
+
+    source_node = None
+    target_node = None
+    for node in metadata_workflow["nodes"]:
+        if str(node["id"]) == "2739":
+            source_node = node
+        if str(node["id"]) == "2568":
+            target_node = node
+    if source_node is None or target_node is None:
+        raise ValueError("MiniMax seed 또는 Saver node가 없습니다.")
+    for input_index, node_input in enumerate(target_node["inputs"]):
+        if node_input["name"] != "seed":
+            continue
+        workflow_links = metadata_workflow.setdefault("links", [])
+        link_identifier = max([metadata_workflow.get("last_link_id", 0)] + [link[0] for link in workflow_links]) + 1
+        node_input["link"] = link_identifier
+        source_links = source_node["outputs"][0].get("links") or []
+        source_links.append(link_identifier)
+        source_node["outputs"][0]["links"] = source_links
+        workflow_links.append([link_identifier, source_node["id"], 0, target_node["id"], input_index, "INT"])
+        metadata_workflow["last_link_id"] = link_identifier
+        return
+    raise ValueError("MiniMax Saver에 seed 입력이 없습니다.")
+
+
 def validate_output_stem(output_stem: str) -> str:
     """출력 경로가 앱 관리 폴더 아래의 단순 상대 경로인지 확인합니다."""
 
@@ -52,7 +84,10 @@ def validate_output_stem(output_stem: str) -> str:
     components = normalized.split("/")
     if any(component in {"", ".", ".."} for component in components):
         raise ValueError("출력 경로에 잘못된 구성요소가 있습니다.")
-    if any(not re.fullmatch(r"[A-Za-z0-9_-]+", component) for component in components):
+    path_components = components[:-1]
+    if components[-1] not in WORKFLOW_OUTPUT_NAMES.values():
+        path_components.append(components[-1])
+    if any(not re.fullmatch(r"[A-Za-z0-9_-]+", component) for component in path_components):
         raise ValueError("출력 경로에는 영문, 숫자, 밑줄, 하이픈만 사용할 수 있습니다.")
     return normalized
 
@@ -118,9 +153,11 @@ def prepare_anima(
     save_inputs = request_workflow["13"]["inputs"]
     save_inputs["path"] = output_directory
     save_inputs["filename"] = output_name
+    save_inputs["time_format"] = "%y%m%d_%H%M%S"
     save_inputs["embed_workflow"] = True
     update_ui_widget(metadata_workflow, "13", "path", output_directory)
     update_ui_widget(metadata_workflow, "13", "filename", output_name)
+    update_ui_widget(metadata_workflow, "13", "time_format", save_inputs["time_format"])
     return request_workflow, metadata_workflow
 
 
@@ -253,9 +290,11 @@ def prepare_minimax(
     output_path = validate_output_stem(output_stem)
     combine_inputs = request_workflow["2568"]["inputs"]
     combine_inputs["filename_prefix"] = output_path
+    combine_inputs["seed"] = ["2739", 0]
     combine_inputs["save_metadata"] = True
     update_ui_widget(metadata_workflow, "2568", "filename_prefix", output_path)
     update_ui_widget(metadata_workflow, "2568", "save_metadata", True)
+    connect_ui_seed(metadata_workflow)
     apply_minimax_upscale(
         request_workflow, str(settings.get("upscale_mode", "off")),
         str(settings.get("upscale_model_name", "2x-AnimeSharpV4_RCAN.safetensors")),

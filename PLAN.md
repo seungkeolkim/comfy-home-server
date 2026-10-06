@@ -49,10 +49,10 @@ MVP에서 지원하는 workflow는 다음 두 가지입니다.
 - 앱이 생성한 결과물은 `C:\Users\azzib\Desktop\ComfyUI\common\output\from_home_server` 아래에 처음부터 저장합니다.
 - 앱의 결과물 조회 및 폴더 이동 범위도 이 폴더 **내부로 제한**합니다. ComfyUI 웹에서 직접 만든 결과물과 구분합니다.
 - **두 workflow의 폴더 구조와 파일 이름 규칙을 통일**합니다. 경로에서 어떤 workflow로 생성했는지만 구분되면 됩니다.
-- 기본 규칙은 `from_home_server/{workflow}/{YYYY-MM-DD}/{batch_id}/{request_id}.{확장자}`입니다. `workflow`는 `anima` 또는 `minimax_h3`로 구분합니다. `request_id`는 앱이 제출 전에 발급해 파일명 충돌을 막습니다. Saver node가 접미사를 붙인 **단일 결과물**은 완료 후 앱이 위 이름으로 정리합니다. 여러 결과물이 생성되면 각 파일의 접미사를 유지합니다.
-- Anima의 `Image Saver Simple.path`와 `filename`, MiniMax H3의 video combine `filename_prefix`에 앱이 **동일한 규칙으로 만든 경로·이름**을 요청마다 전달합니다. 두 node의 내부 저장 방식 차이는 workflow adapter가 처리합니다.
+- 기본 규칙은 `from_home_server/{workflow}/{YYMMDD_HHmmss}_{seed}.{확장자}`입니다. `workflow`는 `anima` 또는 `minimax_h3`로 구분합니다. ComfyUI Saver 실행 시점의 로컬 시간을 사용하며, 영상은 encoding 시작 직전입니다. Saver 자체의 counter나 `_audio` 접미사는 그대로 유지하며 파일명 후처리는 하지 않습니다. `batch_id`와 `request_id`는 작업 기록에 보관합니다. 기존 폴더의 결과물은 그대로 조회합니다.
+- Anima의 `Image Saver Simple`에는 `%time_%seed`와 `time_format=%y%m%d_%H%M%S`, MiniMax Saver에는 `%date:yyMMdd_HHmmss%_%seed%`를 전달합니다. MiniMax의 `DaSiWa_SeedControl` 출력을 sampling과 Saver에 함께 연결합니다. 두 node의 내부 저장 방식 차이는 workflow adapter가 처리합니다.
 - 결과물 목록의 기준은 파일 시스템의 **현재 상태**입니다. 앱 시작 시 읽고 사용자가 새로고침할 수 있습니다.
-- 결과물 파일 경로를 DB에서 지속적으로 추적하거나 이동 후 DB 경로를 갱신하지 않습니다. Windows Explorer에서 직접 이동·삭제한 내용도 다음 조회에 반영합니다.
+- 작업 완료 시 ComfyUI history의 실제 출력 참조를 작업 기록에 보관해 결과 보기에 사용합니다. 결과물 파일 경로를 지속적으로 추적하거나 이동 후 DB 경로를 갱신하지 않습니다. Windows Explorer에서 직접 이동·삭제한 내용도 다음 전체 결과물 조회에 반영합니다.
 - MVP에는 앱 전용 휴지통과 앱 내 삭제 기능을 두지 않습니다. 앱에서 폴더 이동은 허용하며, 이동 후 ComfyUI 웹의 기존 결과물 참조가 깨져도 괜찮습니다.
 - 원본 입력 파일을 재실행용으로 따로 보관하지 않습니다. 생성물에 포함된 metadata를 ComfyUI로 drag and drop해 재실행할 수 있음을 확인했습니다. 앱을 통한 재현 기능은 MVP 이후 사용 경험을 보고 결정합니다.
 

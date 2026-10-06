@@ -176,6 +176,20 @@ class Database:
                 (status, error_message, current_timestamp(), request_id),
             )
 
+    def complete_job(self, request_id: str, output_paths: list[str]) -> None:
+        """완료 시점의 출력 참조를 기록하고 파일 이동이나 이름 변경은 수행하지 않습니다."""
+
+        with self._connect() as connection:
+            row = connection.execute("SELECT detail_json FROM jobs WHERE request_id = ?", (request_id,)).fetchone()
+            if row is None:
+                raise ValueError("완료한 작업을 찾을 수 없습니다.")
+            detail = json.loads(row["detail_json"])
+            detail.setdefault("resolved", {})["output_paths"] = output_paths
+            connection.execute(
+                "UPDATE jobs SET status = ?, detail_json = ?, updated_at = ? WHERE request_id = ?",
+                ("completed", json.dumps(detail, ensure_ascii=False), current_timestamp(), request_id),
+            )
+
     def set_job_accepted(self, request_id: str, prompt_id: str, resolved: dict[str, Any]) -> None:
         """ComfyUI 접수 ID와 최종 Prompt 정보를 함께 기록합니다."""
 

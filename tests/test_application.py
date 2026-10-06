@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from home_server.application import _normalize_single_output, create_app
+from home_server.application import create_app
 from home_server.configuration import AppConfig, PROJECT_DIRECTORY
 
 
@@ -19,6 +19,7 @@ class FakeComfyClient:
 
         self.submissions = []
         self.wildcard_prompts = []
+        self.history_records = {}
 
     async def close(self) -> None:
         """가짜 client는 정리할 연결이 없습니다."""
@@ -48,12 +49,17 @@ class FakeComfyClient:
     async def queue(self) -> dict:
         """접수한 요청을 대기 중인 것으로 보여줍니다."""
 
-        return {"queue_running": [], "queue_pending": [[0, f"prompt-{index}"] for index in range(1, len(self.submissions) + 1)]}
+        pending_requests = []
+        for submission_index in range(1, len(self.submissions) + 1):
+            prompt_id = f"prompt-{submission_index}"
+            if prompt_id not in self.history_records:
+                pending_requests.append([0, prompt_id])
+        return {"queue_running": [], "queue_pending": pending_requests}
 
     async def history(self, prompt_id: str) -> dict:
-        """완료 기록이 없음을 반환합니다."""
+        """테스트에서 지정한 완료 기록을 반환합니다."""
 
-        return {}
+        return {prompt_id: self.history_records[prompt_id]} if prompt_id in self.history_records else {}
 
     async def cancel_pending(self, prompt_id: str) -> None:
         """대기 요청 취소 동작을 흉내 냅니다."""
@@ -111,7 +117,7 @@ def test_login_batch_and_output_folder_boundary(tmp_path: Path) -> None:
             time.sleep(0.05)
         assert jobs[0]["request_id"] == request_id
         assert jobs[0]["prompt_id"] == "prompt-1"
-        assert fake_comfy.submissions[0][0]["13"]["inputs"]["path"].startswith("from_home_server/anima/")
+        assert fake_comfy.submissions[0][0]["13"]["inputs"]["path"] == "from_home_server/anima"
         assert client.post(f"/api/jobs/{request_id}/cancel").json()["status"] == "cancelled"
 
         image_path = managed_directory / "anima" / "sample.png"
@@ -182,6 +188,9 @@ def test_anima_request_count_submits_independent_single_images(tmp_path: Path, m
         assert fake_comfy.wildcard_prompts == ["portrait {calm|happy}", ""] * 2
         for submission_index, (request_workflow, metadata) in enumerate(fake_comfy.submissions):
             wildcard_seed = 11 + submission_index
+            assert request_workflow["13"]["inputs"]["path"] == "from_home_server/anima"
+            assert request_workflow["13"]["inputs"]["filename"] == "%time_%seed"
+            assert request_workflow["13"]["inputs"]["time_format"] == "%y%m%d_%H%M%S"
             assert request_workflow["51"]["inputs"]["value"] == 1
             assert request_workflow["3"]["inputs"]["populated_text"] == f"portrait choice {wildcard_seed}"
             assert request_workflow["24"]["inputs"]["seed"] == 21 + submission_index
@@ -189,6 +198,7 @@ def test_anima_request_count_submits_independent_single_images(tmp_path: Path, m
             assert metadata["home_server_request"]["request_id"] == request_ids[submission_index]
             assert "batch_size" not in metadata["home_server_request"]["settings"]
         assert all("batch_size" not in job["detail"]["settings"] for job in jobs)
+        assert {job["output_stem"] for job in jobs} == {"from_home_server/anima/%time_%seed"}
 
 
 def test_minimax_batch_preserves_plain_prompt_for_each_image(tmp_path: Path) -> None:
@@ -251,8 +261,9 @@ def test_minimax_batch_preserves_plain_prompt_for_each_image(tmp_path: Path) -> 
             assert metadata["home_server_request"]["prompt"] == plain_text
 
 
-def test_single_video_output_uses_common_request_name(tmp_path: Path) -> None:
-    """MiniMax saver의 자동 접미사를 단일 결과물에서만 제거합니다."""
+@pytest.mark.parametrize("workflow", ["anima", "minimax_h3"])
+def test_saver_history_outputs_keep_native_names(tmp_path: Path, workflow: str) -> None:
+    """실제 출력 참조로 작업 결과를 조회하며 Saver의 파일명을 그대로 유지합니다."""
 
     output_directory = tmp_path / "output"
     managed_directory = output_directory / "from_home_server"
@@ -262,12 +273,48 @@ def test_single_video_output_uses_common_request_name(tmp_path: Path) -> None:
         runtime_directory=tmp_path / "runtime", workflow_directory=PROJECT_DIRECTORY / "data" / "workflows",
     )
     app = create_app(config)
-    output_folder = managed_directory / "minimax_h3" / "2026-10-06" / "batch123"
-    output_folder.mkdir(parents=True)
-    original_file = output_folder / "request123_00001_audio.webm"
-    original_file.write_bytes(b"video")
-    _normalize_single_output(app.state.home_server, {
-        "output_stem": "from_home_server/minimax_h3/2026-10-06/batch123/request123",
-    })
-    assert not original_file.exists()
-    assert (output_folder / "request123.webm").read_bytes() == b"video"
+    fake_comfy = FakeComfyClient()
+    app.state.home_server.comfy = fake_comfy
+    with TestClient(app) as client:
+        assert client.post("/api/login", json={"password": "test"}).status_code == 200
+        upload_ids = []
+        if workflow == "minimax_h3":
+            upload_response = client.post("/api/uploads", files={"file": ("input.png", b"image", "image/png")})
+            upload_ids.append(upload_response.json()["upload_id"])
+        body = {"prefix": "portrait", "scenarios": []} if workflow == "anima" else {"prompt": "quiet scene"}
+        response = client.post("/api/batches", json={"workflow": workflow, "body": body, "upload_ids": upload_ids})
+        assert response.status_code == 200
+        request_id = response.json()["request_ids"][0]
+        for attempt_index in range(30):
+            job = client.get("/api/jobs").json()[0]
+            if job["prompt_id"]:
+                break
+            time.sleep(0.05)
+        assert job["prompt_id"] == "prompt-1"
+        assert client.get("/api/outputs", params={"request_id": request_id}).json()["files"] == []
+
+        output_folder = managed_directory / workflow
+        output_folder.mkdir(parents=True)
+        filename = "261006_153012_123456.png" if workflow == "anima" else "261006_153012_123456_00001_audio.webm"
+        original_file = output_folder / filename
+        original_file.write_bytes(b"result")
+        (output_folder / "unrelated.png").write_bytes(b"other result")
+        output_kind = "images" if workflow == "anima" else "gifs"
+        saver_identifier = "13" if workflow == "anima" else "2568"
+        fake_comfy.history_records["prompt-1"] = {
+            "status": {"status_str": "success"},
+            "outputs": {saver_identifier: {output_kind: [
+                {"filename": filename, "subfolder": f"from_home_server/{workflow}", "type": "output"},
+                {"filename": "secret.png", "subfolder": "from_home_server/../outside", "type": "output"},
+                {"filename": "preview.png", "subfolder": f"from_home_server/{workflow}", "type": "temp"},
+            ]}},
+        }
+        completed_job = client.get("/api/jobs", params={"refresh": True}).json()[0]
+        assert completed_job["status"] == "completed"
+        assert completed_job["detail"]["resolved"]["output_paths"] == [f"{workflow}/{filename}"]
+        fake_comfy.history_records.clear()
+        outputs = client.get("/api/outputs", params={"request_id": request_id}).json()
+        assert [result["path"] for result in outputs["files"]] == [f"{workflow}/{filename}"]
+        assert original_file.read_bytes() == b"result"
+        original_file.unlink()
+        assert client.get("/api/outputs", params={"request_id": request_id}).json()["total"] == 0

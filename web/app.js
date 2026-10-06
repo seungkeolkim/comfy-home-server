@@ -533,7 +533,7 @@ async function loadJobs() {
       <article class="job-card"><div><h3>${escapeHtml(job.workflow)} · ${escapeHtml(job.request_id)}</h3><p>${escapeHtml(job.created_at)} · prompt_id ${escapeHtml(job.prompt_id || "대기 중")}</p></div>
       <span class="status-badge ${escapeHtml(job.status)}">${escapeHtml(statusNames[job.status] || job.status)}</span>
       <div class="job-detail">${escapeHtml(job.error_message || job.detail.resolved?.prompt || "")}</div>
-      <div class="job-actions inline-actions">${job.status === "pending" ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.request_id)}">대기 요청 취소</button>` : ""}<button class="button subtle small" data-show-result="${escapeHtml(job.output_stem)}">결과 보기</button></div>
+      <div class="job-actions inline-actions">${job.status === "pending" ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.request_id)}">대기 요청 취소</button>` : ""}<button class="button subtle small" data-show-result="${escapeHtml(job.request_id)}">결과 보기</button></div>
       </article>`,
           )
           .join("")
@@ -549,7 +549,7 @@ async function loadOutputs() {
   if (element("application").classList.contains("hidden")) return;
   try {
     const outputPath = applicationState.outputFilter
-      ? `/api/outputs?prefix=${encodeURIComponent(applicationState.outputFilter)}`
+      ? `/api/outputs?request_id=${encodeURIComponent(applicationState.outputFilter)}`
       : "/api/outputs";
     const response = await apiRequest(outputPath);
     const visibleFiles = response.files;
@@ -822,10 +822,7 @@ function bindEvents() {
         await loadJobs();
       });
     if (resultButton) {
-      applicationState.outputFilter = resultButton.dataset.showResult
-        .split("/")
-        .slice(1)
-        .join("/");
+      applicationState.outputFilter = resultButton.dataset.showResult;
       switchView("outputs");
     }
   });

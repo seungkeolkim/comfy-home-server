@@ -7,11 +7,11 @@ import pytest
 
 from home_server.configuration import PROJECT_DIRECTORY
 from home_server.prompt_builder import choose_scenario, compile_prompt
-from home_server.workflows import load_workflows, prepare_anima, prepare_minimax
+from home_server.workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
 
 
 WORKFLOW_DIRECTORY = PROJECT_DIRECTORY / "data" / "workflows"
-OUTPUT_STEM = "from_home_server/anima/2026-10-06/batch123/request123"
+OUTPUT_STEM = f"from_home_server/anima/{WORKFLOW_OUTPUT_NAMES['anima']}"
 
 
 def test_prompt_builder_keeps_situations_together() -> None:
@@ -41,9 +41,11 @@ def test_anima_adapter_sets_prompt_lora_and_output() -> None:
     assert request["51"]["inputs"]["value"] == 1
     assert any(str(node["id"]) == "51" and node["widgets_values_named"]["value"] == 1 for node in metadata["nodes"])
     assert request["5"]["inputs"]["loras"]["__value__"][0]["clipStrength"] == 0.5
-    assert request["13"]["inputs"]["path"] == "from_home_server/anima/2026-10-06/batch123"
-    assert request["13"]["inputs"]["filename"] == "request123"
-    assert any(node.get("widgets_values_named", {}).get("filename") == "request123" for node in metadata["nodes"])
+    assert request["13"]["inputs"]["path"] == "from_home_server/anima"
+    assert request["13"]["inputs"]["filename"] == "%time_%seed"
+    assert request["13"]["inputs"]["time_format"] == "%y%m%d_%H%M%S"
+    assert request["57"]["inputs"]["seed_value"] == ["24", 0]
+    assert any(node.get("widgets_values_named", {}).get("filename") == "%time_%seed" for node in metadata["nodes"])
 
 
 def test_minimax_adapter_sets_timeline_and_output() -> None:
@@ -54,7 +56,7 @@ def test_minimax_adapter_sets_timeline_and_output() -> None:
         api_workflow, ui_workflow, "from_home_server/input.png", "quiet scene",
         {"width": 721, "height": 721, "duration": 8, "frame_rate": 24, "upscale_mode": "off"},
         [{"name": "motion.safetensors", "strength": 0.6, "video_strength": 1, "audio_strength": 0}],
-        OUTPUT_STEM.replace("/anima/", "/minimax_h3/"),
+        f"from_home_server/minimax_h3/{WORKFLOW_OUTPUT_NAMES['minimax_h3']}",
     )
     director = request["2730"]["inputs"]
     timeline = json.loads(director["timeline_data"])
@@ -62,8 +64,15 @@ def test_minimax_adapter_sets_timeline_and_output() -> None:
     assert [item["value"] for item in timeline["items"]] == ["from_home_server/input.png"] * 2
     assert timeline["resolved_prompt"] == "quiet scene"
     assert json.loads(request["2678"]["inputs"]["stack_data"])[0]["as"] == 0
-    assert request["2568"]["inputs"]["filename_prefix"].startswith("from_home_server/minimax_h3/")
-    assert any(node.get("widgets_values_named", {}).get("filename_prefix", "").startswith("from_home_server/") for node in metadata["nodes"])
+    expected_output_stem = f"from_home_server/minimax_h3/{WORKFLOW_OUTPUT_NAMES['minimax_h3']}"
+    assert request["2568"]["inputs"]["filename_prefix"] == expected_output_stem
+    assert request["2568"]["inputs"]["seed"] == ["2739", 0]
+    assert request["1512:2591"]["inputs"]["noise"] == ["2739", 1]
+    seed_links = [link for link in metadata["links"] if link[1] == 2739 and link[2] == 0 and link[3] == 2568]
+    assert len(seed_links) == 1
+    saver_node = next(node for node in metadata["nodes"] if node["id"] == 2568)
+    assert next(node_input for node_input in saver_node["inputs"] if node_input["name"] == "seed")["link"] == seed_links[0][0]
+    assert any(node.get("widgets_values_named", {}).get("filename_prefix") == expected_output_stem for node in metadata["nodes"])
 
 
 def test_adapter_rejects_output_path_escape() -> None:

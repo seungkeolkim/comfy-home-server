@@ -56,7 +56,7 @@ MiniMax H3는 wildcard 없이 평문 Prompt 하나를 입력하고, 브라우저
 - Workflow 원본: 프로젝트의 `data/workflows/`
 - 생성물: `config.toml`의 `comfy.output_directory` 아래 `comfy.managed_output_folder`
 
-생성물은 `{workflow}/{YYYY-MM-DD}/{batch_id}/{request_id}.{확장자}` 규칙으로 저장합니다. Saver node가 단일 결과물에 추가한 접미사는 완료 후 앱이 제거합니다. 결과물 목록은 앱이 열릴 때와 새로고침할 때 실제 폴더를 다시 읽습니다. 앱이 미완료 요청을 재시작 후 자동 재제출하지 않습니다.
+생성물은 `{workflow}/{YYMMDD_HHmmss}_{seed}.{확장자}`를 기본으로 저장합니다. 예: `anima/261006_153012_123456789.png`. Anima는 `%time_%seed`, MiniMax는 `%date:yyMMdd_HHmmss%_%seed%` 예약어를 사용하며, MiniMax Saver에도 sampling과 동일한 seed 출력을 연결합니다. 시각은 ComfyUI Saver 실행 시점의 로컬 시간이고, 영상은 encoding 시작 직전입니다. Saver가 붙이는 counter나 `_audio` 접미사는 그대로 유지하며 앱에서 파일명을 후처리하지 않습니다. 작업의 결과 보기는 ComfyUI history의 실제 출력 파일명을 사용합니다. 기존 결과물도 계속 조회할 수 있으며, 목록은 앱이 열릴 때와 새로고침할 때 실제 폴더를 다시 읽습니다. 앱이 미완료 요청을 재시작 후 자동 재제출하지 않습니다.
 
 ## 외부 접속
 
