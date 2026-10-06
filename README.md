@@ -47,7 +47,7 @@ ComfyUI는 별도로 실행되어 있어야 합니다. 앱은 `config.toml`의 `
 
 LoRA 목록은 ComfyUI API에서 새로 읽습니다. Workflow별 기본 강도를 저장할 수 있으며 새 파일은 목록에서 구분됩니다.
 
-MiniMax H3는 wildcard 없이 평문 Prompt 하나를 입력하고, 브라우저에서 선택한 여러 이미지나 폴더의 모든 이미지에 같은 문구를 적용합니다. Anima는 상황 builder와 wildcard를 사용하며 요청 수와 workflow 내부 batch size를 지정할 수 있습니다.
+MiniMax H3는 wildcard 없이 평문 Prompt 하나를 입력하고, 브라우저에서 선택한 여러 이미지나 폴더의 모든 이미지에 같은 문구를 적용합니다. Anima는 요청 횟수 N을 지정하면 ComfyUI에 N개의 개별 요청을 제출합니다. 각 요청은 상황과 wildcard, random seed를 새로 선택하고 한 장씩 생성합니다.
 
 ## 저장 위치
 

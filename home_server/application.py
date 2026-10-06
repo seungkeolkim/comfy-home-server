@@ -405,6 +405,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         batch_id = uuid.uuid4().hex[:12]
         date_folder = datetime.now().strftime("%Y-%m-%d")
+        request_settings = dict(payload.settings)
+        if payload.workflow == "anima":
+            request_settings.pop("batch_size", None)
         submitted_jobs = []
         for upload_id in upload_ids:
             request_id = uuid.uuid4().hex[:12]
@@ -413,7 +416,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "request_id": request_id, "batch_id": batch_id, "workflow": payload.workflow,
                 "status": "submitting", "output_stem": output_stem,
                 "detail": {"upload_id": upload_id, "body": payload.body, "selected_scenario_ids": payload.selected_scenario_ids,
-                           "settings": payload.settings, "loras": payload.loras},
+                           "settings": request_settings, "loras": payload.loras},
             }
             server.database.add_job(job)
             submitted_jobs.append(job)

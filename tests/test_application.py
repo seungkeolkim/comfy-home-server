@@ -4,6 +4,7 @@ import json
 import time
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from home_server.application import _normalize_single_output, create_app
@@ -129,6 +130,65 @@ def test_login_batch_and_output_folder_boundary(tmp_path: Path) -> None:
     assert "작업 접수" in log_text
     assert "test-password" not in log_text
     assert "a portrait" not in log_text
+
+
+def test_anima_request_count_submits_independent_single_images(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """요청 횟수만큼 wildcard를 별도로 확장하고 한 장씩 ComfyUI에 제출합니다."""
+
+    output_directory = tmp_path / "comfy_output"
+    config = AppConfig(
+        host="127.0.0.1", port=8388, password="test-password", comfy_endpoint="http://example.test",
+        comfy_output_directory=output_directory,
+        managed_output_directory=output_directory / "from_home_server",
+        runtime_directory=tmp_path / "runtime", workflow_directory=PROJECT_DIRECTORY / "data" / "workflows",
+    )
+    generation_seeds = iter([11, 21, 12, 22])
+
+    def next_generation_seed(upper_bound: int) -> int:
+        """wildcard와 sampling의 요청별 seed를 결정적으로 제공합니다."""
+
+        return next(generation_seeds)
+
+    fake_comfy = FakeComfyClient()
+
+    async def resolve_test_wildcard(prompt: str, seed: int) -> str:
+        """wildcard 확장 호출마다 사용한 seed를 최종 Prompt에 남깁니다."""
+
+        fake_comfy.wildcard_prompts.append(prompt)
+        return f"portrait choice {seed}" if prompt else ""
+
+    monkeypatch.setattr("home_server.application.secrets.randbelow", next_generation_seed)
+    monkeypatch.setattr(fake_comfy, "populate_wildcards", resolve_test_wildcard)
+    app = create_app(config)
+    app.state.home_server.comfy = fake_comfy
+
+    with TestClient(app) as client:
+        assert client.post("/api/login", json={"password": "test-password"}).status_code == 200
+        batch_response = client.post("/api/batches", json={
+            "workflow": "anima", "body": {"prefix": "portrait {calm|happy}", "scenarios": []},
+            "count": 2, "settings": {"batch_size": 2},
+        })
+        assert batch_response.status_code == 200
+        request_ids = batch_response.json()["request_ids"]
+        assert len(set(request_ids)) == 2
+        for attempt_index in range(30):
+            jobs = client.get("/api/jobs").json()
+            if len(jobs) == 2 and all(job["prompt_id"] for job in jobs):
+                break
+            time.sleep(0.05)
+
+        assert len(fake_comfy.submissions) == 2
+        assert {job["prompt_id"] for job in jobs} == {"prompt-1", "prompt-2"}
+        assert fake_comfy.wildcard_prompts == ["portrait {calm|happy}", ""] * 2
+        for submission_index, (request_workflow, metadata) in enumerate(fake_comfy.submissions):
+            wildcard_seed = 11 + submission_index
+            assert request_workflow["51"]["inputs"]["value"] == 1
+            assert request_workflow["3"]["inputs"]["populated_text"] == f"portrait choice {wildcard_seed}"
+            assert request_workflow["24"]["inputs"]["seed"] == 21 + submission_index
+            assert metadata["home_server_request"]["wildcard_seed"] == wildcard_seed
+            assert metadata["home_server_request"]["request_id"] == request_ids[submission_index]
+            assert "batch_size" not in metadata["home_server_request"]["settings"]
+        assert all("batch_size" not in job["detail"]["settings"] for job in jobs)
 
 
 def test_minimax_batch_preserves_plain_prompt_for_each_image(tmp_path: Path) -> None:

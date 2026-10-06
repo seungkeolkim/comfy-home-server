@@ -128,7 +128,7 @@
                     ><input id="generate-separator" value=", " />
                   </div>
                   <div>
-                    <label for="generate-count">생성 수</label
+                    <label for="generate-count">요청 횟수</label
                     ><input
                       id="generate-count"
                       type="number"
@@ -138,6 +138,7 @@
                     />
                   </div>
                 </div>
+                <p class="hint">입력한 횟수만큼 개별 요청을 제출합니다. 요청마다 상황과 wildcard를 새로 선택해 한 장씩 생성합니다.</p>
               </div>
               <div id="minimax-prompt-fields" class="stack hidden">
                 <label for="generate-minimax-prompt">MiniMax 영상 Prompt</label>
@@ -199,8 +200,6 @@
                     ><input id="anima-cfg" type="number" step="0.1" value="1" />
                   </div>
                 </div>
-                <label for="anima-batch-size">Workflow 내부 batch size</label
-                ><input id="anima-batch-size" type="number" min="1" value="1" />
               </div>
               <div id="minimax-options" class="stack compact hidden">
                 <label for="minimax-images"

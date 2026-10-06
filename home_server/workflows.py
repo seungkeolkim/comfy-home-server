@@ -78,9 +78,8 @@ def prepare_anima(
     seed = int(settings.get("seed", 42))
     steps = int(settings.get("steps", 12))
     cfg = float(settings.get("cfg", 1))
-    batch_size = int(settings.get("batch_size", 1))
-    if min(width, height, steps, batch_size) <= 0:
-        raise ValueError("해상도, steps, batch size는 1 이상이어야 합니다.")
+    if min(width, height, steps) <= 0:
+        raise ValueError("해상도와 steps는 1 이상이어야 합니다.")
 
     for node_id, prompt_text in (("3", positive_prompt), ("4", negative_prompt)):
         prompt_inputs = request_workflow[node_id]["inputs"]
@@ -93,10 +92,11 @@ def prepare_anima(
     request_workflow["24"]["inputs"].update({"seed": seed, "steps": steps, "cfg": cfg})
     request_workflow["45"]["inputs"]["value"] = width
     request_workflow["48"]["inputs"]["value"] = height
-    request_workflow["51"]["inputs"]["value"] = batch_size
+    # 요청마다 wildcard를 별도로 선택하도록 한 요청은 한 장만 생성합니다.
+    request_workflow["51"]["inputs"]["value"] = 1
     for node_id, name, value in (
         ("24", "seed", seed), ("24", "steps", steps), ("24", "cfg", cfg),
-        ("45", "value", width), ("48", "value", height), ("51", "value", batch_size),
+        ("45", "value", width), ("48", "value", height), ("51", "value", 1),
     ):
         update_ui_widget(metadata_workflow, node_id, name, value)
 

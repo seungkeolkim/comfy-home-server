@@ -413,7 +413,6 @@ function generationSettings() {
       height: Number(element("anima-height").value),
       steps: Number(element("anima-steps").value),
       cfg: Number(element("anima-cfg").value),
-      batch_size: Number(element("anima-batch-size").value),
       seed: Math.floor(Math.random() * 2147483647),
     };
   }

@@ -32,12 +32,14 @@ def test_anima_adapter_sets_prompt_lora_and_output() -> None:
     api_workflow, ui_workflow = load_workflows(WORKFLOW_DIRECTORY, "anima")
     request, metadata = prepare_anima(
         api_workflow, ui_workflow, "a calm portrait", "blurry",
-        {"width": 768, "height": 1024, "seed": 77, "steps": 8, "cfg": 1.2},
+        {"width": 768, "height": 1024, "seed": 77, "steps": 8, "cfg": 1.2, "batch_size": 2},
         [{"name": "example.safetensors", "strength": 0.7, "clip_strength": 0.5}], OUTPUT_STEM,
     )
     assert request["3"]["inputs"]["populated_text"] == "a calm portrait"
     assert request["3"]["inputs"]["mode"] == "fixed"
     assert request["4"]["inputs"]["populated_text"] == "blurry"
+    assert request["51"]["inputs"]["value"] == 1
+    assert any(str(node["id"]) == "51" and node["widgets_values_named"]["value"] == 1 for node in metadata["nodes"])
     assert request["5"]["inputs"]["loras"]["__value__"][0]["clipStrength"] == 0.5
     assert request["13"]["inputs"]["path"] == "from_home_server/anima/2026-10-06/batch123"
     assert request["13"]["inputs"]["filename"] == "request123"
