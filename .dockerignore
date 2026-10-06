@@ -1,11 +1,4 @@
-.git/
-.venv/
-.pytest_cache/
-__pycache__/
-*.pyc
-runtime/
-old_codes/
-tests/
-.env
-config.toml
-data/workflows/AnimaTurboV9/sample_prompt.txt
+# 이미지는 의존성만 설치하고 애플리케이션 파일은 Compose에서 mount합니다.
+**
+!Dockerfile
+!requirements.txt
