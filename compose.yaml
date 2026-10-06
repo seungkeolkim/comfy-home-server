@@ -5,7 +5,6 @@ services:
     init: true
     ports:
       - "8388:8388"
-      - "38388:8388"
     environment:
       TZ: Asia/Seoul
       HOME_SERVER_COMFY_ENDPOINT: http://host.docker.internal:8188
