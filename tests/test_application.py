@@ -1,5 +1,6 @@
-"""인증과 파일 경계, 제출 상태 API를 검증합니다."""
+"""인증과 모델별 Prompt, 파일 경계, 제출 상태 API를 검증합니다."""
 
+import json
 import time
 from pathlib import Path
 
@@ -16,6 +17,7 @@ class FakeComfyClient:
         """접수한 Prompt와 대기열을 초기화합니다."""
 
         self.submissions = []
+        self.wildcard_prompts = []
 
     async def close(self) -> None:
         """가짜 client는 정리할 연결이 없습니다."""
@@ -28,7 +30,13 @@ class FakeComfyClient:
     async def populate_wildcards(self, prompt: str, seed: int) -> str:
         """테스트에서는 입력 Prompt를 그대로 확정합니다."""
 
+        self.wildcard_prompts.append(prompt)
         return prompt
+
+    async def upload_image(self, image_path: Path, file_name: str) -> str:
+        """입력 이미지의 ComfyUI 업로드 경로를 흉내 냅니다."""
+
+        return f"from_home_server/{file_name}"
 
     async def submit(self, workflow: dict, metadata: dict) -> str:
         """제출 내용을 보관하고 임의의 접수 ID를 반환합니다."""
@@ -121,6 +129,66 @@ def test_login_batch_and_output_folder_boundary(tmp_path: Path) -> None:
     assert "작업 접수" in log_text
     assert "test-password" not in log_text
     assert "a portrait" not in log_text
+
+
+def test_minimax_batch_preserves_plain_prompt_for_each_image(tmp_path: Path) -> None:
+    """MiniMax preset·미리보기·여러 이미지 제출에서 평문을 확장하지 않습니다."""
+
+    output_directory = tmp_path / "comfy_output"
+    config = AppConfig(
+        host="127.0.0.1", port=8388, password="test-password", comfy_endpoint="http://example.test",
+        comfy_output_directory=output_directory,
+        managed_output_directory=output_directory / "from_home_server",
+        runtime_directory=tmp_path / "runtime", workflow_directory=PROJECT_DIRECTORY / "data" / "workflows",
+    )
+    app = create_app(config)
+    fake_comfy = FakeComfyClient()
+    app.state.home_server.comfy = fake_comfy
+    plain_text = "[Scene]\n{camera|lighting}\n__literal__"
+
+    with TestClient(app) as client:
+        assert client.post("/api/login", json={"password": "test-password"}).status_code == 200
+        preset_response = client.post("/api/presets", json={
+            "name": "MiniMax plain text", "workflow": "minimax_h3", "body": {"prompt": plain_text},
+        })
+        assert preset_response.status_code == 200
+        assert preset_response.json()["body"] == {"prompt": plain_text}
+        assert client.post("/api/presets", json={
+            "name": "Invalid", "workflow": "minimax_h3", "body": {"prefix": plain_text},
+        }).status_code == 422
+
+        preview_response = client.post("/api/prompts/preview", json={
+            "workflow": "minimax_h3", "body": {"prompt": plain_text}, "count": 5,
+        })
+        assert preview_response.status_code == 200
+        assert preview_response.json()["combined_prompt"] == plain_text
+        assert preview_response.json()["examples"][0]["prompt"] == plain_text
+        assert fake_comfy.wildcard_prompts == []
+
+        upload_ids = []
+        for image_name in ("first.png", "second.png"):
+            upload_response = client.post("/api/uploads", files={"file": (image_name, b"image", "image/png")})
+            assert upload_response.status_code == 200
+            upload_ids.append(upload_response.json()["upload_id"])
+
+        batch_response = client.post("/api/batches", json={
+            "workflow": "minimax_h3", "body": {"prompt": plain_text},
+            "selected_scenario_ids": [], "upload_ids": upload_ids, "settings": {}, "loras": [],
+        })
+        assert batch_response.status_code == 200
+        assert len(batch_response.json()["request_ids"]) == 2
+        for _ in range(30):
+            if len(fake_comfy.submissions) == 2:
+                break
+            time.sleep(0.05)
+        assert len(fake_comfy.submissions) == 2
+        assert fake_comfy.wildcard_prompts == []
+        for request_workflow, metadata in fake_comfy.submissions:
+            director_inputs = request_workflow["2730"]["inputs"]
+            assert director_inputs["prompt"] == plain_text
+            assert director_inputs["external_prompt_overwrite"] == plain_text
+            assert json.loads(director_inputs["timeline_data"])["resolved_prompt"] == plain_text
+            assert metadata["home_server_request"]["prompt"] == plain_text
 
 
 def test_single_video_output_uses_common_request_name(tmp_path: Path) -> None:

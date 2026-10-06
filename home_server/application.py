@@ -23,7 +23,7 @@ from .comfy_client import ComfyClient
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
 from .logging_setup import configure_application_logging
-from .prompt_builder import choose_scenario, compile_prompt, compile_selected_prompt
+from .prompt_builder import choose_scenario, compile_prompt, compile_selected_prompt, plain_prompt
 from .workflows import load_workflows, prepare_anima, prepare_minimax
 
 
@@ -52,6 +52,7 @@ class PresetInput(BaseModel):
 class PreviewInput(BaseModel):
     """Prompt 확장 미리보기 요청입니다."""
 
+    workflow: str = "anima"
     body: dict[str, Any]
     selected_scenario_ids: list[str] = Field(default_factory=list)
     count: int = Field(default=5, ge=1, le=20)
@@ -275,6 +276,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         if payload.workflow not in {"anima", "minimax_h3"}:
             raise HTTPException(422, "지원하지 않는 workflow입니다.")
+        try:
+            if payload.workflow == "minimax_h3":
+                plain_prompt(payload.body)
+            else:
+                compile_prompt(payload.body, [])
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
         preset_id = payload.preset_id or uuid.uuid4().hex
         return server.database.save_preset(preset_id, payload.name.strip(), payload.workflow, payload.body)
 
@@ -286,8 +294,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/prompts/preview")
     async def preview(payload: PreviewInput):
-        """상황 조합과 Impact wildcard 확장 결과를 미리 보여줍니다."""
+        """Anima는 wildcard를 확장하고 MiniMax는 평문을 그대로 보여줍니다."""
 
+        if payload.workflow == "minimax_h3":
+            if payload.selected_scenario_ids:
+                raise HTTPException(422, "MiniMax에는 상황 선택을 사용할 수 없습니다.")
+            try:
+                prompt_text = plain_prompt(payload.body)
+            except ValueError as exception:
+                raise HTTPException(422, str(exception)) from exception
+            return {"combined_prompt": prompt_text, "examples": [{"index": 1, "scenario": None, "seed": None, "prompt": prompt_text}]}
+        if payload.workflow != "anima":
+            raise HTTPException(422, "지원하지 않는 workflow입니다.")
         combined_prompt = compile_prompt(payload.body, payload.selected_scenario_ids)
         examples = []
         for example_index in range(payload.count):
@@ -362,7 +380,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if any(not re.fullmatch(r"[0-9a-f]{32}", upload_id) for upload_id in payload.upload_ids):
             raise HTTPException(422, "업로드 식별자 형식이 올바르지 않습니다.")
         try:
-            compile_prompt(payload.body, payload.selected_scenario_ids)
+            if payload.workflow == "minimax_h3":
+                if payload.selected_scenario_ids:
+                    raise ValueError("MiniMax에는 상황 선택을 사용할 수 없습니다.")
+                plain_prompt(payload.body)
+            else:
+                compile_prompt(payload.body, payload.selected_scenario_ids)
             available_loras = set(await server.comfy.list_loras()) if payload.loras else set()
             missing_loras = [selected_lora.get("name") for selected_lora in payload.loras if selected_lora.get("name") not in available_loras]
             if missing_loras:
@@ -505,14 +528,20 @@ async def _submit_jobs(server: HomeServer, jobs: list[dict[str, Any]]) -> None:
         for job in jobs:
             request_id = job["request_id"]
             detail = job["detail"]
-            wildcard_seed = secrets.randbelow(2**31)
-            scenario = choose_scenario(detail["body"], detail["selected_scenario_ids"], wildcard_seed)
-            prompt_template = compile_selected_prompt(detail["body"], scenario)
             try:
-                prompt_text = await server.comfy.populate_wildcards(prompt_template, wildcard_seed)
-                negative_text = await server.comfy.populate_wildcards(
-                    str(detail["body"].get("negative", "")), wildcard_seed,
-                )
+                if job["workflow"] == "anima":
+                    wildcard_seed = secrets.randbelow(2**31)
+                    scenario = choose_scenario(detail["body"], detail["selected_scenario_ids"], wildcard_seed)
+                    prompt_template = compile_selected_prompt(detail["body"], scenario)
+                    prompt_text = await server.comfy.populate_wildcards(prompt_template, wildcard_seed)
+                    negative_text = await server.comfy.populate_wildcards(
+                        str(detail["body"].get("negative", "")), wildcard_seed,
+                    )
+                else:
+                    wildcard_seed = None
+                    scenario = None
+                    prompt_text = plain_prompt(detail["body"])
+                    negative_text = ""
                 api_workflow, ui_workflow = load_workflows(server.config.workflow_directory, job["workflow"])
                 if job["workflow"] == "anima":
                     request_settings = dict(detail["settings"])

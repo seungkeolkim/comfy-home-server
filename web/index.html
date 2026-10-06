@@ -103,56 +103,69 @@
                   새 preset 저장
                 </button>
               </div>
-              <label for="generate-prefix">공통 Prompt</label>
-              <textarea
-                id="generate-prefix"
-                rows="5"
-                placeholder="공통으로 사용할 Prompt를 입력하세요."
-              ></textarea>
-              <label for="generate-suffix">마무리 Prompt</label>
-              <textarea
-                id="generate-suffix"
-                rows="2"
-                placeholder="선택 사항"
-              ></textarea>
-              <label for="generate-negative">Negative Prompt</label>
-              <textarea
-                id="generate-negative"
-                rows="2"
-                placeholder="Anima에서 사용합니다."
-              ></textarea>
-              <div class="field-row">
-                <div>
-                  <label for="generate-separator">문구 구분자</label
-                  ><input id="generate-separator" value=", " />
+              <div id="anima-prompt-fields" class="stack">
+                <label for="generate-prefix">공통 Prompt</label>
+                <textarea
+                  id="generate-prefix"
+                  rows="5"
+                  placeholder="공통으로 사용할 Prompt를 입력하세요."
+                ></textarea>
+                <label for="generate-suffix">마무리 Prompt</label>
+                <textarea
+                  id="generate-suffix"
+                  rows="2"
+                  placeholder="선택 사항"
+                ></textarea>
+                <label for="generate-negative">Negative Prompt</label>
+                <textarea
+                  id="generate-negative"
+                  rows="2"
+                  placeholder="Anima에서 사용합니다."
+                ></textarea>
+                <div class="field-row">
+                  <div>
+                    <label for="generate-separator">문구 구분자</label
+                    ><input id="generate-separator" value=", " />
+                  </div>
+                  <div>
+                    <label for="generate-count">생성 수</label
+                    ><input
+                      id="generate-count"
+                      type="number"
+                      min="1"
+                      max="100"
+                      value="1"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label for="generate-count">생성 수</label
-                  ><input
-                    id="generate-count"
-                    type="number"
-                    min="1"
-                    max="100"
-                    value="1"
-                  />
-                </div>
+              </div>
+              <div id="minimax-prompt-fields" class="stack hidden">
+                <label for="generate-minimax-prompt">MiniMax 영상 Prompt</label>
+                <textarea
+                  id="generate-minimax-prompt"
+                  rows="10"
+                  placeholder="MiniMax에 전달할 Prompt를 그대로 입력하세요."
+                ></textarea>
+                <p class="hint">입력한 평문을 이미지마다 동일하게 사용합니다. wildcard는 확장하지 않습니다.</p>
               </div>
             </div>
             <div class="panel stack">
-              <div class="panel-heading">
-                <span class="step">02</span>
-                <h3>상황 선택</h3>
+              <div id="generate-scenario-fields" class="stack">
+                <div class="panel-heading">
+                  <span class="step">02</span>
+                  <h3>상황 선택</h3>
+                </div>
+                <p class="hint">
+                  체크한 상황 중 하나가 요청마다 선택됩니다. 내부 선택지는
+                  wildcard로 확장됩니다.
+                </p>
+                <div id="generate-scenarios" class="scenario-choices empty-state">
+                  등록된 상황이 없습니다. Prompt 화면에서 추가하세요.
+                </div>
+                <div class="panel-divider"></div>
               </div>
-              <p class="hint">
-                체크한 상황 중 하나가 요청마다 선택됩니다. 내부 선택지는
-                wildcard로 확장됩니다.
-              </p>
-              <div id="generate-scenarios" class="scenario-choices empty-state">
-                등록된 상황이 없습니다. Prompt 화면에서 추가하세요.
-              </div>
-              <div class="panel-divider"></div>
               <div class="panel-heading">
-                <span class="step">03</span>
+                <span id="workflow-options-step" class="step">03</span>
                 <h3>Workflow 옵션</h3>
               </div>
               <div id="anima-options" class="stack compact">
@@ -268,7 +281,7 @@
           </div>
           <div class="panel stack lora-panel">
             <div class="panel-heading">
-              <span class="step">04</span>
+              <span id="lora-step" class="step">04</span>
               <h3>LoRA</h3>
               <button
                 id="refresh-loras-button"
@@ -294,7 +307,7 @@
           <div class="panel submit-panel">
             <div>
               <strong>제출 전 확인</strong>
-              <p class="hint">
+              <p id="preview-hint" class="hint">
                 미리보기는 실제 Impact wildcard 결과를 보여줍니다.
               </p>
             </div>
@@ -344,7 +357,7 @@
         <section id="view-prompts" class="view hidden">
           <div class="section-intro">
             <h2>Prompt builder</h2>
-            <p>상황을 읽기 쉬운 단위로 편집하고 버전으로 저장합니다.</p>
+            <p id="preset-form-description">상황을 읽기 쉬운 단위로 편집하고 버전으로 저장합니다.</p>
           </div>
           <div class="panel stack">
             <div class="field-row">
@@ -360,26 +373,37 @@
                 </select>
               </div>
             </div>
-            <label for="preset-prefix">공통 Prompt</label
-            ><textarea id="preset-prefix" rows="5"></textarea>
-            <label for="preset-suffix">마무리 Prompt</label
-            ><textarea id="preset-suffix" rows="3"></textarea>
-            <label for="preset-negative">Negative Prompt</label
-            ><textarea id="preset-negative" rows="3"></textarea>
-            <label for="preset-separator">문구 구분자</label
-            ><input id="preset-separator" value=", " />
-            <div class="panel-divider"></div>
-            <div class="panel-heading">
-              <h3>상황</h3>
-              <button
-                id="add-scenario-button"
-                class="button subtle small"
-                type="button"
-              >
-                상황 추가
-              </button>
+            <div id="preset-anima-fields" class="stack">
+              <label for="preset-prefix">공통 Prompt</label
+              ><textarea id="preset-prefix" rows="5"></textarea>
+              <label for="preset-suffix">마무리 Prompt</label
+              ><textarea id="preset-suffix" rows="3"></textarea>
+              <label for="preset-negative">Negative Prompt</label
+              ><textarea id="preset-negative" rows="3"></textarea>
+              <label for="preset-separator">문구 구분자</label
+              ><input id="preset-separator" value=", " />
+              <div class="panel-divider"></div>
+              <div class="panel-heading">
+                <h3>상황</h3>
+                <button
+                  id="add-scenario-button"
+                  class="button subtle small"
+                  type="button"
+                >
+                  상황 추가
+                </button>
+              </div>
+              <div id="scenario-editor" class="stack"></div>
             </div>
-            <div id="scenario-editor" class="stack"></div>
+            <div id="preset-minimax-fields" class="stack hidden">
+              <label for="preset-minimax-prompt">MiniMax 영상 Prompt</label>
+              <textarea
+                id="preset-minimax-prompt"
+                rows="12"
+                placeholder="MiniMax에 전달할 Prompt를 그대로 입력하세요."
+              ></textarea>
+              <p class="hint">입력한 평문을 저장합니다. wildcard나 상황 조합은 사용하지 않습니다.</p>
+            </div>
             <div class="inline-actions">
               <button
                 id="save-preset-button"

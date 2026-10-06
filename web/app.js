@@ -131,11 +131,29 @@ async function loadStatus() {
 /** Workflow별 입력 영역을 전환합니다. */
 function updateWorkflowOptions() {
   const isAnima = element("generate-workflow").value === "anima";
+  element("anima-prompt-fields").classList.toggle("hidden", !isAnima);
+  element("minimax-prompt-fields").classList.toggle("hidden", isAnima);
+  element("generate-scenario-fields").classList.toggle("hidden", !isAnima);
   element("anima-options").classList.toggle("hidden", !isAnima);
   element("minimax-options").classList.toggle("hidden", isAnima);
   element("generate-count").disabled = !isAnima;
+  element("workflow-options-step").textContent = isAnima ? "03" : "02";
+  element("lora-step").textContent = isAnima ? "04" : "03";
+  element("preview-hint").textContent = isAnima
+    ? "미리보기는 실제 Impact wildcard 결과를 보여줍니다."
+    : "미리보기는 모든 입력 이미지에 사용할 평문을 그대로 보여줍니다.";
   renderSelectedLoras();
   renderGenerateScenarios();
+}
+
+/** Prompt 편집 화면에서 Workflow별 입력 form을 전환합니다. */
+function updatePresetWorkflowOptions() {
+  const isAnima = element("preset-workflow").value === "anima";
+  element("preset-anima-fields").classList.toggle("hidden", !isAnima);
+  element("preset-minimax-fields").classList.toggle("hidden", isAnima);
+  element("preset-form-description").textContent = isAnima
+    ? "상황을 읽기 쉬운 단위로 편집하고 버전으로 저장합니다."
+    : "MiniMax Prompt를 평문으로 편집하고 버전으로 저장합니다.";
 }
 
 /** 저장된 preset 목록을 불러옵니다. */
@@ -180,6 +198,20 @@ function renderPresetList() {
     : `<p class="empty-state">저장된 preset이 없습니다.</p>`;
 }
 
+/** 같은 Prompt 본문을 생성 화면과 편집 화면에 채웁니다. */
+function fillPromptFields(body) {
+  element("preset-prefix").value = body.prefix || "";
+  element("preset-suffix").value = body.suffix || "";
+  element("preset-negative").value = body.negative || "";
+  element("preset-separator").value = body.separator ?? ", ";
+  element("preset-minimax-prompt").value = body.prompt || "";
+  element("generate-prefix").value = body.prefix || "";
+  element("generate-suffix").value = body.suffix || "";
+  element("generate-negative").value = body.negative || "";
+  element("generate-separator").value = body.separator ?? ", ";
+  element("generate-minimax-prompt").value = body.prompt || "";
+}
+
 /** 선택한 preset을 생성 화면과 편집 화면에 불러옵니다. */
 function loadPresetIntoEditor(presetId) {
   const preset = applicationState.presets.find(
@@ -190,24 +222,14 @@ function loadPresetIntoEditor(presetId) {
   applicationState.currentBody = structuredClone(preset.body);
   element("preset-name").value = preset.name;
   element("preset-workflow").value = preset.workflow;
-  element("preset-prefix").value = preset.body.prefix || "";
-  element("preset-suffix").value = preset.body.suffix || "";
-  element("preset-negative").value = preset.body.negative || "";
-  element("preset-separator").value = preset.body.separator ?? ", ";
   element("preset-version").textContent = `현재 v${preset.version}`;
   element("generate-workflow").value = preset.workflow;
   element("generate-preset").value = preset.preset_id;
-  element("generate-prefix").value = preset.body.prefix || "";
-  element("generate-suffix").value = preset.body.suffix || "";
-  element("generate-negative").value = preset.body.negative || "";
-  element("generate-separator").value = preset.body.separator ?? ", ";
+  fillPromptFields(preset.body);
   renderScenarioEditor();
-  element("generate-scenarios")
-    .querySelectorAll("input[type=checkbox]")
-    .forEach((checkbox) => {
-      checkbox.checked = true;
-    });
+  selectAllGenerateScenarios();
   updateWorkflowOptions();
+  updatePresetWorkflowOptions();
 }
 
 /** 저장된 이전 버전을 목록으로 보여줍니다. */
@@ -232,17 +254,18 @@ function loadPresetVersion(presetId, versionNumber) {
   );
   if (!version) return;
   applicationState.currentBody = structuredClone(version.body);
-  element("preset-prefix").value = version.body.prefix || "";
-  element("preset-suffix").value = version.body.suffix || "";
-  element("preset-negative").value = version.body.negative || "";
-  element("preset-separator").value = version.body.separator ?? ", ";
+  fillPromptFields(version.body);
   element("preset-version").textContent =
     `v${versionNumber} 열림 · 저장하면 새 버전이 됩니다.`;
   renderScenarioEditor();
+  selectAllGenerateScenarios();
 }
 
 /** Prompt 편집 화면의 현재 입력값을 객체로 만듭니다. */
 function editorBody() {
+  if (element("preset-workflow").value === "minimax_h3") {
+    return { prompt: element("preset-minimax-prompt").value };
+  }
   return {
     prefix: element("preset-prefix").value,
     suffix: element("preset-suffix").value,
@@ -254,6 +277,9 @@ function editorBody() {
 
 /** 생성 화면의 현재 Prompt를 객체로 만듭니다. */
 function generateBody() {
+  if (element("generate-workflow").value === "minimax_h3") {
+    return { prompt: element("generate-minimax-prompt").value };
+  }
   return {
     prefix: element("generate-prefix").value,
     suffix: element("generate-suffix").value,
@@ -302,6 +328,16 @@ function renderGenerateScenarios() {
         )
         .join("")
     : "등록된 상황이 없습니다. Prompt 화면에서 추가하세요.";
+}
+
+/** 불러온 preset의 상황을 생성 화면에서 모두 선택합니다. */
+function selectAllGenerateScenarios() {
+  const checkboxes = element("generate-scenarios").querySelectorAll(
+    "input[type=checkbox]",
+  );
+  for (const checkbox of checkboxes) {
+    checkbox.checked = true;
+  }
 }
 
 /** 체크한 상황 식별자를 반환합니다. */
@@ -395,15 +431,22 @@ function generationSettings() {
 
 /** 요청별 확정 Prompt 예시를 표시합니다. */
 async function previewPrompt() {
+  const workflow = element("generate-workflow").value;
   const response = await apiRequest("/api/prompts/preview", {
     method: "POST",
     body: JSON.stringify({
+      workflow,
       body: generateBody(),
-      selected_scenario_ids: selectedScenarioIds(),
+      selected_scenario_ids: workflow === "anima" ? selectedScenarioIds() : [],
       count: 5,
     }),
   });
   element("preview-results").classList.remove("hidden");
+  if (workflow === "minimax_h3") {
+    element("preview-results").innerHTML =
+      `<div class="preview-item"><strong>MiniMax에 전달할 평문</strong>${escapeHtml(response.combined_prompt)}</div>`;
+    return;
+  }
   element("preview-results").innerHTML =
     `<div class="preview-item"><strong>조립된 wildcard 문구</strong>${escapeHtml(response.combined_prompt)}</div>` +
     response.examples
@@ -448,8 +491,8 @@ async function submitBatch() {
       body: JSON.stringify({
         workflow,
         body: generateBody(),
-        selected_scenario_ids: selectedScenarioIds(),
-        count: Number(element("generate-count").value),
+        selected_scenario_ids: workflow === "anima" ? selectedScenarioIds() : [],
+        count: workflow === "anima" ? Number(element("generate-count").value) : 1,
         settings: generationSettings(),
         loras: applicationState.selectedLoras,
         upload_ids: uploadIds,
@@ -609,6 +652,7 @@ function bindEvents() {
       "generate-prefix",
       "generate-suffix",
       "generate-negative",
+      "generate-minimax-prompt",
     ])
       element(identifier).value = "";
     element("generate-separator").value = ", ";
@@ -618,24 +662,35 @@ function bindEvents() {
   });
   element("generate-preset").addEventListener("change", (event) => {
     if (event.target.value) loadPresetIntoEditor(event.target.value);
+    else applicationState.currentPresetId = null;
   });
-  element("edit-preset-button").addEventListener("click", () =>
-    switchView("prompts"),
-  );
+  element("edit-preset-button").addEventListener("click", () => {
+    applicationState.currentBody = generateBody();
+    element("preset-workflow").value = element("generate-workflow").value;
+    fillPromptFields(applicationState.currentBody);
+    renderScenarioEditor();
+    updatePresetWorkflowOptions();
+    switchView("prompts");
+  });
   element("save-current-preset-button").addEventListener("click", () => {
     applicationState.currentPresetId = null;
     applicationState.currentBody = generateBody();
     element("preset-name").value = "";
+    element("preset-version").textContent = "새 preset";
     element("preset-workflow").value = element("generate-workflow").value;
-    element("preset-prefix").value = applicationState.currentBody.prefix;
-    element("preset-suffix").value = applicationState.currentBody.suffix;
-    element("preset-negative").value = applicationState.currentBody.negative;
-    element("preset-separator").value = applicationState.currentBody.separator;
+    fillPromptFields(applicationState.currentBody);
+    updatePresetWorkflowOptions();
     renderScenarioEditor();
     switchView("prompts");
   });
+  element("preset-workflow").addEventListener("change", () => {
+    applicationState.currentPresetId = null;
+    element("preset-version").textContent = "새 preset";
+    updatePresetWorkflowOptions();
+  });
   element("add-scenario-button").addEventListener("click", () => {
-    applicationState.currentBody.scenarios.push({
+    const scenarios = applicationState.currentBody.scenarios || [];
+    scenarios.push({
       id: crypto.randomUUID(),
       name: "새 상황",
       characters: "",
@@ -645,6 +700,7 @@ function bindEvents() {
       location: "",
       weight: 1,
     });
+    applicationState.currentBody.scenarios = scenarios;
     renderScenarioEditor();
   });
   element("scenario-editor").addEventListener("input", (event) => {

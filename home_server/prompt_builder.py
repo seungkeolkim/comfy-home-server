@@ -67,3 +67,12 @@ def compile_selected_prompt(body: dict[str, Any], scenario: dict[str, Any] | Non
     situation_text = scenario_text(scenario, separator) if scenario else ""
     fragments = [str(body.get("prefix", "")).strip(), situation_text, str(body.get("suffix", "")).strip()]
     return separator.join(fragment for fragment in fragments if fragment)
+
+
+def plain_prompt(body: dict[str, Any]) -> str:
+    """MiniMax Prompt를 조립하거나 wildcard로 확장하지 않고 그대로 반환합니다."""
+
+    prompt_text = body.get("prompt")
+    if not isinstance(prompt_text, str) or not prompt_text.strip():
+        raise ValueError("MiniMax Prompt를 입력해 주세요.")
+    return prompt_text
