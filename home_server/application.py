@@ -12,11 +12,11 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .comfy_client import ComfyClient
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
@@ -85,6 +85,61 @@ class LoraProfileInput(BaseModel):
     clip_strength: float = 1
     video_strength: float = 1
     audio_strength: float = 1
+
+
+class LoraPresetSelectionInput(BaseModel):
+    """조합에 포함할 LoRA 파일과 유한한 강도 값을 검증합니다."""
+
+    name: str = Field(min_length=1, max_length=1024)
+    strength: float = Field(default=1, allow_inf_nan=False)
+    clip_strength: float = Field(default=1, allow_inf_nan=False)
+    video_strength: float = Field(default=1, allow_inf_nan=False)
+    audio_strength: float = Field(default=1, allow_inf_nan=False)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def trim_file_name(cls, value: Any) -> Any:
+        """파일명의 바깥 공백을 제거해 빈 이름을 거부합니다."""
+
+        return value.strip() if isinstance(value, str) else value
+
+
+class LoraPresetInput(BaseModel):
+    """Workflow별 LoRA 조합 preset의 이름과 구성 항목을 검증합니다."""
+
+    name: str = Field(min_length=1, max_length=120)
+    workflow: Literal["anima", "minimax_h3"]
+    loras: list[LoraPresetSelectionInput] = Field(min_length=1, max_length=100)
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def trim_preset_name(cls, value: Any) -> Any:
+        """Preset 이름의 바깥 공백을 제거해 빈 이름을 거부합니다."""
+
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def validate_combination(self) -> LoraPresetInput:
+        """중복 파일과 MiniMax의 LoRA 개수 제한을 검증합니다."""
+
+        selected_names = set()
+        for selected_lora in self.loras:
+            if selected_lora.name in selected_names:
+                raise ValueError("같은 LoRA를 한 조합에 중복 저장할 수 없습니다.")
+            selected_names.add(selected_lora.name)
+        if self.workflow == "minimax_h3" and len(self.loras) > 10:
+            raise ValueError("MiniMax workflow에는 LoRA를 최대 10개 적용할 수 있습니다.")
+        return self
+
+    def selected_loras_snapshot(self) -> list[dict[str, Any]]:
+        """해당 workflow에서 사용하는 강도만 저장할 snapshot으로 반환합니다."""
+
+        included_fields = {"name", "strength"}
+        if self.workflow == "anima":
+            included_fields.add("clip_strength")
+        else:
+            included_fields.update({"video_strength", "audio_strength"})
+        return [selected_lora.model_dump(include=included_fields) for selected_lora in self.loras]
 
 
 class HomeServer:
@@ -342,6 +397,39 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         settings = payload.model_dump(include={"strength", "clip_strength", "video_strength", "audio_strength"})
         server.database.save_lora_profile(payload.name, payload.workflow, settings)
         return {"saved": True}
+
+    @app.get("/api/loras/presets")
+    async def list_lora_presets():
+        """ComfyUI 연결 여부와 관계없이 저장된 LoRA 조합을 조회합니다."""
+
+        return server.database.list_lora_presets()
+
+    @app.post("/api/loras/presets", status_code=201)
+    async def create_lora_preset(payload: LoraPresetInput):
+        """현재 조합을 새 preset으로 저장합니다."""
+
+        return server.database.create_lora_preset(
+            uuid.uuid4().hex, payload.name, payload.workflow, payload.selected_loras_snapshot(),
+        )
+
+    @app.put("/api/loras/presets/{preset_id}")
+    async def update_lora_preset(preset_id: str, payload: LoraPresetInput):
+        """사용자가 저장한 기존 LoRA 조합을 명시적으로 갱신합니다."""
+
+        updated_preset = server.database.update_lora_preset(
+            preset_id, payload.name, payload.workflow, payload.selected_loras_snapshot(),
+        )
+        if updated_preset is None:
+            raise HTTPException(404, "LoRA preset을 찾을 수 없습니다.")
+        return updated_preset
+
+    @app.delete("/api/loras/presets/{preset_id}")
+    async def delete_lora_preset(preset_id: str):
+        """선택한 LoRA 조합 preset을 삭제합니다."""
+
+        if not server.database.delete_lora_preset(preset_id):
+            raise HTTPException(404, "LoRA preset을 찾을 수 없습니다.")
+        return {"deleted": True}
 
     @app.post("/api/uploads")
     async def upload(file: UploadFile = File(...)):

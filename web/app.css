@@ -368,7 +368,7 @@ input[type="file"] {
 }
 .selected-lora {
   display: grid;
-  grid-template-columns: minmax(150px, 1fr) repeat(3, 80px) 31px;
+  grid-template-columns: minmax(0, 1fr) repeat(3, 80px) 31px;
   gap: 9px;
   align-items: end;
   background: #111927;
@@ -392,6 +392,24 @@ input[type="file"] {
 }
 .selected-lora input {
   padding: 7px;
+}
+.missing-lora {
+  display: block;
+  color: #f0919a;
+  font-size: 12px;
+  margin-top: 5px;
+}
+.lora-file-picker {
+  flex: 1;
+  min-width: 0;
+}
+.lora-preset-row {
+  flex-wrap: wrap;
+}
+.lora-preset-row > div:first-child {
+  flex: 1;
+  min-width: 180px;
+  overflow-wrap: anywhere;
 }
 .icon-button {
   background: #3a2731;
@@ -657,14 +675,25 @@ input[type="file"] {
     flex: 1;
   }
   .selected-lora {
-    grid-template-columns: 1fr 70px 70px 31px;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) 31px;
   }
-  .selected-lora .audio-strength {
-    grid-column: 2/4;
+  .selected-lora > div:first-child {
+    grid-column: 1/-1;
+  }
+  .lora-add {
+    flex-wrap: wrap;
+  }
+  .lora-add select,
+  .lora-add > .lora-file-picker {
+    flex-basis: 100%;
+  }
+  .lora-preset-row > div:first-child {
+    min-width: 0;
+    flex-basis: 100%;
   }
   .mobile-nav {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(5, 1fr);
     position: fixed;
     bottom: 0;
     left: 0;

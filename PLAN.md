@@ -43,6 +43,10 @@ MVP에서 지원하는 workflow는 다음 두 가지입니다.
 - Anima는 `Lora Loader (LoraManager)`의 `loras` 입력에 활성 항목과 model/CLIP strength를 전달합니다. 기존 `text` 입력만 바꾸는 방식에 의존하지 않습니다.
 - MiniMax H3는 `DaSiWa_LTX2LoraLoader`의 `stack_data`에 LoRA와 STR·video·audio 배율을 반영합니다.
 - 요청에 실제 적용한 LoRA 파일명과 강도를 작업 기록에 남깁니다.
+- `LoRA 조합` 화면에서 workflow별 파일 목록과 각 weight를 preset으로 저장·편집·복제·삭제합니다. 개별 LoRA 기본 강도와 독립된 snapshot으로 저장합니다.
+- 생성 화면에서는 preset을 카드에 복사해 편집하거나 직접 구성합니다. 원본과 다른 조합은 `수정됨`으로 표시하며 새 preset으로 저장할 수 있습니다. 기존 preset 갱신은 관리 화면에서 명시적으로 수행합니다.
+- 조합 관리의 Workflow 변경은 새 조합으로 초기화하며, 생성 시에는 현재 workflow에 맞는 preset만 선택합니다. Anima는 STR·CLIP, MiniMax는 STR·V×·A×를 보관합니다.
+- 저장된 조합은 ComfyUI 연결 없이도 관리합니다. 없어진 파일을 불러와도 카드에서 제거하지 않고 표시하며, 제출 전 현재 LoRA 목록으로 검증합니다.
 
 ## 결과물과 폴더 관리
 

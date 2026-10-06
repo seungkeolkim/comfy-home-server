@@ -61,6 +61,14 @@ class Database:
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY (file_name, workflow)
                 );
+                CREATE TABLE IF NOT EXISTS lora_presets (
+                    preset_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    workflow TEXT NOT NULL,
+                    loras_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -136,6 +144,51 @@ class Database:
                 settings_json=excluded.settings_json, updated_at=excluded.updated_at""",
                 (file_name, workflow, json.dumps(settings, ensure_ascii=False), current_timestamp()),
             )
+
+    def list_lora_presets(self) -> list[dict[str, Any]]:
+        """LoRA 조합과 저장된 강도를 최근 수정 순서로 반환합니다."""
+
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM lora_presets ORDER BY updated_at DESC, preset_id").fetchall()
+        return [self._lora_preset_from_row(row) for row in rows]
+
+    def create_lora_preset(self, preset_id: str, name: str, workflow: str, selected_loras: list[dict[str, Any]]) -> dict[str, Any]:
+        """개별 LoRA 기본값과 독립된 조합 snapshot을 저장합니다."""
+
+        saved_at = current_timestamp()
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO lora_presets VALUES (?, ?, ?, ?, ?, ?)",
+                (preset_id, name, workflow, json.dumps(selected_loras, ensure_ascii=False), saved_at, saved_at),
+            )
+            row = connection.execute("SELECT * FROM lora_presets WHERE preset_id = ?", (preset_id,)).fetchone()
+        return self._lora_preset_from_row(row)
+
+    def update_lora_preset(self, preset_id: str, name: str, workflow: str, selected_loras: list[dict[str, Any]]) -> dict[str, Any] | None:
+        """지정한 기존 조합만 갱신하고 없는 식별자는 새로 생성하지 않습니다."""
+
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE lora_presets SET name = ?, workflow = ?, loras_json = ?, updated_at = ? WHERE preset_id = ?",
+                (name, workflow, json.dumps(selected_loras, ensure_ascii=False), current_timestamp(), preset_id),
+            )
+            row = connection.execute("SELECT * FROM lora_presets WHERE preset_id = ?", (preset_id,)).fetchone()
+        return self._lora_preset_from_row(row) if row else None
+
+    def delete_lora_preset(self, preset_id: str) -> bool:
+        """저장된 LoRA 조합을 삭제하고 실제 삭제 여부를 반환합니다."""
+
+        with self._connect() as connection:
+            result = connection.execute("DELETE FROM lora_presets WHERE preset_id = ?", (preset_id,))
+        return result.rowcount > 0
+
+    def _lora_preset_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        """LoRA 조합 row를 화면과 API에서 사용할 응답으로 변환합니다."""
+
+        return {
+            "preset_id": row["preset_id"], "name": row["name"], "workflow": row["workflow"],
+            "loras": json.loads(row["loras_json"]), "created_at": row["created_at"], "updated_at": row["updated_at"],
+        }
 
     def add_job(self, job: dict[str, Any]) -> None:
         """제출 결과와 요청 snapshot을 기록합니다."""

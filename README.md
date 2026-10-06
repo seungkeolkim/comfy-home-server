@@ -44,14 +44,19 @@ ComfyUI는 별도로 실행되어 있어야 합니다. 앱은 `config.toml`의 `
 - **작업:** 앱이 제출한 `prompt_id`의 대기·실행·완료 상태와 대기 요청 취소
 - **결과물:** `from_home_server`의 현재 파일 조회와 해당 폴더 내부 이동
 - **Prompt:** Anima 상황 builder와 MiniMax 평문 편집, preset 버전 저장
+- **LoRA 조합:** workflow별 LoRA 파일과 weight를 조합 preset으로 저장·편집·복제·삭제
 
 LoRA 목록은 ComfyUI API에서 새로 읽습니다. Workflow별 기본 강도를 저장할 수 있으며 새 파일은 목록에서 구분됩니다.
+
+생성 화면의 LoRA preset을 선택하면 저장된 조합이 카드로 채워집니다. 카드에서 weight를 바꾸거나 LoRA를 추가·제거하면 `수정됨`으로 표시되며, 저장된 원본은 유지됩니다. `현재 조합을 새 preset으로 저장`으로 변형을 저장할 수 있고, 원본 갱신은 `LoRA 조합` 화면의 `기존 preset 갱신`에서 수행합니다. `직접 구성`을 선택하면 preset 없이 새 조합을 만듭니다.
+
+조합은 Anima의 STR·CLIP 또는 MiniMax의 STR·V×·A× 값을 그대로 보관하며, 개별 LoRA의 기본 강도를 바꿔도 이미 저장된 조합에는 영향을 주지 않습니다. ComfyUI 연결이 없어도 저장된 조합의 조회와 편집은 가능합니다. 찾을 수 없는 파일은 카드에 표시하고 제출 전에 확인합니다.
 
 MiniMax H3는 wildcard 없이 평문 Prompt 하나를 입력하고, 브라우저에서 선택한 여러 이미지나 폴더의 모든 이미지에 같은 문구를 적용합니다. Anima는 요청 횟수 N을 지정하면 ComfyUI에 N개의 개별 요청을 제출합니다. 각 요청은 상황과 wildcard, random seed를 새로 선택하고 한 장씩 생성합니다.
 
 ## 저장 위치
 
-- Prompt, 작업 기록 SQLite, 임시 upload: 프로젝트의 `runtime/`
+- Prompt, LoRA 조합, 작업 기록 SQLite, 임시 upload: 프로젝트의 `runtime/`
 - 앱 로그: `runtime/logs/home_server.log` (5 MB마다 회전, 이전 로그 5개 보관). 콘솔에도 출력합니다.
 - Workflow 원본: 프로젝트의 `data/workflows/`
 - 생성물: `config.toml`의 `comfy.output_directory` 아래 `comfy.managed_output_folder`
@@ -61,3 +66,13 @@ MiniMax H3는 wildcard 없이 평문 Prompt 하나를 입력하고, 브라우저
 ## 외부 접속
 
 앱 기본 포트는 8388입니다. 현재 구성은 HTTP와 단일 비밀번호 인증을 사용합니다. HTTP로 외부 접속하면 비밀번호와 전송 내용이 암호화되지 않습니다. 앱 설정과 ComfyUI 8188 서버 설정은 서로 독립적입니다.
+
+## 개발 검증
+
+API 테스트는 `python -m pytest -q`로 실행합니다. LoRA 조합의 browser 검증은 Edge와 Mock API를 사용하며 실제 GPU 생성 요청을 보내지 않습니다.
+
+```powershell
+npm install --prefix runtime/browser-check --no-package-lock --no-audit --no-fund playwright
+$env:NODE_PATH = (Resolve-Path runtime/browser-check/node_modules).Path
+node tests/browser_lora_presets.cjs
+```

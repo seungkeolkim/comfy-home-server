@@ -13,6 +13,11 @@ const applicationState = {
   },
   availableLoras: [],
   loraProfiles: [],
+  loraPresets: [],
+  currentLoraPresetId: null,
+  loraEditorPresetId: null,
+  loraEditorEntries: [],
+  loraCatalogAvailable: false,
   selectedLoras: [],
   selectedFiles: [],
   currentView: "generate",
@@ -50,8 +55,12 @@ async function apiRequest(path, options = {}) {
     throw new Error("로그인이 필요합니다.");
   }
   const data = await response.json().catch(() => ({}));
-  if (!response.ok)
-    throw new Error(data.detail || `요청 실패: HTTP ${response.status}`);
+  if (!response.ok) {
+    const errorDetail = Array.isArray(data.detail)
+      ? data.detail.map((error) => error.msg).join(" · ")
+      : data.detail;
+    throw new Error(errorDetail || `요청 실패: HTTP ${response.status}`);
+  }
   return data;
 }
 
@@ -77,6 +86,7 @@ async function showApplication() {
   await Promise.allSettled([
     loadPresets(),
     loadLoras(),
+    loadLoraPresets(),
     loadJobs(),
     loadOutputs(),
     loadStatus(),
@@ -104,11 +114,27 @@ function switchView(viewName) {
     jobs: "작업",
     outputs: "결과물",
     prompts: "Prompt",
+    "lora-presets": "LoRA 조합",
   };
   element("page-title").textContent = titles[viewName];
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (viewName === "outputs") loadOutputs();
   if (viewName === "jobs") loadJobs();
+}
+
+/** Workflow를 바꿀 때 기존 모델의 Prompt와 LoRA 선택을 초기화합니다. */
+function resetGenerationWorkflow(workflow) {
+  element("generate-workflow").value = workflow;
+  applicationState.currentPresetId = null;
+  applicationState.currentLoraPresetId = null;
+  applicationState.currentBody = { prefix: "", suffix: "", negative: "", separator: ", ", scenarios: [] };
+  applicationState.selectedLoras = [];
+  for (const identifier of ["generate-prefix", "generate-suffix", "generate-negative", "generate-minimax-prompt"])
+    element(identifier).value = "";
+  element("generate-separator").value = ", ";
+  element("generation-lora-preset-form").classList.add("hidden");
+  renderPresetList();
+  updateWorkflowOptions();
 }
 
 /** ComfyUI 연결 상태를 표시합니다. */
@@ -142,7 +168,9 @@ function updateWorkflowOptions() {
   element("preview-hint").textContent = isAnima
     ? "미리보기는 실제 Impact wildcard 결과를 보여줍니다."
     : "미리보기는 모든 입력 이미지에 사용할 평문을 그대로 보여줍니다.";
+  renderLoraPresetList();
   renderSelectedLoras();
+  renderLoraFileOptions();
   renderGenerateScenarios();
 }
 
@@ -218,6 +246,8 @@ function loadPresetIntoEditor(presetId) {
     (item) => item.preset_id === presetId,
   );
   if (!preset) return;
+  if (element("generate-workflow").value !== preset.workflow)
+    resetGenerationWorkflow(preset.workflow);
   applicationState.currentPresetId = preset.preset_id;
   applicationState.currentBody = structuredClone(preset.body);
   element("preset-name").value = preset.name;
@@ -371,38 +401,226 @@ async function loadLoras() {
     const response = await apiRequest("/api/loras");
     applicationState.availableLoras = response.files;
     applicationState.loraProfiles = response.profiles || [];
-    const workflow = element("generate-workflow").value;
-    element("available-loras").innerHTML =
-      `<option value="">LoRA 선택 · ${response.files.length}개</option>` +
-      response.files
-        .map((fileName) => {
-          const savedProfile = applicationState.loraProfiles.some(
-            (profile) =>
-              profile.name === fileName && profile.workflow === workflow,
-          );
-          const label = savedProfile ? fileName : `${fileName} · 새 LoRA`;
-          return `<option value="${escapeHtml(fileName)}">${escapeHtml(label)}</option>`;
-        })
-        .join("");
+    applicationState.loraCatalogAvailable = true;
   } catch (error) {
-    element("available-loras").innerHTML =
-      `<option value="">ComfyUI 연결을 확인해 주세요</option>`;
+    applicationState.loraCatalogAvailable = false;
   }
+  renderLoraFileOptions();
+  renderSelectedLoras();
+  renderLoraPresetEditor();
 }
 
-/** 현재 선택한 LoRA와 강도 입력을 그립니다. */
-function renderSelectedLoras() {
-  const isAnima = element("generate-workflow").value === "anima";
-  element("selected-loras").innerHTML = applicationState.selectedLoras
+/** 선택한 LoRA 카드의 공통 편집 UI를 구성합니다. */
+function loraCardsMarkup(selectedLoras, workflow, showProfileSave) {
+  const isAnima = workflow === "anima";
+  return selectedLoras
     .map(
       (lora, index) => `
-    <div class="selected-lora" data-lora-index="${index}"><div><strong>${escapeHtml(lora.name)}</strong><button class="text-button lora-save-button" data-save-lora="${index}" type="button">이 강도를 기본값으로 저장</button></div>
+    <div class="selected-lora" data-lora-index="${index}"><div><strong>${escapeHtml(lora.name)}</strong>${showProfileSave ? `<button class="text-button lora-save-button" data-save-lora="${index}" type="button">이 강도를 기본값으로 저장</button>` : ""}${applicationState.loraCatalogAvailable && !applicationState.availableLoras.includes(lora.name) ? '<span class="missing-lora">ComfyUI에서 찾을 수 없는 LoRA</span>' : ""}</div>
     <label>STR<input data-lora-field="strength" type="number" step="0.05" value="${escapeHtml(lora.strength)}"></label>
     <label>${isAnima ? "CLIP" : "V×"}<input data-lora-field="${isAnima ? "clip_strength" : "video_strength"}" type="number" step="0.05" value="${escapeHtml(isAnima ? lora.clip_strength : lora.video_strength)}"></label>
     ${isAnima ? "<span></span>" : `<label class="audio-strength">A×<input data-lora-field="audio_strength" type="number" step="0.05" value="${escapeHtml(lora.audio_strength)}"></label>`}
     <button class="icon-button" data-remove-lora="${index}" title="LoRA 제거">×</button></div>`,
     )
     .join("");
+}
+
+/** 현재 선택한 LoRA와 preset 수정 여부를 생성 화면에 표시합니다. */
+function renderSelectedLoras() {
+  const workflow = element("generate-workflow").value;
+  element("selected-loras").innerHTML = loraCardsMarkup(applicationState.selectedLoras, workflow, true);
+  renderGenerationLoraPresetStatus();
+}
+
+/** 기본값 추가와 preset snapshot 비교에 사용할 공통 항목 형식을 만듭니다. */
+function normalizeLoraEntries(selectedLoras, workflow) {
+  return selectedLoras.map((lora) => {
+    const entry = { name: lora.name, strength: Number(lora.strength ?? 1) };
+    if (workflow === "anima") entry.clip_strength = Number(lora.clip_strength ?? 1);
+    else {
+      entry.video_strength = Number(lora.video_strength ?? 1);
+      entry.audio_strength = Number(lora.audio_strength ?? 1);
+    }
+    return entry;
+  });
+}
+
+/** 저장 전에 빈 조합과 유효하지 않은 weight를 확인합니다. */
+function validateLoraEntries(selectedLoras, workflow) {
+  if (!selectedLoras.length) throw new Error("LoRA를 한 개 이상 선택해 주세요.");
+  if (selectedLoras.length > 100) throw new Error("LoRA 조합은 최대 100개까지 저장할 수 있습니다.");
+  if (workflow === "minimax_h3" && selectedLoras.length > 10)
+    throw new Error("MiniMax에는 LoRA를 최대 10개 적용할 수 있습니다.");
+  for (const selectedLora of normalizeLoraEntries(selectedLoras, workflow)) {
+    for (const [field, value] of Object.entries(selectedLora)) {
+      if (field !== "name" && !Number.isFinite(value))
+        throw new Error(`${selectedLora.name}의 weight를 숫자로 입력해 주세요.`);
+    }
+  }
+}
+
+/** 두 화면의 추가 목록에 workflow별 개별 LoRA 기본값 여부를 표시합니다. */
+function renderLoraFileOptions() {
+  for (const [selectIdentifier, workflowIdentifier] of [
+    ["available-loras", "generate-workflow"],
+    ["lora-preset-available-files", "lora-preset-workflow"],
+  ]) {
+    const selectedFile = element(selectIdentifier).value;
+    if (!applicationState.loraCatalogAvailable) {
+      element(selectIdentifier).innerHTML = '<option value="">ComfyUI 연결을 확인해 주세요</option>';
+      continue;
+    }
+    const workflow = element(workflowIdentifier).value;
+    let options = `<option value="">LoRA 선택 · ${applicationState.availableLoras.length}개</option>`;
+    for (const filename of applicationState.availableLoras) {
+      const hasProfile = applicationState.loraProfiles.some((profile) => profile.name === filename && profile.workflow === workflow);
+      options += `<option value="${escapeHtml(filename)}">${escapeHtml(hasProfile ? filename : `${filename} · 새 LoRA`)}</option>`;
+    }
+    element(selectIdentifier).innerHTML = options;
+    if (applicationState.availableLoras.includes(selectedFile)) element(selectIdentifier).value = selectedFile;
+  }
+}
+
+/** 개별 LoRA 기본 강도를 사용해 선택 목록에 새 파일을 추가합니다. */
+function addLoraEntry(selectedLoras, workflow, filename) {
+  if (!filename || selectedLoras.some((lora) => lora.name === filename)) return;
+  const savedProfile = applicationState.loraProfiles.find((profile) => profile.name === filename && profile.workflow === workflow);
+  selectedLoras.push({
+    name: filename, strength: savedProfile?.settings.strength ?? 1,
+    clip_strength: savedProfile?.settings.clip_strength ?? 1,
+    video_strength: savedProfile?.settings.video_strength ?? 1,
+    audio_strength: savedProfile?.settings.audio_strength ?? 1,
+  });
+}
+
+/** 조합 목록은 ComfyUI 연결과 독립적으로 불러옵니다. */
+async function loadLoraPresets() {
+  applicationState.loraPresets = await apiRequest("/api/loras/presets");
+  renderLoraPresetList();
+  renderLoraPresetEditor();
+}
+
+/** Workflow별 선택 목록과 관리 화면의 저장된 조합들을 표시합니다. */
+function renderLoraPresetList() {
+  const workflow = element("generate-workflow").value;
+  let options = '<option value="">직접 구성</option>';
+  for (const preset of applicationState.loraPresets) {
+    if (preset.workflow === workflow)
+      options += `<option value="${escapeHtml(preset.preset_id)}">${escapeHtml(preset.name)} · ${preset.loras.length} LoRA</option>`;
+  }
+  element("generate-lora-preset").innerHTML = options;
+  renderGenerationLoraPresetStatus();
+  element("lora-preset-list").innerHTML = applicationState.loraPresets.length
+    ? applicationState.loraPresets.map((preset) => `
+      <article class="preset-row lora-preset-row"><div><strong>${escapeHtml(preset.name)}</strong><small>${preset.workflow === "anima" ? "Anima Turbo V9" : "MiniMax H3"} · ${preset.loras.length} LoRA</small><small>${escapeHtml(preset.loras.map((lora) => lora.name).join(" · "))}</small></div>
+      <div class="inline-actions"><button class="button subtle small" type="button" data-edit-lora-preset="${escapeHtml(preset.preset_id)}">열기</button><button class="button subtle small" type="button" data-use-lora-preset="${escapeHtml(preset.preset_id)}">생성에서 사용</button><button class="button subtle small" type="button" data-copy-lora-preset="${escapeHtml(preset.preset_id)}">복제</button><button class="button subtle small" type="button" data-delete-lora-preset="${escapeHtml(preset.preset_id)}">삭제</button></div></article>`).join("")
+    : '<p class="empty-state">저장된 LoRA 조합이 없습니다.</p>';
+}
+
+/** 생성 화면의 카드 변경이 원본 preset과 다른지 표시합니다. */
+function renderGenerationLoraPresetStatus() {
+  const workflow = element("generate-workflow").value;
+  const preset = applicationState.loraPresets.find((item) => item.preset_id === applicationState.currentLoraPresetId && item.workflow === workflow);
+  const modified = preset && JSON.stringify(normalizeLoraEntries(applicationState.selectedLoras, workflow)) !== JSON.stringify(normalizeLoraEntries(preset.loras, workflow));
+  element("generate-lora-preset").value = preset?.preset_id || "";
+  element("generate-lora-preset-status").textContent = `${preset?.name || "직접 구성"} · ${applicationState.selectedLoras.length} LoRA${modified ? " · 수정됨" : ""}`;
+  element("save-generation-lora-preset-button").disabled = !applicationState.selectedLoras.length;
+}
+
+/** 저장된 조합을 복사하여 생성 카드에 채우고 원본은 유지합니다. */
+function applyLoraCombination(workflow, selectedLoras, presetId = null) {
+  if (element("generate-workflow").value !== workflow) resetGenerationWorkflow(workflow);
+  applicationState.currentLoraPresetId = presetId;
+  applicationState.selectedLoras = normalizeLoraEntries(selectedLoras, workflow);
+  element("generation-lora-preset-form").classList.add("hidden");
+  renderLoraPresetList();
+  renderSelectedLoras();
+}
+
+/** 조합 관리 화면의 편집 내용을 새 조합으로 초기화합니다. */
+function resetLoraPresetEditor(workflow = element("lora-preset-workflow").value) {
+  applicationState.loraEditorPresetId = null;
+  applicationState.loraEditorEntries = [];
+  element("lora-preset-name").value = "";
+  element("lora-preset-workflow").value = workflow;
+  renderLoraFileOptions();
+  renderLoraPresetEditor();
+}
+
+/** 관리 편집기에 조합을 복사하며 복제 시 새 preset 상태로 엽니다. */
+function loadLoraPresetEditor(presetId, copyAsNew = false) {
+  const preset = applicationState.loraPresets.find((item) => item.preset_id === presetId);
+  if (!preset) return;
+  applicationState.loraEditorPresetId = copyAsNew ? null : preset.preset_id;
+  applicationState.loraEditorEntries = normalizeLoraEntries(preset.loras, preset.workflow);
+  element("lora-preset-workflow").value = preset.workflow;
+  element("lora-preset-name").value = copyAsNew ? `${preset.name} 복사` : preset.name;
+  renderLoraFileOptions();
+  renderLoraPresetEditor();
+}
+
+/** 관리 편집기의 이름과 구성 변경 여부를 계산합니다. */
+function renderLoraPresetEditorStatus() {
+  const workflow = element("lora-preset-workflow").value;
+  const preset = applicationState.loraPresets.find((item) => item.preset_id === applicationState.loraEditorPresetId);
+  const modified = preset && (
+    element("lora-preset-name").value.trim() !== preset.name || workflow !== preset.workflow ||
+    JSON.stringify(normalizeLoraEntries(applicationState.loraEditorEntries, workflow)) !== JSON.stringify(normalizeLoraEntries(preset.loras, workflow))
+  );
+  element("lora-preset-editor-status").textContent = `${preset?.name || "새 조합"} · ${applicationState.loraEditorEntries.length} LoRA${modified ? " · 수정됨" : ""}`;
+  element("update-lora-preset-button").disabled = !preset || !modified || !applicationState.loraEditorEntries.length;
+  element("create-lora-preset-button").disabled = !applicationState.loraEditorEntries.length;
+  element("use-lora-preset-editor-button").disabled = !applicationState.loraEditorEntries.length;
+}
+
+/** 관리 편집기의 LoRA 카드와 변경 상태를 표시합니다. */
+function renderLoraPresetEditor() {
+  element("lora-preset-selected-files").innerHTML = loraCardsMarkup(applicationState.loraEditorEntries, element("lora-preset-workflow").value, false);
+  renderLoraPresetEditorStatus();
+}
+
+/** 생성 중인 조합을 새 preset으로 저장하며 개별 기본값은 변경하지 않습니다. */
+async function saveGenerationLoraPreset() {
+  const workflow = element("generate-workflow").value;
+  validateLoraEntries(applicationState.selectedLoras, workflow);
+  const presetName = element("generation-lora-preset-name").value.trim();
+  if (!presetName) throw new Error("LoRA preset 이름을 입력해 주세요.");
+  const preset = await apiRequest("/api/loras/presets", {
+    method: "POST", body: JSON.stringify({ name: presetName, workflow, loras: normalizeLoraEntries(applicationState.selectedLoras, workflow) }),
+  });
+  applicationState.currentLoraPresetId = preset.preset_id;
+  await loadLoraPresets();
+  element("generation-lora-preset-form").classList.add("hidden");
+  showNotice(`${preset.name} 조합을 저장했습니다.`);
+}
+
+/** 관리 편집 내용을 새 조합으로 저장하거나 선택한 원본을 갱신합니다. */
+async function saveLoraPresetEditor(updateExisting) {
+  const workflow = element("lora-preset-workflow").value;
+  validateLoraEntries(applicationState.loraEditorEntries, workflow);
+  const presetName = element("lora-preset-name").value.trim();
+  if (!presetName) throw new Error("LoRA preset 이름을 입력해 주세요.");
+  const presetId = applicationState.loraEditorPresetId;
+  if (updateExisting && !presetId) throw new Error("갱신할 LoRA preset을 선택해 주세요.");
+  const preset = await apiRequest(updateExisting ? `/api/loras/presets/${encodeURIComponent(presetId)}` : "/api/loras/presets", {
+    method: updateExisting ? "PUT" : "POST",
+    body: JSON.stringify({ name: presetName, workflow, loras: normalizeLoraEntries(applicationState.loraEditorEntries, workflow) }),
+  });
+  await loadLoraPresets();
+  loadLoraPresetEditor(preset.preset_id);
+  renderGenerationLoraPresetStatus();
+  showNotice(`${preset.name} 조합을 ${updateExisting ? "갱신" : "저장"}했습니다.`);
+}
+
+/** 선택한 저장 조합을 삭제하고 사용 중인 카드 복사본은 유지합니다. */
+async function deleteLoraPreset(presetId) {
+  const preset = applicationState.loraPresets.find((item) => item.preset_id === presetId);
+  if (!preset || !window.confirm(`"${preset.name}" LoRA preset을 삭제하시겠습니까?`)) return;
+  await apiRequest(`/api/loras/presets/${encodeURIComponent(presetId)}`, { method: "DELETE" });
+  if (applicationState.currentLoraPresetId === presetId) applicationState.currentLoraPresetId = null;
+  if (applicationState.loraEditorPresetId === presetId) applicationState.loraEditorPresetId = null;
+  await loadLoraPresets();
+  showNotice(`${preset.name} 조합을 삭제했습니다.`);
 }
 
 /** Workflow 설정값을 요청 형식으로 만듭니다. */
@@ -474,6 +692,14 @@ async function uploadImages() {
 /** Batch를 서버에 제출합니다. */
 async function submitBatch() {
   const workflow = element("generate-workflow").value;
+  if (applicationState.selectedLoras.length) {
+    validateLoraEntries(applicationState.selectedLoras, workflow);
+    const missingLoras = applicationState.loraCatalogAvailable
+      ? applicationState.selectedLoras.filter((lora) => !applicationState.availableLoras.includes(lora.name))
+      : [];
+    if (missingLoras.length)
+      throw new Error(`ComfyUI에서 LoRA를 찾을 수 없습니다: ${missingLoras.map((lora) => lora.name).join(", ")}`);
+  }
   if (
     workflow === "minimax_h3" &&
     applicationState.selectedFiles.length === 0
@@ -633,30 +859,12 @@ function bindEvents() {
     );
   element("refresh-button").addEventListener("click", () =>
     runAction(async () => {
-      await Promise.all([loadStatus(), loadJobs(), loadOutputs(), loadLoras()]);
+      await Promise.all([loadStatus(), loadJobs(), loadOutputs(), loadLoras(), loadLoraPresets()]);
       showNotice("새로고침했습니다.");
     }),
   );
   element("generate-workflow").addEventListener("change", () => {
-    applicationState.currentPresetId = null;
-    applicationState.currentBody = {
-      prefix: "",
-      suffix: "",
-      negative: "",
-      separator: ", ",
-      scenarios: [],
-    };
-    applicationState.selectedLoras = [];
-    for (const identifier of [
-      "generate-prefix",
-      "generate-suffix",
-      "generate-negative",
-      "generate-minimax-prompt",
-    ])
-      element(identifier).value = "";
-    element("generate-separator").value = ", ";
-    renderPresetList();
-    updateWorkflowOptions();
+    resetGenerationWorkflow(element("generate-workflow").value);
     runAction(loadLoras);
   });
   element("generate-preset").addEventListener("change", (event) => {
@@ -745,31 +953,17 @@ function bindEvents() {
     runAction(loadLoras),
   );
   element("add-lora-button").addEventListener("click", () => {
-    const name = element("available-loras").value;
-    if (
-      !name ||
-      applicationState.selectedLoras.some((lora) => lora.name === name)
-    )
-      return;
-    const workflow = element("generate-workflow").value;
-    const savedProfile = applicationState.loraProfiles.find(
-      (profile) => profile.name === name && profile.workflow === workflow,
-    );
-    applicationState.selectedLoras.push({
-      name,
-      strength: savedProfile?.settings.strength ?? 1,
-      clip_strength: savedProfile?.settings.clip_strength ?? 1,
-      video_strength: savedProfile?.settings.video_strength ?? 1,
-      audio_strength: savedProfile?.settings.audio_strength ?? 1,
-    });
+    addLoraEntry(applicationState.selectedLoras, element("generate-workflow").value, element("available-loras").value);
     renderSelectedLoras();
   });
   element("selected-loras").addEventListener("input", (event) => {
     const row = event.target.closest("[data-lora-index]");
-    if (row && event.target.dataset.loraField)
+    if (row && event.target.dataset.loraField) {
       applicationState.selectedLoras[Number(row.dataset.loraIndex)][
         event.target.dataset.loraField
-      ] = Number(event.target.value);
+      ] = event.target.valueAsNumber;
+      renderGenerationLoraPresetStatus();
+    }
   });
   element("selected-loras").addEventListener("click", (event) => {
     const saveButton = event.target.closest("[data-save-lora]");
@@ -836,6 +1030,74 @@ function bindEvents() {
   element("outputs-grid").addEventListener("click", (event) => {
     const button = event.target.closest("[data-move-output]");
     if (button) runAction(() => moveOutput(button.dataset.moveOutput));
+  });
+  bindLoraPresetEvents();
+}
+
+/** LoRA 조합의 불러오기, 편집, 저장과 관리 화면 이동을 연결합니다. */
+function bindLoraPresetEvents() {
+  element("generate-lora-preset").addEventListener("change", (event) => {
+    const preset = applicationState.loraPresets.find((item) => item.preset_id === event.target.value);
+    applyLoraCombination(element("generate-workflow").value, preset?.loras || [], preset?.preset_id || null);
+  });
+  element("manage-lora-presets-button").addEventListener("click", () => {
+    if (applicationState.currentLoraPresetId) loadLoraPresetEditor(applicationState.currentLoraPresetId);
+    else resetLoraPresetEditor(element("generate-workflow").value);
+    applicationState.loraEditorEntries = normalizeLoraEntries(applicationState.selectedLoras, element("generate-workflow").value);
+    renderLoraPresetEditor();
+    switchView("lora-presets");
+  });
+  element("save-generation-lora-preset-button").addEventListener("click", () => {
+    const preset = applicationState.loraPresets.find((item) => item.preset_id === applicationState.currentLoraPresetId);
+    element("generation-lora-preset-name").value = preset ? `${preset.name} 변형` : "";
+    element("generation-lora-preset-form").classList.remove("hidden");
+    element("generation-lora-preset-name").focus();
+  });
+  element("generation-lora-preset-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    runAction(saveGenerationLoraPreset);
+  });
+  element("cancel-generation-lora-preset-button").addEventListener("click", () => element("generation-lora-preset-form").classList.add("hidden"));
+  element("new-lora-preset-button").addEventListener("click", () => resetLoraPresetEditor());
+  element("lora-preset-workflow").addEventListener("change", () => resetLoraPresetEditor());
+  element("lora-preset-name").addEventListener("input", renderLoraPresetEditorStatus);
+  element("refresh-lora-preset-files-button").addEventListener("click", () => runAction(loadLoras));
+  element("add-lora-preset-entry-button").addEventListener("click", () => {
+    addLoraEntry(applicationState.loraEditorEntries, element("lora-preset-workflow").value, element("lora-preset-available-files").value);
+    renderLoraPresetEditor();
+  });
+  element("lora-preset-selected-files").addEventListener("input", (event) => {
+    const card = event.target.closest("[data-lora-index]");
+    if (!card || !event.target.dataset.loraField) return;
+    applicationState.loraEditorEntries[Number(card.dataset.loraIndex)][event.target.dataset.loraField] = event.target.valueAsNumber;
+    renderLoraPresetEditorStatus();
+  });
+  element("lora-preset-selected-files").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-remove-lora]");
+    if (!button) return;
+    applicationState.loraEditorEntries.splice(Number(button.dataset.removeLora), 1);
+    renderLoraPresetEditor();
+  });
+  element("create-lora-preset-button").addEventListener("click", () => runAction(() => saveLoraPresetEditor(false)));
+  element("update-lora-preset-button").addEventListener("click", () => runAction(() => saveLoraPresetEditor(true)));
+  element("use-lora-preset-editor-button").addEventListener("click", () => {
+    applyLoraCombination(element("lora-preset-workflow").value, applicationState.loraEditorEntries, applicationState.loraEditorPresetId);
+    switchView("generate");
+  });
+  element("lora-preset-list").addEventListener("click", (event) => {
+    const editButton = event.target.closest("[data-edit-lora-preset]");
+    const useButton = event.target.closest("[data-use-lora-preset]");
+    const copyButton = event.target.closest("[data-copy-lora-preset]");
+    const deleteButton = event.target.closest("[data-delete-lora-preset]");
+    if (editButton) loadLoraPresetEditor(editButton.dataset.editLoraPreset);
+    if (copyButton) loadLoraPresetEditor(copyButton.dataset.copyLoraPreset, true);
+    if (useButton) {
+      const preset = applicationState.loraPresets.find((item) => item.preset_id === useButton.dataset.useLoraPreset);
+      if (!preset) return;
+      applyLoraCombination(preset.workflow, preset.loras, preset.preset_id);
+      switchView("generate");
+    }
+    if (deleteButton) runAction(() => deleteLoraPreset(deleteButton.dataset.deleteLoraPreset));
   });
 }
 
