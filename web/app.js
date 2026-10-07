@@ -1,5 +1,15 @@
 "use strict";
 
+const ANIMA_RESOLUTIONS = {
+  "16:9": [[1024, 576], [1280, 720], [1536, 864]],
+  "3:2": [[864, 576], [1152, 768], [1536, 1024]],
+  "4:3": [[1024, 768], [1280, 960], [1536, 1152]],
+  "1:1": [[768, 768], [1024, 1024], [1280, 1280]],
+  "3:4": [[768, 1024], [960, 1280], [1152, 1536]],
+  "2:3": [[576, 864], [768, 1152], [1024, 1536]],
+  "9:16": [[576, 1024], [720, 1280], [864, 1536]],
+};
+
 const applicationState = {
   presets: [],
   presetVersions: [],
@@ -186,6 +196,32 @@ function updateWorkflowOptions() {
   renderSelectedLoras();
   renderLoraFileOptions();
   renderGenerateScenarios();
+}
+
+/** 선택한 해상도를 Anima의 너비와 높이에 적용합니다. */
+function applyAnimaResolution() {
+  const [width, height] = element("anima-resolution").value.split("x").map(Number);
+  element("anima-width").value = width;
+  element("anima-height").value = height;
+}
+
+/** Anima 비율에 맞는 해상도 목록과 직접 입력 상태를 갱신합니다. */
+function updateAnimaResolutionOptions() {
+  const aspectRatio = element("anima-aspect-ratio").value;
+  const resolutionSelect = element("anima-resolution");
+  const isCustom = aspectRatio === "custom";
+  element("anima-width").readOnly = !isCustom;
+  element("anima-height").readOnly = !isCustom;
+  resolutionSelect.disabled = isCustom;
+  if (isCustom) {
+    resolutionSelect.innerHTML = '<option value="custom">직접 입력</option>';
+    return;
+  }
+  resolutionSelect.innerHTML = ANIMA_RESOLUTIONS[aspectRatio]
+    .map(([width, height]) => `<option value="${width}x${height}">${width} × ${height}</option>`)
+    .join("");
+  resolutionSelect.selectedIndex = resolutionSelect.options.length - 1;
+  applyAnimaResolution();
 }
 
 /** Prompt 편집 화면에서 Workflow별 입력 form을 전환합니다. */
@@ -965,6 +1001,8 @@ function runAction(action) {
 
 /** 사용자 조작과 메뉴 이동을 연결합니다. */
 function bindEvents() {
+  element("anima-aspect-ratio").addEventListener("change", updateAnimaResolutionOptions);
+  element("anima-resolution").addEventListener("change", applyAnimaResolution);
   element("login-form").addEventListener("submit", (event) => {
     event.preventDefault();
     runAction(async () => {
@@ -1272,6 +1310,7 @@ function bindLoraPresetEvents() {
 /** 첫 화면을 준비하고 기존 session을 확인합니다. */
 async function initializeApplication() {
   bindEvents();
+  updateAnimaResolutionOptions();
   try {
     const session = await apiRequest("/api/session");
     if (session.authenticated) await showApplication();

@@ -252,7 +252,7 @@ def test_anima_request_count_submits_independent_single_images(tmp_path: Path, m
         assert client.post("/api/login", json={"password": "test-password"}).status_code == 200
         batch_response = client.post("/api/batches", json={
             "workflow": "anima", "body": {"prefix": "portrait {calm|happy}", "scenarios": []},
-            "count": 2, "settings": {"batch_size": 2},
+            "count": 2, "settings": {"batch_size": 2, "width": 1280, "height": 720},
         })
         assert batch_response.status_code == 200
         request_ids = batch_response.json()["request_ids"]
@@ -276,6 +276,8 @@ def test_anima_request_count_submits_independent_single_images(tmp_path: Path, m
             assert request_workflow["13"]["inputs"]["filename"] == "%time_%seed"
             assert request_workflow["13"]["inputs"]["time_format"] == "%y%m%d_%H%M%S"
             assert request_workflow["51"]["inputs"]["value"] == 1
+            assert request_workflow["45"]["inputs"]["value"] == 1280
+            assert request_workflow["48"]["inputs"]["value"] == 720
             assert request_workflow["3"]["inputs"]["populated_text"] == f"portrait choice {wildcard_seed}"
             assert request_workflow["24"]["inputs"]["seed"] == 21 + submission_index
             assert metadata["home_server_request"]["wildcard_seed"] == wildcard_seed
@@ -283,6 +285,8 @@ def test_anima_request_count_submits_independent_single_images(tmp_path: Path, m
             assert metadata["home_server_request"]["job_id"] == job_id
             assert "batch_size" not in metadata["home_server_request"]["settings"]
         assert all("batch_size" not in request["detail"]["settings"] for request in requests)
+        assert all(request["detail"]["settings"]["width"] == 1280 for request in requests)
+        assert all(request["detail"]["settings"]["height"] == 720 for request in requests)
         assert {request["output_stem"] for request in requests} == {"from_home_server/anima/%time_%seed"}
 
         result_directory = config.managed_output_directory / "anima"

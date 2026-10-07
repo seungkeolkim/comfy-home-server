@@ -151,6 +151,28 @@ async function main() {
     );
     assert.equal(await page.locator("#generate-count-field").isVisible(), true);
     assert.equal(await page.locator("#generate-count-field + #submit-button").count(), 1);
+    assert.equal(await page.locator("#anima-aspect-ratio").inputValue(), "2:3");
+    assert.deepEqual(await page.locator("#anima-aspect-ratio option").evaluateAll(options =>
+      options.map(option => option.value)), ["16:9", "3:2", "4:3", "1:1", "3:4", "2:3", "9:16", "custom"]);
+    assert.equal(await page.locator("#anima-resolution").inputValue(), "1024x1536");
+    await page.locator("#anima-aspect-ratio").selectOption("16:9");
+    assert.equal(await page.locator("#anima-resolution option").count(), 3);
+    await page.locator("#anima-resolution").selectOption("1280x720");
+    assert.equal(await page.locator("#anima-width").inputValue(), "1280");
+    assert.equal(await page.locator("#anima-height").inputValue(), "720");
+    await page.locator("#anima-aspect-ratio").selectOption("custom");
+    assert.equal(await page.locator("#anima-resolution").isDisabled(), true);
+    await page.locator("#anima-width").fill("1408");
+    await page.locator("#anima-height").fill("960");
+    assert.equal(await page.locator("#anima-width").inputValue(), "1408");
+    assert.deepEqual(await page.evaluate(() => {
+      const settings = generationSettings();
+      return [settings.width, settings.height];
+    }), [1408, 960]);
+    await page.locator("#anima-aspect-ratio").selectOption("2:3");
+    assert.equal(await page.locator("#anima-resolution").isDisabled(), false);
+    assert.equal(await page.locator("#anima-width").inputValue(), "1024");
+    assert.equal(await page.locator("#anima-height").inputValue(), "1536");
     await page.locator("#generate-workflow").selectOption("minimax_h3");
     assert.equal(await page.locator("#generate-scenario-fields").isVisible(), false);
     assert.equal(await page.locator("#generate-count-field").isVisible(), false);
@@ -235,6 +257,8 @@ async function main() {
     await page.locator('.sidebar [data-view="lora-presets"]').click();
     await page.locator('[data-use-lora-preset="preset-2"]').click();
     await page.locator("#generate-prefix").fill("portrait");
+    await page.locator("#anima-aspect-ratio").selectOption("16:9");
+    await page.locator("#anima-resolution").selectOption("1280x720");
     await page.locator("#generate-count").fill("2");
     await page.locator("#job-description").fill("아침 조명 비교");
     await page.locator("#submit-button").click();
@@ -242,6 +266,8 @@ async function main() {
     assert.equal(batchSubmissions[0].count, 2);
     assert.equal(batchSubmissions[0].loras[0].strength, 0.85);
     assert.equal(batchSubmissions[0].description, "아침 조명 비교");
+    assert.equal(batchSubmissions[0].settings.width, 1280);
+    assert.equal(batchSubmissions[0].settings.height, 720);
     assert.equal(await page.locator(".job-card").count(), 1);
     assert.equal(await page.locator(".job-description").textContent(), "아침 조명 비교");
     assert.equal(await page.locator(".job-card .status-badge").first().textContent(), "대기");
