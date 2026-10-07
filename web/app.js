@@ -35,7 +35,9 @@ const applicationState = {
   outputsPage: 1,
   outputsLoadRevision: 0,
   jobsPage: 1,
+  jobFilterId: null,
   jobsLoadRevision: 0,
+  noticeHideTimer: null,
   pollingTimer: null,
 };
 
@@ -86,13 +88,14 @@ async function apiRequest(path, options = {}) {
   return data;
 }
 
-/** 상단 알림을 잠시 표시합니다. */
+/** 화면에 고정된 알림을 잠시 표시합니다. */
 function showNotice(message, isError = false) {
   const notice = element("notice");
   notice.textContent = message;
   notice.classList.toggle("error", isError);
   notice.classList.remove("hidden");
-  window.setTimeout(() => notice.classList.add("hidden"), 6500);
+  window.clearTimeout(applicationState.noticeHideTimer);
+  applicationState.noticeHideTimer = window.setTimeout(() => notice.classList.add("hidden"), 6500);
 }
 
 /** 로그인 화면만 표시합니다. */
@@ -775,7 +778,7 @@ async function submitBatch() {
       }),
     });
     showNotice(
-      `${response.request_ids.length}건을 접수했습니다. 작업 목록에서 ComfyUI 제출 상태를 확인할 수 있습니다.`,
+      `작업 접수 완료 · 요청 ${response.request_ids.length}건. 진행 상태는 작업 목록에서 확인하세요.`,
     );
     applicationState.jobsPage = 1;
     await loadJobs();
@@ -860,13 +863,19 @@ async function loadJobs() {
   if (element("application").classList.contains("hidden")) return;
   const loadRevision = ++applicationState.jobsLoadRevision;
   try {
-    const response = await apiRequest(`/api/jobs?page=${applicationState.jobsPage}&page_size=10`);
+    const query = new URLSearchParams({ page: String(applicationState.jobsPage), page_size: "10" });
+    if (applicationState.jobFilterId) query.set("job_id", applicationState.jobFilterId);
+    const response = await apiRequest(`/api/jobs?${query}`);
     if (loadRevision !== applicationState.jobsLoadRevision) return;
     if (applicationState.jobsPage > response.total_pages) {
       applicationState.jobsPage = response.total_pages;
       return loadJobs();
     }
     element("active-count").textContent = `작업 ${response.active_count}`;
+    element("jobs-filter").classList.toggle("hidden", !applicationState.jobFilterId);
+    element("jobs-filter-label").textContent = applicationState.jobFilterId
+      ? `작업 ${applicationState.jobFilterId}만 표시 중`
+      : "";
     const statusNames = {
       submitting: "제출 중",
       pending: "대기",
@@ -885,7 +894,7 @@ async function loadJobs() {
     );
     element("jobs-list").innerHTML = response.items.length
       ? response.items.map((job) => jobCardMarkup(job, statusNames, openJobIds)).join("")
-      : `<p class="empty-state">제출한 작업이 없습니다.</p>`;
+      : `<p class="empty-state">${applicationState.jobFilterId ? "해당 작업 이력이 없습니다." : "제출한 작업이 없습니다."}</p>`;
     renderJobsPagination(response.page, response.total_pages);
   } catch (error) {
     if (applicationState.currentView === "jobs")
@@ -962,7 +971,10 @@ async function loadOutputs() {
               file.kind === "video"
                 ? `<span class="output-video-placeholder">영상 · 열기로 재생</span>`
                 : `<img src="/api/outputs/preview/${file.path.split("/").map(encodeURIComponent).join("/")}" alt="${escapeHtml(file.name)}" loading="lazy">`;
-            return `<article class="output-card"><div class="output-preview">${media}</div><div class="output-info"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.path)} · ${(file.size / 1024 / 1024).toFixed(1)} MB</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(file.path)}">이동</button></div></div></article>`;
+            const jobButton = file.job_id
+              ? `<button class="button job-link" data-output-job="${escapeHtml(file.job_id)}" aria-label="작업 ${escapeHtml(file.job_id)} 보기">작업</button>`
+              : "";
+            return `<article class="output-card"><div class="output-preview">${media}</div><div class="output-info"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.path)} · ${(file.size / 1024 / 1024).toFixed(1)} MB</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(file.path)}">이동</button>${jobButton}</div></div></article>`;
           })
           .join("")
       : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;
@@ -1027,7 +1039,13 @@ function bindEvents() {
   document
     .querySelectorAll("[data-view]")
     .forEach((button) =>
-      button.addEventListener("click", () => switchView(button.dataset.view)),
+      button.addEventListener("click", () => {
+        if (button.dataset.view === "jobs") {
+          applicationState.jobFilterId = null;
+          applicationState.jobsPage = 1;
+        }
+        switchView(button.dataset.view);
+      }),
     );
   element("refresh-button").addEventListener("click", () =>
     runAction(async () => {
@@ -1217,6 +1235,11 @@ function bindEvents() {
     applicationState.jobsPage = Number(pageButton.dataset.jobsPage);
     runAction(loadJobs);
   });
+  element("clear-jobs-filter").addEventListener("click", () => {
+    applicationState.jobFilterId = null;
+    applicationState.jobsPage = 1;
+    runAction(loadJobs);
+  });
   element("refresh-outputs-button").addEventListener("click", () => {
     applicationState.outputsPage = 1;
     runAction(loadOutputs);
@@ -1233,6 +1256,13 @@ function bindEvents() {
     runAction(loadOutputs);
   });
   element("outputs-grid").addEventListener("click", (event) => {
+    const jobButton = event.target.closest("[data-output-job]");
+    if (jobButton) {
+      applicationState.jobFilterId = jobButton.dataset.outputJob;
+      applicationState.jobsPage = 1;
+      switchView("jobs");
+      return;
+    }
     const button = event.target.closest("[data-move-output]");
     if (button) runAction(() => moveOutput(button.dataset.moveOutput));
   });

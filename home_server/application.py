@@ -532,13 +532,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     async def jobs(
         page: int = Query(default=1, ge=1),
         page_size: int = Query(default=10, ge=1, le=50),
+        job_id: str = "",
         refresh: bool = False,
     ):
         """작업 이력을 페이지 단위로 반환하고 필요하면 요청 상태를 갱신합니다."""
 
         if refresh:
             await _refresh_requests(server)
-        return server.database.list_jobs(page=page, page_size=page_size)
+        return server.database.list_jobs(page=page, page_size=page_size, job_id=job_id)
 
     @app.post("/api/requests/{request_id}/cancel")
     async def cancel_request(request_id: str):
@@ -683,8 +684,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         found_files.sort(key=lambda item: (item["modified_at"], item["path"]), reverse=True)
         total = len(found_files)
         first_index = (page - 1) * page_size
+        page_files = found_files[first_index:first_index + page_size]
+        jobs_by_output_path = server.database.find_output_jobs([file["path"] for file in page_files])
+        for file in page_files:
+            file["job_id"] = jobs_by_output_path.get(file["path"])
         return {
-            "files": found_files[first_index:first_index + page_size],
+            "files": page_files,
             "page": page, "page_size": page_size, "total": total,
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }

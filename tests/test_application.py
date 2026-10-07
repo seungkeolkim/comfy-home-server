@@ -464,6 +464,10 @@ def test_job_description_cancel_and_history_actions(tmp_path: Path) -> None:
             "detail": {},
         }])
         database.complete_request(history_request_id, ["anima/retained.png"])
+        filtered_jobs = client.get("/api/jobs", params={"job_id": "history-job"}).json()
+        assert filtered_jobs["total"] == 1
+        assert [job["job_id"] for job in filtered_jobs["items"]] == ["history-job"]
+        assert client.get("/api/jobs", params={"job_id": "missing"}).json()["items"] == []
         history_delete = client.delete("/api/jobs/history-job")
         assert history_delete.json() == {"deleted": True, "deleted_files": 0, "missing_files": 0}
         assert retained_file.exists()
@@ -547,8 +551,11 @@ def test_saver_history_outputs_keep_native_names(tmp_path: Path, workflow: str) 
         fake_comfy.history_records.clear()
         outputs = client.get("/api/outputs", params={"request_id": request_id}).json()
         assert [result["path"] for result in outputs["files"]] == [f"{workflow}/{filename}"]
+        assert outputs["files"][0]["job_id"] == completed_job["job_id"]
         grouped_outputs = client.get("/api/outputs", params={"job_id": completed_job["job_id"]}).json()
         assert [result["path"] for result in grouped_outputs["files"]] == [f"{workflow}/{filename}"]
+        all_outputs = client.get("/api/outputs").json()["files"]
+        assert next(file for file in all_outputs if file["name"] == "unrelated.png")["job_id"] is None
         assert original_file.read_bytes() == b"result"
         original_file.unlink()
         assert client.get("/api/outputs", params={"request_id": request_id}).json()["total"] == 0

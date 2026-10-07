@@ -232,18 +232,20 @@ class Database:
                     ),
                 )
 
-    def list_jobs(self, page: int = 1, page_size: int = 10) -> dict[str, Any]:
+    def list_jobs(self, page: int = 1, page_size: int = 10, job_id: str = "") -> dict[str, Any]:
         """상위 작업을 페이지 단위로 조회하고 전체 활성 작업 수를 반환합니다."""
 
+        filter_clause = " WHERE job_id = ?" if job_id else ""
+        filter_values = (job_id,) if job_id else ()
         with self._connect() as connection:
-            total = connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+            total = connection.execute("SELECT COUNT(*) FROM jobs" + filter_clause, filter_values).fetchone()[0]
             active_count = connection.execute(
                 "SELECT COUNT(DISTINCT job_id) FROM job_requests "
                 "WHERE status IN ('submitting', 'pending', 'running', 'cancelling')"
             ).fetchone()[0]
             job_rows = connection.execute(
-                "SELECT * FROM jobs ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
-                (page_size, (page - 1) * page_size),
+                "SELECT * FROM jobs" + filter_clause + " ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                (*filter_values, page_size, (page - 1) * page_size),
             ).fetchall()
             request_rows = []
             if job_rows:
@@ -262,6 +264,26 @@ class Database:
             "total_pages": max(1, (total + page_size - 1) // page_size),
             "active_count": active_count,
         }
+
+    def find_output_jobs(self, output_paths: list[str]) -> dict[str, str]:
+        """현재 페이지 결과물의 원래 생성 경로를 작업 ID에 연결합니다."""
+
+        if not output_paths:
+            return {}
+        placeholders = ",".join("?" for _ in output_paths)
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT job_requests.job_id, output_path.value AS output_path "
+                "FROM job_requests "
+                "JOIN json_each(job_requests.detail_json, '$.resolved.output_paths') AS output_path "
+                f"WHERE output_path.value IN ({placeholders}) "
+                "ORDER BY job_requests.updated_at DESC",
+                tuple(output_paths),
+            ).fetchall()
+        jobs_by_output_path = {}
+        for row in rows:
+            jobs_by_output_path.setdefault(row["output_path"], row["job_id"])
+        return jobs_by_output_path
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         """한 상위 작업과 하위 요청을 조회합니다."""

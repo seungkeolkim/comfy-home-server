@@ -458,12 +458,19 @@ input[type="file"] {
   color: #8fdbca;
 }
 .notice {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  width: min(420px, calc(100vw - 32px));
   padding: 12px 14px;
   border-radius: 11px;
-  margin-bottom: 19px;
   background: #254236;
   color: #bff3dc;
   font-size: 13px;
+  box-shadow: 0 12px 32px #0008;
+  overflow-wrap: anywhere;
+  pointer-events: none;
 }
 .notice.error {
   background: #4b2934;
@@ -632,6 +639,11 @@ input[type="file"] {
   padding: 6px 9px;
   font-size: 11px;
 }
+.output-info .button.job-link {
+  background: #273f69;
+  border-color: #507ab2;
+  color: #d5e8ff;
+}
 .scenario-editor-card {
   border: 1px solid #354159;
   background: #101827;
@@ -711,6 +723,12 @@ input[type="file"] {
   }
 }
 @media (max-width: 680px) {
+  .notice {
+    left: 16px;
+    right: 16px;
+    bottom: calc(78px + env(safe-area-inset-bottom));
+    width: auto;
+  }
   .sidebar {
     display: none;
   }

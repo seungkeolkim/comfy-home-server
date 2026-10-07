@@ -10,6 +10,7 @@ const savedPromptPresets = [];
 const savedPresets = [];
 const batchSubmissions = [];
 const savedJobs = [];
+const jobQueries = [];
 const outputQueries = [];
 const mockOutputFiles = [];
 const previewRequests = [];
@@ -31,12 +32,15 @@ async function handleBrowserRequest(route) {
   if (requestPath === "/api/session") response = { authenticated: true };
   else if (requestPath === "/api/status") response = { comfy_connected: true, output_directory: "test-output" };
   else if (requestPath === "/api/jobs") {
+    jobQueries.push(requestUrl.search);
     const pageNumber = Number(requestUrl.searchParams.get("page") || 1);
     const pageSize = Number(requestUrl.searchParams.get("page_size") || 10);
+    const selectedJobId = requestUrl.searchParams.get("job_id");
+    const matchingJobs = selectedJobId ? savedJobs.filter(job => job.job_id === selectedJobId) : savedJobs;
     response = {
-      items: savedJobs.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
-      page: pageNumber, page_size: pageSize, total: savedJobs.length,
-      total_pages: Math.max(1, Math.ceil(savedJobs.length / pageSize)),
+      items: matchingJobs.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
+      page: pageNumber, page_size: pageSize, total: matchingJobs.length,
+      total_pages: Math.max(1, Math.ceil(matchingJobs.length / pageSize)),
       active_count: savedJobs.filter(job => job.requests.some(child =>
         ["submitting", "pending", "running", "cancelling"].includes(child.status))).length,
     };
@@ -267,6 +271,13 @@ async function main() {
     assert.equal(await page.locator("#view-jobs").isVisible(), false);
     assert.equal(await page.locator("#submit-button").textContent(), "작업 제출");
     assert.equal(await page.locator("#generate-prefix").inputValue(), "portrait");
+    assert.equal(await page.locator("#notice").isVisible(), true);
+    assert.match(await page.locator("#notice").textContent(), /작업 접수 완료 · 요청 2건/);
+    assert.equal(await page.locator("#notice").evaluate(notice => notice === notice.parentElement.lastElementChild), true);
+    assert.equal(await page.locator("#notice").evaluate(notice => {
+      const position = notice.getBoundingClientRect();
+      return position.top >= 0 && position.bottom <= window.innerHeight;
+    }), true);
     assert.equal(batchSubmissions[0].count, 2);
     assert.equal(batchSubmissions[0].loras[0].strength, 0.85);
     assert.equal(batchSubmissions[0].description, "아침 조명 비교");
@@ -296,6 +307,12 @@ async function main() {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     assert.equal(await page.locator("#generate-count-field + #submit-button").count(), 1);
     await page.screenshot({ path: path.join(screenshotDirectory, "generate-mobile.png"), fullPage: true });
+    await page.evaluate(() => showNotice("모바일 알림 확인"));
+    assert.equal(await page.locator("#notice").evaluate(notice => {
+      const noticePosition = notice.getBoundingClientRect();
+      const navigationPosition = document.querySelector(".mobile-nav").getBoundingClientRect();
+      return noticePosition.top >= 0 && noticePosition.bottom < navigationPosition.top;
+    }), true);
     await page.locator('.mobile-nav [data-view="jobs"]').click();
     await page.locator(".job-requests[open]").waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
@@ -328,6 +345,7 @@ async function main() {
       mockOutputFiles.push({
         path: `anima/${filename}`, name: filename, size: 2048,
         modified_at: 100 - outputNumber, kind: isVideo ? "video" : "image",
+        job_id: isVideo ? "old-job-8" : null,
       });
     }
     await page.setViewportSize({ width: 1280, height: 950 });
@@ -338,6 +356,19 @@ async function main() {
     assert.equal(await page.locator(".output-video-placeholder").count(), 1);
     assert.equal(await page.locator(".output-card img").count(), 23);
     assert.equal(await page.locator('.output-card img[src^="/api/outputs/preview/"]').count(), 23);
+    assert.equal(await page.locator(".output-card [data-output-job]").count(), 1);
+    assert.notEqual(await page.locator(".output-card [data-output-job]").evaluate(button =>
+      getComputedStyle(button).backgroundColor), await page.locator(".output-card [data-move-output]").first().evaluate(button =>
+      getComputedStyle(button).backgroundColor));
+    await page.locator('.output-card [data-output-job="old-job-8"]').click();
+    await page.locator("#jobs-filter").waitFor({ state: "visible" });
+    await page.locator(".job-card").first().getByText("이전 작업 8").waitFor();
+    assert.equal(await page.locator(".job-card").count(), 1);
+    assert.ok(jobQueries.some(query => new URLSearchParams(query).get("job_id") === "old-job-8"));
+    assert.equal(await page.locator("#jobs-pagination").isVisible(), false);
+    await page.locator("#clear-jobs-filter").click();
+    await page.waitForFunction(() => document.querySelectorAll(".job-card").length === 9);
+    await page.locator('.sidebar [data-view="outputs"]').click();
     await page.locator('#outputs-pagination [data-outputs-page="2"]').first().click();
     await page.waitForFunction(() => document.querySelectorAll(".output-card").length === 2);
     assert.ok(outputQueries.some(query => new URLSearchParams(query).get("page") === "2"));

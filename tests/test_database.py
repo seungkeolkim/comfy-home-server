@@ -130,7 +130,34 @@ def test_job_pagination_and_active_deletion_guard(tmp_path: Path) -> None:
     assert {job["job_id"] for job in first_page["items"]}.isdisjoint(
         job["job_id"] for job in second_page["items"]
     )
+    filtered_page = database.list_jobs(job_id="job-0")
+    assert filtered_page["total"] == 1
+    assert filtered_page["active_count"] == 1
+    assert [job["job_id"] for job in filtered_page["items"]] == ["job-0"]
+    assert database.list_jobs(job_id="missing")["total"] == 0
     with pytest.raises(ValueError, match="진행 중"):
         database.delete_job("job-0")
     assert database.delete_job("job-1") is True
     assert database.get_job("job-1") is None
+
+
+def test_output_paths_map_to_their_original_jobs(tmp_path: Path) -> None:
+    """결과물의 원래 생성 경로만 작업에 연결합니다."""
+
+    database = Database(tmp_path / "home_server.sqlite3")
+    database.add_job("first-job", "anima", "", [{
+        "request_id": "first-request", "status": "completed", "output_stem": "anima/example",
+        "detail": {},
+    }])
+    database.add_job("second-job", "anima", "", [{
+        "request_id": "second-request", "status": "completed", "output_stem": "anima/example",
+        "detail": {},
+    }])
+    database.complete_request("first-request", ["anima/first.png"])
+    database.complete_request("second-request", ["anima/second.png"])
+
+    assert database.find_output_jobs([]) == {}
+    assert database.find_output_jobs(["anima/first.png", "anima/second.png", "anima/moved.png"]) == {
+        "anima/first.png": "first-job",
+        "anima/second.png": "second-job",
+    }
