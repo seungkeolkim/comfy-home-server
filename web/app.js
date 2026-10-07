@@ -22,6 +22,8 @@ const applicationState = {
   selectedFiles: [],
   currentView: "generate",
   outputFilter: null,
+  outputsPage: 1,
+  outputsLoadRevision: 0,
   jobsPage: 1,
   jobsLoadRevision: 0,
   pollingTimer: null,
@@ -873,18 +875,45 @@ async function deleteJobHistory(jobId, deleteOutputs) {
   await loadJobs();
 }
 
-/** 관리 폴더의 현재 이미지와 영상을 표시합니다. */
+/** 현재 결과물 페이지로 이동할 버튼을 표시합니다. */
+function renderOutputsPagination(page, totalPages) {
+  const pagination = element("outputs-pagination");
+  pagination.classList.toggle("hidden", totalPages <= 1);
+  if (totalPages <= 1) {
+    pagination.innerHTML = "";
+    return;
+  }
+  const pageButtons = [];
+  const firstPage = Math.max(1, page - 2);
+  const lastPage = Math.min(totalPages, page + 2);
+  for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
+    const currentAttribute = pageNumber === page ? ' aria-current="page"' : "";
+    pageButtons.push(`<button class="button subtle small" data-outputs-page="${pageNumber}"${currentAttribute}>${pageNumber}</button>`);
+  }
+  pagination.innerHTML = `
+    <button class="button subtle small" data-outputs-page="${page - 1}" ${page === 1 ? "disabled" : ""}>이전</button>
+    ${pageButtons.join("")}
+    <button class="button subtle small" data-outputs-page="${page + 1}" ${page === totalPages ? "disabled" : ""}>다음</button>`;
+}
+
+/** 관리 폴더의 현재 결과물을 페이지 단위로 표시합니다. */
 async function loadOutputs() {
   if (element("application").classList.contains("hidden")) return;
+  const loadRevision = ++applicationState.outputsLoadRevision;
   try {
     const outputFilter = applicationState.outputFilter;
-    const outputPath = outputFilter
-      ? `/api/outputs?${outputFilter.type === "job" ? "job_id" : "request_id"}=${encodeURIComponent(outputFilter.id)}`
-      : "/api/outputs";
-    const response = await apiRequest(outputPath);
+    const query = new URLSearchParams({ page: String(applicationState.outputsPage), page_size: "24" });
+    if (outputFilter)
+      query.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
+    const response = await apiRequest(`/api/outputs?${query}`);
+    if (loadRevision !== applicationState.outputsLoadRevision) return;
+    if (applicationState.outputsPage > response.total_pages) {
+      applicationState.outputsPage = response.total_pages;
+      return loadOutputs();
+    }
     const visibleFiles = response.files;
     element("output-count").textContent = outputFilter
-      ? `${outputFilter.type === "job" ? "이 작업" : "이 요청"}의 결과 ${visibleFiles.length}개`
+      ? `${outputFilter.type === "job" ? "이 작업" : "이 요청"}의 결과 ${response.total}개`
       : `${response.total}개 파일`;
     element("clear-output-filter").classList.toggle(
       "hidden",
@@ -896,12 +925,13 @@ async function loadOutputs() {
             const url = `/media/${file.path.split("/").map(encodeURIComponent).join("/")}`;
             const media =
               file.kind === "video"
-                ? `<video src="${url}" controls preload="metadata"></video>`
-                : `<img src="${url}" alt="${escapeHtml(file.name)}" loading="lazy">`;
+                ? `<span class="output-video-placeholder">영상 · 열기로 재생</span>`
+                : `<img src="/api/outputs/preview/${file.path.split("/").map(encodeURIComponent).join("/")}" alt="${escapeHtml(file.name)}" loading="lazy">`;
             return `<article class="output-card"><div class="output-preview">${media}</div><div class="output-info"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.path)} · ${(file.size / 1024 / 1024).toFixed(1)} MB</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(file.path)}">이동</button></div></div></article>`;
           })
           .join("")
       : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;
+    renderOutputsPagination(response.page, response.total_pages);
   } catch (error) {
     showNotice(error.message, true);
   }
@@ -922,6 +952,7 @@ async function moveOutput(sourcePath) {
     }),
   });
   showNotice("파일을 이동했습니다.");
+  applicationState.outputsPage = 1;
   await loadOutputs();
 }
 
@@ -1139,6 +1170,7 @@ function bindEvents() {
       applicationState.outputFilter = jobResultButton
         ? { type: "job", id: jobResultButton.dataset.showJobResults }
         : { type: "request", id: requestResultButton.dataset.showRequestResults };
+      applicationState.outputsPage = 1;
       switchView("outputs");
     }
   });
@@ -1148,11 +1180,19 @@ function bindEvents() {
     applicationState.jobsPage = Number(pageButton.dataset.jobsPage);
     runAction(loadJobs);
   });
-  element("refresh-outputs-button").addEventListener("click", () =>
-    runAction(loadOutputs),
-  );
+  element("refresh-outputs-button").addEventListener("click", () => {
+    applicationState.outputsPage = 1;
+    runAction(loadOutputs);
+  });
   element("clear-output-filter").addEventListener("click", () => {
     applicationState.outputFilter = null;
+    applicationState.outputsPage = 1;
+    runAction(loadOutputs);
+  });
+  element("outputs-pagination").addEventListener("click", (event) => {
+    const pageButton = event.target.closest("[data-outputs-page]");
+    if (!pageButton || pageButton.disabled) return;
+    applicationState.outputsPage = Number(pageButton.dataset.outputsPage);
     runAction(loadOutputs);
   });
   element("outputs-grid").addEventListener("click", (event) => {

@@ -12,11 +12,13 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
+from PIL import Image, ImageOps, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .comfy_client import ComfyClient
@@ -29,7 +31,10 @@ from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, pre
 
 MEDIA_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mkv", ".mov"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
+PREVIEW_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+PREVIEW_SIZE = 384
+MAX_PREVIEW_PIXELS = 80_000_000
 LOGGER = logging.getLogger(__name__)
 
 
@@ -623,10 +628,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return {"deleted": True, "deleted_files": deleted_files, "missing_files": missing_files}
 
     @app.get("/api/outputs")
-    async def outputs(limit: int = 500, prefix: str = "", job_id: str = "", request_id: str = ""):
-        """관리 output 폴더의 현재 파일을 새로 읽습니다."""
+    async def outputs(
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=24, ge=1, le=100),
+        prefix: str = "",
+        job_id: str = "",
+        request_id: str = "",
+    ):
+        """관리 output의 현재 파일을 정렬해 페이지 단위로 반환합니다."""
 
-        selected_limit = max(1, min(limit, 2000))
         normalized_prefix = prefix.replace("\\", "/")
         selected_output_paths = None
         if job_id and request_id:
@@ -670,8 +680,49 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "modified_at": file_stat.st_mtime,
                 "kind": "video" if output_path.suffix.lower() in {".mp4", ".webm", ".mkv", ".mov"} else "image",
             })
-        found_files.sort(key=lambda item: item["modified_at"], reverse=True)
-        return {"files": found_files[:selected_limit], "total": len(found_files)}
+        found_files.sort(key=lambda item: (item["modified_at"], item["path"]), reverse=True)
+        total = len(found_files)
+        first_index = (page - 1) * page_size
+        return {
+            "files": found_files[first_index:first_index + page_size],
+            "page": page, "page_size": page_size, "total": total,
+            "total_pages": max(1, (total + page_size - 1) // page_size),
+        }
+
+    @app.get("/api/outputs/preview/{relative_path:path}")
+    def output_preview(relative_path: str, request: Request):
+        """원본을 변경하거나 저장하지 않고 작은 WebP preview를 제공합니다."""
+
+        try:
+            file_path = server.managed_path(relative_path, must_exist=True)
+        except (ValueError, FileNotFoundError) as exception:
+            raise HTTPException(404, str(exception)) from exception
+        if not file_path.is_file() or file_path.suffix.lower() not in PREVIEW_IMAGE_EXTENSIONS:
+            raise HTTPException(404, "미리보기를 지원하지 않는 결과물입니다.")
+        try:
+            file_stat = file_path.stat()
+        except OSError as exception:
+            raise HTTPException(404, "결과물을 찾을 수 없습니다.") from exception
+        etag = f'W/"{file_stat.st_mtime_ns:x}-{file_stat.st_size:x}-{PREVIEW_SIZE:x}"'
+        cache_headers = {"Cache-Control": "private, max-age=0, must-revalidate", "ETag": etag}
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304, headers=cache_headers)
+        try:
+            with Image.open(file_path) as source_image:
+                if source_image.width * source_image.height > MAX_PREVIEW_PIXELS:
+                    raise HTTPException(413, "미리보기 크기 제한을 초과했습니다.")
+                oriented_image = ImageOps.exif_transpose(source_image)
+                image_mode = "RGBA" if "A" in oriented_image.getbands() or "transparency" in oriented_image.info else "RGB"
+                preview_image = oriented_image.convert(image_mode)
+                preview_image.thumbnail((PREVIEW_SIZE, PREVIEW_SIZE), Image.Resampling.LANCZOS)
+                output_buffer = BytesIO()
+                preview_image.save(output_buffer, format="WEBP", quality=75)
+        except FileNotFoundError as exception:
+            raise HTTPException(404, "결과물을 찾을 수 없습니다.") from exception
+        except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exception:
+            LOGGER.warning("결과물 미리보기 생성 실패: path=%s error_type=%s", relative_path, type(exception).__name__)
+            raise HTTPException(422, "결과물 미리보기를 만들 수 없습니다.") from exception
+        return Response(content=output_buffer.getvalue(), media_type="image/webp", headers=cache_headers)
 
     @app.get("/media/{relative_path:path}")
     async def media(relative_path: str):

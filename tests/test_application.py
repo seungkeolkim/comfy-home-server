@@ -2,10 +2,12 @@
 
 import json
 import time
+from io import BytesIO
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from home_server.application import create_app
 from home_server.configuration import AppConfig, PROJECT_DIRECTORY
@@ -149,6 +151,71 @@ def test_login_batch_and_output_folder_boundary(tmp_path: Path) -> None:
     assert "요청 접수" in log_text
     assert "test-password" not in log_text
     assert "a portrait" not in log_text
+
+
+def test_output_pagination_and_transient_preview(tmp_path: Path) -> None:
+    """목록을 나누고 원본을 유지한 채 인증된 작은 preview만 전송합니다."""
+
+    output_directory = tmp_path / "output"
+    managed_directory = output_directory / "from_home_server"
+    image_directory = managed_directory / "anima"
+    image_directory.mkdir(parents=True)
+    original_path = image_directory / "large.png"
+    Image.new("RGB", (1600, 1200), (31, 64, 96)).save(original_path)
+    Image.new("RGB", (100, 100), (50, 60, 70)).save(image_directory / "animation.gif")
+    for image_number in range(25):
+        (image_directory / f"small-{image_number:02d}.png").write_bytes(b"listed file")
+    (image_directory / "movie.webm").write_bytes(b"listed video")
+    config = AppConfig(
+        host="127.0.0.1", port=8388, password="test", comfy_endpoint="http://example.test",
+        comfy_output_directory=output_directory, managed_output_directory=managed_directory,
+        runtime_directory=tmp_path / "runtime", workflow_directory=PROJECT_DIRECTORY / "data" / "workflows",
+    )
+    app = create_app(config)
+    with TestClient(app) as client:
+        preview_url = "/api/outputs/preview/anima/large.png"
+        assert client.get(preview_url).status_code == 401
+        assert client.post("/api/login", json={"password": "test"}).status_code == 200
+        first_page = client.get("/api/outputs").json()
+        second_page = client.get("/api/outputs", params={"page": 2}).json()
+        assert first_page["total"] == 28
+        assert first_page["page_size"] == 24
+        assert first_page["total_pages"] == 2
+        assert len(first_page["files"]) == 24
+        assert len(second_page["files"]) == 4
+        assert {file["path"] for file in first_page["files"]}.isdisjoint(
+            file["path"] for file in second_page["files"]
+        )
+        assert client.get("/api/outputs", params={"page": 0}).status_code == 422
+        assert client.get("/api/outputs", params={"page_size": 101}).status_code == 422
+        assert client.get("/api/outputs", params={"page": 3}).json()["files"] == []
+        assert client.get("/api/outputs", params={"prefix": "anima/large"}).json()["total"] == 1
+
+        preview_response = client.get(preview_url)
+        assert preview_response.status_code == 200
+        assert preview_response.headers["content-type"] == "image/webp"
+        assert preview_response.headers["cache-control"].startswith("private")
+        assert len(preview_response.content) < original_path.stat().st_size
+        with Image.open(BytesIO(preview_response.content)) as preview_image:
+            assert preview_image.size == (384, 288)
+        assert client.get(preview_url, headers={
+            "If-None-Match": preview_response.headers["etag"],
+        }).status_code == 304
+        Image.new("RGB", (1600, 1200), (120, 80, 40)).save(original_path)
+        updated_preview = client.get(preview_url, headers={
+            "If-None-Match": preview_response.headers["etag"],
+        })
+        assert updated_preview.status_code == 200
+        assert updated_preview.headers["etag"] != preview_response.headers["etag"]
+        assert client.get("/api/outputs/preview/anima/animation.gif").headers["content-type"] == "image/webp"
+        assert client.get("/api/outputs/preview/anima/small-00.png").status_code == 422
+        assert client.get("/api/outputs/preview/anima/movie.webm").status_code == 404
+        assert client.get("/api/outputs/preview/../outside.png").status_code != 200
+        assert client.get("/media/anima/large.png").content == original_path.read_bytes()
+        assert sorted(path.name for path in image_directory.iterdir()) == [
+            "animation.gif", "large.png", "movie.webm",
+            *(f"small-{image_number:02d}.png" for image_number in range(25)),
+        ]
 
 
 def test_anima_request_count_submits_independent_single_images(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

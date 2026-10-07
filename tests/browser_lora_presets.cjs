@@ -11,6 +11,8 @@ const savedPresets = [];
 const batchSubmissions = [];
 const savedJobs = [];
 const outputQueries = [];
+const mockOutputFiles = [];
+const previewRequests = [];
 let availableLoras = ["first.safetensors", "second.safetensors"];
 
 /** 브라우저에 실제 앱 파일과 GPU 작업이 없는 독립된 API 응답을 제공합니다. */
@@ -54,7 +56,23 @@ async function handleBrowserRequest(route) {
   }
   else if (requestPath === "/api/outputs") {
     outputQueries.push(requestUrl.search);
-    response = { files: [], total: 0 };
+    const pageNumber = Number(requestUrl.searchParams.get("page") || 1);
+    const pageSize = Number(requestUrl.searchParams.get("page_size") || 24);
+    const selectedFiles = requestUrl.searchParams.has("job_id") || requestUrl.searchParams.has("request_id")
+      ? [] : mockOutputFiles;
+    response = {
+      files: selectedFiles.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
+      page: pageNumber, page_size: pageSize, total: selectedFiles.length,
+      total_pages: Math.max(1, Math.ceil(selectedFiles.length / pageSize)),
+    };
+  }
+  else if (requestPath.startsWith("/api/outputs/preview/")) {
+    previewRequests.push(requestPath);
+    await route.fulfill({
+      contentType: "image/gif",
+      body: Buffer.from("R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=", "base64"),
+    });
+    return;
   }
   else if (requestPath === "/api/loras") response = {
     files: availableLoras,
@@ -234,10 +252,10 @@ async function main() {
     assert.equal(await page.locator(".job-requests").getAttribute("open"), "");
     await page.locator('[data-show-job-results="test-job"]').click();
     await page.waitForFunction(() => document.getElementById("view-outputs").classList.contains("hidden") === false);
-    assert.ok(outputQueries.some(query => query === "?job_id=test-job"));
+    assert.ok(outputQueries.some(query => new URLSearchParams(query).get("job_id") === "test-job"));
     await page.locator('.sidebar [data-view="jobs"]').click();
     await page.locator('[data-show-request-results="request-2"]').click();
-    assert.ok(outputQueries.some(query => query === "?request_id=request-2"));
+    assert.ok(outputQueries.some(query => new URLSearchParams(query).get("request_id") === "request-2"));
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('.mobile-nav [data-view="lora-presets"]').click();
     await page.locator('[data-edit-lora-preset="preset-3"]').click();
@@ -273,6 +291,28 @@ async function main() {
     await page.locator('[data-delete-job-outputs="test-job"]').click();
     await page.locator('[data-delete-job-outputs="test-job"]').waitFor({ state: "detached" });
     assert.equal(savedJobs.some(job => job.job_id === "test-job"), false);
+    for (let outputNumber = 0; outputNumber < 26; outputNumber += 1) {
+      const isVideo = outputNumber === 0;
+      const filename = `result-${String(outputNumber).padStart(2, "0")}.${isVideo ? "webm" : "png"}`;
+      mockOutputFiles.push({
+        path: `anima/${filename}`, name: filename, size: 2048,
+        modified_at: 100 - outputNumber, kind: isVideo ? "video" : "image",
+      });
+    }
+    await page.setViewportSize({ width: 1280, height: 950 });
+    await page.locator('.sidebar [data-view="outputs"]').click();
+    await page.locator("#refresh-outputs-button").click();
+    await page.locator(".output-card").first().waitFor();
+    assert.equal(await page.locator(".output-card").count(), 24);
+    assert.equal(await page.locator(".output-video-placeholder").count(), 1);
+    assert.equal(await page.locator(".output-card img").count(), 23);
+    assert.equal(await page.locator('.output-card img[src^="/api/outputs/preview/"]').count(), 23);
+    await page.locator('#outputs-pagination [data-outputs-page="2"]').first().click();
+    await page.waitForFunction(() => document.querySelectorAll(".output-card").length === 2);
+    assert.ok(outputQueries.some(query => new URLSearchParams(query).get("page") === "2"));
+    await page.locator("#refresh-outputs-button").click();
+    await page.waitForFunction(() => document.querySelectorAll(".output-card").length === 24);
+    assert.ok(previewRequests.length > 0);
     const scenarioPage = await browser.newPage({ viewport: { width: 1280, height: 950 } });
     await scenarioPage.route("**/*", handleBrowserRequest);
     await scenarioPage.goto("http://home-server.test/");
