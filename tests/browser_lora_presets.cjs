@@ -260,8 +260,28 @@ async function main() {
     await page.locator('[data-delete-job-outputs="test-job"]').click();
     await page.locator('[data-delete-job-outputs="test-job"]').waitFor({ state: "detached" });
     assert.equal(savedJobs.some(job => job.job_id === "test-job"), false);
+    const scenarioPage = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+    await scenarioPage.route("**/*", handleBrowserRequest);
+    await scenarioPage.goto("http://localhost/");
+    await scenarioPage.locator('#available-loras option[value="first.safetensors"]').waitFor({ state: "attached" });
+    await scenarioPage.locator('.sidebar [data-view="prompts"]').click();
+    await scenarioPage.locator("#add-scenario-button").click();
+    await scenarioPage.locator(".scenario-editor-card").waitFor();
+    const scenarioFields = await scenarioPage.locator(".scenario-editor-card [data-scenario-field]").all();
+    const textareaPositions = [];
+    for (const scenarioField of scenarioFields) {
+      const fieldName = await scenarioField.getAttribute("data-scenario-field");
+      if (fieldName === "name") continue;
+      textareaPositions.push(await scenarioField.boundingBox());
+    }
+    assert.equal(textareaPositions.length, 6);
+    for (let fieldIndex = 1; fieldIndex < textareaPositions.length; fieldIndex += 1) {
+      assert.ok(textareaPositions[fieldIndex].y > textareaPositions[fieldIndex - 1].y);
+      assert.equal(textareaPositions[fieldIndex].x, textareaPositions[0].x);
+    }
+    await scenarioPage.close();
     assert.deepEqual(pageErrors, []);
-    console.log("Passed: LoRA presets, grouped jobs, pagination, cancellation, deletion, mobile layout.");
+    console.log("Passed: LoRA presets, grouped jobs, pagination, cancellation, deletion, scenario layout, mobile layout.");
   } finally {
     await browser.close();
   }
