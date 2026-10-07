@@ -74,6 +74,18 @@ async function main() {
     await page.route("**/*", handleBrowserRequest);
     await page.goto("http://home-server.test/");
     await page.locator('#available-loras option[value="first.safetensors"]').waitFor({ state: "attached" });
+    assert.deepEqual(
+      await page.locator("#view-generate .form-grid > .panel .panel-heading h3").allTextContents(),
+      ["기본 설정", "상황 선택", "LoRA", "Workflow 옵션"],
+    );
+    assert.equal(await page.locator("#generate-count-field").isVisible(), true);
+    assert.equal(await page.locator("#generate-count-field + #submit-button").count(), 1);
+    await page.locator("#generate-workflow").selectOption("minimax_h3");
+    assert.equal(await page.locator("#generate-scenario-fields").isVisible(), false);
+    assert.equal(await page.locator("#generate-count-field").isVisible(), false);
+    assert.equal(await page.locator("#lora-step").textContent(), "02");
+    assert.equal(await page.locator("#workflow-options-step").textContent(), "03");
+    await page.locator("#generate-workflow").selectOption("anima");
     await page.locator('.sidebar [data-view="lora-presets"]').click();
     await page.locator("#lora-preset-name").fill("Portrait combination");
     await page.locator("#lora-preset-available-files").selectOption("first.safetensors");
@@ -162,6 +174,10 @@ async function main() {
     await page.locator('[data-edit-lora-preset="preset-3"]').click();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     await page.screenshot({ path: path.join(screenshotDirectory, "lora-presets-mobile.png"), fullPage: true });
+    await page.locator('.mobile-nav [data-view="generate"]').click();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    assert.equal(await page.locator("#generate-count-field + #submit-button").count(), 1);
+    await page.screenshot({ path: path.join(screenshotDirectory, "generate-mobile.png"), fullPage: true });
     assert.deepEqual(pageErrors, []);
     console.log("Passed: save, load, isolated edits, copy, update, delete, workflow weights, missing files, submission, mobile layout.");
   } finally {

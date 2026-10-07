@@ -125,23 +125,8 @@
                   rows="2"
                   placeholder="Anima에서 사용합니다."
                 ></textarea>
-                <div class="field-row">
-                  <div>
-                    <label for="generate-separator">문구 구분자</label
-                    ><input id="generate-separator" value=", " />
-                  </div>
-                  <div>
-                    <label for="generate-count">요청 횟수</label
-                    ><input
-                      id="generate-count"
-                      type="number"
-                      min="1"
-                      max="100"
-                      value="1"
-                    />
-                  </div>
-                </div>
-                <p class="hint">입력한 횟수만큼 개별 요청을 제출합니다. 요청마다 상황과 wildcard를 새로 선택해 한 장씩 생성합니다.</p>
+                <label for="generate-separator">문구 구분자</label
+                ><input id="generate-separator" value=", " />
               </div>
               <div id="minimax-prompt-fields" class="stack hidden">
                 <label for="generate-minimax-prompt">MiniMax 영상 Prompt</label>
@@ -153,44 +138,73 @@
                 <p class="hint">입력한 평문을 이미지마다 동일하게 사용합니다. wildcard는 확장하지 않습니다.</p>
               </div>
             </div>
-            <div class="panel stack">
-              <div id="generate-scenario-fields" class="stack">
-                <div class="panel-heading">
-                  <span class="step">02</span>
-                  <h3>상황 선택</h3>
-                </div>
-                <p class="hint">
-                  체크한 상황 중 하나가 요청마다 선택됩니다. 내부 선택지는
-                  wildcard로 확장됩니다.
-                </p>
-                <div id="generate-scenarios" class="scenario-choices empty-state">
-                  등록된 상황이 없습니다. Prompt 화면에서 추가하세요.
-                </div>
-                <div class="panel-divider"></div>
-              </div>
+            <div id="generate-scenario-fields" class="panel stack">
               <div class="panel-heading">
-                <span id="workflow-options-step" class="step">03</span>
+                <span class="step">02</span>
+                <h3>상황 선택</h3>
+              </div>
+              <p class="hint">
+                체크한 상황 중 하나가 요청마다 선택됩니다. 내부 선택지는
+                wildcard로 확장됩니다.
+              </p>
+              <div id="generate-scenarios" class="scenario-choices empty-state">
+                등록된 상황이 없습니다. Prompt 화면에서 추가하세요.
+              </div>
+            </div>
+            <div class="panel stack">
+              <div class="panel-heading">
+                <span id="lora-step" class="step">03</span>
+                <h3>LoRA</h3>
+                <button
+                  id="refresh-loras-button"
+                  class="button subtle small"
+                  type="button"
+                >
+                  목록 새로고침
+                </button>
+              </div>
+              <p class="hint">
+                ComfyUI가 인식한 파일에서 선택합니다. 필요한 것만 이번 Batch에
+                적용됩니다.
+              </p>
+              <label for="generate-lora-preset">LoRA preset</label>
+              <div class="field-row lora-add">
+                <select id="generate-lora-preset"><option value="">직접 구성</option></select>
+                <button id="manage-lora-presets-button" class="button subtle" type="button">조합 관리</button>
+              </div>
+              <p id="generate-lora-preset-status" class="hint" aria-live="polite">직접 구성 · 0 LoRA</p>
+              <div class="field-row lora-add">
+                <select id="available-loras">
+                  <option value="">LoRA 목록을 불러오는 중</option></select
+                ><button id="add-lora-button" class="button subtle" type="button">
+                  추가
+                </button>
+              </div>
+              <div id="selected-loras" class="selected-loras"></div>
+              <button id="save-generation-lora-preset-button" class="button subtle" type="button">현재 조합을 새 preset으로 저장</button>
+              <form id="generation-lora-preset-form" class="stack hidden">
+                <label for="generation-lora-preset-name">새 preset 이름</label>
+                <input id="generation-lora-preset-name" maxlength="120" required placeholder="예: 부드러운 인물 변형" />
+                <div class="inline-actions">
+                  <button class="button primary" type="submit">저장</button>
+                  <button id="cancel-generation-lora-preset-button" class="button subtle" type="button">취소</button>
+                </div>
+              </form>
+            </div>
+            <div class="panel stack">
+              <div class="panel-heading">
+                <span id="workflow-options-step" class="step">04</span>
                 <h3>Workflow 옵션</h3>
               </div>
               <div id="anima-options" class="stack compact">
                 <div class="field-row">
                   <div>
                     <label for="anima-width">너비</label
-                    ><input
-                      id="anima-width"
-                      type="number"
-                      min="1"
-                      value="1024"
-                    />
+                    ><input id="anima-width" type="number" min="1" value="1024" />
                   </div>
                   <div>
                     <label for="anima-height">높이</label
-                    ><input
-                      id="anima-height"
-                      type="number"
-                      min="1"
-                      value="1536"
-                    />
+                    ><input id="anima-height" type="number" min="1" value="1536" />
                   </div>
                 </div>
                 <div class="field-row">
@@ -205,15 +219,8 @@
                 </div>
               </div>
               <div id="minimax-options" class="stack compact hidden">
-                <label for="minimax-images"
-                  >입력 이미지 · 여러 파일 또는 폴더</label
-                >
-                <input
-                  id="minimax-images"
-                  type="file"
-                  accept="image/*"
-                  multiple
-                />
+                <label for="minimax-images">입력 이미지 · 여러 파일 또는 폴더</label>
+                <input id="minimax-images" type="file" accept="image/*" multiple />
                 <input
                   id="minimax-directory"
                   type="file"
@@ -221,48 +228,25 @@
                   multiple
                   aria-label="폴더에서 이미지 선택"
                 />
-                <p id="selected-images" class="hint">
-                  선택한 이미지가 없습니다.
-                </p>
+                <p id="selected-images" class="hint">선택한 이미지가 없습니다.</p>
                 <div class="field-row">
                   <div>
                     <label for="minimax-width">너비</label
-                    ><input
-                      id="minimax-width"
-                      type="number"
-                      min="1"
-                      value="720"
-                    />
+                    ><input id="minimax-width" type="number" min="1" value="720" />
                   </div>
                   <div>
                     <label for="minimax-height">높이</label
-                    ><input
-                      id="minimax-height"
-                      type="number"
-                      min="1"
-                      value="720"
-                    />
+                    ><input id="minimax-height" type="number" min="1" value="720" />
                   </div>
                 </div>
                 <div class="field-row">
                   <div>
                     <label for="minimax-duration">길이 · 초</label
-                    ><input
-                      id="minimax-duration"
-                      type="number"
-                      min="0.1"
-                      step="0.1"
-                      value="10"
-                    />
+                    ><input id="minimax-duration" type="number" min="0.1" step="0.1" value="10" />
                   </div>
                   <div>
                     <label for="minimax-frame-rate">Frame rate</label
-                    ><input
-                      id="minimax-frame-rate"
-                      type="number"
-                      min="1"
-                      value="24"
-                    />
+                    ><input id="minimax-frame-rate" type="number" min="1" value="24" />
                   </div>
                 </div>
                 <label for="minimax-upscale">Upscale</label
@@ -272,54 +256,10 @@
                   <option value="model">Model 2×</option>
                   <option value="rtx">RTX 2×</option>
                 </select>
-                <label for="minimax-upscale-model"
-                  >Upscale model 이름 · model 선택 시</label
-                ><input
-                  id="minimax-upscale-model"
-                  value="2x-AnimeSharpV4_RCAN.safetensors"
-                />
+                <label for="minimax-upscale-model">Upscale model 이름 · model 선택 시</label
+                ><input id="minimax-upscale-model" value="2x-AnimeSharpV4_RCAN.safetensors" />
               </div>
             </div>
-          </div>
-          <div class="panel stack lora-panel">
-            <div class="panel-heading">
-              <span id="lora-step" class="step">04</span>
-              <h3>LoRA</h3>
-              <button
-                id="refresh-loras-button"
-                class="button subtle small"
-                type="button"
-              >
-                목록 새로고침
-              </button>
-            </div>
-            <p class="hint">
-              ComfyUI가 인식한 파일에서 선택합니다. 필요한 것만 이번 Batch에
-              적용됩니다.
-            </p>
-            <label for="generate-lora-preset">LoRA preset</label>
-            <div class="field-row lora-add">
-              <select id="generate-lora-preset"><option value="">직접 구성</option></select>
-              <button id="manage-lora-presets-button" class="button subtle" type="button">조합 관리</button>
-            </div>
-            <p id="generate-lora-preset-status" class="hint" aria-live="polite">직접 구성 · 0 LoRA</p>
-            <div class="field-row lora-add">
-              <select id="available-loras">
-                <option value="">LoRA 목록을 불러오는 중</option></select
-              ><button id="add-lora-button" class="button subtle" type="button">
-                추가
-              </button>
-            </div>
-            <div id="selected-loras" class="selected-loras"></div>
-            <button id="save-generation-lora-preset-button" class="button subtle" type="button">현재 조합을 새 preset으로 저장</button>
-            <form id="generation-lora-preset-form" class="stack hidden">
-              <label for="generation-lora-preset-name">새 preset 이름</label>
-              <input id="generation-lora-preset-name" maxlength="120" required placeholder="예: 부드러운 인물 변형" />
-              <div class="inline-actions">
-                <button class="button primary" type="submit">저장</button>
-                <button id="cancel-generation-lora-preset-button" class="button subtle" type="button">취소</button>
-              </div>
-            </form>
           </div>
           <div class="panel submit-panel">
             <div>
@@ -327,11 +267,16 @@
               <p id="preview-hint" class="hint">
                 미리보기는 실제 Impact wildcard 결과를 보여줍니다.
               </p>
+              <p id="generate-count-hint" class="hint">입력한 횟수만큼 개별 요청을 제출합니다. 요청마다 상황과 wildcard를 새로 선택해 한 장씩 생성합니다.</p>
             </div>
             <div class="inline-actions">
               <button id="preview-button" class="button subtle" type="button">
                 Prompt 미리보기</button
-              ><button id="submit-button" class="button primary" type="button">
+              ><div id="generate-count-field" class="request-count-field">
+                <label for="generate-count">요청 횟수</label>
+                <input id="generate-count" type="number" min="1" max="100" value="1" />
+              </div>
+              <button id="submit-button" class="button primary" type="button">
                 Batch 제출
               </button>
             </div>

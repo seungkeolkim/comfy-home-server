@@ -235,11 +235,6 @@ button:disabled {
   font-weight: 800;
   font-size: 11px;
 }
-.panel-divider {
-  height: 1px;
-  background: #30394a;
-  margin: 13px 0;
-}
 .hint,
 .muted {
   font-size: 12px;
@@ -352,7 +347,6 @@ input[type="file"] {
   border: 1px dashed #3c4960;
   border-radius: 12px;
 }
-.lora-panel,
 .submit-panel {
   margin-top: 18px;
 }
@@ -423,6 +417,17 @@ input[type="file"] {
   justify-content: space-between;
   align-items: center;
   gap: 14px;
+}
+.request-count-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.request-count-field label {
+  margin-top: 0;
+}
+.request-count-field input {
+  width: 88px;
 }
 .preview-results {
   display: grid;

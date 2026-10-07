@@ -162,9 +162,11 @@ function updateWorkflowOptions() {
   element("generate-scenario-fields").classList.toggle("hidden", !isAnima);
   element("anima-options").classList.toggle("hidden", !isAnima);
   element("minimax-options").classList.toggle("hidden", isAnima);
+  element("generate-count-field").classList.toggle("hidden", !isAnima);
+  element("generate-count-hint").classList.toggle("hidden", !isAnima);
   element("generate-count").disabled = !isAnima;
-  element("workflow-options-step").textContent = isAnima ? "03" : "02";
-  element("lora-step").textContent = isAnima ? "04" : "03";
+  element("lora-step").textContent = isAnima ? "03" : "02";
+  element("workflow-options-step").textContent = isAnima ? "04" : "03";
   element("preview-hint").textContent = isAnima
     ? "미리보기는 실제 Impact wildcard 결과를 보여줍니다."
     : "미리보기는 모든 입력 이미지에 사용할 평문을 그대로 보여줍니다.";
