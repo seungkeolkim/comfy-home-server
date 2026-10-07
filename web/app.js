@@ -42,6 +42,14 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+/** HTTP 접속에서도 쓸 수 있는 무작위 상황 식별자를 만듭니다. */
+function createScenarioIdentifier() {
+  const randomBytes = new Uint8Array(16);
+  crypto.getRandomValues(randomBytes);
+  return Array.from(randomBytes, (randomByte) =>
+    randomByte.toString(16).padStart(2, "0")).join("");
+}
+
 /** 인증 cookie를 포함해 JSON API를 호출합니다. */
 async function apiRequest(path, options = {}) {
   const headers = { ...(options.headers || {}) };
@@ -994,7 +1002,7 @@ function bindEvents() {
   element("add-scenario-button").addEventListener("click", () => {
     const scenarios = applicationState.currentBody.scenarios || [];
     scenarios.push({
-      id: crypto.randomUUID(),
+      id: createScenarioIdentifier(),
       name: "새 상황",
       characters: "",
       situation: "",

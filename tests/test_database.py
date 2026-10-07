@@ -87,6 +87,27 @@ def test_grouped_job_migration_keeps_existing_history(tmp_path: Path) -> None:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 2
 
 
+def test_prompt_preset_keeps_multiple_scenarios_across_versions(tmp_path: Path) -> None:
+    """하나의 Prompt preset에 여러 상황을 버전별로 함께 보관합니다."""
+
+    database_path = tmp_path / "home_server.sqlite3"
+    database = Database(database_path)
+    first_body = {"prefix": "portrait", "scenarios": [
+        {"id": "day", "name": "주간", "situation": "daylight"},
+    ]}
+    second_body = {"prefix": "portrait", "scenarios": [
+        {"id": "day", "name": "주간", "situation": "daylight"},
+        {"id": "night", "name": "야간", "situation": "nightlight"},
+    ]}
+    database.save_preset("portrait", "다중 상황", "anima", first_body)
+    database.save_preset("portrait", "다중 상황", "anima", second_body)
+
+    reopened_database = Database(database_path)
+    assert reopened_database.get_preset("portrait")["body"] == second_body
+    versions = reopened_database.list_preset_versions("portrait")
+    assert [version["body"] for version in versions] == [second_body, first_body]
+
+
 def test_job_pagination_and_active_deletion_guard(tmp_path: Path) -> None:
     """페이지 경계와 전체 활성 건수를 계산하고 진행 중 삭제를 거부합니다."""
 

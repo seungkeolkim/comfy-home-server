@@ -6,6 +6,7 @@ const { chromium } = require("playwright");
 
 const projectDirectory = path.resolve(__dirname, "..");
 const screenshotDirectory = path.join(projectDirectory, "runtime", "browser-check");
+const savedPromptPresets = [];
 const savedPresets = [];
 const batchSubmissions = [];
 const savedJobs = [];
@@ -38,7 +39,19 @@ async function handleBrowserRequest(route) {
         ["submitting", "pending", "running", "cancelling"].includes(child.status))).length,
     };
   }
-  else if (requestPath === "/api/presets") response = [];
+  else if (requestPath === "/api/presets" && method === "GET") response = savedPromptPresets;
+  else if (requestPath === "/api/presets" && method === "POST") {
+    const payload = request.postDataJSON();
+    const savedIndex = savedPromptPresets.findIndex(preset => preset.preset_id === payload.preset_id);
+    response = {
+      ...payload,
+      preset_id: payload.preset_id || `prompt-${savedPromptPresets.length + 1}`,
+      version: savedIndex < 0 ? 1 : savedPromptPresets[savedIndex].version + 1,
+      updated_at: "2026-10-07",
+    };
+    if (savedIndex < 0) savedPromptPresets.push(structuredClone(response));
+    else savedPromptPresets[savedIndex] = structuredClone(response);
+  }
   else if (requestPath === "/api/outputs") {
     outputQueries.push(requestUrl.search);
     response = { files: [], total: 0 };
@@ -262,26 +275,47 @@ async function main() {
     assert.equal(savedJobs.some(job => job.job_id === "test-job"), false);
     const scenarioPage = await browser.newPage({ viewport: { width: 1280, height: 950 } });
     await scenarioPage.route("**/*", handleBrowserRequest);
-    await scenarioPage.goto("http://localhost/");
+    await scenarioPage.goto("http://home-server.test/");
     await scenarioPage.locator('#available-loras option[value="first.safetensors"]').waitFor({ state: "attached" });
     await scenarioPage.locator('.sidebar [data-view="prompts"]').click();
+    await scenarioPage.locator("#preset-name").fill("다중 상황 Prompt");
+    await scenarioPage.locator("#preset-prefix").fill("portrait");
     await scenarioPage.locator("#add-scenario-button").click();
     await scenarioPage.locator(".scenario-editor-card").waitFor();
-    const scenarioFields = await scenarioPage.locator(".scenario-editor-card [data-scenario-field]").all();
-    const textareaPositions = [];
+    await scenarioPage.locator('.scenario-editor-card [data-scenario-field="name"]').fill("주간");
+    await scenarioPage.locator('.scenario-editor-card [data-scenario-field="situation"]').fill("daylight");
+    await scenarioPage.locator("#save-preset-button").click();
+    await scenarioPage.waitForFunction(() => document.getElementById("preset-version").textContent === "현재 v1");
+    await scenarioPage.locator("#add-scenario-button").click();
+    assert.equal(await scenarioPage.locator(".scenario-editor-card").count(), 2);
+    await scenarioPage.locator('.scenario-editor-card [data-scenario-field="name"]').nth(1).fill("야간");
+    await scenarioPage.locator('.scenario-editor-card [data-scenario-field="situation"]').nth(1).fill("nightlight");
+    await scenarioPage.locator("#save-preset-button").click();
+    await scenarioPage.waitForFunction(() => document.getElementById("preset-version").textContent === "현재 v2");
+    assert.equal(savedPromptPresets.length, 1);
+    assert.deepEqual(savedPromptPresets[0].body.scenarios.map(scenario => scenario.name), ["주간", "야간"]);
+    assert.equal(new Set(savedPromptPresets[0].body.scenarios.map(scenario => scenario.id)).size, 2);
+    await scenarioPage.reload();
+    await scenarioPage.locator('#generate-preset option[value="prompt-1"]').waitFor({ state: "attached" });
+    await scenarioPage.locator("#generate-preset").selectOption("prompt-1");
+    assert.equal(await scenarioPage.locator("#generate-scenarios input:checked").count(), 2);
+    assert.equal(await scenarioPage.locator(".scenario-editor-card").count(), 2);
+    await scenarioPage.locator("#edit-preset-button").click();
+    const scenarioFields = await scenarioPage.locator('.scenario-editor-card[data-scenario-index="0"] [data-scenario-field]').all();
+    const fieldPositions = [];
     for (const scenarioField of scenarioFields) {
       const fieldName = await scenarioField.getAttribute("data-scenario-field");
       if (fieldName === "name") continue;
-      textareaPositions.push(await scenarioField.boundingBox());
+      fieldPositions.push(await scenarioField.boundingBox());
     }
-    assert.equal(textareaPositions.length, 6);
-    for (let fieldIndex = 1; fieldIndex < textareaPositions.length; fieldIndex += 1) {
-      assert.ok(textareaPositions[fieldIndex].y > textareaPositions[fieldIndex - 1].y);
-      assert.equal(textareaPositions[fieldIndex].x, textareaPositions[0].x);
+    assert.equal(fieldPositions.length, 6);
+    for (let fieldIndex = 1; fieldIndex < fieldPositions.length; fieldIndex += 1) {
+      assert.ok(fieldPositions[fieldIndex].y > fieldPositions[fieldIndex - 1].y);
+      assert.equal(fieldPositions[fieldIndex].x, fieldPositions[0].x);
     }
     await scenarioPage.close();
     assert.deepEqual(pageErrors, []);
-    console.log("Passed: LoRA presets, grouped jobs, pagination, cancellation, deletion, scenario layout, mobile layout.");
+    console.log("Passed: LoRA presets, grouped jobs, pagination, cancellation, deletion, multiple scenarios, mobile layout.");
   } finally {
     await browser.close();
   }
