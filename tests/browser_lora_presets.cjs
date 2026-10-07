@@ -262,12 +262,17 @@ async function main() {
     await page.locator("#generate-count").fill("2");
     await page.locator("#job-description").fill("아침 조명 비교");
     await page.locator("#submit-button").click();
-    await page.waitForFunction(() => document.getElementById("view-jobs").classList.contains("hidden") === false);
+    await page.waitForFunction(() => document.getElementById("submit-button").disabled === false);
+    assert.equal(await page.locator("#view-generate").isVisible(), true);
+    assert.equal(await page.locator("#view-jobs").isVisible(), false);
+    assert.equal(await page.locator("#submit-button").textContent(), "작업 제출");
+    assert.equal(await page.locator("#generate-prefix").inputValue(), "portrait");
     assert.equal(batchSubmissions[0].count, 2);
     assert.equal(batchSubmissions[0].loras[0].strength, 0.85);
     assert.equal(batchSubmissions[0].description, "아침 조명 비교");
     assert.equal(batchSubmissions[0].settings.width, 1280);
     assert.equal(batchSubmissions[0].settings.height, 720);
+    await page.locator('.sidebar [data-view="jobs"]').click();
     assert.equal(await page.locator(".job-card").count(), 1);
     assert.equal(await page.locator(".job-description").textContent(), "아침 조명 비교");
     assert.equal(await page.locator(".job-card .status-badge").first().textContent(), "대기");

@@ -775,14 +775,13 @@ async function submitBatch() {
       }),
     });
     showNotice(
-      `${response.request_ids.length}건을 접수했습니다. ComfyUI 제출 상태를 확인합니다.`,
+      `${response.request_ids.length}건을 접수했습니다. 작업 목록에서 ComfyUI 제출 상태를 확인할 수 있습니다.`,
     );
     applicationState.jobsPage = 1;
-    switchView("jobs");
     await loadJobs();
   } finally {
     submitButton.disabled = false;
-    submitButton.textContent = "Batch 제출";
+    submitButton.textContent = "작업 제출";
   }
 }
 
