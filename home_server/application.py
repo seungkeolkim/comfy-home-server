@@ -38,6 +38,30 @@ MAX_PREVIEW_PIXELS = 80_000_000
 LOGGER = logging.getLogger(__name__)
 
 
+def image_dimensions(image_path: Path) -> tuple[int, int] | None:
+    """이미지 전체를 디코딩하지 않고 표시 방향에 맞는 크기를 읽습니다."""
+
+    try:
+        with Image.open(image_path) as source_image:
+            width, height = source_image.size
+            if source_image.getexif().get(274) in {5, 6, 7, 8}:
+                width, height = height, width
+            return width, height
+    except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
+        return None
+
+
+def settings_dimensions(settings: dict[str, Any]) -> tuple[int, int] | None:
+    """저장된 요청 설정에서 양수 해상도를 읽습니다."""
+
+    try:
+        width = int(settings["width"])
+        height = int(settings["height"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    return (width, height) if width > 0 and height > 0 else None
+
+
 class LoginInput(BaseModel):
     """로그인 비밀번호를 검증할 요청 형식입니다."""
 
@@ -685,9 +709,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         total = len(found_files)
         first_index = (page - 1) * page_size
         page_files = found_files[first_index:first_index + page_size]
-        jobs_by_output_path = server.database.find_output_jobs([file["path"] for file in page_files])
+        requests_by_output_path = server.database.find_output_requests([file["path"] for file in page_files])
         for file in page_files:
-            file["job_id"] = jobs_by_output_path.get(file["path"])
+            output_request = requests_by_output_path.get(file["path"], {})
+            file["job_id"] = output_request.get("job_id")
+            file_path = server.config.managed_output_directory / file["path"]
+            dimensions = image_dimensions(file_path) if file["kind"] == "image" else None
+            file["dimensions_source"] = "file" if dimensions else None
+            if dimensions is None:
+                dimensions = settings_dimensions(output_request.get("settings", {}))
+                if dimensions:
+                    file["dimensions_source"] = "settings"
+            file["width"] = dimensions[0] if dimensions else None
+            file["height"] = dimensions[1] if dimensions else None
         return {
             "files": page_files,
             "page": page, "page_size": page_size, "total": total,

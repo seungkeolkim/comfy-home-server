@@ -96,14 +96,17 @@ async function handleBrowserRequest(route) {
     savedPresets.splice(savedPresets.findIndex(preset => preset.preset_id === presetIdentifier), 1);
     response = { deleted: true };
   } else if (requestPath === "/api/batches") {
-    batchSubmissions.push(request.postDataJSON());
+    const submission = request.postDataJSON();
+    batchSubmissions.push(submission);
     response = { job_id: "test-job", request_ids: ["request-1", "request-2"] };
     savedJobs.push({
-      job_id: "test-job", workflow: "anima", description: request.postDataJSON().description, request_count: 2,
+      job_id: "test-job", workflow: "anima", description: submission.description, request_count: 2,
       created_at: "2026-10-07", status: "pending", status_counts: { pending: 1, completed: 1 },
       requests: [
-        { request_id: "request-1", request_index: 1, prompt_id: "prompt-1", status: "pending", detail: {} },
-        { request_id: "request-2", request_index: 2, prompt_id: "prompt-2", status: "completed", detail: { resolved: { prompt: "portrait" } } },
+        { request_id: "request-1", request_index: 1, prompt_id: "prompt-1", status: "pending",
+          detail: { settings: submission.settings, loras: submission.loras } },
+        { request_id: "request-2", request_index: 2, prompt_id: "prompt-2", status: "completed",
+          detail: { settings: submission.settings, loras: submission.loras, resolved: { prompt: "portrait" } } },
       ],
     });
   } else if (requestPath === "/api/requests/request-1/cancel") {
@@ -286,9 +289,13 @@ async function main() {
     await page.locator('.sidebar [data-view="jobs"]').click();
     assert.equal(await page.locator(".job-card").count(), 1);
     assert.equal(await page.locator(".job-description").textContent(), "아침 조명 비교");
+    assert.match(await page.locator(".job-card > div:first-child p").first().textContent(),
+      /2026-10-07 · 16:9 · 1280 × 720 · 완료 1\/2장/);
     assert.equal(await page.locator(".job-card .status-badge").first().textContent(), "대기");
     await page.locator(".job-requests summary").click();
     assert.equal(await page.locator(".job-request").count(), 2);
+    assert.match(await page.locator(".job-request").last().textContent(), /Prompt portrait/);
+    assert.match(await page.locator(".job-request").last().textContent(), /LoRA first\.safetensors, second\.safetensors/);
     await page.locator('[data-cancel-request="request-1"]').click();
     await page.locator(".job-card .status-badge").first().getByText("일부 완료").waitFor();
     assert.equal(await page.locator(".job-requests").getAttribute("open"), "");
@@ -346,6 +353,8 @@ async function main() {
         path: `anima/${filename}`, name: filename, size: 2048,
         modified_at: 100 - outputNumber, kind: isVideo ? "video" : "image",
         job_id: isVideo ? "old-job-8" : null,
+        width: isVideo ? 720 : 1024, height: isVideo ? 1280 : 1536,
+        dimensions_source: isVideo ? "settings" : "file",
       });
     }
     await page.setViewportSize({ width: 1280, height: 950 });
@@ -356,6 +365,10 @@ async function main() {
     assert.equal(await page.locator(".output-video-placeholder").count(), 1);
     assert.equal(await page.locator(".output-card img").count(), 23);
     assert.equal(await page.locator('.output-card img[src^="/api/outputs/preview/"]').count(), 23);
+    assert.match(await page.locator(".output-card").first().locator("small").textContent(),
+      /0\.0 MB · 9:16 · 720 × 1280 \(설정\)/);
+    assert.match(await page.locator(".output-card").nth(1).locator("small").textContent(),
+      /0\.0 MB · 2:3 · 1024 × 1536/);
     assert.equal(await page.locator(".output-card [data-output-job]").count(), 1);
     assert.notEqual(await page.locator(".output-card [data-output-job]").evaluate(button =>
       getComputedStyle(button).backgroundColor), await page.locator(".output-card [data-move-output]").first().evaluate(button =>

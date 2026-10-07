@@ -56,6 +56,27 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+/** 너비와 높이를 약분한 비율과 해상도 문자열로 만듭니다. */
+function formatDimensions(width, height) {
+  const normalizedWidth = Number(width);
+  const normalizedHeight = Number(height);
+  if (!Number.isInteger(normalizedWidth) || !Number.isInteger(normalizedHeight) ||
+      normalizedWidth <= 0 || normalizedHeight <= 0) {
+    return { ratio: "—", resolution: "—" };
+  }
+  let dividend = normalizedWidth;
+  let divisor = normalizedHeight;
+  while (divisor !== 0) {
+    const remainder = dividend % divisor;
+    dividend = divisor;
+    divisor = remainder;
+  }
+  return {
+    ratio: `${normalizedWidth / dividend}:${normalizedHeight / dividend}`,
+    resolution: `${normalizedWidth} × ${normalizedHeight}`,
+  };
+}
+
 /** HTTP 접속에서도 쓸 수 있는 무작위 상황 식별자를 만듭니다. */
 function createScenarioIdentifier() {
   const randomBytes = new Uint8Array(16);
@@ -790,7 +811,9 @@ async function submitBatch() {
 
 /** 상위 작업에 속한 ComfyUI 요청의 상태와 조작 버튼을 표시합니다. */
 function requestCardMarkup(request, statusNames) {
-  const requestDetail = request.error_message || request.detail.resolved?.prompt || "";
+  const promptText = request.detail.resolved?.prompt || "확정 전";
+  const selectedLoras = Array.isArray(request.detail.loras) ? request.detail.loras : [];
+  const loraNames = selectedLoras.map((selectedLora) => selectedLora.name).filter(Boolean).join(", ") || "없음";
   return `
     <div class="job-request">
       <div>
@@ -798,7 +821,9 @@ function requestCardMarkup(request, statusNames) {
         <p>prompt_id ${escapeHtml(request.prompt_id || "대기 중")}</p>
       </div>
       <span class="status-badge ${escapeHtml(request.status)}">${escapeHtml(statusNames[request.status] || request.status)}</span>
-      <div class="job-detail">${escapeHtml(requestDetail)}</div>
+      <div class="job-detail"><strong>Prompt</strong> ${escapeHtml(promptText)}</div>
+      <div class="job-detail"><strong>LoRA</strong> ${escapeHtml(loraNames)}</div>
+      ${request.error_message ? `<div class="job-detail"><strong>오류</strong> ${escapeHtml(request.error_message)}</div>` : ""}
       <div class="job-actions inline-actions">
         ${["pending", "running"].includes(request.status) ? `<button class="button subtle small" data-cancel-request="${escapeHtml(request.request_id)}">요청 취소</button>` : ""}
         <button class="button subtle small" data-show-request-results="${escapeHtml(request.request_id)}">요청 결과 보기</button>
@@ -808,9 +833,12 @@ function requestCardMarkup(request, statusNames) {
 
 /** 한 번의 제출을 하나의 상위 작업 카드로 표시합니다. */
 function jobCardMarkup(job, statusNames, openJobIds) {
+  const requestSettings = job.requests[0]?.detail.resolved?.settings || job.requests[0]?.detail.settings || {};
+  const dimensions = formatDimensions(requestSettings.width, requestSettings.height);
   const completedCount = job.status_counts.completed || 0;
   const failedCount = job.status_counts.failed || 0;
-  const progressText = `완료 ${completedCount}/${job.request_count}` +
+  const countUnit = job.workflow === "anima" ? "장" : "건";
+  const progressText = `완료 ${completedCount}/${job.request_count}${countUnit}` +
     (failedCount ? ` · 실패 ${failedCount}` : "");
   const openAttribute = openJobIds.has(job.job_id) ? " open" : "";
   const canCancel = job.requests.some((request) => ["pending", "running"].includes(request.status));
@@ -821,7 +849,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
     <article class="job-card">
       <div>
         <h3>${escapeHtml(job.workflow)} · 작업 ${escapeHtml(job.job_id)}</h3>
-        <p>${escapeHtml(job.created_at)} · ${escapeHtml(progressText)}</p>
+        <p>${escapeHtml(job.created_at)} · ${dimensions.ratio} · ${dimensions.resolution} · ${escapeHtml(progressText)}</p>
         ${job.description ? `<p class="job-description">${escapeHtml(job.description)}</p>` : ""}
       </div>
       <span class="status-badge ${escapeHtml(job.status)}">${escapeHtml(statusNames[job.status] || job.status)}</span>
@@ -967,6 +995,8 @@ async function loadOutputs() {
       ? visibleFiles
           .map((file) => {
             const url = `/media/${file.path.split("/").map(encodeURIComponent).join("/")}`;
+            const dimensions = formatDimensions(file.width, file.height);
+            const dimensionSource = file.dimensions_source === "settings" ? " (설정)" : "";
             const media =
               file.kind === "video"
                 ? `<span class="output-video-placeholder">영상 · 열기로 재생</span>`
@@ -974,7 +1004,7 @@ async function loadOutputs() {
             const jobButton = file.job_id
               ? `<button class="button job-link" data-output-job="${escapeHtml(file.job_id)}" aria-label="작업 ${escapeHtml(file.job_id)} 보기">작업</button>`
               : "";
-            return `<article class="output-card"><div class="output-preview">${media}</div><div class="output-info"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.path)} · ${(file.size / 1024 / 1024).toFixed(1)} MB</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(file.path)}">이동</button>${jobButton}</div></div></article>`;
+            return `<article class="output-card"><div class="output-preview">${media}</div><div class="output-info"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.path)} · ${(file.size / 1024 / 1024).toFixed(1)} MB · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(file.path)}">이동</button>${jobButton}</div></div></article>`;
           })
           .join("")
       : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;

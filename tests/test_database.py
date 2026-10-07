@@ -141,13 +141,13 @@ def test_job_pagination_and_active_deletion_guard(tmp_path: Path) -> None:
     assert database.get_job("job-1") is None
 
 
-def test_output_paths_map_to_their_original_jobs(tmp_path: Path) -> None:
-    """결과물의 원래 생성 경로만 작업에 연결합니다."""
+def test_output_paths_map_to_their_original_requests(tmp_path: Path) -> None:
+    """결과물의 원래 생성 경로를 작업과 요청 설정에 연결합니다."""
 
     database = Database(tmp_path / "home_server.sqlite3")
     database.add_job("first-job", "anima", "", [{
         "request_id": "first-request", "status": "completed", "output_stem": "anima/example",
-        "detail": {},
+        "detail": {"settings": {"width": 768, "height": 1024}},
     }])
     database.add_job("second-job", "anima", "", [{
         "request_id": "second-request", "status": "completed", "output_stem": "anima/example",
@@ -156,8 +156,8 @@ def test_output_paths_map_to_their_original_jobs(tmp_path: Path) -> None:
     database.complete_request("first-request", ["anima/first.png"])
     database.complete_request("second-request", ["anima/second.png"])
 
-    assert database.find_output_jobs([]) == {}
-    assert database.find_output_jobs(["anima/first.png", "anima/second.png", "anima/moved.png"]) == {
-        "anima/first.png": "first-job",
-        "anima/second.png": "second-job",
+    assert database.find_output_requests([]) == {}
+    assert database.find_output_requests(["anima/first.png", "anima/second.png", "anima/moved.png"]) == {
+        "anima/first.png": {"job_id": "first-job", "settings": {"width": 768, "height": 1024}},
+        "anima/second.png": {"job_id": "second-job", "settings": {}},
     }

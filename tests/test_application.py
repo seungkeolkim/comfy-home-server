@@ -190,6 +190,10 @@ def test_output_pagination_and_transient_preview(tmp_path: Path) -> None:
         assert client.get("/api/outputs", params={"page_size": 101}).status_code == 422
         assert client.get("/api/outputs", params={"page": 3}).json()["files"] == []
         assert client.get("/api/outputs", params={"prefix": "anima/large"}).json()["total"] == 1
+        image_file = client.get("/api/outputs", params={"prefix": "anima/large"}).json()["files"][0]
+        assert (image_file["width"], image_file["height"], image_file["dimensions_source"]) == (1600, 1200, "file")
+        video_file = next(file for file in [*first_page["files"], *second_page["files"]] if file["name"] == "movie.webm")
+        assert (video_file["width"], video_file["height"]) == (None, None)
 
         preview_response = client.get(preview_url)
         assert preview_response.status_code == 200
@@ -518,7 +522,10 @@ def test_saver_history_outputs_keep_native_names(tmp_path: Path, workflow: str) 
             upload_response = client.post("/api/uploads", files={"file": ("input.png", b"image", "image/png")})
             upload_ids.append(upload_response.json()["upload_id"])
         body = {"prefix": "portrait", "scenarios": []} if workflow == "anima" else {"prompt": "quiet scene"}
-        response = client.post("/api/batches", json={"workflow": workflow, "body": body, "upload_ids": upload_ids})
+        response = client.post("/api/batches", json={
+            "workflow": workflow, "body": body, "upload_ids": upload_ids,
+            "settings": {"width": 768, "height": 1024},
+        })
         assert response.status_code == 200
         request_id = response.json()["request_ids"][0]
         for attempt_index in range(30):
@@ -552,6 +559,8 @@ def test_saver_history_outputs_keep_native_names(tmp_path: Path, workflow: str) 
         outputs = client.get("/api/outputs", params={"request_id": request_id}).json()
         assert [result["path"] for result in outputs["files"]] == [f"{workflow}/{filename}"]
         assert outputs["files"][0]["job_id"] == completed_job["job_id"]
+        assert (outputs["files"][0]["width"], outputs["files"][0]["height"]) == (768, 1024)
+        assert outputs["files"][0]["dimensions_source"] == "settings"
         grouped_outputs = client.get("/api/outputs", params={"job_id": completed_job["job_id"]}).json()
         assert [result["path"] for result in grouped_outputs["files"]] == [f"{workflow}/{filename}"]
         all_outputs = client.get("/api/outputs").json()["files"]

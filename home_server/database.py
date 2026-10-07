@@ -265,25 +265,31 @@ class Database:
             "active_count": active_count,
         }
 
-    def find_output_jobs(self, output_paths: list[str]) -> dict[str, str]:
-        """현재 페이지 결과물의 원래 생성 경로를 작업 ID에 연결합니다."""
+    def find_output_requests(self, output_paths: list[str]) -> dict[str, dict[str, Any]]:
+        """현재 페이지 결과물의 원래 생성 경로를 작업과 요청 설정에 연결합니다."""
 
         if not output_paths:
             return {}
         placeholders = ",".join("?" for _ in output_paths)
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT job_requests.job_id, output_path.value AS output_path "
+                "SELECT job_requests.job_id, job_requests.detail_json, output_path.value AS output_path "
                 "FROM job_requests "
                 "JOIN json_each(job_requests.detail_json, '$.resolved.output_paths') AS output_path "
                 f"WHERE output_path.value IN ({placeholders}) "
                 "ORDER BY job_requests.updated_at DESC",
                 tuple(output_paths),
             ).fetchall()
-        jobs_by_output_path = {}
+        requests_by_output_path = {}
         for row in rows:
-            jobs_by_output_path.setdefault(row["output_path"], row["job_id"])
-        return jobs_by_output_path
+            if row["output_path"] in requests_by_output_path:
+                continue
+            detail = json.loads(row["detail_json"])
+            settings = detail.get("resolved", {}).get("settings") or detail.get("settings", {})
+            requests_by_output_path[row["output_path"]] = {
+                "job_id": row["job_id"], "settings": settings,
+            }
+        return requests_by_output_path
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
         """한 상위 작업과 하위 요청을 조회합니다."""
