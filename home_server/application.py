@@ -11,10 +11,11 @@ import shutil
 import time
 import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -28,7 +29,6 @@ from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, pre
 
 MEDIA_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mkv", ".mov"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
-FINAL_STATUSES = {"completed", "failed", "cancelled", "stopped"}
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 LOGGER = logging.getLogger(__name__)
 
@@ -61,12 +61,22 @@ class BatchInput(BaseModel):
     """ComfyUI에 제출할 Batch의 공통 옵션입니다."""
 
     workflow: str
+    description: str = Field(default="", max_length=200)
     body: dict[str, Any]
     selected_scenario_ids: list[str] = Field(default_factory=list)
     count: int = Field(default=1, ge=1, le=100)
     settings: dict[str, Any] = Field(default_factory=dict)
     loras: list[dict[str, Any]] = Field(default_factory=list)
     upload_ids: list[str] = Field(default_factory=list)
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str) -> str:
+        """작업 설명의 공백을 정리하고 여러 줄 입력을 거부합니다."""
+
+        if "\n" in value or "\r" in value:
+            raise ValueError("작업 설명은 한 줄로 입력해 주세요.")
+        return value.strip()
 
 
 class MoveInput(BaseModel):
@@ -178,9 +188,9 @@ class HomeServer:
     def _mark_interrupted_submissions(self) -> None:
         """이전 실행에서 제출되지 못한 작업을 자동 재실행 없이 표시합니다."""
 
-        for job in self.database.list_jobs(limit=1000):
-            if job["status"] == "submitting":
-                self.database.update_job(job["request_id"], "stopped", "앱 재시작으로 제출 여부를 확인하지 못했습니다.")
+        for request in self.database.list_active_requests():
+            if request["status"] == "submitting":
+                self.database.update_request(request["request_id"], "stopped", "앱 재시작으로 제출 여부를 확인하지 못했습니다.")
 
     def managed_path(self, relative_path: str, must_exist: bool = False) -> Path:
         """관리 output 밖으로 나가는 경로와 symlink를 거부합니다."""
@@ -207,7 +217,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         log_path = configure_application_logging(server.config.runtime_directory)
         LOGGER.info("서버 시작: 로그 파일=%s", log_path)
-        monitor_task = asyncio.create_task(_monitor_jobs(server))
+        monitor_task = asyncio.create_task(_monitor_requests(server))
         try:
             yield
         finally:
@@ -490,73 +500,149 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if not any(server.upload_directory.glob(f"{upload_id}.*")):
                 raise HTTPException(422, f"업로드 파일이 없습니다: {upload_id}")
 
-        batch_id = uuid.uuid4().hex[:12]
+        job_id = uuid.uuid4().hex[:12]
         request_settings = dict(payload.settings)
         if payload.workflow == "anima":
             request_settings.pop("batch_size", None)
-        submitted_jobs = []
+        submitted_requests = []
         for upload_id in upload_ids:
             request_id = uuid.uuid4().hex[:12]
             output_stem = f"{server.config.managed_output_directory.name}/{payload.workflow}/{WORKFLOW_OUTPUT_NAMES[payload.workflow]}"
-            job = {
-                "request_id": request_id, "batch_id": batch_id, "workflow": payload.workflow,
+            request = {
+                "request_id": request_id, "job_id": job_id, "workflow": payload.workflow,
                 "status": "submitting", "output_stem": output_stem,
                 "detail": {"upload_id": upload_id, "body": payload.body, "selected_scenario_ids": payload.selected_scenario_ids,
                            "settings": request_settings, "loras": payload.loras},
             }
-            server.database.add_job(job)
-            submitted_jobs.append(job)
+            submitted_requests.append(request)
 
-        submission_task = asyncio.create_task(_submit_jobs(server, submitted_jobs))
+        server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests)
+        submission_task = asyncio.create_task(_submit_requests(server, submitted_requests))
         server.submission_tasks.add(submission_task)
         submission_task.add_done_callback(server.submission_tasks.discard)
-        LOGGER.info("Batch 생성: batch_id=%s workflow=%s count=%s", batch_id, payload.workflow, len(submitted_jobs))
-        return {"batch_id": batch_id, "request_ids": [job["request_id"] for job in submitted_jobs]}
+        LOGGER.info("Batch 생성: job_id=%s workflow=%s count=%s", job_id, payload.workflow, len(submitted_requests))
+        return {"job_id": job_id, "request_ids": [request["request_id"] for request in submitted_requests]}
 
     @app.get("/api/jobs")
-    async def jobs(refresh: bool = False):
-        """최근 작업 목록을 반환하고 활성 작업의 ComfyUI 상태를 확인합니다."""
+    async def jobs(
+        page: int = Query(default=1, ge=1),
+        page_size: int = Query(default=10, ge=1, le=50),
+        refresh: bool = False,
+    ):
+        """작업 이력을 페이지 단위로 반환하고 필요하면 요청 상태를 갱신합니다."""
 
         if refresh:
-            await _refresh_jobs(server)
-        return server.database.list_jobs()
+            await _refresh_requests(server)
+        return server.database.list_jobs(page=page, page_size=page_size)
 
-    @app.post("/api/jobs/{request_id}/cancel")
-    async def cancel_job(request_id: str):
-        """제출 전 작업이나 ComfyUI 대기열의 요청을 취소합니다."""
+    @app.post("/api/requests/{request_id}/cancel")
+    async def cancel_request(request_id: str):
+        """ComfyUI에서 대기·실행 중인 하위 요청 하나를 취소합니다."""
 
-        job = server.database.get_job(request_id)
+        request = server.database.get_request(request_id)
+        if request is None:
+            raise HTTPException(404, "요청을 찾을 수 없습니다.")
+        if request["status"] not in {"pending", "running"}:
+            raise HTTPException(409, "대기·실행 중인 요청만 취소할 수 있습니다.")
+        if not await _cancel_comfy_request(server, request):
+            await _refresh_requests(server)
+            raise HTTPException(409, "ComfyUI에서 취소 가능한 요청을 찾지 못했습니다.")
+        return {"status": "cancelling"}
+
+    @app.post("/api/jobs/{job_id}/cancel")
+    async def cancel_job(job_id: str):
+        """상위 작업에 속한 대기·실행 요청을 각각 취소합니다."""
+
+        job = server.database.get_job(job_id)
         if job is None:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
-        if job["status"] != "pending":
-            raise HTTPException(409, "대기 중인 요청만 취소할 수 있습니다.")
-        queue = await server.comfy.queue()
-        pending_ids = {str(item[1]) for item in queue.get("queue_pending", [])}
-        if job["prompt_id"] not in pending_ids:
-            raise HTTPException(409, "ComfyUI 대기열에서 이 요청을 찾지 못했습니다.")
-        await server.comfy.cancel_pending(job["prompt_id"])
-        server.database.update_job(request_id, "cancelled")
-        LOGGER.info("작업 취소: request_id=%s prompt_id=%s", request_id, job["prompt_id"])
-        return {"status": "cancelled"}
+        active_requests = [
+            request for request in job["requests"] if request["status"] in {"pending", "running"}
+        ]
+        if not active_requests:
+            raise HTTPException(409, "취소할 수 있는 요청이 없습니다.")
+        cancelled_count = 0
+        failed_count = 0
+        for request in active_requests:
+            try:
+                if await _cancel_comfy_request(server, request):
+                    cancelled_count += 1
+                else:
+                    failed_count += 1
+            except Exception:
+                failed_count += 1
+                LOGGER.exception("작업 내 요청 취소 실패: request_id=%s", request["request_id"])
+        if not cancelled_count and failed_count:
+            await _refresh_requests(server)
+            raise HTTPException(409, "ComfyUI에서 취소 가능한 요청을 찾지 못했습니다.")
+        return {"cancelled_count": cancelled_count, "failed_count": failed_count}
+
+    @app.delete("/api/jobs/{job_id}")
+    async def delete_job(job_id: str, delete_outputs: bool = False):
+        """완료된 작업 이력과 선택한 경우 원래 위치의 결과물을 삭제합니다."""
+
+        job = server.database.get_job(job_id)
+        if job is None:
+            raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        if any(request["status"] in {"submitting", "pending", "running", "cancelling"} for request in job["requests"]):
+            raise HTTPException(409, "진행 중인 작업은 삭제할 수 없습니다.")
+        deleted_files = 0
+        missing_files = 0
+        if delete_outputs:
+            output_paths = {
+                path
+                for request in job["requests"]
+                for path in request["detail"].get("resolved", {}).get("output_paths", [])
+            }
+            for relative_path in sorted(output_paths):
+                try:
+                    output_path = server.managed_path(relative_path)
+                except ValueError:
+                    LOGGER.warning("결과물 삭제 경로 제외: job_id=%s path=%s", job_id, relative_path)
+                    continue
+                original_path = server.config.managed_output_directory / relative_path
+                if output_path != original_path or output_path.suffix.lower() not in MEDIA_EXTENSIONS:
+                    LOGGER.warning("결과물 삭제 경로 제외: job_id=%s path=%s", job_id, relative_path)
+                    continue
+                if not output_path.is_file():
+                    missing_files += 1
+                    LOGGER.info("원래 위치에 결과물 없음: job_id=%s path=%s", job_id, relative_path)
+                    continue
+                try:
+                    output_path.unlink()
+                except OSError as exception:
+                    raise HTTPException(409, f"결과물을 삭제할 수 없습니다: {relative_path}") from exception
+                deleted_files += 1
+        try:
+            deleted = server.database.delete_job(job_id)
+        except ValueError as exception:
+            raise HTTPException(409, str(exception)) from exception
+        if not deleted:
+            raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        LOGGER.info("작업 이력 삭제: job_id=%s delete_outputs=%s deleted_files=%s missing_files=%s", job_id, delete_outputs, deleted_files, missing_files)
+        return {"deleted": True, "deleted_files": deleted_files, "missing_files": missing_files}
 
     @app.get("/api/outputs")
-    async def outputs(limit: int = 500, prefix: str = "", request_id: str = ""):
+    async def outputs(limit: int = 500, prefix: str = "", job_id: str = "", request_id: str = ""):
         """관리 output 폴더의 현재 파일을 새로 읽습니다."""
 
         selected_limit = max(1, min(limit, 2000))
         normalized_prefix = prefix.replace("\\", "/")
         selected_output_paths = None
-        if request_id:
-            job = server.database.get_job(request_id)
+        if job_id and request_id:
+            raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
+        if job_id:
+            job = server.database.get_job(job_id)
             if job is None:
                 raise HTTPException(404, "작업을 찾을 수 없습니다.")
-            resolved_detail = job["detail"].get("resolved", {})
-            if "output_paths" in resolved_detail:
-                selected_output_paths = set(resolved_detail["output_paths"])
-            elif "%" in job["output_stem"]:
-                selected_output_paths = set()
-            else:
-                normalized_prefix = "/".join(job["output_stem"].split("/")[1:])
+            selected_output_paths = set()
+            for request in job["requests"]:
+                selected_output_paths.update(request["detail"].get("resolved", {}).get("output_paths", []))
+        elif request_id:
+            request = server.database.get_request(request_id)
+            if request is None:
+                raise HTTPException(404, "요청을 찾을 수 없습니다.")
+            selected_output_paths = set(request["detail"].get("resolved", {}).get("output_paths", []))
         if normalized_prefix:
             try:
                 server.managed_path(normalized_prefix)
@@ -624,15 +710,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     return app
 
 
-async def _submit_jobs(server: HomeServer, jobs: list[dict[str, Any]]) -> None:
+async def _cancel_comfy_request(server: HomeServer, request: dict[str, Any]) -> bool:
+    """지정한 ComfyUI 요청만 취소하고 확인될 때까지 추적합니다."""
+
+    cancelled = await server.comfy.cancel_prompt(request["prompt_id"])
+    if not cancelled:
+        return False
+    server.database.mark_request_cancelling(request["request_id"])
+    LOGGER.info("요청 취소 접수: request_id=%s prompt_id=%s", request["request_id"], request["prompt_id"])
+    return True
+
+
+async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -> None:
     """ComfyUI에 요청을 순서대로 접수하고 업로드 임시 파일을 제거합니다."""
 
     try:
-        for job in jobs:
-            request_id = job["request_id"]
-            detail = job["detail"]
+        for request in requests:
+            request_id = request["request_id"]
+            detail = request["detail"]
             try:
-                if job["workflow"] == "anima":
+                if request["workflow"] == "anima":
                     wildcard_seed = secrets.randbelow(2**31)
                     scenario = choose_scenario(detail["body"], detail["selected_scenario_ids"], wildcard_seed)
                     prompt_template = compile_selected_prompt(detail["body"], scenario)
@@ -645,13 +742,13 @@ async def _submit_jobs(server: HomeServer, jobs: list[dict[str, Any]]) -> None:
                     scenario = None
                     prompt_text = plain_prompt(detail["body"])
                     negative_text = ""
-                api_workflow, ui_workflow = load_workflows(server.config.workflow_directory, job["workflow"])
-                if job["workflow"] == "anima":
+                api_workflow, ui_workflow = load_workflows(server.config.workflow_directory, request["workflow"])
+                if request["workflow"] == "anima":
                     request_settings = dict(detail["settings"])
                     request_settings["seed"] = secrets.randbelow(2**31)
                     request_workflow, metadata_workflow = prepare_anima(
                         api_workflow, ui_workflow, prompt_text, negative_text,
-                        request_settings, detail["loras"], job["output_stem"],
+                        request_settings, detail["loras"], request["output_stem"],
                     )
                 else:
                     request_settings = detail["settings"]
@@ -661,12 +758,12 @@ async def _submit_jobs(server: HomeServer, jobs: list[dict[str, Any]]) -> None:
                     uploaded_reference = await server.comfy.upload_image(upload_path, uploaded_name)
                     request_workflow, metadata_workflow = prepare_minimax(
                         api_workflow, ui_workflow, uploaded_reference, prompt_text,
-                        request_settings, detail["loras"], job["output_stem"],
+                        request_settings, detail["loras"], request["output_stem"],
                     )
                 metadata = {
                     "workflow": metadata_workflow,
                     "home_server_request": {
-                        "request_id": request_id, "batch_id": job["batch_id"],
+                        "request_id": request_id, "job_id": request["job_id"],
                         "prompt": prompt_text, "negative": negative_text,
                         "scenario": scenario.get("name") if scenario else None,
                         "wildcard_seed": wildcard_seed, "settings": request_settings,
@@ -674,28 +771,28 @@ async def _submit_jobs(server: HomeServer, jobs: list[dict[str, Any]]) -> None:
                     },
                 }
                 prompt_id = await server.comfy.submit(request_workflow, metadata)
-                server.database.set_job_accepted(
+                server.database.set_request_accepted(
                     request_id, prompt_id, {"prompt": prompt_text, "negative": negative_text,
                                             "scenario": scenario.get("name") if scenario else None,
                                             "wildcard_seed": wildcard_seed, "settings": request_settings},
                 )
-                LOGGER.info("작업 접수: request_id=%s prompt_id=%s", request_id, prompt_id)
+                LOGGER.info("요청 접수: request_id=%s prompt_id=%s", request_id, prompt_id)
             except Exception as exception:
-                server.database.update_job(request_id, "failed", str(exception))
-                LOGGER.error("작업 제출 실패: request_id=%s error_type=%s", request_id, type(exception).__name__)
+                server.database.update_request(request_id, "failed", str(exception))
+                LOGGER.error("요청 제출 실패: request_id=%s error_type=%s", request_id, type(exception).__name__)
     finally:
-        for job in jobs:
-            upload_id = job["detail"].get("upload_id")
+        for request in requests:
+            upload_id = request["detail"].get("upload_id")
             if upload_id:
                 for upload_path in server.upload_directory.glob(f"{upload_id}.*"):
                     upload_path.unlink(missing_ok=True)
 
 
-async def _refresh_jobs(server: HomeServer) -> None:
-    """ComfyUI queue와 history를 조회해 앱이 제출한 작업만 갱신합니다."""
+async def _refresh_requests(server: HomeServer) -> None:
+    """ComfyUI queue와 history를 조회해 하위 요청 상태를 갱신합니다."""
 
-    active_jobs = [job for job in server.database.list_jobs(limit=1000) if job["status"] not in FINAL_STATUSES and job["prompt_id"]]
-    if not active_jobs:
+    active_requests = [request for request in server.database.list_active_requests() if request["prompt_id"]]
+    if not active_requests:
         return
     try:
         queue = await server.comfy.queue()
@@ -705,16 +802,16 @@ async def _refresh_jobs(server: HomeServer) -> None:
         return
     running_ids = {str(item[1]) for item in queue.get("queue_running", [])}
     pending_ids = {str(item[1]) for item in queue.get("queue_pending", [])}
-    for job in active_jobs:
-        prompt_id = job["prompt_id"]
+    for request in active_requests:
+        prompt_id = request["prompt_id"]
         if prompt_id in running_ids:
-            if job["status"] != "running":
-                server.database.update_job(job["request_id"], "running")
-                LOGGER.info("작업 실행: request_id=%s prompt_id=%s", job["request_id"], prompt_id)
+            if request["status"] not in {"running", "cancelling"}:
+                server.database.update_queue_state(request["request_id"], "running")
+                LOGGER.info("요청 실행: request_id=%s prompt_id=%s", request["request_id"], prompt_id)
         elif prompt_id in pending_ids:
-            if job["status"] != "pending":
-                server.database.update_job(job["request_id"], "pending")
-                LOGGER.info("작업 대기: request_id=%s prompt_id=%s", job["request_id"], prompt_id)
+            if request["status"] not in {"pending", "cancelling"}:
+                server.database.update_queue_state(request["request_id"], "pending")
+                LOGGER.info("요청 대기: request_id=%s prompt_id=%s", request["request_id"], prompt_id)
         else:
             try:
                 history = await server.comfy.history(prompt_id)
@@ -722,24 +819,30 @@ async def _refresh_jobs(server: HomeServer) -> None:
                 continue
             record = history.get(prompt_id)
             if not record:
+                if request["status"] == "cancelling":
+                    cancellation_age = datetime.now(timezone.utc) - datetime.fromisoformat(request["updated_at"])
+                    if cancellation_age.total_seconds() >= 15:
+                        server.database.update_request(request["request_id"], "cancelled")
+                        LOGGER.info("이력 없는 취소 요청 확정: request_id=%s prompt_id=%s", request["request_id"], prompt_id)
                 continue
             status = record.get("status", {})
             status_name = str(status.get("status_str", ""))
             if status_name == "success":
-                output_paths = _history_output_paths(server, record, job["workflow"])
-                server.database.complete_job(job["request_id"], output_paths)
-                LOGGER.info("작업 완료: request_id=%s prompt_id=%s", job["request_id"], prompt_id)
+                output_paths = _history_output_paths(server, record, request["workflow"])
+                server.database.complete_request(request["request_id"], output_paths)
+                LOGGER.info("요청 완료: request_id=%s prompt_id=%s", request["request_id"], prompt_id)
             elif status_name in {"error", "interrupted"}:
-                server.database.update_job(job["request_id"], "failed", status_name)
-                LOGGER.error("작업 실패: request_id=%s prompt_id=%s status=%s", job["request_id"], prompt_id, status_name)
+                request_status = "cancelled" if status_name == "interrupted" and request["status"] == "cancelling" else "failed"
+                server.database.update_request(request["request_id"], request_status, None if request_status == "cancelled" else status_name)
+                LOGGER.info("요청 종료: request_id=%s prompt_id=%s status=%s", request["request_id"], prompt_id, request_status)
 
 
-async def _monitor_jobs(server: HomeServer) -> None:
+async def _monitor_requests(server: HomeServer) -> None:
     """브라우저 접속 여부와 관계없이 활성 작업의 완료 상태를 확인합니다."""
 
     while True:
         try:
-            await _refresh_jobs(server)
+            await _refresh_requests(server)
         except Exception:
             LOGGER.exception("작업 상태 확인 중 오류가 발생했습니다.")
         await asyncio.sleep(1)

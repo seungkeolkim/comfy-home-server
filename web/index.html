@@ -262,12 +262,14 @@
             </div>
           </div>
           <div class="panel submit-panel">
-            <div>
+            <div class="submit-details">
               <strong>제출 전 확인</strong>
               <p id="preview-hint" class="hint">
                 미리보기는 실제 Impact wildcard 결과를 보여줍니다.
               </p>
               <p id="generate-count-hint" class="hint">입력한 횟수만큼 개별 요청을 제출합니다. 요청마다 상황과 wildcard를 새로 선택해 한 장씩 생성합니다.</p>
+              <label for="job-description">작업 설명 · 선택</label>
+              <input id="job-description" type="text" maxlength="200" placeholder="예: 아침 조명 비교" />
             </div>
             <div class="inline-actions">
               <button id="preview-button" class="button subtle" type="button">
@@ -290,6 +292,7 @@
             <p>앱에서 제출한 요청과 ComfyUI 접수 상태를 확인합니다.</p>
           </div>
           <div id="jobs-list" class="stack"></div>
+          <nav id="jobs-pagination" class="jobs-pagination hidden" aria-label="작업 이력 페이지"></nav>
         </section>
 
         <section id="view-outputs" class="view hidden">

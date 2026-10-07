@@ -41,7 +41,7 @@ ComfyUI는 별도로 실행되어 있어야 합니다. 앱은 `config.toml`의 `
 ## 주요 화면
 
 - **생성:** workflow별 Prompt 입력, LoRA, 해상도 및 workflow 옵션, Batch 제출
-- **작업:** 앱이 제출한 `prompt_id`의 대기·실행·완료 상태와 대기 요청 취소
+- **작업:** 제출 한 번을 설명이 있는 상위 작업으로 묶고, 10건씩 페이지 이동하며, 하위 요청별 `prompt_id`·상태·Prompt 확인, 대기·실행 중 취소, 이력 또는 이력·결과물 삭제
 - **결과물:** `from_home_server`의 현재 파일 조회와 해당 폴더 내부 이동
 - **Prompt:** Anima 상황 builder와 MiniMax 평문 편집, preset 버전 저장
 - **LoRA 조합:** workflow별 LoRA 파일과 weight를 조합 preset으로 저장·편집·복제·삭제
@@ -54,12 +54,18 @@ LoRA 목록은 ComfyUI API에서 새로 읽습니다. Workflow별 기본 강도�
 
 MiniMax H3는 wildcard 없이 평문 Prompt 하나를 입력하고, 브라우저에서 선택한 여러 이미지나 폴더의 모든 이미지에 같은 문구를 적용합니다. Anima는 요청 횟수 N을 지정하면 ComfyUI에 N개의 개별 요청을 제출합니다. 각 요청은 상황과 wildcard, random seed를 새로 선택하고 한 장씩 생성합니다.
 
+작업 화면에서는 한 번의 제출을 하나의 작업으로 표시합니다. 펼치면 개별 요청을 확인할 수 있고, 작업 결과 보기에서는 완료된 요청의 결과를 함께 보여줍니다. 일부 요청만 완료되거나 실패하면 진행 건수와 `일부 완료` 상태가 표시됩니다.
+
+생성 화면에서 선택적인 한 줄 작업 설명을 입력할 수 있으며 작업 목록에 표시됩니다. 대기·실행 중인 작업은 전체 또는 하위 요청별로 취소할 수 있습니다. 작업이 종료된 뒤에는 `이력만 삭제` 또는 `이력·결과물 삭제`를 선택합니다. 후자는 작업 history에 기록된 원래 생성 위치의 결과물만 삭제합니다. 이미 이동·삭제되어 없는 파일은 로그에 남기고 건너뛰며, 이동된 파일은 유지합니다.
+
 ## 저장 위치
 
 - Prompt, LoRA 조합, 작업 기록 SQLite, 임시 upload: 프로젝트의 `runtime/`
 - 앱 로그: `runtime/logs/home_server.log` (5 MB마다 회전, 이전 로그 5개 보관). 콘솔에도 출력합니다.
 - Workflow 원본: 프로젝트의 `data/workflows/`
 - 생성물: `config.toml`의 `comfy.output_directory` 아래 `comfy.managed_output_folder`
+
+작업 계층 DB 전환은 시작할 때 한 번 수행합니다. 기존 요청 단위 작업 기록은 초기화되지만 Prompt preset·버전과 LoRA 기본값·조합 preset, 생성물 파일은 유지됩니다.
 
 생성물은 `{workflow}/{YYMMDD_HHmmss}_{seed}.{확장자}`를 기본으로 저장합니다. 예: `anima/261006_153012_123456789.png`. Anima는 `%time_%seed`, MiniMax는 `%date:yyMMdd_HHmmss%_%seed%` 예약어를 사용하며, MiniMax Saver에도 sampling과 동일한 seed 출력을 연결합니다. 시각은 ComfyUI Saver 실행 시점의 로컬 시간이고, 영상은 encoding 시작 직전입니다. Saver가 붙이는 counter나 `_audio` 접미사는 그대로 유지하며 앱에서 파일명을 후처리하지 않습니다. 작업의 결과 보기는 ComfyUI history의 실제 출력 파일명을 사용합니다. 기존 결과물도 계속 조회할 수 있으며, 목록은 앱이 열릴 때와 새로고침할 때 실제 폴더를 다시 읽습니다. 앱이 미완료 요청을 재시작 후 자동 재제출하지 않습니다.
 

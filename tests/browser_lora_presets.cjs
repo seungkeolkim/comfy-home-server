@@ -1,4 +1,4 @@
-/** Mock API를 사용하는 Edge에서 LoRA 조합의 전체 UI 흐름을 검증합니다. */
+/** Mock API를 사용하는 Edge에서 LoRA 조합과 작업 계층의 UI 흐름을 검증합니다. */
 const assert = require("node:assert/strict");
 const filesystem = require("node:fs");
 const path = require("node:path");
@@ -8,6 +8,8 @@ const projectDirectory = path.resolve(__dirname, "..");
 const screenshotDirectory = path.join(projectDirectory, "runtime", "browser-check");
 const savedPresets = [];
 const batchSubmissions = [];
+const savedJobs = [];
+const outputQueries = [];
 let availableLoras = ["first.safetensors", "second.safetensors"];
 
 /** 브라우저에 실제 앱 파일과 GPU 작업이 없는 독립된 API 응답을 제공합니다. */
@@ -25,8 +27,22 @@ async function handleBrowserRequest(route) {
   const method = request.method();
   if (requestPath === "/api/session") response = { authenticated: true };
   else if (requestPath === "/api/status") response = { comfy_connected: true, output_directory: "test-output" };
-  else if (requestPath === "/api/jobs" || requestPath === "/api/presets") response = [];
-  else if (requestPath === "/api/outputs") response = { files: [], total: 0 };
+  else if (requestPath === "/api/jobs") {
+    const pageNumber = Number(requestUrl.searchParams.get("page") || 1);
+    const pageSize = Number(requestUrl.searchParams.get("page_size") || 10);
+    response = {
+      items: savedJobs.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
+      page: pageNumber, page_size: pageSize, total: savedJobs.length,
+      total_pages: Math.max(1, Math.ceil(savedJobs.length / pageSize)),
+      active_count: savedJobs.filter(job => job.requests.some(child =>
+        ["submitting", "pending", "running", "cancelling"].includes(child.status))).length,
+    };
+  }
+  else if (requestPath === "/api/presets") response = [];
+  else if (requestPath === "/api/outputs") {
+    outputQueries.push(requestUrl.search);
+    response = { files: [], total: 0 };
+  }
   else if (requestPath === "/api/loras") response = {
     files: availableLoras,
     profiles: [{ name: "first.safetensors", workflow: "anima", settings: { strength: 0.75, clip_strength: 0.55 } }],
@@ -46,7 +62,31 @@ async function handleBrowserRequest(route) {
     response = { deleted: true };
   } else if (requestPath === "/api/batches") {
     batchSubmissions.push(request.postDataJSON());
-    response = { batch_id: "test-batch", request_ids: ["request-1", "request-2"] };
+    response = { job_id: "test-job", request_ids: ["request-1", "request-2"] };
+    savedJobs.push({
+      job_id: "test-job", workflow: "anima", description: request.postDataJSON().description, request_count: 2,
+      created_at: "2026-10-07", status: "pending", status_counts: { pending: 1, completed: 1 },
+      requests: [
+        { request_id: "request-1", request_index: 1, prompt_id: "prompt-1", status: "pending", detail: {} },
+        { request_id: "request-2", request_index: 2, prompt_id: "prompt-2", status: "completed", detail: { resolved: { prompt: "portrait" } } },
+      ],
+    });
+  } else if (requestPath === "/api/requests/request-1/cancel") {
+    savedJobs[0].requests[0].status = "cancelled";
+    savedJobs[0].status = "partial";
+    savedJobs[0].status_counts = { cancelled: 1, completed: 1 };
+    response = { status: "cancelling" };
+  } else if (requestPath.startsWith("/api/jobs/") && method === "DELETE") {
+    const jobIdentifier = requestPath.split("/").at(-1);
+    savedJobs.splice(savedJobs.findIndex(job => job.job_id === jobIdentifier), 1);
+    response = { deleted: true, deleted_files: requestUrl.searchParams.has("delete_outputs") ? 1 : 0, missing_files: 0 };
+  } else if (requestPath.startsWith("/api/jobs/") && requestPath.endsWith("/cancel")) {
+    const jobIdentifier = requestPath.split("/").at(-2);
+    const selectedJob = savedJobs.find(job => job.job_id === jobIdentifier);
+    const activeRequests = selectedJob.requests.filter(child => ["pending", "running"].includes(child.status));
+    for (const child of activeRequests) child.status = "cancelled";
+    selectedJob.status = "cancelled";
+    response = { cancelled_count: activeRequests.length, failed_count: 0 };
   } else if (requestPath === "/favicon.ico") {
     await route.fulfill({ status: 204 });
     return;
@@ -64,7 +104,7 @@ async function waitForPreset(page, presetIdentifier) {
   await page.locator(`[data-edit-lora-preset="${presetIdentifier}"]`).waitFor();
 }
 
-/** 원본 보존, 복제, 갱신, workflow 전환과 mobile 배치를 검증합니다. */
+/** LoRA 조합, 작업 계층, 결과 필터와 mobile 화면을 검증합니다. */
 async function main() {
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "msedge", headless: true });
   try {
@@ -165,10 +205,26 @@ async function main() {
     await page.locator('[data-use-lora-preset="preset-2"]').click();
     await page.locator("#generate-prefix").fill("portrait");
     await page.locator("#generate-count").fill("2");
+    await page.locator("#job-description").fill("아침 조명 비교");
     await page.locator("#submit-button").click();
     await page.waitForFunction(() => document.getElementById("view-jobs").classList.contains("hidden") === false);
     assert.equal(batchSubmissions[0].count, 2);
     assert.equal(batchSubmissions[0].loras[0].strength, 0.85);
+    assert.equal(batchSubmissions[0].description, "아침 조명 비교");
+    assert.equal(await page.locator(".job-card").count(), 1);
+    assert.equal(await page.locator(".job-description").textContent(), "아침 조명 비교");
+    assert.equal(await page.locator(".job-card .status-badge").first().textContent(), "대기");
+    await page.locator(".job-requests summary").click();
+    assert.equal(await page.locator(".job-request").count(), 2);
+    await page.locator('[data-cancel-request="request-1"]').click();
+    await page.locator(".job-card .status-badge").first().getByText("일부 완료").waitFor();
+    assert.equal(await page.locator(".job-requests").getAttribute("open"), "");
+    await page.locator('[data-show-job-results="test-job"]').click();
+    await page.waitForFunction(() => document.getElementById("view-outputs").classList.contains("hidden") === false);
+    assert.ok(outputQueries.some(query => query === "?job_id=test-job"));
+    await page.locator('.sidebar [data-view="jobs"]').click();
+    await page.locator('[data-show-request-results="request-2"]').click();
+    assert.ok(outputQueries.some(query => query === "?request_id=request-2"));
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator('.mobile-nav [data-view="lora-presets"]').click();
     await page.locator('[data-edit-lora-preset="preset-3"]').click();
@@ -178,8 +234,34 @@ async function main() {
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     assert.equal(await page.locator("#generate-count-field + #submit-button").count(), 1);
     await page.screenshot({ path: path.join(screenshotDirectory, "generate-mobile.png"), fullPage: true });
+    await page.locator('.mobile-nav [data-view="jobs"]').click();
+    await page.locator(".job-requests[open]").waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await page.screenshot({ path: path.join(screenshotDirectory, "jobs-mobile.png"), fullPage: true });
+    for (let jobNumber = 0; jobNumber < 10; jobNumber += 1) {
+      savedJobs.push({
+        job_id: `old-job-${jobNumber}`, workflow: "anima", description: `이전 작업 ${jobNumber}`,
+        request_count: 1, created_at: "2026-10-06", status: "completed",
+        status_counts: { completed: 1 }, requests: [{
+          request_id: `old-request-${jobNumber}`, request_index: 1,
+          prompt_id: `old-prompt-${jobNumber}`, status: "completed", detail: {},
+        }],
+      });
+    }
+    await page.locator('.mobile-nav [data-view="generate"]').click();
+    await page.locator('.mobile-nav [data-view="jobs"]').click();
+    await page.locator('[data-jobs-page="2"]').first().click();
+    await page.locator('.job-card').first().getByText('이전 작업 9').waitFor();
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator('[data-delete-job="old-job-9"]').click();
+    await page.locator('[data-delete-job-outputs="test-job"]').waitFor();
+    assert.equal(savedJobs.some(job => job.job_id === "old-job-9"), false);
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator('[data-delete-job-outputs="test-job"]').click();
+    await page.locator('[data-delete-job-outputs="test-job"]').waitFor({ state: "detached" });
+    assert.equal(savedJobs.some(job => job.job_id === "test-job"), false);
     assert.deepEqual(pageErrors, []);
-    console.log("Passed: save, load, isolated edits, copy, update, delete, workflow weights, missing files, submission, mobile layout.");
+    console.log("Passed: LoRA presets, grouped jobs, pagination, cancellation, deletion, mobile layout.");
   } finally {
     await browser.close();
   }

@@ -21,7 +21,9 @@ const applicationState = {
   selectedLoras: [],
   selectedFiles: [],
   currentView: "generate",
-  outputFilter: "",
+  outputFilter: null,
+  jobsPage: 1,
+  jobsLoadRevision: 0,
   pollingTimer: null,
 };
 
@@ -717,6 +719,7 @@ async function submitBatch() {
       method: "POST",
       body: JSON.stringify({
         workflow,
+        description: element("job-description").value,
         body: generateBody(),
         selected_scenario_ids: workflow === "anima" ? selectedScenarioIds() : [],
         count: workflow === "anima" ? Number(element("generate-count").value) : 1,
@@ -728,6 +731,7 @@ async function submitBatch() {
     showNotice(
       `${response.request_ids.length}건을 접수했습니다. ComfyUI 제출 상태를 확인합니다.`,
     );
+    applicationState.jobsPage = 1;
     switchView("jobs");
     await loadJobs();
   } finally {
@@ -736,57 +740,147 @@ async function submitBatch() {
   }
 }
 
-/** 앱이 제출한 작업들의 최신 상태를 표시합니다. */
+/** 상위 작업에 속한 ComfyUI 요청의 상태와 조작 버튼을 표시합니다. */
+function requestCardMarkup(request, statusNames) {
+  const requestDetail = request.error_message || request.detail.resolved?.prompt || "";
+  return `
+    <div class="job-request">
+      <div>
+        <strong>요청 ${request.request_index} · ${escapeHtml(request.request_id)}</strong>
+        <p>prompt_id ${escapeHtml(request.prompt_id || "대기 중")}</p>
+      </div>
+      <span class="status-badge ${escapeHtml(request.status)}">${escapeHtml(statusNames[request.status] || request.status)}</span>
+      <div class="job-detail">${escapeHtml(requestDetail)}</div>
+      <div class="job-actions inline-actions">
+        ${["pending", "running"].includes(request.status) ? `<button class="button subtle small" data-cancel-request="${escapeHtml(request.request_id)}">요청 취소</button>` : ""}
+        <button class="button subtle small" data-show-request-results="${escapeHtml(request.request_id)}">요청 결과 보기</button>
+      </div>
+    </div>`;
+}
+
+/** 한 번의 제출을 하나의 상위 작업 카드로 표시합니다. */
+function jobCardMarkup(job, statusNames, openJobIds) {
+  const completedCount = job.status_counts.completed || 0;
+  const failedCount = job.status_counts.failed || 0;
+  const progressText = `완료 ${completedCount}/${job.request_count}` +
+    (failedCount ? ` · 실패 ${failedCount}` : "");
+  const openAttribute = openJobIds.has(job.job_id) ? " open" : "";
+  const canCancel = job.requests.some((request) => ["pending", "running"].includes(request.status));
+  const canDelete = job.requests.every((request) =>
+    !["submitting", "pending", "running", "cancelling"].includes(request.status),
+  );
+  return `
+    <article class="job-card">
+      <div>
+        <h3>${escapeHtml(job.workflow)} · 작업 ${escapeHtml(job.job_id)}</h3>
+        <p>${escapeHtml(job.created_at)} · ${escapeHtml(progressText)}</p>
+        ${job.description ? `<p class="job-description">${escapeHtml(job.description)}</p>` : ""}
+      </div>
+      <span class="status-badge ${escapeHtml(job.status)}">${escapeHtml(statusNames[job.status] || job.status)}</span>
+      <div class="job-actions inline-actions">
+        <button class="button subtle small" data-show-job-results="${escapeHtml(job.job_id)}">작업 결과 보기</button>
+        ${canCancel ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.job_id)}">작업 취소</button>` : ""}
+        ${canDelete ? `<button class="button subtle small" data-delete-job="${escapeHtml(job.job_id)}">이력만 삭제</button><button class="button danger small" data-delete-job-outputs="${escapeHtml(job.job_id)}">이력·결과물 삭제</button>` : ""}
+      </div>
+      <details class="job-requests" data-job-details="${escapeHtml(job.job_id)}"${openAttribute}>
+        <summary>하위 요청 ${job.request_count}건</summary>
+        <div class="job-request-list">${job.requests.map((request) => requestCardMarkup(request, statusNames)).join("")}</div>
+      </details>
+    </article>`;
+}
+
+/** 현재 페이지와 인접한 페이지로 이동할 버튼을 표시합니다. */
+function renderJobsPagination(page, totalPages) {
+  const pagination = element("jobs-pagination");
+  pagination.classList.toggle("hidden", totalPages <= 1);
+  if (totalPages <= 1) {
+    pagination.innerHTML = "";
+    return;
+  }
+  const pageButtons = [];
+  const firstPage = Math.max(1, page - 2);
+  const lastPage = Math.min(totalPages, page + 2);
+  for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
+    const currentAttribute = pageNumber === page ? ' aria-current="page"' : "";
+    pageButtons.push(`<button class="button subtle small" data-jobs-page="${pageNumber}"${currentAttribute}>${pageNumber}</button>`);
+  }
+  pagination.innerHTML = `
+    <button class="button subtle small" data-jobs-page="${page - 1}" ${page === 1 ? "disabled" : ""}>이전</button>
+    ${pageButtons.join("")}
+    <button class="button subtle small" data-jobs-page="${page + 1}" ${page === totalPages ? "disabled" : ""}>다음</button>`;
+}
+
+/** 앱이 제출한 상위 작업과 하위 요청의 최신 상태를 표시합니다. */
 async function loadJobs() {
   if (element("application").classList.contains("hidden")) return;
+  const loadRevision = ++applicationState.jobsLoadRevision;
   try {
-    const jobs = await apiRequest("/api/jobs");
-    const activeCount = jobs.filter((job) =>
-      ["submitting", "pending", "running"].includes(job.status),
-    ).length;
-    element("active-count").textContent = `작업 ${activeCount}`;
+    const response = await apiRequest(`/api/jobs?page=${applicationState.jobsPage}&page_size=10`);
+    if (loadRevision !== applicationState.jobsLoadRevision) return;
+    if (applicationState.jobsPage > response.total_pages) {
+      applicationState.jobsPage = response.total_pages;
+      return loadJobs();
+    }
+    element("active-count").textContent = `작업 ${response.active_count}`;
     const statusNames = {
       submitting: "제출 중",
       pending: "대기",
       running: "실행 중",
+      cancelling: "취소 중",
       completed: "완료",
       failed: "실패",
+      partial: "일부 완료",
       cancelled: "취소",
       stopped: "중단",
     };
-    element("jobs-list").innerHTML = jobs.length
-      ? jobs
-          .map(
-            (job) => `
-      <article class="job-card"><div><h3>${escapeHtml(job.workflow)} · ${escapeHtml(job.request_id)}</h3><p>${escapeHtml(job.created_at)} · prompt_id ${escapeHtml(job.prompt_id || "대기 중")}</p></div>
-      <span class="status-badge ${escapeHtml(job.status)}">${escapeHtml(statusNames[job.status] || job.status)}</span>
-      <div class="job-detail">${escapeHtml(job.error_message || job.detail.resolved?.prompt || "")}</div>
-      <div class="job-actions inline-actions">${job.status === "pending" ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.request_id)}">대기 요청 취소</button>` : ""}<button class="button subtle small" data-show-result="${escapeHtml(job.request_id)}">결과 보기</button></div>
-      </article>`,
-          )
-          .join("")
+    const openJobIds = new Set(
+      [...document.querySelectorAll("#jobs-list details[open]")].map((details) =>
+        details.dataset.jobDetails,
+      ),
+    );
+    element("jobs-list").innerHTML = response.items.length
+      ? response.items.map((job) => jobCardMarkup(job, statusNames, openJobIds)).join("")
       : `<p class="empty-state">제출한 작업이 없습니다.</p>`;
+    renderJobsPagination(response.page, response.total_pages);
   } catch (error) {
     if (applicationState.currentView === "jobs")
       showNotice(error.message, true);
   }
 }
 
+/** 선택한 작업의 이력과 요청한 경우 원래 위치의 결과물을 삭제합니다. */
+async function deleteJobHistory(jobId, deleteOutputs) {
+  const confirmation = deleteOutputs
+    ? "이 작업의 이력과 원래 생성 위치에 남은 결과물을 영구 삭제하시겠습니까? 이동된 파일은 삭제하지 않습니다."
+    : "이 작업의 이력만 삭제하시겠습니까? 결과물 파일은 유지됩니다.";
+  if (!window.confirm(confirmation)) return;
+  const outputOption = deleteOutputs ? "?delete_outputs=true" : "";
+  const result = await apiRequest(`/api/jobs/${encodeURIComponent(jobId)}${outputOption}`, {
+    method: "DELETE",
+  });
+  applicationState.outputFilter = null;
+  showNotice(deleteOutputs
+    ? `이력과 원래 위치의 결과물 ${result.deleted_files}개를 삭제했습니다.`
+    : "작업 이력을 삭제했습니다.");
+  await loadJobs();
+}
+
 /** 관리 폴더의 현재 이미지와 영상을 표시합니다. */
 async function loadOutputs() {
   if (element("application").classList.contains("hidden")) return;
   try {
-    const outputPath = applicationState.outputFilter
-      ? `/api/outputs?request_id=${encodeURIComponent(applicationState.outputFilter)}`
+    const outputFilter = applicationState.outputFilter;
+    const outputPath = outputFilter
+      ? `/api/outputs?${outputFilter.type === "job" ? "job_id" : "request_id"}=${encodeURIComponent(outputFilter.id)}`
       : "/api/outputs";
     const response = await apiRequest(outputPath);
     const visibleFiles = response.files;
-    element("output-count").textContent = applicationState.outputFilter
-      ? `이 작업의 결과 ${visibleFiles.length}개`
+    element("output-count").textContent = outputFilter
+      ? `${outputFilter.type === "job" ? "이 작업" : "이 요청"}의 결과 ${visibleFiles.length}개`
       : `${response.total}개 파일`;
     element("clear-output-filter").classList.toggle(
       "hidden",
-      !applicationState.outputFilter,
+      !outputFilter,
     );
     element("outputs-grid").innerHTML = visibleFiles.length
       ? visibleFiles
@@ -1008,25 +1102,49 @@ function bindEvents() {
     runAction(submitBatch),
   );
   element("jobs-list").addEventListener("click", (event) => {
-    const cancelButton = event.target.closest("[data-cancel-job]");
-    const resultButton = event.target.closest("[data-show-result]");
+    const cancelButton = event.target.closest("[data-cancel-request]");
+    const cancelJobButton = event.target.closest("[data-cancel-job]");
+    const deleteJobButton = event.target.closest("[data-delete-job]");
+    const deleteOutputsButton = event.target.closest("[data-delete-job-outputs]");
+    const jobResultButton = event.target.closest("[data-show-job-results]");
+    const requestResultButton = event.target.closest("[data-show-request-results]");
     if (cancelButton)
       runAction(async () => {
-        await apiRequest(`/api/jobs/${cancelButton.dataset.cancelJob}/cancel`, {
+        await apiRequest(`/api/requests/${cancelButton.dataset.cancelRequest}/cancel`, {
           method: "POST",
         });
         await loadJobs();
       });
-    if (resultButton) {
-      applicationState.outputFilter = resultButton.dataset.showResult;
+    if (cancelJobButton)
+      runAction(async () => {
+        const result = await apiRequest(`/api/jobs/${cancelJobButton.dataset.cancelJob}/cancel`, {
+          method: "POST",
+        });
+        showNotice(`${result.cancelled_count}건의 취소를 요청했습니다.`);
+        await loadJobs();
+      });
+    if (deleteJobButton)
+      runAction(() => deleteJobHistory(deleteJobButton.dataset.deleteJob, false));
+    if (deleteOutputsButton)
+      runAction(() => deleteJobHistory(deleteOutputsButton.dataset.deleteJobOutputs, true));
+    if (jobResultButton || requestResultButton) {
+      applicationState.outputFilter = jobResultButton
+        ? { type: "job", id: jobResultButton.dataset.showJobResults }
+        : { type: "request", id: requestResultButton.dataset.showRequestResults };
       switchView("outputs");
     }
+  });
+  element("jobs-pagination").addEventListener("click", (event) => {
+    const pageButton = event.target.closest("[data-jobs-page]");
+    if (!pageButton || pageButton.disabled) return;
+    applicationState.jobsPage = Number(pageButton.dataset.jobsPage);
+    runAction(loadJobs);
   });
   element("refresh-outputs-button").addEventListener("click", () =>
     runAction(loadOutputs),
   );
   element("clear-output-filter").addEventListener("click", () => {
-    applicationState.outputFilter = "";
+    applicationState.outputFilter = null;
     runAction(loadOutputs);
   });
   element("outputs-grid").addEventListener("click", (event) => {

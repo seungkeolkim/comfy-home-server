@@ -309,6 +309,11 @@ input[type="file"] {
   color: #10252a;
   border-color: #85d9c2;
 }
+.button.danger {
+  background: #4b2934;
+  color: #ffced4;
+  border-color: #76404d;
+}
 .button.subtle {
   background: #1c2939;
 }
@@ -418,6 +423,10 @@ input[type="file"] {
   align-items: center;
   gap: 14px;
 }
+.submit-details {
+  flex: 1;
+  min-width: 0;
+}
 .request-count-field {
   display: flex;
   flex-direction: column;
@@ -479,10 +488,42 @@ input[type="file"] {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+.job-card .job-description {
+  margin-top: 10px;
+  color: #dce7f4;
+  white-space: pre-wrap;
+}
 .job-card .job-detail {
   grid-column: 1/-1;
   white-space: pre-wrap;
   color: #b4bed2;
+  font-size: 12px;
+}
+.job-requests {
+  grid-column: 1/-1;
+  border-top: 1px solid #30394a;
+  padding-top: 12px;
+}
+.job-requests summary {
+  cursor: pointer;
+  color: #b4bed2;
+  font-size: 12px;
+  font-weight: 700;
+}
+.job-request-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 12px;
+}
+.job-request {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 9px;
+  padding: 13px;
+  border-radius: 10px;
+  background: #101827;
+}
+.job-request strong {
   font-size: 12px;
 }
 .status-badge {
@@ -498,6 +539,10 @@ input[type="file"] {
   background: #225046;
   color: #a9e9ce;
 }
+.status-badge.partial {
+  background: #574525;
+  color: #ffdf9f;
+}
 .status-badge.failed {
   background: #59323b;
   color: #ffd4db;
@@ -506,6 +551,10 @@ input[type="file"] {
   background: #254c6e;
   color: #c4e8ff;
 }
+.status-badge.cancelling {
+  background: #574525;
+  color: #ffdf9f;
+}
 .status-badge.pending,
 .status-badge.submitting {
   background: #574525;
@@ -513,6 +562,17 @@ input[type="file"] {
 }
 .job-actions {
   grid-column: 1/-1;
+}
+.jobs-pagination {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+.jobs-pagination [aria-current="page"] {
+  border-color: #85d9c2;
+  color: #85d9c2;
 }
 .toolbar {
   display: flex;

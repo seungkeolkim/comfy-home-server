@@ -82,9 +82,8 @@ class ComfyClient:
 
         return await self.request_json("GET", f"/history/{prompt_id}")
 
-    async def cancel_pending(self, prompt_id: str) -> None:
-        """ComfyUI의 대기열에서 지정한 요청을 제거합니다."""
+    async def cancel_prompt(self, prompt_id: str) -> bool:
+        """ComfyUI에서 지정한 대기·실행 요청만 취소합니다."""
 
-        response = await self.client.post("/queue", json={"delete": [prompt_id]})
-        if response.is_error:
-            raise RuntimeError(f"대기 작업 취소 실패: HTTP {response.status_code} {response.text[:500]}")
+        result = await self.request_json("POST", f"/api/jobs/{prompt_id}/cancel")
+        return bool(result.get("cancelled"))
