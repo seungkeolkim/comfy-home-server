@@ -24,10 +24,15 @@ class Database:
         self.database_path = database_path
         database_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
+            schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
+            if schema_version == 4:
+                self._backup_before_group_tag_migration(connection)
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4}:
+            if schema_version not in {0, 4, 5}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
+            if schema_version == 4:
+                self._migrate_group_tag_keys(connection)
             for create_statement in (
                 """CREATE TABLE IF NOT EXISTS presets (
                     preset_id TEXT PRIMARY KEY,
@@ -91,6 +96,7 @@ class Database:
                 """CREATE TABLE IF NOT EXISTS tag_groups (
                     group_id TEXT PRIMARY KEY,
                     name TEXT NOT NULL,
+                    tag_key TEXT NOT NULL,
                     default_expanded INTEGER NOT NULL DEFAULT 1,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
@@ -100,7 +106,6 @@ class Database:
                 """CREATE TABLE IF NOT EXISTS tag_entries (
                     tag_id TEXT PRIMARY KEY,
                     group_id TEXT NOT NULL REFERENCES tag_groups(group_id),
-                    tag_key TEXT NOT NULL,
                     name TEXT NOT NULL,
                     content TEXT NOT NULL,
                     weight REAL NOT NULL,
@@ -109,9 +114,55 @@ class Database:
                 )"""
             )
             connection.execute("CREATE INDEX IF NOT EXISTS tag_entries_group ON tag_entries(group_id, created_at)")
-            connection.execute("CREATE INDEX IF NOT EXISTS tag_entries_key ON tag_entries(tag_key)")
-            if schema_version == 0:
-                connection.execute("PRAGMA user_version = 4")
+            connection.execute("CREATE INDEX IF NOT EXISTS tag_groups_key ON tag_groups(tag_key)")
+            connection.execute("PRAGMA user_version = 5")
+
+    def _backup_before_group_tag_migration(self, connection: sqlite3.Connection) -> None:
+        """SQLite backup API로 schema 변경 전 일관된 복구용 DB를 보관합니다."""
+
+        backup_directory = self.database_path.parent / "backups"
+        backup_directory.mkdir(parents=True, exist_ok=True)
+        backup_timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
+        backup_path = backup_directory / f"{self.database_path.stem}_before_group_tag_keys_{backup_timestamp}.sqlite3"
+        with sqlite3.connect(backup_path) as backup_connection:
+            connection.backup(backup_connection)
+            integrity_result = backup_connection.execute("PRAGMA integrity_check").fetchone()[0]
+            if integrity_result != "ok":
+                raise RuntimeError("DB 백업의 무결성 검사에 실패하여 migration을 중단합니다.")
+
+    def _migrate_group_tag_keys(self, connection: sqlite3.Connection) -> None:
+        """기존 그룹의 공통 참조 태그를 옮기고 개별 항목의 참조 column을 제거합니다."""
+
+        inconsistent_group = connection.execute(
+            """SELECT tag_groups.name FROM tag_groups JOIN tag_entries USING (group_id)
+            GROUP BY tag_groups.group_id HAVING COUNT(DISTINCT tag_entries.tag_key) > 1 LIMIT 1"""
+        ).fetchone()
+        if inconsistent_group is not None:
+            raise RuntimeError(f"그룹 안의 참조 태그가 서로 달라 migration할 수 없습니다: {inconsistent_group['name']}")
+
+        connection.execute("ALTER TABLE tag_groups ADD COLUMN tag_key TEXT NOT NULL DEFAULT ''")
+        connection.execute(
+            """UPDATE tag_groups SET tag_key = COALESCE(
+                (SELECT MIN(tag_entries.tag_key) FROM tag_entries
+                 WHERE tag_entries.group_id = tag_groups.group_id), '')"""
+        )
+        connection.execute(
+            """CREATE TABLE migrated_tag_entries (
+                tag_id TEXT PRIMARY KEY,
+                group_id TEXT NOT NULL REFERENCES tag_groups(group_id),
+                name TEXT NOT NULL,
+                content TEXT NOT NULL,
+                weight REAL NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+        connection.execute(
+            """INSERT INTO migrated_tag_entries
+            SELECT tag_id, group_id, name, content, weight, created_at, updated_at FROM tag_entries"""
+        )
+        connection.execute("DROP TABLE tag_entries")
+        connection.execute("ALTER TABLE migrated_tag_entries RENAME TO tag_entries")
 
     def _connect(self) -> sqlite3.Connection:
         """row 이름으로 결과를 읽는 SQLite 연결을 엽니다."""
@@ -179,16 +230,18 @@ class Database:
             row = connection.execute("SELECT * FROM tag_groups WHERE group_id = ?", (group_id,)).fetchone()
         return self._tag_group_from_row(row) if row else None
 
-    def save_tag_group(self, group_id: str, name: str, default_expanded: bool) -> dict[str, Any]:
-        """새 그룹을 만들거나 지정한 기존 그룹의 표시 설정을 갱신합니다."""
+    def save_tag_group(self, group_id: str, name: str, tag_key: str, default_expanded: bool) -> dict[str, Any]:
+        """그룹의 참조 태그와 표시 설정을 저장하며 동일 참조의 여러 그룹을 허용합니다."""
 
         timestamp = current_timestamp()
         with self._connect() as connection:
             connection.execute(
-                """INSERT INTO tag_groups VALUES (?, ?, ?, ?, ?)
+                """INSERT INTO tag_groups
+                (group_id, name, tag_key, default_expanded, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT(group_id) DO UPDATE SET name=excluded.name,
-                default_expanded=excluded.default_expanded, updated_at=excluded.updated_at""",
-                (group_id, name, int(default_expanded), timestamp, timestamp),
+                tag_key=excluded.tag_key, default_expanded=excluded.default_expanded,
+                updated_at=excluded.updated_at""",
+                (group_id, name, tag_key, int(default_expanded), timestamp, timestamp),
             )
         return self.get_tag_group(group_id) or {}
 
@@ -223,12 +276,12 @@ class Database:
         timestamp = current_timestamp()
         with self._connect() as connection:
             connection.execute(
-                """INSERT INTO tag_entries VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """INSERT INTO tag_entries VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(tag_id) DO UPDATE SET group_id=excluded.group_id,
-                tag_key=excluded.tag_key, name=excluded.name, content=excluded.content,
+                name=excluded.name, content=excluded.content,
                 weight=excluded.weight, updated_at=excluded.updated_at""",
                 (
-                    tag_id, values["group_id"], values["tag_key"], values["name"],
+                    tag_id, values["group_id"], values["name"],
                     values["content"], values["weight"],
                     timestamp, timestamp,
                 ),
@@ -247,6 +300,7 @@ class Database:
 
         return {
             "group_id": row["group_id"], "name": row["name"],
+            "tag_key": row["tag_key"],
             "default_expanded": bool(row["default_expanded"]),
             "created_at": row["created_at"], "updated_at": row["updated_at"],
         }
@@ -256,7 +310,7 @@ class Database:
 
         return {
             "tag_id": row["tag_id"], "group_id": row["group_id"],
-            "tag_key": row["tag_key"], "name": row["name"],
+            "name": row["name"],
             "content": row["content"], "weight": row["weight"],
             "created_at": row["created_at"], "updated_at": row["updated_at"],
         }

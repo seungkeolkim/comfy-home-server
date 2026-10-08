@@ -9,8 +9,9 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from home_server.application import create_app
+from home_server.application import create_app, selected_tag_definitions
 from home_server.configuration import AppConfig, PROJECT_DIRECTORY
+from home_server.tag_builder import resolve_tag_prompt
 
 
 class FakeComfyClient:
@@ -81,10 +82,10 @@ class FakeComfyClient:
 def create_test_anima_tag(client: TestClient, content: str = "subject") -> str:
     """Anima API 테스트에서 사용할 SCENE 태그를 생성합니다."""
 
-    group_response = client.post("/api/tags/groups", json={"name": "Test group"})
+    group_response = client.post("/api/tags/groups", json={"name": "Test group", "tag_key": "SCENE"})
     assert group_response.status_code == 201
     tag_response = client.post("/api/tags/entries", json={
-        "group_id": group_response.json()["group_id"], "tag_key": "SCENE",
+        "group_id": group_response.json()["group_id"],
         "name": "Test scene", "content": content, "weight": 1,
     })
     assert tag_response.status_code == 201
@@ -594,6 +595,75 @@ def test_saver_history_outputs_keep_native_names(tmp_path: Path, workflow: str) 
         assert client.get("/api/outputs", params={"request_id": request_id}).json()["total"] == 0
 
 
+def test_shared_group_references_update_candidates_and_preserve_snapshots(tmp_path: Path) -> None:
+    """동일 참조의 여러 그룹을 추첨하고 그룹 편집과 항목 이동 시 현재 후보만 갱신합니다."""
+
+    output_directory = tmp_path / "output"
+    config = AppConfig(
+        host="127.0.0.1", port=8388, password="test", comfy_endpoint="http://example.test",
+        comfy_output_directory=output_directory,
+        managed_output_directory=output_directory / "from_home_server",
+        runtime_directory=tmp_path / "runtime", workflow_directory=PROJECT_DIRECTORY / "data" / "workflows",
+    )
+    app = create_app(config)
+    app.state.home_server.comfy = FakeComfyClient()
+    with TestClient(app) as client:
+        client.post("/api/login", json={"password": "test"})
+        assert client.post("/api/tags/groups", json={"name": "참조 없음"}).status_code == 422
+        groups = []
+        for group_name in ("첫 캐릭터 그룹", "둘째 캐릭터 그룹"):
+            response = client.post("/api/tags/groups", json={"name": group_name, "tag_key": "CHR"})
+            assert response.status_code == 201
+            groups.append(response.json())
+        entries = []
+        for group_index, entry_name in ((0, "A"), (0, "B"), (1, "C")):
+            response = client.post("/api/tags/entries", json={
+                "group_id": groups[group_index]["group_id"], "name": entry_name,
+                "content": f"character {entry_name}", "weight": 1,
+                "tag_key": "IGNORED_ENTRY_KEY",
+            })
+            assert response.status_code == 201
+            assert "tag_key" not in response.json()
+            entries.append(response.json())
+
+        catalog = client.get("/api/tags").json()
+        assert [group["tag_key"] for group in catalog["groups"]] == ["CHR", "CHR"]
+        assert all("tag_key" not in entry for entry in catalog["entries"])
+        selected_ids = [entry["tag_id"] for entry in entries]
+        database = app.state.home_server.database
+        selected_definitions = selected_tag_definitions(database, selected_ids, "[CHR]")
+        assert all(definition["tag_key"] == "CHR" for definition in selected_definitions)
+        assert {resolve_tag_prompt({"prompt": "[CHR]"}, selected_definitions, seed)[0] for seed in range(100)} == {
+            "character A", "character B", "character C",
+        }
+        database.add_job("group-snapshot", "anima", "그룹 편집 전", [{
+            "request_id": "group-snapshot-request", "status": "completed", "output_stem": "anima/example",
+            "detail": {"selected_tags": selected_definitions},
+        }])
+
+        update_response = client.put(f"/api/tags/groups/{groups[0]['group_id']}", json={
+            "name": groups[0]["name"], "tag_key": "PEOPLE", "default_expanded": False,
+        })
+        assert update_response.status_code == 200
+        current_definitions = selected_tag_definitions(database, selected_ids, "[CHR] [PEOPLE]")
+        assert [definition["tag_key"] for definition in current_definitions] == ["PEOPLE", "PEOPLE", "CHR"]
+        assert resolve_tag_prompt({"prompt": "[CHR]"}, current_definitions, 1)[0] == "character C"
+        historical_tags = database.get_job("group-snapshot")["requests"][0]["detail"]["selected_tags"]
+        assert historical_tags == selected_definitions
+
+        moved_entry = client.put(f"/api/tags/entries/{entries[0]['tag_id']}", json={
+            "group_id": groups[1]["group_id"], "name": "A", "content": "character A", "weight": 3,
+        })
+        assert moved_entry.status_code == 200
+        moved_definitions = selected_tag_definitions(database, selected_ids, "[CHR] [PEOPLE]")
+        assert [definition["tag_key"] for definition in moved_definitions] == ["CHR", "PEOPLE", "CHR"]
+        preview_response = client.post("/api/prompts/preview", json={
+            "workflow": "anima", "body": {"prompt": "[CHR]"}, "selected_tag_ids": selected_ids, "count": 5,
+        })
+        assert preview_response.status_code == 200
+        assert all(example["prompt"] in {"character A", "character C"} for example in preview_response.json()["examples"])
+
+
 def test_tag_api_previews_and_submits_snapshot_before_comfy_queue(tmp_path: Path) -> None:
     """태그 그룹과 항목을 저장하고 확정 Prompt 및 선택 경로를 작업에 남깁니다."""
 
@@ -612,33 +682,33 @@ def test_tag_api_previews_and_submits_snapshot_before_comfy_queue(tmp_path: Path
         assert client.get("/api/tags").status_code == 401
         client.post("/api/login", json={"password": "test"})
         action_group = client.post("/api/tags/groups", json={
-            "name": "장면", "default_expanded": True,
+            "name": "장면", "tag_key": "ACTION", "default_expanded": True,
         }).json()
         character_group = client.post("/api/tags/groups", json={
-            "name": "캐릭터", "default_expanded": False,
+            "name": "캐릭터", "tag_key": "CHR", "default_expanded": False,
         }).json()
         assert character_group["default_expanded"] is False
         assert client.delete(f"/api/tags/groups/{action_group['group_id']}").status_code == 200
-        action_group = client.post("/api/tags/groups", json={"name": "장면"}).json()
+        action_group = client.post("/api/tags/groups", json={"name": "장면", "tag_key": "ACTION"}).json()
+        pair_group = client.post("/api/tags/groups", json={"name": "구성", "tag_key": "TWOCHR"}).json()
 
-        def create_tag(group_id: str, tag_key: str, name: str, content: str) -> dict:
+        def create_tag(group_id: str, name: str, content: str) -> dict:
             """테스트에서 사용할 태그 항목을 API로 저장합니다."""
 
             response = client.post("/api/tags/entries", json={
-                "group_id": group_id, "tag_key": tag_key, "name": name,
+                "group_id": group_id, "name": name,
                 "content": content, "weight": 1,
             })
             assert response.status_code == 201
             return response.json()
 
-        action_tag = create_tag(action_group["group_id"], "ACTION", "싸움", "[TWOCHR], fight")
-        pair_tag = create_tag(action_group["group_id"], "TWOCHR", "두 사람", "[CHR] and [CHR]")
-        character_tag = create_tag(character_group["group_id"], "CHR", "A", "character A")
+        action_tag = create_tag(action_group["group_id"], "싸움", "[TWOCHR], fight")
+        pair_tag = create_tag(pair_group["group_id"], "두 사람", "[CHR] and [CHR]")
+        character_tag = create_tag(character_group["group_id"], "A", "character A")
         selected_ids = [action_tag["tag_id"], pair_tag["tag_id"], character_tag["tag_id"]]
         assert client.delete(f"/api/tags/groups/{character_group['group_id']}").status_code == 409
-        assert client.post("/api/tags/entries", json={
-            "group_id": character_group["group_id"], "tag_key": "bad-key",
-            "name": "잘못됨", "content": "text",
+        assert client.post("/api/tags/groups", json={
+            "name": "잘못됨", "tag_key": "bad-key",
         }).status_code == 422
 
         body = {"prompt": "quality, [ACTION]"}
@@ -688,7 +758,7 @@ def test_tag_api_previews_and_submits_snapshot_before_comfy_queue(tmp_path: Path
         assert saved_body == {**body, "negative": ""}
 
         assert client.put(f"/api/tags/entries/{character_tag['tag_id']}", json={
-            "group_id": character_group["group_id"], "tag_key": "CHR",
+            "group_id": character_group["group_id"],
             "name": "A", "content": "character B", "weight": 1,
         }).status_code == 200
         assert app.state.home_server.database.get_job(response.json()["job_id"])["requests"][0]["detail"]["selected_tags"][2]["content"] == "character A"
@@ -711,7 +781,7 @@ def test_tag_api_previews_and_submits_snapshot_before_comfy_queue(tmp_path: Path
         assert "character B" in current_preview.json()["examples"][0]["prompt"]
 
         assert client.put(f"/api/tags/entries/{pair_tag['tag_id']}", json={
-            "group_id": action_group["group_id"], "tag_key": "TWOCHR",
+            "group_id": pair_group["group_id"],
             "name": "두 사람", "content": "[ACTION]", "weight": 1,
         }).status_code == 200
         rejected = client.post("/api/batches", json={

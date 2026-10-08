@@ -150,9 +150,9 @@ def test_lora_presets_keep_workflow_weights_and_submit_snapshot(lora_preset_clie
         "name": "Portrait", "workflow": "anima",
         "loras": [{"name": "second.safetensors", "strength": 0.6, "clip_strength": 0.35}],
     }).json()
-    tag_group = client.post("/api/tags/groups", json={"name": "Scenes"}).json()
+    tag_group = client.post("/api/tags/groups", json={"name": "Scenes", "tag_key": "SCENE"}).json()
     scene_tag = client.post("/api/tags/entries", json={
-        "group_id": tag_group["group_id"], "tag_key": "SCENE", "name": "Portrait",
+        "group_id": tag_group["group_id"], "name": "Portrait",
         "content": "subject", "weight": 1,
     }).json()
     response = client.post("/api/batches", json={

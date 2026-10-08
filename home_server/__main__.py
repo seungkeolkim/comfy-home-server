@@ -16,7 +16,8 @@ def main() -> None:
     config = load_config()
     watched_directories = [str(PROJECT_DIRECTORY / "home_server")] if arguments.reload else None
     uvicorn.run(
-        "home_server.application:app",
+        "home_server.application:create_app",
+        factory=True,
         host=config.host,
         port=config.port,
         reload=arguments.reload,

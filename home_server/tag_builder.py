@@ -34,7 +34,7 @@ def anima_prompt(body: dict[str, Any]) -> str:
 
 
 def validate_tag_selection(prompt_text: str, selected_tags: list[dict[str, Any]]) -> None:
-    """Prompt에서 도달할 수 있는 모든 선택지의 누락과 cycle을 검사합니다."""
+    """그룹 참조를 복사한 항목 snapshot에서 모든 선택지의 누락과 cycle을 검사합니다."""
 
     if len(selected_tags) > MAX_SELECTED_TAGS:
         raise ValueError(f"태그 항목은 최대 {MAX_SELECTED_TAGS}개 선택할 수 있습니다.")
@@ -83,7 +83,7 @@ def validate_tag_selection(prompt_text: str, selected_tags: list[dict[str, Any]]
 def resolve_tag_prompt(
     body: dict[str, Any], selected_tags: list[dict[str, Any]], seed: int,
 ) -> tuple[str, list[dict[str, Any]]]:
-    """Prompt 본문에서 시작해 각 참조를 weight에 따라 독립적으로 확장합니다."""
+    """같은 그룹 참조의 항목 snapshot을 합쳐 각 참조를 weight로 독립 추첨합니다."""
 
     prompt_text = anima_prompt(body)
     validate_tag_selection(prompt_text, selected_tags)

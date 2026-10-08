@@ -78,8 +78,7 @@ function sortedTagEntriesInGroup(groupId) {
     .sort((leftEntry, rightEntry) => {
       const nameOrder = TAG_NAME_COLLATOR.compare(leftEntry.name, rightEntry.name);
       if (nameOrder) return nameOrder;
-      const keyOrder = TAG_NAME_COLLATOR.compare(leftEntry.tag_key, rightEntry.tag_key);
-      return keyOrder || leftEntry.tag_id.localeCompare(rightEntry.tag_id);
+      return leftEntry.tag_id.localeCompare(rightEntry.tag_id);
     });
 }
 
@@ -448,11 +447,13 @@ function requiredTagKeys() {
     for (const match of templateText.matchAll(/\[([A-Z][A-Z0-9_]*)\]/g)) {
       const tagKey = match[1];
       requiredKeys.add(tagKey);
-      for (const entry of applicationState.tagEntries) {
-        if (entry.tag_key !== tagKey || !applicationState.selectedTagIds.has(entry.tag_id)) continue;
-        if (visitedTagIds.has(entry.tag_id)) continue;
-        visitedTagIds.add(entry.tag_id);
-        pendingTexts.push(entry.content);
+      const matchingGroups = applicationState.tagGroups.filter((group) => group.tag_key === tagKey);
+      for (const group of matchingGroups) {
+        for (const entry of sortedTagEntriesInGroup(group.group_id)) {
+          if (!applicationState.selectedTagIds.has(entry.tag_id) || visitedTagIds.has(entry.tag_id)) continue;
+          visitedTagIds.add(entry.tag_id);
+          pendingTexts.push(entry.content);
+        }
       }
     }
   }
@@ -462,8 +463,11 @@ function requiredTagKeys() {
 /** 현재 Prompt에서 도달 가능한 선택 항목만 제출 목록으로 반환합니다. */
 function activeSelectedTagIds() {
   const requiredKeys = requiredTagKeys();
+  const relevantGroupIds = new Set(applicationState.tagGroups
+    .filter((group) => requiredKeys.has(group.tag_key))
+    .map((group) => group.group_id));
   return applicationState.tagEntries
-    .filter((entry) => requiredKeys.has(entry.tag_key) && applicationState.selectedTagIds.has(entry.tag_id))
+    .filter((entry) => relevantGroupIds.has(entry.group_id) && applicationState.selectedTagIds.has(entry.tag_id))
     .map((entry) => entry.tag_id);
 }
 
@@ -477,39 +481,36 @@ function renderGenerateTagGroups() {
     return;
   }
 
+  const relevantGroups = sortedTagGroups().filter((group) => requiredKeys.has(group.tag_key));
   const missingKeys = [...requiredKeys].filter((tagKey) =>
-    !applicationState.tagEntries.some((entry) =>
-      entry.tag_key === tagKey && applicationState.selectedTagIds.has(entry.tag_id)));
+    !relevantGroups.some((group) => group.tag_key === tagKey &&
+      sortedTagEntriesInGroup(group.group_id).some((entry) => applicationState.selectedTagIds.has(entry.tag_id))));
   element("tag-selection-status").textContent = [...requiredKeys]
     .map((tagKey) => `[${tagKey}] ${missingKeys.includes(tagKey) ? "선택 필요" : "선택됨"}`)
     .join(" · ");
 
-  const relevantGroups = sortedTagGroups().filter((group) =>
-    applicationState.tagEntries.some((entry) =>
-      entry.group_id === group.group_id && requiredKeys.has(entry.tag_key)));
   const missingDefinitions = [...requiredKeys].filter((tagKey) =>
-    !applicationState.tagEntries.some((entry) => entry.tag_key === tagKey));
+    !relevantGroups.some((group) => group.tag_key === tagKey && sortedTagEntriesInGroup(group.group_id).length > 0));
   const missingMarkup = missingDefinitions.length
-    ? `<p class="empty-state">${missingDefinitions.map((key) => `[${escapeHtml(key)}]`).join(", ")} 태그 항목을 태그 관리 탭에서 추가해 주세요.</p>`
+    ? `<p class="empty-state">${missingDefinitions.map((key) => `[${escapeHtml(key)}]`).join(", ")} 참조 태그를 가진 그룹과 하위 항목을 태그 관리 탭에서 추가해 주세요.</p>`
     : "";
   container.innerHTML = missingMarkup + relevantGroups.map((group) => {
-    const entries = sortedTagEntriesInGroup(group.group_id)
-      .filter((entry) => requiredKeys.has(entry.tag_key));
+    const entries = sortedTagEntriesInGroup(group.group_id);
     const selectedCount = entries.filter((entry) => applicationState.selectedTagIds.has(entry.tag_id)).length;
     const openAttribute = applicationState.expandedTagGroupIds?.has(group.group_id) ? " open" : "";
     const entryMarkup = entries.map((entry) => `
       <label class="tag-choice">
         <input type="checkbox" data-select-tag="${escapeHtml(entry.tag_id)}" ${applicationState.selectedTagIds.has(entry.tag_id) ? "checked" : ""}>
-        <span><strong>${escapeHtml(entry.name)}</strong><small>[${escapeHtml(entry.tag_key)}] · weight ${escapeHtml(entry.weight)}</small></span>
+        <span><strong>${escapeHtml(entry.name)}</strong><small>weight ${escapeHtml(entry.weight)}</small></span>
       </label>`).join("");
     return `<details class="tag-group" data-tag-group-open="${escapeHtml(group.group_id)}"${openAttribute}>
-      <summary>${escapeHtml(group.name)} <span>${selectedCount}개 선택 · ${entries.length}개 항목</span></summary>
+      <summary>${escapeHtml(group.name)} [${escapeHtml(group.tag_key)}] <span>${selectedCount}개 선택 · ${entries.length}개 항목</span></summary>
       <div class="tag-group-options">
         <div class="inline-actions">
           <button class="button subtle small" type="button" data-select-visible-tag-group="${escapeHtml(group.group_id)}">전체 선택</button>
           <button class="button subtle small" type="button" data-clear-visible-tag-group="${escapeHtml(group.group_id)}">전체 해제</button>
         </div>
-        ${entryMarkup}
+        ${entryMarkup || '<p class="hint">이 그룹에 태그 항목이 없습니다.</p>'}
       </div>
     </details>`;
   }).join("");
@@ -520,13 +521,14 @@ function renderTagManager() {
   const groups = sortedTagGroups();
   const selectedGroupId = element("tag-entry-group").value;
   const groupOptions = groups.map((group) =>
-    `<option value="${escapeHtml(group.group_id)}">${escapeHtml(group.name)}</option>`).join("");
+    `<option value="${escapeHtml(group.group_id)}">${escapeHtml(group.name)}${group.tag_key ? ` [${escapeHtml(group.tag_key)}]` : ""}</option>`).join("");
   element("tag-entry-group").innerHTML = groupOptions;
   if (groups.some((group) => group.group_id === selectedGroupId))
     element("tag-entry-group").value = selectedGroupId;
+  updateTagEntryGroupReference();
   element("tag-group-list").innerHTML = groups.length
     ? groups.map((group) => `
-      <div class="preset-row"><div><strong>${escapeHtml(group.name)}</strong><small>${group.default_expanded ? "기본 펼침" : "기본 접힘"}</small></div>
+      <div class="preset-row"><div><strong>${escapeHtml(group.name)}</strong><small>${group.tag_key ? `[${escapeHtml(group.tag_key)}]` : "참조 태그 설정 필요"} · ${group.default_expanded ? "기본 펼침" : "기본 접힘"}</small></div>
       <div class="inline-actions"><button class="button subtle small" data-edit-tag-group="${escapeHtml(group.group_id)}">편집</button>
       <button class="button danger small" data-delete-tag-group="${escapeHtml(group.group_id)}">삭제</button></div></div>`).join("")
     : '<p class="empty-state">표시 그룹이 없습니다.</p>';
@@ -537,13 +539,13 @@ function renderTagManager() {
       const entryMarkup = entries.length
         ? entries.map((entry) => `
           <div class="preset-row tag-entry-row"><div><strong>${escapeHtml(entry.name)}</strong>
-          <small>[${escapeHtml(entry.tag_key)}] · weight ${escapeHtml(entry.weight)}</small>
+          <small>weight ${escapeHtml(entry.weight)}</small>
           <small class="tag-content-preview">${escapeHtml(entry.content)}</small></div>
           <div class="inline-actions"><button class="button subtle small" data-edit-tag-entry="${escapeHtml(entry.tag_id)}">편집</button>
           <button class="button danger small" data-delete-tag-entry="${escapeHtml(entry.tag_id)}">삭제</button></div></div>`).join("")
         : '<p class="hint">이 그룹에 태그 항목이 없습니다.</p>';
       return `<details class="tag-group" data-manage-tag-group-open="${escapeHtml(group.group_id)}"${openAttribute}>
-        <summary>${escapeHtml(group.name)} <span>${entries.length}개 항목</span></summary>
+        <summary>${escapeHtml(group.name)}${group.tag_key ? ` [${escapeHtml(group.tag_key)}]` : ""} <span>${entries.length}개 항목</span></summary>
         <div class="tag-group-options">${entryMarkup}</div>
       </details>`;
     }).join("")
@@ -562,6 +564,7 @@ function editTagGroup(groupId) {
   if (!group) return;
   applicationState.editingTagGroupId = group.group_id;
   element("tag-group-name").value = group.name;
+  element("tag-group-key").value = group.tag_key;
   element("tag-group-default-expanded").checked = group.default_expanded;
 }
 
@@ -572,6 +575,7 @@ async function saveTagGroup() {
     method: groupId ? "PUT" : "POST",
     body: JSON.stringify({
       name: element("tag-group-name").value,
+      tag_key: element("tag-group-key").value.trim().toUpperCase(),
       default_expanded: element("tag-group-default-expanded").checked,
     }),
   });
@@ -590,11 +594,20 @@ async function deleteTagGroup(groupId) {
   showNotice("표시 그룹을 삭제했습니다.");
 }
 
+/** 선택한 그룹에서 상속하는 참조 태그를 항목 편집 양식에 표시합니다. */
+function updateTagEntryGroupReference() {
+  const selectedGroup = applicationState.tagGroups.find((group) => group.group_id === element("tag-entry-group").value);
+  element("tag-entry-reference").textContent = selectedGroup?.tag_key
+    ? `그룹의 참조 태그 [${selectedGroup.tag_key}]가 적용됩니다.`
+    : "그룹의 참조 태그를 표시 그룹 관리에서 먼저 설정해 주세요.";
+}
+
 /** 태그 항목 편집 양식을 새 항목 상태로 되돌립니다. */
 function resetTagEntryEditor() {
   applicationState.editingTagEntryId = null;
   element("tag-entry-form").reset();
   element("tag-entry-weight").value = "1";
+  updateTagEntryGroupReference();
 }
 
 /** 지정한 태그 항목을 편집 양식에 채웁니다. */
@@ -603,7 +616,7 @@ function editTagEntry(tagId) {
   if (!entry) return;
   applicationState.editingTagEntryId = entry.tag_id;
   element("tag-entry-group").value = entry.group_id;
-  element("tag-entry-key").value = entry.tag_key;
+  updateTagEntryGroupReference();
   element("tag-entry-name").value = entry.name;
   element("tag-entry-content").value = entry.content;
   element("tag-entry-weight").value = entry.weight;
@@ -616,7 +629,6 @@ async function saveTagEntry() {
     method: tagId ? "PUT" : "POST",
     body: JSON.stringify({
       group_id: element("tag-entry-group").value,
-      tag_key: element("tag-entry-key").value.trim().toUpperCase(),
       name: element("tag-entry-name").value,
       content: element("tag-entry-content").value,
       weight: Number(element("tag-entry-weight").value),
@@ -1390,9 +1402,9 @@ function bindEvents() {
     const clearButton = event.target.closest("[data-clear-visible-tag-group]");
     if (!selectButton && !clearButton) return;
     const groupId = selectButton?.dataset.selectVisibleTagGroup || clearButton.dataset.clearVisibleTagGroup;
-    const visibleKeys = requiredTagKeys();
-    const visibleEntries = sortedTagEntriesInGroup(groupId)
-      .filter((entry) => visibleKeys.has(entry.tag_key));
+    const selectedGroup = applicationState.tagGroups.find((group) => group.group_id === groupId);
+    if (!selectedGroup || !requiredTagKeys().has(selectedGroup.tag_key)) return;
+    const visibleEntries = sortedTagEntriesInGroup(groupId);
     for (const entry of visibleEntries) {
       if (selectButton) applicationState.selectedTagIds.add(entry.tag_id);
       else applicationState.selectedTagIds.delete(entry.tag_id);
@@ -1406,6 +1418,7 @@ function bindEvents() {
     else applicationState.expandedTagGroupIds.delete(groupId);
   }, true);
   element("new-tag-group-button").addEventListener("click", resetTagGroupEditor);
+  element("tag-entry-group").addEventListener("change", updateTagEntryGroupReference);
   element("tag-group-form").addEventListener("submit", (event) => {
     event.preventDefault();
     runAction(saveTagGroup);

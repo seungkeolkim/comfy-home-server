@@ -66,11 +66,17 @@ def settings_dimensions(settings: dict[str, Any]) -> tuple[int, int] | None:
 def selected_tag_definitions(
     database: Database, selected_tag_ids: list[str], prompt_text: str,
 ) -> list[dict[str, Any]]:
-    """현재 DB에서 선택한 태그를 읽고 Prompt 참조 기준으로 검증합니다."""
+    """그룹의 현재 참조 태그를 선택 항목에 복사하여 제출 시점의 정의를 검증합니다."""
 
     if len(selected_tag_ids) != len(set(selected_tag_ids)):
         raise ValueError("같은 태그 항목을 중복 선택할 수 없습니다.")
-    available_tags = {tag["tag_id"]: tag for tag in database.list_tag_entries()}
+    available_groups = {group["group_id"]: group for group in database.list_tag_groups()}
+    available_tags = {}
+    for tag_entry in database.list_tag_entries():
+        tag_group = available_groups[tag_entry["group_id"]]
+        available_tags[tag_entry["tag_id"]] = {
+            **tag_entry, "tag_key": tag_group["tag_key"], "group_name": tag_group["name"],
+        }
     missing_tag_ids = [tag_id for tag_id in selected_tag_ids if tag_id not in available_tags]
     if missing_tag_ids:
         raise ValueError("삭제되거나 찾을 수 없는 태그 항목이 선택되었습니다. 목록을 새로고침해 주세요.")
@@ -135,9 +141,10 @@ class BatchInput(BaseModel):
 
 
 class TagGroupInput(BaseModel):
-    """태그 표시 그룹의 이름과 기본 펼침 상태를 검증합니다."""
+    """태그 그룹의 공통 참조 태그와 표시 설정을 검증합니다."""
 
     name: str = Field(min_length=1, max_length=120)
+    tag_key: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$", max_length=64)
     default_expanded: bool = True
 
     @field_validator("name")
@@ -155,7 +162,6 @@ class TagEntryInput(BaseModel):
     """참조 태그의 선택지와 치환할 본문을 검증합니다."""
 
     group_id: str
-    tag_key: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$", max_length=64)
     name: str = Field(min_length=1, max_length=120)
     content: str = Field(min_length=1, max_length=8000)
     weight: float = Field(default=1, gt=0, allow_inf_nan=False)
@@ -463,7 +469,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     async def create_tag_group(payload: TagGroupInput):
         """기본 펼침 상태를 포함한 태그 표시 그룹을 만듭니다."""
 
-        return server.database.save_tag_group(uuid.uuid4().hex, payload.name, payload.default_expanded)
+        return server.database.save_tag_group(uuid.uuid4().hex, payload.name, payload.tag_key, payload.default_expanded)
 
     @app.put("/api/tags/groups/{group_id}")
     async def update_tag_group(group_id: str, payload: TagGroupInput):
@@ -471,7 +477,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         if server.database.get_tag_group(group_id) is None:
             raise HTTPException(404, "태그 그룹을 찾을 수 없습니다.")
-        return server.database.save_tag_group(group_id, payload.name, payload.default_expanded)
+        return server.database.save_tag_group(group_id, payload.name, payload.tag_key, payload.default_expanded)
 
     @app.delete("/api/tags/groups/{group_id}")
     async def delete_tag_group(group_id: str):
@@ -1099,6 +1105,3 @@ def _history_output_paths(server: HomeServer, record: dict[str, Any], workflow: 
             if output_path.suffix.lower() in MEDIA_EXTENSIONS and relative_path not in output_paths:
                 output_paths.append(relative_path)
     return output_paths
-
-
-app = create_app()

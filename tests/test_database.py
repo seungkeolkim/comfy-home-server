@@ -8,6 +8,97 @@ import pytest
 from home_server.database import Database
 
 
+def create_legacy_group_tag_database(database_path: Path) -> None:
+    """다른 설정과 작업 snapshot을 포함한 version 4 fixture를 준비합니다."""
+
+    database = Database(database_path)
+    database.save_tag_group("first-group", "첫 그룹", "CHR", True)
+    database.save_tag_group("second-group", "둘째 그룹", "CHR", False)
+    database.save_tag_group("empty-group", "빈 그룹", "UNUSED", False)
+    for tag_identifier, group_identifier, content in (
+        ("first-entry", "first-group", "character A"),
+        ("second-entry", "first-group", "character B"),
+        ("third-entry", "second-group", "character C"),
+    ):
+        database.save_tag_entry(tag_identifier, {
+            "group_id": group_identifier, "name": tag_identifier, "content": content, "weight": 2.5,
+        })
+    database.save_preset("legacy-preset", "기존 Prompt", "anima", {"prompt": "[CHR]"})
+    database.save_lora_profile("existing.safetensors", "anima", {"strength": 0.7})
+    database.create_lora_preset("legacy-loras", "기존 조합", "anima", [{"name": "existing.safetensors"}])
+    database.add_job("historical-job", "anima", "기존 이력", [{
+        "request_id": "historical-request", "status": "completed", "output_stem": "anima/old",
+        "detail": {"selected_tags": [{"tag_id": "first-entry", "tag_key": "CHR", "content": "old snapshot"}]},
+    }])
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("ALTER TABLE tag_entries ADD COLUMN tag_key TEXT NOT NULL DEFAULT ''")
+        connection.execute(
+            """UPDATE tag_entries SET tag_key =
+            (SELECT tag_key FROM tag_groups WHERE tag_groups.group_id = tag_entries.group_id)"""
+        )
+        connection.execute("DROP INDEX tag_groups_key")
+        connection.execute("ALTER TABLE tag_groups DROP COLUMN tag_key")
+        connection.execute("CREATE INDEX tag_entries_key ON tag_entries(tag_key)")
+        connection.execute("PRAGMA user_version = 4")
+
+
+def test_group_tag_migration_backs_up_and_preserves_all_records(tmp_path: Path) -> None:
+    """중복 참조와 빈 그룹을 migration하고 다른 데이터 및 항목의 ID와 속성을 보존합니다."""
+
+    database_path = tmp_path / "home_server.sqlite3"
+    create_legacy_group_tag_database(database_path)
+    with sqlite3.connect(database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        original_entries = [dict(row) for row in connection.execute("SELECT * FROM tag_entries ORDER BY tag_id")]
+        original_tables = {}
+        for table_name in ("presets", "preset_versions", "lora_profiles", "lora_presets", "jobs", "job_requests"):
+            original_tables[table_name] = [tuple(row) for row in connection.execute(f"SELECT * FROM {table_name}")]
+
+    migrated_database = Database(database_path)
+    assert migrated_database.get_tag_group("first-group")["tag_key"] == "CHR"
+    assert migrated_database.get_tag_group("second-group")["tag_key"] == "CHR"
+    assert migrated_database.get_tag_group("second-group")["default_expanded"] is False
+    assert migrated_database.get_tag_group("empty-group")["tag_key"] == ""
+    with sqlite3.connect(database_path) as connection:
+        connection.row_factory = sqlite3.Row
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+        migrated_entries = [dict(row) for row in connection.execute("SELECT * FROM tag_entries ORDER BY tag_id")]
+        for original_entry in original_entries:
+            original_entry.pop("tag_key")
+        assert migrated_entries == original_entries
+        for table_name, original_rows in original_tables.items():
+            assert [tuple(row) for row in connection.execute(f"SELECT * FROM {table_name}")] == original_rows
+        group_index = next(row for row in connection.execute("PRAGMA index_list(tag_groups)") if row["name"] == "tag_groups_key")
+        assert group_index["unique"] == 0
+
+    backup_paths = list((tmp_path / "backups").glob("*.sqlite3"))
+    assert len(backup_paths) == 1
+    with sqlite3.connect(backup_paths[0]) as backup_connection:
+        assert backup_connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert backup_connection.execute("SELECT DISTINCT tag_key FROM tag_entries").fetchall() == [("CHR",)]
+    Database(database_path)
+    assert len(list((tmp_path / "backups").glob("*.sqlite3"))) == 1
+
+
+def test_group_tag_migration_rejects_mixed_keys_without_modifying_database(tmp_path: Path) -> None:
+    """한 그룹의 참조가 서로 다르면 백업을 남기고 schema와 데이터를 그대로 유지합니다."""
+
+    database_path = tmp_path / "home_server.sqlite3"
+    create_legacy_group_tag_database(database_path)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("UPDATE tag_entries SET tag_key = 'OTHER' WHERE tag_id = 'second-entry'")
+    with pytest.raises(RuntimeError, match="서로 달라"):
+        Database(database_path)
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert "tag_key" not in [row[1] for row in connection.execute("PRAGMA table_info(tag_groups)")]
+        assert connection.execute("SELECT tag_key FROM tag_entries WHERE tag_id = 'second-entry'").fetchone()[0] == "OTHER"
+        assert connection.execute("SELECT COUNT(*) FROM tag_entries").fetchone()[0] == 3
+    assert len(list((tmp_path / "backups").glob("*.sqlite3"))) == 1
+
+
 def test_new_database_stores_jobs_presets_and_tags(tmp_path: Path) -> None:
     """새 schema에서 설정과 작업을 저장하고 작업 중복 시 transaction을 되돌립니다."""
 
@@ -28,7 +119,7 @@ def test_new_database_stores_jobs_presets_and_tags(tmp_path: Path) -> None:
     assert reopened_database.list_presets()[0]["body"] == {"prompt": "portrait, [SCENE]"}
     assert reopened_database.list_lora_profiles()[0]["settings"] == {"strength": 0.7}
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
     with pytest.raises(sqlite3.IntegrityError):
         database.add_job("rolled-back", "anima", "", requests)
     assert database.get_job("rolled-back") is None
