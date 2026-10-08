@@ -175,6 +175,9 @@ button:disabled {
   margin: 0;
   font-size: 13px;
 }
+.tag-entry-section-intro {
+  margin-top: 32px;
+}
 .view {
   animation: show 0.2s ease;
 }
