@@ -324,11 +324,7 @@ input[type="file"] {
   width: 100%;
   margin-top: 6px;
 }
-.scenario-choices {
-  display: grid;
-  gap: 8px;
-}
-.scenario-choice {
+.tag-choice {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -337,13 +333,61 @@ input[type="file"] {
   border: 1px solid #313d51;
   border-radius: 11px;
 }
-.scenario-choice input {
+.tag-choice input {
   width: 17px;
   height: 17px;
   accent-color: #85d9c2;
 }
-.scenario-choice span {
+.tag-choice span {
   font-size: 13px;
+}
+.tag-group {
+  border: 1px solid #354159;
+  border-radius: 12px;
+  background: #101827;
+  overflow: hidden;
+}
+.tag-group summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  font-weight: 650;
+}
+.tag-group summary span {
+  float: right;
+  color: #8796ad;
+  font-size: 12px;
+  font-weight: 400;
+}
+.tag-group-options {
+  display: grid;
+  gap: 7px;
+  padding: 0 10px 10px;
+}
+.tag-choice {
+  background: #172235;
+}
+.tag-choice span {
+  display: grid;
+  gap: 2px;
+}
+.tag-choice small {
+  color: #8796ad;
+}
+.tag-inline-check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.tag-inline-check input {
+  width: 17px;
+  height: 17px;
+}
+.tag-entry-row > div:first-child {
+  min-width: 0;
+}
+.tag-content-preview {
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 .empty-state {
   font-size: 13px;
@@ -644,26 +688,6 @@ input[type="file"] {
   border-color: #507ab2;
   color: #d5e8ff;
 }
-.scenario-editor-card {
-  border: 1px solid #354159;
-  background: #101827;
-  border-radius: 12px;
-  padding: 17px;
-  display: grid;
-  gap: 8px;
-}
-.scenario-editor-card header {
-  display: flex;
-  gap: 9px;
-  align-items: center;
-}
-.scenario-editor-card header input {
-  flex: 1;
-}
-.scenario-editor-card .field-row {
-  flex-direction: column;
-  align-items: stretch;
-}
 .preset-list {
   display: grid;
   gap: 8px;
@@ -783,7 +807,7 @@ input[type="file"] {
   }
   .mobile-nav {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, minmax(0, 1fr));
     position: fixed;
     bottom: 0;
     left: 0;

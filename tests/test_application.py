@@ -78,6 +78,19 @@ class FakeComfyClient:
         return True
 
 
+def create_test_anima_tag(client: TestClient, content: str = "subject") -> str:
+    """Anima API 테스트에서 사용할 SCENE 태그를 생성합니다."""
+
+    group_response = client.post("/api/tags/groups", json={"name": "Test group"})
+    assert group_response.status_code == 201
+    tag_response = client.post("/api/tags/entries", json={
+        "group_id": group_response.json()["group_id"], "tag_key": "SCENE",
+        "name": "Test scene", "content": content, "weight": 1,
+    })
+    assert tag_response.status_code == 201
+    return tag_response.json()["tag_id"]
+
+
 def test_login_batch_and_output_folder_boundary(tmp_path: Path) -> None:
     """인증 후 제출하고 관리 output 안에서만 파일을 이동합니다."""
 
@@ -101,22 +114,25 @@ def test_login_batch_and_output_folder_boundary(tmp_path: Path) -> None:
         })
         assert profile_response.json()["saved"] is True
         assert client.get("/api/loras").json()["profiles"][0]["settings"]["strength"] == 0.75
+        selected_tag_id = create_test_anima_tag(client)
 
         preset_response = client.post("/api/presets", json={
-            "name": "Test", "workflow": "anima", "body": {"prefix": "a portrait", "scenarios": []},
+            "name": "Test", "workflow": "anima",
+            "body": {"prompt": "a portrait, [SCENE]"},
         })
         assert preset_response.status_code == 200
         assert preset_response.json()["version"] == 1
         second_version = client.post("/api/presets", json={
             "preset_id": preset_response.json()["preset_id"], "name": "Test", "workflow": "anima",
-            "body": {"prefix": "a different portrait", "scenarios": []},
+            "body": {"prompt": "a different portrait, [SCENE]"},
         })
         assert second_version.json()["version"] == 2
         versions = client.get(f"/api/presets/{preset_response.json()['preset_id']}/versions").json()
         assert [version["version"] for version in versions] == [2, 1]
 
         batch_response = client.post("/api/batches", json={
-            "workflow": "anima", "body": {"prefix": "a portrait", "scenarios": []},
+            "workflow": "anima", "body": {"prompt": "a portrait, [SCENE]"},
+            "selected_tag_ids": [selected_tag_id],
             "count": 1, "settings": {"width": 512, "height": 512}, "loras": [],
         })
         assert batch_response.status_code == 200
@@ -254,8 +270,10 @@ def test_anima_request_count_submits_independent_single_images(tmp_path: Path, m
 
     with TestClient(app) as client:
         assert client.post("/api/login", json={"password": "test-password"}).status_code == 200
+        selected_tag_id = create_test_anima_tag(client, "subject")
         batch_response = client.post("/api/batches", json={
-            "workflow": "anima", "body": {"prefix": "portrait {calm|happy}", "scenarios": []},
+            "workflow": "anima", "body": {"prompt": "portrait {calm|happy}, [SCENE]"},
+            "selected_tag_ids": [selected_tag_id],
             "count": 2, "settings": {"batch_size": 2, "width": 1280, "height": 720},
         })
         assert batch_response.status_code == 200
@@ -273,7 +291,7 @@ def test_anima_request_count_submits_independent_single_images(tmp_path: Path, m
         assert jobs[0]["request_count"] == 2
         requests = jobs[0]["requests"]
         assert {request["prompt_id"] for request in requests} == {"prompt-1", "prompt-2"}
-        assert fake_comfy.wildcard_prompts == ["portrait {calm|happy}", ""] * 2
+        assert fake_comfy.wildcard_prompts == ["portrait {calm|happy}, subject", ""] * 2
         for submission_index, (request_workflow, metadata) in enumerate(fake_comfy.submissions):
             wildcard_seed = 11 + submission_index
             assert request_workflow["13"]["inputs"]["path"] == "from_home_server/anima"
@@ -355,7 +373,7 @@ def test_minimax_batch_preserves_plain_prompt_for_each_image(tmp_path: Path) -> 
 
         batch_response = client.post("/api/batches", json={
             "workflow": "minimax_h3", "body": {"prompt": plain_text},
-            "selected_scenario_ids": [], "upload_ids": upload_ids, "settings": {}, "loras": [],
+            "upload_ids": upload_ids, "settings": {}, "loras": [],
         })
         assert batch_response.status_code == 200
         assert len(batch_response.json()["request_ids"]) == 2
@@ -388,8 +406,10 @@ def test_job_groups_partial_results_from_independent_requests(tmp_path: Path) ->
     app.state.home_server.comfy = fake_comfy
     with TestClient(app) as client:
         client.post("/api/login", json={"password": "test"})
+        selected_tag_id = create_test_anima_tag(client)
         response = client.post("/api/batches", json={
-            "workflow": "anima", "body": {"prefix": "portrait"}, "count": 2,
+            "workflow": "anima", "body": {"prompt": "portrait, [SCENE]"}, "count": 2,
+            "selected_tag_ids": [selected_tag_id],
         }).json()
         for attempt_index in range(30):
             if len(fake_comfy.submissions) == 2:
@@ -436,7 +456,9 @@ def test_job_description_cancel_and_history_actions(tmp_path: Path) -> None:
     app.state.home_server.comfy = fake_comfy
     with TestClient(app) as client:
         assert client.post("/api/login", json={"password": "test"}).status_code == 200
-        batch = {"workflow": "anima", "body": {"prefix": "portrait"}, "count": 2}
+        selected_tag_id = create_test_anima_tag(client)
+        batch = {"workflow": "anima", "body": {"prompt": "portrait, [SCENE]"}, "count": 2,
+                 "selected_tag_ids": [selected_tag_id]}
         assert client.post("/api/batches", json={**batch, "description": "bad\nline"}).status_code == 422
         response = client.post("/api/batches", json={**batch, "description": "  조명 비교  "})
         assert response.status_code == 200
@@ -521,9 +543,11 @@ def test_saver_history_outputs_keep_native_names(tmp_path: Path, workflow: str) 
         if workflow == "minimax_h3":
             upload_response = client.post("/api/uploads", files={"file": ("input.png", b"image", "image/png")})
             upload_ids.append(upload_response.json()["upload_id"])
-        body = {"prefix": "portrait", "scenarios": []} if workflow == "anima" else {"prompt": "quiet scene"}
+        body = {"prompt": "portrait, [SCENE]"} if workflow == "anima" else {"prompt": "quiet scene"}
+        selected_tag_ids = [create_test_anima_tag(client)] if workflow == "anima" else []
         response = client.post("/api/batches", json={
             "workflow": workflow, "body": body, "upload_ids": upload_ids,
+            "selected_tag_ids": selected_tag_ids,
             "settings": {"width": 768, "height": 1024},
         })
         assert response.status_code == 200
@@ -568,3 +592,132 @@ def test_saver_history_outputs_keep_native_names(tmp_path: Path, workflow: str) 
         assert original_file.read_bytes() == b"result"
         original_file.unlink()
         assert client.get("/api/outputs", params={"request_id": request_id}).json()["total"] == 0
+
+
+def test_tag_api_previews_and_submits_snapshot_before_comfy_queue(tmp_path: Path) -> None:
+    """태그 그룹과 항목을 저장하고 확정 Prompt 및 선택 경로를 작업에 남깁니다."""
+
+    output_directory = tmp_path / "output"
+    config = AppConfig(
+        host="127.0.0.1", port=8388, password="test", comfy_endpoint="http://example.test",
+        comfy_output_directory=output_directory,
+        managed_output_directory=output_directory / "from_home_server",
+        runtime_directory=tmp_path / "runtime", workflow_directory=PROJECT_DIRECTORY / "data" / "workflows",
+    )
+    app = create_app(config)
+    fake_comfy = FakeComfyClient()
+    app.state.home_server.comfy = fake_comfy
+
+    with TestClient(app) as client:
+        assert client.get("/api/tags").status_code == 401
+        client.post("/api/login", json={"password": "test"})
+        action_group = client.post("/api/tags/groups", json={
+            "name": "장면", "default_expanded": True,
+        }).json()
+        character_group = client.post("/api/tags/groups", json={
+            "name": "캐릭터", "default_expanded": False,
+        }).json()
+        assert character_group["default_expanded"] is False
+        assert client.delete(f"/api/tags/groups/{action_group['group_id']}").status_code == 200
+        action_group = client.post("/api/tags/groups", json={"name": "장면"}).json()
+
+        def create_tag(group_id: str, tag_key: str, name: str, content: str) -> dict:
+            """테스트에서 사용할 태그 항목을 API로 저장합니다."""
+
+            response = client.post("/api/tags/entries", json={
+                "group_id": group_id, "tag_key": tag_key, "name": name,
+                "content": content, "weight": 1,
+            })
+            assert response.status_code == 201
+            return response.json()
+
+        action_tag = create_tag(action_group["group_id"], "ACTION", "싸움", "[TWOCHR], fight")
+        pair_tag = create_tag(action_group["group_id"], "TWOCHR", "두 사람", "[CHR] and [CHR]")
+        character_tag = create_tag(character_group["group_id"], "CHR", "A", "character A")
+        selected_ids = [action_tag["tag_id"], pair_tag["tag_id"], character_tag["tag_id"]]
+        assert client.delete(f"/api/tags/groups/{character_group['group_id']}").status_code == 409
+        assert client.post("/api/tags/entries", json={
+            "group_id": character_group["group_id"], "tag_key": "bad-key",
+            "name": "잘못됨", "content": "text",
+        }).status_code == 422
+
+        body = {"prompt": "quality, [ACTION]"}
+        missing_action = client.post("/api/batches", json={
+            "workflow": "anima", "body": body, "selected_tag_ids": [],
+        })
+        assert missing_action.status_code == 422
+        assert "[ACTION]" in missing_action.json()["detail"]
+        missing_character = client.post("/api/batches", json={
+            "workflow": "anima", "body": body,
+            "selected_tag_ids": [action_tag["tag_id"], pair_tag["tag_id"]],
+        })
+        assert missing_character.status_code == 422
+        assert "[CHR]" in missing_character.json()["detail"]
+        preview = client.post("/api/prompts/preview", json={
+            "workflow": "anima", "body": body,
+            "selected_tag_ids": selected_ids, "count": 1,
+        })
+        assert preview.status_code == 200
+        example = preview.json()["examples"][0]
+        assert example["prompt"] == "quality, character A and character A, fight"
+        assert [item["name"] for item in example["selected_path"]] == ["싸움", "두 사람", "A", "A"]
+
+        response = client.post("/api/batches", json={
+            "workflow": "anima", "body": body,
+            "selected_tag_ids": selected_ids, "count": 1,
+        })
+        assert response.status_code == 200
+        for _ in range(30):
+            job = app.state.home_server.database.get_job(response.json()["job_id"])
+            if job["requests"][0]["prompt_id"]:
+                break
+            time.sleep(0.05)
+        request = job["requests"][0]
+        assert request["detail"]["selected_tags"][2]["content"] == "character A"
+        assert request["detail"]["resolved"]["prompt"] == example["prompt"]
+        assert len(request["detail"]["resolved"]["selected_path"]) == 4
+        assert fake_comfy.submissions[0][0]["3"]["inputs"]["mode"] == "fixed"
+        assert fake_comfy.submissions[0][0]["3"]["inputs"]["populated_text"] == example["prompt"]
+
+        saved_preset = client.post("/api/presets", json={
+            "name": "태그 버전", "workflow": "anima",
+            "body": {**body, "prefix": "obsolete", "selected_tag_ids": selected_ids},
+        })
+        assert saved_preset.status_code == 200
+        saved_body = saved_preset.json()["body"]
+        assert saved_body == {**body, "negative": ""}
+
+        assert client.put(f"/api/tags/entries/{character_tag['tag_id']}", json={
+            "group_id": character_group["group_id"], "tag_key": "CHR",
+            "name": "A", "content": "character B", "weight": 1,
+        }).status_code == 200
+        assert app.state.home_server.database.get_job(response.json()["job_id"])["requests"][0]["detail"]["selected_tags"][2]["content"] == "character A"
+        historical_preview = client.post("/api/prompts/preview", json={
+            "workflow": "anima", "body": saved_body,
+            "selected_tag_ids": selected_ids, "count": 1,
+        })
+        assert historical_preview.json()["examples"][0]["prompt"] == "quality, character B and character B, fight"
+        saved_again = client.post("/api/presets", json={
+            "preset_id": saved_preset.json()["preset_id"], "name": "태그 버전",
+            "workflow": "anima", "body": saved_body,
+        })
+        assert saved_again.status_code == 200
+        assert saved_again.json()["version"] == 2
+        assert saved_again.json()["body"] == saved_body
+        current_preview = client.post("/api/prompts/preview", json={
+            "workflow": "anima", "body": body,
+            "selected_tag_ids": selected_ids, "count": 1,
+        })
+        assert "character B" in current_preview.json()["examples"][0]["prompt"]
+
+        assert client.put(f"/api/tags/entries/{pair_tag['tag_id']}", json={
+            "group_id": action_group["group_id"], "tag_key": "TWOCHR",
+            "name": "두 사람", "content": "[ACTION]", "weight": 1,
+        }).status_code == 200
+        rejected = client.post("/api/batches", json={
+            "workflow": "anima", "body": body,
+            "selected_tag_ids": selected_ids,
+        })
+        assert rejected.status_code == 422
+        assert "cycle" in rejected.json()["detail"]
+        assert client.get("/api/jobs").json()["total"] == 1

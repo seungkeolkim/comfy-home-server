@@ -14,13 +14,7 @@ const applicationState = {
   presets: [],
   presetVersions: [],
   currentPresetId: null,
-  currentBody: {
-    prefix: "",
-    suffix: "",
-    negative: "",
-    separator: ", ",
-    scenarios: [],
-  },
+  currentBody: { prompt: "", negative: "" },
   availableLoras: [],
   loraProfiles: [],
   loraPresets: [],
@@ -30,6 +24,12 @@ const applicationState = {
   loraCatalogAvailable: false,
   selectedLoras: [],
   selectedFiles: [],
+  tagGroups: [],
+  tagEntries: [],
+  selectedTagIds: new Set(),
+  expandedTagGroupIds: null,
+  editingTagGroupId: null,
+  editingTagEntryId: null,
   currentView: "generate",
   outputFilter: null,
   outputsPage: 1,
@@ -75,14 +75,6 @@ function formatDimensions(width, height) {
     ratio: `${normalizedWidth / dividend}:${normalizedHeight / dividend}`,
     resolution: `${normalizedWidth} × ${normalizedHeight}`,
   };
-}
-
-/** HTTP 접속에서도 쓸 수 있는 무작위 상황 식별자를 만듭니다. */
-function createScenarioIdentifier() {
-  const randomBytes = new Uint8Array(16);
-  crypto.getRandomValues(randomBytes);
-  return Array.from(randomBytes, (randomByte) =>
-    randomByte.toString(16).padStart(2, "0")).join("");
 }
 
 /** 인증 cookie를 포함해 JSON API를 호출합니다. */
@@ -131,6 +123,7 @@ async function showApplication() {
   element("application").classList.remove("hidden");
   await Promise.allSettled([
     loadPresets(),
+    loadTags(),
     loadLoras(),
     loadLoraPresets(),
     loadJobs(),
@@ -160,6 +153,7 @@ function switchView(viewName) {
     jobs: "작업",
     outputs: "결과물",
     prompts: "Prompt",
+    tags: "태그 관리",
     "lora-presets": "LoRA 조합",
   };
   element("page-title").textContent = titles[viewName];
@@ -173,11 +167,11 @@ function resetGenerationWorkflow(workflow) {
   element("generate-workflow").value = workflow;
   applicationState.currentPresetId = null;
   applicationState.currentLoraPresetId = null;
-  applicationState.currentBody = { prefix: "", suffix: "", negative: "", separator: ", ", scenarios: [] };
+  applicationState.currentBody = { prompt: "", negative: "" };
   applicationState.selectedLoras = [];
-  for (const identifier of ["generate-prefix", "generate-suffix", "generate-negative", "generate-minimax-prompt"])
+  applicationState.selectedTagIds.clear();
+  for (const identifier of ["generate-anima-prompt", "generate-negative", "generate-minimax-prompt"])
     element(identifier).value = "";
-  element("generate-separator").value = ", ";
   element("generation-lora-preset-form").classList.add("hidden");
   renderPresetList();
   updateWorkflowOptions();
@@ -205,7 +199,7 @@ function updateWorkflowOptions() {
   const isAnima = element("generate-workflow").value === "anima";
   element("anima-prompt-fields").classList.toggle("hidden", !isAnima);
   element("minimax-prompt-fields").classList.toggle("hidden", isAnima);
-  element("generate-scenario-fields").classList.toggle("hidden", !isAnima);
+  element("generate-tag-fields").classList.toggle("hidden", !isAnima);
   element("anima-options").classList.toggle("hidden", !isAnima);
   element("minimax-options").classList.toggle("hidden", isAnima);
   element("generate-count-field").classList.toggle("hidden", !isAnima);
@@ -214,12 +208,13 @@ function updateWorkflowOptions() {
   element("lora-step").textContent = isAnima ? "03" : "02";
   element("workflow-options-step").textContent = isAnima ? "04" : "03";
   element("preview-hint").textContent = isAnima
-    ? "미리보기는 실제 Impact wildcard 결과를 보여줍니다."
+    ? "미리보기는 선택한 항목을 조합하고 Impact wildcard를 확정한 예시입니다."
     : "미리보기는 모든 입력 이미지에 사용할 평문을 그대로 보여줍니다.";
   renderLoraPresetList();
   renderSelectedLoras();
   renderLoraFileOptions();
-  renderGenerateScenarios();
+  renderGenerateTagGroups();
+  updatePresetWorkflowOptions();
 }
 
 /** 선택한 해상도를 Anima의 너비와 높이에 적용합니다. */
@@ -254,7 +249,7 @@ function updatePresetWorkflowOptions() {
   element("preset-anima-fields").classList.toggle("hidden", !isAnima);
   element("preset-minimax-fields").classList.toggle("hidden", isAnima);
   element("preset-form-description").textContent = isAnima
-    ? "상황을 읽기 쉬운 단위로 편집하고 버전으로 저장합니다."
+    ? "태그 참조가 포함된 Prompt 텍스트를 버전으로 저장합니다."
     : "MiniMax Prompt를 평문으로 편집하고 버전으로 저장합니다.";
 }
 
@@ -301,16 +296,13 @@ function renderPresetList() {
 }
 
 /** 같은 Prompt 본문을 생성 화면과 편집 화면에 채웁니다. */
-function fillPromptFields(body) {
-  element("preset-prefix").value = body.prefix || "";
-  element("preset-suffix").value = body.suffix || "";
+function fillPromptFields(body, resetSelectedTags = false) {
+  if (resetSelectedTags) applicationState.selectedTagIds.clear();
+  element("preset-anima-prompt").value = body.prompt || "";
   element("preset-negative").value = body.negative || "";
-  element("preset-separator").value = body.separator ?? ", ";
   element("preset-minimax-prompt").value = body.prompt || "";
-  element("generate-prefix").value = body.prefix || "";
-  element("generate-suffix").value = body.suffix || "";
+  element("generate-anima-prompt").value = body.prompt || "";
   element("generate-negative").value = body.negative || "";
-  element("generate-separator").value = body.separator ?? ", ";
   element("generate-minimax-prompt").value = body.prompt || "";
 }
 
@@ -329,9 +321,7 @@ function loadPresetIntoEditor(presetId) {
   element("preset-version").textContent = `현재 v${preset.version}`;
   element("generate-workflow").value = preset.workflow;
   element("generate-preset").value = preset.preset_id;
-  fillPromptFields(preset.body);
-  renderScenarioEditor();
-  selectAllGenerateScenarios();
+  fillPromptFields(preset.body, true);
   updateWorkflowOptions();
   updatePresetWorkflowOptions();
 }
@@ -358,11 +348,11 @@ function loadPresetVersion(presetId, versionNumber) {
   );
   if (!version) return;
   applicationState.currentBody = structuredClone(version.body);
-  fillPromptFields(version.body);
+  fillPromptFields(version.body, true);
   element("preset-version").textContent =
     `v${versionNumber} 열림 · 저장하면 새 버전이 됩니다.`;
-  renderScenarioEditor();
-  selectAllGenerateScenarios();
+  updateWorkflowOptions();
+  updatePresetWorkflowOptions();
 }
 
 /** Prompt 편집 화면의 현재 입력값을 객체로 만듭니다. */
@@ -371,11 +361,8 @@ function editorBody() {
     return { prompt: element("preset-minimax-prompt").value };
   }
   return {
-    prefix: element("preset-prefix").value,
-    suffix: element("preset-suffix").value,
+    prompt: element("preset-anima-prompt").value,
     negative: element("preset-negative").value,
-    separator: element("preset-separator").value,
-    scenarios: applicationState.currentBody.scenarios || [],
   };
 }
 
@@ -385,70 +372,217 @@ function generateBody() {
     return { prompt: element("generate-minimax-prompt").value };
   }
   return {
-    prefix: element("generate-prefix").value,
-    suffix: element("generate-suffix").value,
+    prompt: element("generate-anima-prompt").value,
     negative: element("generate-negative").value,
-    separator: element("generate-separator").value,
-    scenarios: applicationState.currentBody.scenarios || [],
   };
 }
 
-/** 편집 중인 상황 카드들을 그립니다. */
-function renderScenarioEditor() {
-  const scenarios = applicationState.currentBody.scenarios || [];
-  element("scenario-editor").innerHTML = scenarios.length
-    ? scenarios
-        .map(
-          (scenario, index) => `
-    <article class="scenario-editor-card" data-scenario-index="${index}">
-      <header><input data-scenario-field="name" aria-label="상황 이름" placeholder="상황 이름" value="${escapeHtml(scenario.name || "")}"><button class="icon-button" data-remove-scenario="${index}" title="상황 제거">×</button></header>
-      <div class="field-row"><div><label>캐릭터 구성</label><textarea data-scenario-field="characters" rows="2" placeholder="{캐릭터 A|캐릭터 B}">${escapeHtml(scenario.characters || "")}</textarea></div><div><label>상황 표현</label><textarea data-scenario-field="situation" rows="2">${escapeHtml(scenario.situation || "")}</textarea></div></div>
-      <div class="field-row"><div><label>세부 동작 · 선택</label><textarea data-scenario-field="details" rows="2">${escapeHtml(scenario.details || "")}</textarea></div><div><label>표정·감정선</label><textarea data-scenario-field="emotion" rows="2">${escapeHtml(scenario.emotion || "")}</textarea></div></div>
-      <div class="field-row"><div><label>장소 · 선택</label><textarea data-scenario-field="location" rows="2">${escapeHtml(scenario.location || "")}</textarea></div><div><label>선택 가중치</label><input data-scenario-field="weight" type="number" min="0.1" step="0.1" value="${escapeHtml(scenario.weight ?? 1)}"></div></div>
-    </article>`,
-        )
-        .join("")
-    : `<p class="empty-state">상황을 추가하면 checkbox로 선택할 수 있습니다.</p>`;
-  renderGenerateScenarios();
-}
-
-/** 생성 화면에 상황 checkbox를 그립니다. */
-function renderGenerateScenarios() {
-  const selectedIds = new Set(
-    [...element("generate-scenarios").querySelectorAll("input:checked")].map(
-      (input) => input.value,
-    ),
-  );
-  const scenarios = applicationState.currentBody.scenarios || [];
-  element("generate-scenarios").classList.toggle(
-    "empty-state",
-    scenarios.length === 0,
-  );
-  element("generate-scenarios").innerHTML = scenarios.length
-    ? scenarios
-        .map(
-          (scenario) =>
-            `<label class="scenario-choice"><input type="checkbox" value="${escapeHtml(scenario.id)}" ${selectedIds.has(scenario.id) ? "checked" : ""}><span>${escapeHtml(scenario.name || "이름 없는 상황")}</span></label>`,
-        )
-        .join("")
-    : "등록된 상황이 없습니다. Prompt 화면에서 추가하세요.";
-}
-
-/** 불러온 preset의 상황을 생성 화면에서 모두 선택합니다. */
-function selectAllGenerateScenarios() {
-  const checkboxes = element("generate-scenarios").querySelectorAll(
-    "input[type=checkbox]",
-  );
-  for (const checkbox of checkboxes) {
-    checkbox.checked = true;
+/** 태그와 표시 그룹을 다시 읽고 현재 선택을 유지합니다. */
+async function loadTags() {
+  try {
+    const catalog = await apiRequest("/api/tags");
+    applicationState.tagGroups = catalog.groups;
+    applicationState.tagEntries = catalog.entries;
+    if (applicationState.expandedTagGroupIds === null)
+      applicationState.expandedTagGroupIds = new Set(
+        catalog.groups.filter((group) => group.default_expanded).map((group) => group.group_id),
+      );
+    const existingGroupIds = new Set(catalog.groups.map((group) => group.group_id));
+    for (const group of catalog.groups) {
+      if (!applicationState.expandedTagGroupIds.has(group.group_id) &&
+          !applicationState.knownTagGroupIds?.has(group.group_id) && group.default_expanded)
+        applicationState.expandedTagGroupIds.add(group.group_id);
+    }
+    applicationState.knownTagGroupIds = existingGroupIds;
+    const existingTagIds = new Set(catalog.entries.map((entry) => entry.tag_id));
+    for (const tagId of applicationState.selectedTagIds) {
+      if (!existingTagIds.has(tagId))
+        applicationState.selectedTagIds.delete(tagId);
+    }
+    renderGenerateTagGroups();
+    renderTagManager();
+  } catch (error) {
+    showNotice(error.message, true);
   }
 }
 
-/** 체크한 상황 식별자를 반환합니다. */
-function selectedScenarioIds() {
-  return [
-    ...element("generate-scenarios").querySelectorAll("input:checked"),
-  ].map((input) => input.value);
+/** Prompt와 선택된 태그 본문에서 필요한 참조 키를 재귀적으로 찾습니다. */
+function requiredTagKeys() {
+  const requiredKeys = new Set();
+  const visitedTagIds = new Set();
+  const pendingTexts = [element("generate-anima-prompt").value];
+  while (pendingTexts.length) {
+    const templateText = pendingTexts.shift();
+    for (const match of templateText.matchAll(/\[([A-Z][A-Z0-9_]*)\]/g)) {
+      const tagKey = match[1];
+      requiredKeys.add(tagKey);
+      for (const entry of applicationState.tagEntries) {
+        if (entry.tag_key !== tagKey || !applicationState.selectedTagIds.has(entry.tag_id)) continue;
+        if (visitedTagIds.has(entry.tag_id)) continue;
+        visitedTagIds.add(entry.tag_id);
+        pendingTexts.push(entry.content);
+      }
+    }
+  }
+  return requiredKeys;
+}
+
+/** 현재 Prompt에서 도달 가능한 선택 항목만 제출 목록으로 반환합니다. */
+function activeSelectedTagIds() {
+  const requiredKeys = requiredTagKeys();
+  return applicationState.tagEntries
+    .filter((entry) => requiredKeys.has(entry.tag_key) && applicationState.selectedTagIds.has(entry.tag_id))
+    .map((entry) => entry.tag_id);
+}
+
+/** 필요한 참조의 선택 상태와 관련 그룹의 checkbox만 표시합니다. */
+function renderGenerateTagGroups() {
+  const container = element("generate-tag-groups");
+  const requiredKeys = requiredTagKeys();
+  if (!requiredKeys.size) {
+    element("tag-selection-status").textContent = "Prompt에 [TAG] 참조가 없습니다. 태그 선택이 필요하지 않습니다.";
+    container.innerHTML = "";
+    return;
+  }
+
+  const missingKeys = [...requiredKeys].filter((tagKey) =>
+    !applicationState.tagEntries.some((entry) =>
+      entry.tag_key === tagKey && applicationState.selectedTagIds.has(entry.tag_id)));
+  element("tag-selection-status").textContent = [...requiredKeys]
+    .map((tagKey) => `[${tagKey}] ${missingKeys.includes(tagKey) ? "선택 필요" : "선택됨"}`)
+    .join(" · ");
+
+  const relevantGroups = applicationState.tagGroups.filter((group) =>
+    applicationState.tagEntries.some((entry) =>
+      entry.group_id === group.group_id && requiredKeys.has(entry.tag_key)));
+  const missingDefinitions = [...requiredKeys].filter((tagKey) =>
+    !applicationState.tagEntries.some((entry) => entry.tag_key === tagKey));
+  const missingMarkup = missingDefinitions.length
+    ? `<p class="empty-state">${missingDefinitions.map((key) => `[${escapeHtml(key)}]`).join(", ")} 태그 항목을 태그 관리 탭에서 추가해 주세요.</p>`
+    : "";
+  container.innerHTML = missingMarkup + relevantGroups.map((group) => {
+    const entries = applicationState.tagEntries.filter((entry) =>
+      entry.group_id === group.group_id && requiredKeys.has(entry.tag_key));
+    const selectedCount = entries.filter((entry) => applicationState.selectedTagIds.has(entry.tag_id)).length;
+    const openAttribute = applicationState.expandedTagGroupIds?.has(group.group_id) ? " open" : "";
+    const entryMarkup = entries.map((entry) => `
+      <label class="tag-choice">
+        <input type="checkbox" data-select-tag="${escapeHtml(entry.tag_id)}" ${applicationState.selectedTagIds.has(entry.tag_id) ? "checked" : ""}>
+        <span><strong>${escapeHtml(entry.name)}</strong><small>[${escapeHtml(entry.tag_key)}] · weight ${escapeHtml(entry.weight)}</small></span>
+      </label>`).join("");
+    return `<details class="tag-group" data-tag-group-open="${escapeHtml(group.group_id)}"${openAttribute}>
+      <summary>${escapeHtml(group.name)} <span>${selectedCount}개 선택 · ${entries.length}개 항목</span></summary>
+      <div class="tag-group-options">${entryMarkup}</div>
+    </details>`;
+  }).join("");
+}
+
+/** 그룹 및 태그 항목의 저장 목록과 편집 대상 선택 버튼을 표시합니다. */
+function renderTagManager() {
+  const groupOptions = applicationState.tagGroups.map((group) =>
+    `<option value="${escapeHtml(group.group_id)}">${escapeHtml(group.name)}</option>`).join("");
+  element("tag-entry-group").innerHTML = groupOptions;
+  element("tag-group-list").innerHTML = applicationState.tagGroups.length
+    ? applicationState.tagGroups.map((group) => `
+      <div class="preset-row"><div><strong>${escapeHtml(group.name)}</strong><small>${group.default_expanded ? "기본 펼침" : "기본 접힘"}</small></div>
+      <div class="inline-actions"><button class="button subtle small" data-edit-tag-group="${escapeHtml(group.group_id)}">편집</button>
+      <button class="button danger small" data-delete-tag-group="${escapeHtml(group.group_id)}">삭제</button></div></div>`).join("")
+    : '<p class="empty-state">표시 그룹이 없습니다.</p>';
+  element("tag-entry-list").innerHTML = applicationState.tagEntries.length
+    ? applicationState.tagEntries.map((entry) => `
+      <div class="preset-row tag-entry-row"><div><strong>${escapeHtml(entry.name)}</strong>
+      <small>[${escapeHtml(entry.tag_key)}] · ${escapeHtml(applicationState.tagGroups.find((group) => group.group_id === entry.group_id)?.name || "그룹 없음")} · weight ${escapeHtml(entry.weight)}</small>
+      <small class="tag-content-preview">${escapeHtml(entry.content)}</small></div>
+      <div class="inline-actions"><button class="button subtle small" data-edit-tag-entry="${escapeHtml(entry.tag_id)}">편집</button>
+      <button class="button danger small" data-delete-tag-entry="${escapeHtml(entry.tag_id)}">삭제</button></div></div>`).join("")
+    : '<p class="empty-state">태그 항목이 없습니다.</p>';
+}
+
+/** 표시 그룹 편집 양식을 새 그룹 상태로 되돌립니다. */
+function resetTagGroupEditor() {
+  applicationState.editingTagGroupId = null;
+  element("tag-group-form").reset();
+}
+
+/** 지정한 표시 그룹을 편집 양식에 채웁니다. */
+function editTagGroup(groupId) {
+  const group = applicationState.tagGroups.find((item) => item.group_id === groupId);
+  if (!group) return;
+  applicationState.editingTagGroupId = group.group_id;
+  element("tag-group-name").value = group.name;
+  element("tag-group-default-expanded").checked = group.default_expanded;
+}
+
+/** 새 표시 그룹을 만들거나 현재 편집 중인 그룹을 갱신합니다. */
+async function saveTagGroup() {
+  const groupId = applicationState.editingTagGroupId;
+  await apiRequest(groupId ? `/api/tags/groups/${encodeURIComponent(groupId)}` : "/api/tags/groups", {
+    method: groupId ? "PUT" : "POST",
+    body: JSON.stringify({
+      name: element("tag-group-name").value,
+      default_expanded: element("tag-group-default-expanded").checked,
+    }),
+  });
+  resetTagGroupEditor();
+  await loadTags();
+  showNotice("표시 그룹을 저장했습니다.");
+}
+
+/** 비어 있는 표시 그룹을 삭제합니다. */
+async function deleteTagGroup(groupId) {
+  const group = applicationState.tagGroups.find((item) => item.group_id === groupId);
+  if (!group || !window.confirm(`"${group.name}" 그룹을 삭제하시겠습니까?`)) return;
+  await apiRequest(`/api/tags/groups/${encodeURIComponent(groupId)}`, { method: "DELETE" });
+  if (applicationState.editingTagGroupId === groupId) resetTagGroupEditor();
+  await loadTags();
+  showNotice("표시 그룹을 삭제했습니다.");
+}
+
+/** 태그 항목 편집 양식을 새 항목 상태로 되돌립니다. */
+function resetTagEntryEditor() {
+  applicationState.editingTagEntryId = null;
+  element("tag-entry-form").reset();
+  element("tag-entry-weight").value = "1";
+}
+
+/** 지정한 태그 항목을 편집 양식에 채웁니다. */
+function editTagEntry(tagId) {
+  const entry = applicationState.tagEntries.find((item) => item.tag_id === tagId);
+  if (!entry) return;
+  applicationState.editingTagEntryId = entry.tag_id;
+  element("tag-entry-group").value = entry.group_id;
+  element("tag-entry-key").value = entry.tag_key;
+  element("tag-entry-name").value = entry.name;
+  element("tag-entry-content").value = entry.content;
+  element("tag-entry-weight").value = entry.weight;
+}
+
+/** 새 태그 항목을 만들거나 현재 편집 중인 항목을 갱신합니다. */
+async function saveTagEntry() {
+  const tagId = applicationState.editingTagEntryId;
+  await apiRequest(tagId ? `/api/tags/entries/${encodeURIComponent(tagId)}` : "/api/tags/entries", {
+    method: tagId ? "PUT" : "POST",
+    body: JSON.stringify({
+      group_id: element("tag-entry-group").value,
+      tag_key: element("tag-entry-key").value.trim().toUpperCase(),
+      name: element("tag-entry-name").value,
+      content: element("tag-entry-content").value,
+      weight: Number(element("tag-entry-weight").value),
+    }),
+  });
+  resetTagEntryEditor();
+  await loadTags();
+  showNotice("태그 항목을 저장했습니다.");
+}
+
+/** 태그 항목의 현재 정의를 삭제합니다. */
+async function deleteTagEntry(tagId) {
+  const entry = applicationState.tagEntries.find((item) => item.tag_id === tagId);
+  if (!entry || !window.confirm(`"${entry.name}" 태그 항목을 삭제하시겠습니까?`)) return;
+  await apiRequest(`/api/tags/entries/${encodeURIComponent(tagId)}`, { method: "DELETE" });
+  if (applicationState.editingTagEntryId === tagId) resetTagEntryEditor();
+  await loadTags();
+  showNotice("태그 항목을 삭제했습니다.");
 }
 
 /** 현재 Prompt를 새 버전으로 저장합니다. */
@@ -728,7 +862,7 @@ async function previewPrompt() {
     body: JSON.stringify({
       workflow,
       body: generateBody(),
-      selected_scenario_ids: workflow === "anima" ? selectedScenarioIds() : [],
+      selected_tag_ids: workflow === "anima" ? activeSelectedTagIds() : [],
       count: 5,
     }),
   });
@@ -738,14 +872,10 @@ async function previewPrompt() {
       `<div class="preview-item"><strong>MiniMax에 전달할 평문</strong>${escapeHtml(response.combined_prompt)}</div>`;
     return;
   }
-  element("preview-results").innerHTML =
-    `<div class="preview-item"><strong>조립된 wildcard 문구</strong>${escapeHtml(response.combined_prompt)}</div>` +
-    response.examples
-      .map(
-        (example) =>
-          `<div class="preview-item"><strong>${example.index}. ${escapeHtml(example.scenario || "공통 Prompt")} · seed ${example.seed}</strong>${escapeHtml(example.prompt)}</div>`,
-      )
-      .join("");
+  element("preview-results").innerHTML = response.examples.map((example) => {
+    const selectedNames = example.selected_path.map((item) => item.name).join(" → ");
+    return `<div class="preview-item"><strong>${example.index}. ${escapeHtml(selectedNames)} · seed ${example.seed}</strong>${escapeHtml(example.prompt)}</div>`;
+  }).join("");
 }
 
 /** MiniMax 입력 이미지를 임시 업로드하고 식별자를 돌려줍니다. */
@@ -791,7 +921,7 @@ async function submitBatch() {
         workflow,
         description: element("job-description").value,
         body: generateBody(),
-        selected_scenario_ids: workflow === "anima" ? selectedScenarioIds() : [],
+        selected_tag_ids: workflow === "anima" ? activeSelectedTagIds() : [],
         count: workflow === "anima" ? Number(element("generate-count").value) : 1,
         settings: generationSettings(),
         loras: applicationState.selectedLoras,
@@ -814,6 +944,8 @@ function requestCardMarkup(request, statusNames) {
   const promptText = request.detail.resolved?.prompt || "확정 전";
   const selectedLoras = Array.isArray(request.detail.loras) ? request.detail.loras : [];
   const loraNames = selectedLoras.map((selectedLora) => selectedLora.name).filter(Boolean).join(", ") || "없음";
+  const selectedPath = request.detail.resolved?.selected_path || [];
+  const selectedTagNames = selectedPath.map((item) => item.name).join(" → ");
   return `
     <div class="job-request">
       <div>
@@ -822,6 +954,7 @@ function requestCardMarkup(request, statusNames) {
       </div>
       <span class="status-badge ${escapeHtml(request.status)}">${escapeHtml(statusNames[request.status] || request.status)}</span>
       <div class="job-detail"><strong>Prompt</strong> ${escapeHtml(promptText)}</div>
+      ${selectedTagNames ? `<div class="job-detail"><strong>태그 경로</strong> ${escapeHtml(selectedTagNames)}</div>` : ""}
       <div class="job-detail"><strong>LoRA</strong> ${escapeHtml(loraNames)}</div>
       ${request.error_message ? `<div class="job-detail"><strong>오류</strong> ${escapeHtml(request.error_message)}</div>` : ""}
       <div class="job-actions inline-actions">
@@ -1079,13 +1212,50 @@ function bindEvents() {
     );
   element("refresh-button").addEventListener("click", () =>
     runAction(async () => {
-      await Promise.all([loadStatus(), loadJobs(), loadOutputs(), loadLoras(), loadLoraPresets()]);
+      await Promise.all([loadStatus(), loadJobs(), loadOutputs(), loadLoras(), loadLoraPresets(), loadTags()]);
       showNotice("새로고침했습니다.");
     }),
   );
   element("generate-workflow").addEventListener("change", () => {
     resetGenerationWorkflow(element("generate-workflow").value);
     runAction(loadLoras);
+  });
+  element("manage-tags-button").addEventListener("click", () => switchView("tags"));
+  element("generate-anima-prompt").addEventListener("input", renderGenerateTagGroups);
+  element("generate-tag-groups").addEventListener("change", (event) => {
+    const tagId = event.target.dataset.selectTag;
+    if (!tagId) return;
+    if (event.target.checked) applicationState.selectedTagIds.add(tagId);
+    else applicationState.selectedTagIds.delete(tagId);
+    renderGenerateTagGroups();
+  });
+  element("generate-tag-groups").addEventListener("toggle", (event) => {
+    const groupId = event.target.dataset.tagGroupOpen;
+    if (!groupId || !applicationState.expandedTagGroupIds) return;
+    if (event.target.open) applicationState.expandedTagGroupIds.add(groupId);
+    else applicationState.expandedTagGroupIds.delete(groupId);
+  }, true);
+  element("new-tag-group-button").addEventListener("click", resetTagGroupEditor);
+  element("tag-group-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    runAction(saveTagGroup);
+  });
+  element("tag-group-list").addEventListener("click", (event) => {
+    const editButton = event.target.closest("[data-edit-tag-group]");
+    const deleteButton = event.target.closest("[data-delete-tag-group]");
+    if (editButton) editTagGroup(editButton.dataset.editTagGroup);
+    if (deleteButton) runAction(() => deleteTagGroup(deleteButton.dataset.deleteTagGroup));
+  });
+  element("new-tag-entry-button").addEventListener("click", resetTagEntryEditor);
+  element("tag-entry-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    runAction(saveTagEntry);
+  });
+  element("tag-entry-list").addEventListener("click", (event) => {
+    const editButton = event.target.closest("[data-edit-tag-entry]");
+    const deleteButton = event.target.closest("[data-delete-tag-entry]");
+    if (editButton) editTagEntry(editButton.dataset.editTagEntry);
+    if (deleteButton) runAction(() => deleteTagEntry(deleteButton.dataset.deleteTagEntry));
   });
   element("generate-preset").addEventListener("change", (event) => {
     if (event.target.value) loadPresetIntoEditor(event.target.value);
@@ -1095,7 +1265,6 @@ function bindEvents() {
     applicationState.currentBody = generateBody();
     element("preset-workflow").value = element("generate-workflow").value;
     fillPromptFields(applicationState.currentBody);
-    renderScenarioEditor();
     updatePresetWorkflowOptions();
     switchView("prompts");
   });
@@ -1107,49 +1276,12 @@ function bindEvents() {
     element("preset-workflow").value = element("generate-workflow").value;
     fillPromptFields(applicationState.currentBody);
     updatePresetWorkflowOptions();
-    renderScenarioEditor();
     switchView("prompts");
   });
   element("preset-workflow").addEventListener("change", () => {
     applicationState.currentPresetId = null;
     element("preset-version").textContent = "새 preset";
     updatePresetWorkflowOptions();
-  });
-  element("add-scenario-button").addEventListener("click", () => {
-    const scenarios = applicationState.currentBody.scenarios || [];
-    scenarios.push({
-      id: createScenarioIdentifier(),
-      name: "새 상황",
-      characters: "",
-      situation: "",
-      details: "",
-      emotion: "",
-      location: "",
-      weight: 1,
-    });
-    applicationState.currentBody.scenarios = scenarios;
-    renderScenarioEditor();
-  });
-  element("scenario-editor").addEventListener("input", (event) => {
-    const card = event.target.closest("[data-scenario-index]");
-    if (!card || !event.target.dataset.scenarioField) return;
-    applicationState.currentBody.scenarios[Number(card.dataset.scenarioIndex)][
-      event.target.dataset.scenarioField
-    ] =
-      event.target.dataset.scenarioField === "weight"
-        ? Number(event.target.value)
-        : event.target.value;
-    if (event.target.dataset.scenarioField === "name")
-      renderGenerateScenarios();
-  });
-  element("scenario-editor").addEventListener("click", (event) => {
-    const button = event.target.closest("[data-remove-scenario]");
-    if (!button) return;
-    applicationState.currentBody.scenarios.splice(
-      Number(button.dataset.removeScenario),
-      1,
-    );
-    renderScenarioEditor();
   });
   element("save-preset-button").addEventListener("click", () =>
     runAction(savePreset),

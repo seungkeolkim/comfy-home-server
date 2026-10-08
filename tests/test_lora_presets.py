@@ -150,8 +150,14 @@ def test_lora_presets_keep_workflow_weights_and_submit_snapshot(lora_preset_clie
         "name": "Portrait", "workflow": "anima",
         "loras": [{"name": "second.safetensors", "strength": 0.6, "clip_strength": 0.35}],
     }).json()
+    tag_group = client.post("/api/tags/groups", json={"name": "Scenes"}).json()
+    scene_tag = client.post("/api/tags/entries", json={
+        "group_id": tag_group["group_id"], "tag_key": "SCENE", "name": "Portrait",
+        "content": "subject", "weight": 1,
+    }).json()
     response = client.post("/api/batches", json={
-        "workflow": "anima", "body": {"prefix": "portrait"}, "count": 1, "loras": anima_preset["loras"],
+        "workflow": "anima", "body": {"prompt": "portrait, [SCENE]"}, "count": 1, "loras": anima_preset["loras"],
+        "selected_tag_ids": [scene_tag["tag_id"]],
     })
     assert response.status_code == 200
     for attempt_index in range(30):
@@ -164,5 +170,6 @@ def test_lora_presets_keep_workflow_weights_and_submit_snapshot(lora_preset_clie
     assert applied_lora["clipStrength"] == 0.35
     comfy_client.available_loras = []
     assert client.post("/api/batches", json={
-        "workflow": "anima", "body": {"prefix": "portrait"}, "loras": anima_preset["loras"],
+        "workflow": "anima", "body": {"prompt": "portrait, [SCENE]"}, "loras": anima_preset["loras"],
+        "selected_tag_ids": [scene_tag["tag_id"]],
     }).status_code == 422

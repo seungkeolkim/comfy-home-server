@@ -8,6 +8,7 @@ import logging
 import re
 import secrets
 import shutil
+import sqlite3
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -25,7 +26,7 @@ from .comfy_client import ComfyClient
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
 from .logging_setup import configure_application_logging
-from .prompt_builder import choose_scenario, compile_prompt, compile_selected_prompt, plain_prompt
+from .tag_builder import anima_prompt, resolve_tag_prompt, validate_tag_selection
 from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
 
 
@@ -62,6 +63,31 @@ def settings_dimensions(settings: dict[str, Any]) -> tuple[int, int] | None:
     return (width, height) if width > 0 and height > 0 else None
 
 
+def selected_tag_definitions(
+    database: Database, selected_tag_ids: list[str], prompt_text: str,
+) -> list[dict[str, Any]]:
+    """현재 DB에서 선택한 태그를 읽고 Prompt 참조 기준으로 검증합니다."""
+
+    if len(selected_tag_ids) != len(set(selected_tag_ids)):
+        raise ValueError("같은 태그 항목을 중복 선택할 수 없습니다.")
+    available_tags = {tag["tag_id"]: tag for tag in database.list_tag_entries()}
+    missing_tag_ids = [tag_id for tag_id in selected_tag_ids if tag_id not in available_tags]
+    if missing_tag_ids:
+        raise ValueError("삭제되거나 찾을 수 없는 태그 항목이 선택되었습니다. 목록을 새로고침해 주세요.")
+    selected_tags = [available_tags[tag_id] for tag_id in selected_tag_ids]
+    validate_tag_selection(prompt_text, selected_tags)
+    return selected_tags
+
+
+def plain_prompt(body: dict[str, Any]) -> str:
+    """MiniMax Prompt를 조립하거나 wildcard로 확장하지 않고 그대로 반환합니다."""
+
+    prompt_text = body.get("prompt")
+    if not isinstance(prompt_text, str) or not prompt_text.strip():
+        raise ValueError("MiniMax Prompt를 입력해 주세요.")
+    return prompt_text
+
+
 class LoginInput(BaseModel):
     """로그인 비밀번호를 검증할 요청 형식입니다."""
 
@@ -82,7 +108,7 @@ class PreviewInput(BaseModel):
 
     workflow: str = "anima"
     body: dict[str, Any]
-    selected_scenario_ids: list[str] = Field(default_factory=list)
+    selected_tag_ids: list[str] = Field(default_factory=list)
     count: int = Field(default=5, ge=1, le=20)
 
 
@@ -92,7 +118,7 @@ class BatchInput(BaseModel):
     workflow: str
     description: str = Field(default="", max_length=200)
     body: dict[str, Any]
-    selected_scenario_ids: list[str] = Field(default_factory=list)
+    selected_tag_ids: list[str] = Field(default_factory=list)
     count: int = Field(default=1, ge=1, le=100)
     settings: dict[str, Any] = Field(default_factory=dict)
     loras: list[dict[str, Any]] = Field(default_factory=list)
@@ -106,6 +132,43 @@ class BatchInput(BaseModel):
         if "\n" in value or "\r" in value:
             raise ValueError("작업 설명은 한 줄로 입력해 주세요.")
         return value.strip()
+
+
+class TagGroupInput(BaseModel):
+    """태그 표시 그룹의 이름과 기본 펼침 상태를 검증합니다."""
+
+    name: str = Field(min_length=1, max_length=120)
+    default_expanded: bool = True
+
+    @field_validator("name")
+    @classmethod
+    def trim_group_name(cls, value: str) -> str:
+        """그룹 이름 바깥 공백을 제거하고 빈 이름을 거부합니다."""
+
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("그룹 이름을 입력해 주세요.")
+        return normalized
+
+
+class TagEntryInput(BaseModel):
+    """참조 태그의 선택지와 치환할 본문을 검증합니다."""
+
+    group_id: str
+    tag_key: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$", max_length=64)
+    name: str = Field(min_length=1, max_length=120)
+    content: str = Field(min_length=1, max_length=8000)
+    weight: float = Field(default=1, gt=0, allow_inf_nan=False)
+
+    @field_validator("name", "content")
+    @classmethod
+    def trim_tag_text(cls, value: str) -> str:
+        """태그 이름과 본문의 바깥 공백을 정리합니다."""
+
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("태그 이름과 본문을 입력해 주세요.")
+        return normalized
 
 
 class MoveInput(BaseModel):
@@ -369,15 +432,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         if payload.workflow not in {"anima", "minimax_h3"}:
             raise HTTPException(422, "지원하지 않는 workflow입니다.")
+        body = dict(payload.body)
         try:
             if payload.workflow == "minimax_h3":
-                plain_prompt(payload.body)
+                plain_prompt(body)
             else:
-                compile_prompt(payload.body, [])
+                prompt_text = anima_prompt(body)
+                negative_text = body.get("negative", "")
+                if not isinstance(negative_text, str):
+                    raise ValueError("Negative Prompt 형식이 올바르지 않습니다.")
+                body = {"prompt": prompt_text, "negative": negative_text}
         except ValueError as exception:
             raise HTTPException(422, str(exception)) from exception
         preset_id = payload.preset_id or uuid.uuid4().hex
-        return server.database.save_preset(preset_id, payload.name.strip(), payload.workflow, payload.body)
+        return server.database.save_preset(preset_id, payload.name.strip(), payload.workflow, body)
 
     @app.get("/api/presets/{preset_id}/versions")
     async def preset_versions(preset_id: str):
@@ -385,35 +453,97 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         return server.database.list_preset_versions(preset_id)
 
+    @app.get("/api/tags")
+    async def list_tags():
+        """Anima 태그 항목과 표시 그룹을 함께 반환합니다."""
+
+        return {"groups": server.database.list_tag_groups(), "entries": server.database.list_tag_entries()}
+
+    @app.post("/api/tags/groups", status_code=201)
+    async def create_tag_group(payload: TagGroupInput):
+        """기본 펼침 상태를 포함한 태그 표시 그룹을 만듭니다."""
+
+        return server.database.save_tag_group(uuid.uuid4().hex, payload.name, payload.default_expanded)
+
+    @app.put("/api/tags/groups/{group_id}")
+    async def update_tag_group(group_id: str, payload: TagGroupInput):
+        """존재하는 그룹의 이름과 기본 펼침 상태를 수정합니다."""
+
+        if server.database.get_tag_group(group_id) is None:
+            raise HTTPException(404, "태그 그룹을 찾을 수 없습니다.")
+        return server.database.save_tag_group(group_id, payload.name, payload.default_expanded)
+
+    @app.delete("/api/tags/groups/{group_id}")
+    async def delete_tag_group(group_id: str):
+        """항목이 없는 표시 그룹만 삭제합니다."""
+
+        try:
+            deleted = server.database.delete_tag_group(group_id)
+        except sqlite3.IntegrityError as exception:
+            raise HTTPException(409, "그룹의 태그 항목을 먼저 이동하거나 삭제해 주세요.") from exception
+        if not deleted:
+            raise HTTPException(404, "태그 그룹을 찾을 수 없습니다.")
+        return {"deleted": True}
+
+    @app.post("/api/tags/entries", status_code=201)
+    async def create_tag_entry(payload: TagEntryInput):
+        """그룹 안에 새 태그 선택지를 저장합니다."""
+
+        if server.database.get_tag_group(payload.group_id) is None:
+            raise HTTPException(422, "태그 그룹을 찾을 수 없습니다.")
+        return server.database.save_tag_entry(uuid.uuid4().hex, payload.model_dump())
+
+    @app.put("/api/tags/entries/{tag_id}")
+    async def update_tag_entry(tag_id: str, payload: TagEntryInput):
+        """안정적인 ID를 유지하며 기존 태그 항목을 수정합니다."""
+
+        if server.database.get_tag_entry(tag_id) is None:
+            raise HTTPException(404, "태그 항목을 찾을 수 없습니다.")
+        if server.database.get_tag_group(payload.group_id) is None:
+            raise HTTPException(422, "태그 그룹을 찾을 수 없습니다.")
+        return server.database.save_tag_entry(tag_id, payload.model_dump())
+
+    @app.delete("/api/tags/entries/{tag_id}")
+    async def delete_tag_entry(tag_id: str):
+        """현재 태그 정의를 삭제하고 과거 작업 snapshot은 보존합니다."""
+
+        if not server.database.delete_tag_entry(tag_id):
+            raise HTTPException(404, "태그 항목을 찾을 수 없습니다.")
+        return {"deleted": True}
+
     @app.post("/api/prompts/preview")
     async def preview(payload: PreviewInput):
         """Anima는 wildcard를 확장하고 MiniMax는 평문을 그대로 보여줍니다."""
 
         if payload.workflow == "minimax_h3":
-            if payload.selected_scenario_ids:
-                raise HTTPException(422, "MiniMax에는 상황 선택을 사용할 수 없습니다.")
+            if payload.selected_tag_ids:
+                raise HTTPException(422, "MiniMax에는 태그 선택을 사용할 수 없습니다.")
             try:
                 prompt_text = plain_prompt(payload.body)
             except ValueError as exception:
                 raise HTTPException(422, str(exception)) from exception
-            return {"combined_prompt": prompt_text, "examples": [{"index": 1, "scenario": None, "seed": None, "prompt": prompt_text}]}
+            return {"combined_prompt": prompt_text, "examples": [{"index": 1, "seed": None, "prompt": prompt_text}]}
         if payload.workflow != "anima":
             raise HTTPException(422, "지원하지 않는 workflow입니다.")
-        combined_prompt = compile_prompt(payload.body, payload.selected_scenario_ids)
-        examples = []
-        for example_index in range(payload.count):
-            wildcard_seed = secrets.randbelow(2**31)
-            scenario = choose_scenario(payload.body, payload.selected_scenario_ids, wildcard_seed)
-            template = compile_selected_prompt(payload.body, scenario)
-            try:
+        try:
+            prompt_text = anima_prompt(payload.body)
+            selected_tags = selected_tag_definitions(
+                server.database, payload.selected_tag_ids, prompt_text,
+            )
+            examples = []
+            for example_index in range(payload.count):
+                wildcard_seed = secrets.randbelow(2**31)
+                template, selected_path = resolve_tag_prompt(payload.body, selected_tags, wildcard_seed)
                 resolved = await server.comfy.populate_wildcards(template, wildcard_seed)
-            except Exception as exception:
-                raise HTTPException(502, str(exception)) from exception
-            examples.append({
-                "index": example_index + 1, "scenario": scenario.get("name") if scenario else None,
-                "seed": wildcard_seed, "prompt": resolved,
-            })
-        return {"combined_prompt": combined_prompt, "examples": examples}
+                examples.append({
+                    "index": example_index + 1, "seed": wildcard_seed,
+                    "prompt": resolved, "selected_path": selected_path,
+                })
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except Exception as exception:
+            raise HTTPException(502, str(exception)) from exception
+        return {"combined_prompt": None, "examples": examples}
 
     @app.get("/api/loras")
     async def loras():
@@ -505,13 +635,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(422, "Anima는 현재 입력 이미지를 사용하지 않습니다.")
         if any(not re.fullmatch(r"[0-9a-f]{32}", upload_id) for upload_id in payload.upload_ids):
             raise HTTPException(422, "업로드 식별자 형식이 올바르지 않습니다.")
+        selected_tags: list[dict[str, Any]] = []
         try:
             if payload.workflow == "minimax_h3":
-                if payload.selected_scenario_ids:
-                    raise ValueError("MiniMax에는 상황 선택을 사용할 수 없습니다.")
+                if payload.selected_tag_ids:
+                    raise ValueError("MiniMax에는 태그 선택을 사용할 수 없습니다.")
                 plain_prompt(payload.body)
             else:
-                compile_prompt(payload.body, payload.selected_scenario_ids)
+                prompt_text = anima_prompt(payload.body)
+                selected_tags = selected_tag_definitions(
+                    server.database, payload.selected_tag_ids, prompt_text,
+                )
             available_loras = set(await server.comfy.list_loras()) if payload.loras else set()
             missing_loras = [selected_lora.get("name") for selected_lora in payload.loras if selected_lora.get("name") not in available_loras]
             if missing_loras:
@@ -540,7 +674,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             request = {
                 "request_id": request_id, "job_id": job_id, "workflow": payload.workflow,
                 "status": "submitting", "output_stem": output_stem,
-                "detail": {"upload_id": upload_id, "body": payload.body, "selected_scenario_ids": payload.selected_scenario_ids,
+                "detail": {"upload_id": upload_id, "body": payload.body, "selected_tags": selected_tags,
                            "settings": request_settings, "loras": payload.loras},
             }
             submitted_requests.append(request)
@@ -821,15 +955,16 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
             try:
                 if request["workflow"] == "anima":
                     wildcard_seed = secrets.randbelow(2**31)
-                    scenario = choose_scenario(detail["body"], detail["selected_scenario_ids"], wildcard_seed)
-                    prompt_template = compile_selected_prompt(detail["body"], scenario)
+                    prompt_template, selected_path = resolve_tag_prompt(
+                        detail["body"], detail["selected_tags"], wildcard_seed,
+                    )
                     prompt_text = await server.comfy.populate_wildcards(prompt_template, wildcard_seed)
                     negative_text = await server.comfy.populate_wildcards(
                         str(detail["body"].get("negative", "")), wildcard_seed,
                     )
                 else:
                     wildcard_seed = None
-                    scenario = None
+                    selected_path = []
                     prompt_text = plain_prompt(detail["body"])
                     negative_text = ""
                 api_workflow, ui_workflow = load_workflows(server.config.workflow_directory, request["workflow"])
@@ -855,7 +990,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                     "home_server_request": {
                         "request_id": request_id, "job_id": request["job_id"],
                         "prompt": prompt_text, "negative": negative_text,
-                        "scenario": scenario.get("name") if scenario else None,
+                        "selected_path": selected_path,
                         "wildcard_seed": wildcard_seed, "settings": request_settings,
                         "loras": detail["loras"],
                     },
@@ -863,7 +998,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                 prompt_id = await server.comfy.submit(request_workflow, metadata)
                 server.database.set_request_accepted(
                     request_id, prompt_id, {"prompt": prompt_text, "negative": negative_text,
-                                            "scenario": scenario.get("name") if scenario else None,
+                                            "selected_path": selected_path,
                                             "wildcard_seed": wildcard_seed, "settings": request_settings},
                 )
                 LOGGER.info("요청 접수: request_id=%s prompt_id=%s", request_id, prompt_id)
