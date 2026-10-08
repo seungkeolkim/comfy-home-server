@@ -7,6 +7,8 @@ const { chromium } = require("playwright");
 const projectDirectory = path.resolve(__dirname, "..");
 const screenshotDirectory = path.join(projectDirectory, "runtime", "browser-check");
 const savedPromptPresets = [];
+const savedTagGroups = [];
+const savedTagEntries = [];
 const savedPresets = [];
 const batchSubmissions = [];
 const savedJobs = [];
@@ -14,6 +16,7 @@ const jobQueries = [];
 const outputQueries = [];
 const mockOutputFiles = [];
 const previewRequests = [];
+const tagPreviewRequests = [];
 let availableLoras = ["first.safetensors", "second.safetensors"];
 
 /** 브라우저에 실제 앱 파일과 GPU 작업이 없는 독립된 API 응답을 제공합니다. */
@@ -48,15 +51,65 @@ async function handleBrowserRequest(route) {
   else if (requestPath === "/api/presets" && method === "GET") response = savedPromptPresets;
   else if (requestPath === "/api/presets" && method === "POST") {
     const payload = request.postDataJSON();
+    const savedBody = structuredClone(payload.body);
     const savedIndex = savedPromptPresets.findIndex(preset => preset.preset_id === payload.preset_id);
     response = {
       ...payload,
+      body: savedBody,
       preset_id: payload.preset_id || `prompt-${savedPromptPresets.length + 1}`,
       version: savedIndex < 0 ? 1 : savedPromptPresets[savedIndex].version + 1,
       updated_at: "2026-10-07",
     };
     if (savedIndex < 0) savedPromptPresets.push(structuredClone(response));
     else savedPromptPresets[savedIndex] = structuredClone(response);
+  }
+  else if (requestPath === "/api/tags" && method === "GET") {
+    response = { groups: savedTagGroups, entries: savedTagEntries };
+  }
+  else if (requestPath === "/api/tags/groups" && method === "POST") {
+    response = { ...request.postDataJSON(), group_id: `tag-group-${savedTagGroups.length + 1}` };
+    savedTagGroups.push(structuredClone(response));
+  }
+  else if (requestPath.startsWith("/api/tags/groups/") && method === "PUT") {
+    const groupId = requestPath.split("/").at(-1);
+    const groupIndex = savedTagGroups.findIndex(group => group.group_id === groupId);
+    response = { ...request.postDataJSON(), group_id: groupId };
+    savedTagGroups[groupIndex] = structuredClone(response);
+  }
+  else if (requestPath.startsWith("/api/tags/groups/") && method === "DELETE") {
+    const groupId = requestPath.split("/").at(-1);
+    savedTagGroups.splice(savedTagGroups.findIndex(group => group.group_id === groupId), 1);
+    response = { deleted: true };
+  }
+  else if (requestPath === "/api/tags/entries" && method === "POST") {
+    response = { ...request.postDataJSON(), tag_id: `tag-entry-${savedTagEntries.length + 1}` };
+    savedTagEntries.push(structuredClone(response));
+  }
+  else if (requestPath.startsWith("/api/tags/entries/") && method === "PUT") {
+    const tagId = requestPath.split("/").at(-1);
+    const tagIndex = savedTagEntries.findIndex(entry => entry.tag_id === tagId);
+    response = { ...request.postDataJSON(), tag_id: tagId };
+    savedTagEntries[tagIndex] = structuredClone(response);
+  }
+  else if (requestPath.startsWith("/api/tags/entries/") && method === "DELETE") {
+    const tagId = requestPath.split("/").at(-1);
+    savedTagEntries.splice(savedTagEntries.findIndex(entry => entry.tag_id === tagId), 1);
+    response = { deleted: true };
+  }
+  else if (requestPath === "/api/prompts/preview" && method === "POST") {
+    const payload = request.postDataJSON();
+    tagPreviewRequests.push(payload);
+    response = {
+      combined_prompt: null,
+      examples: [{
+        index: 1, seed: 77,
+        prompt: "character A, attacking monster",
+        selected_path: [
+          { tag_id: "tag-entry-1", name: "몬스터 공격" },
+          { tag_id: "tag-entry-2", name: "1인 a" },
+        ],
+      }],
+    };
   }
   else if (requestPath === "/api/outputs") {
     outputQueries.push(requestUrl.search);
@@ -153,8 +206,8 @@ async function main() {
     await page.goto("http://home-server.test/");
     await page.locator('#available-loras option[value="first.safetensors"]').waitFor({ state: "attached" });
     assert.deepEqual(
-      await page.locator("#view-generate .form-grid > .panel .panel-heading h3").allTextContents(),
-      ["기본 설정", "상황 선택", "LoRA", "Workflow 옵션"],
+      await page.locator("#view-generate .form-grid > .panel:visible .panel-heading h3").allTextContents(),
+      ["기본 설정", "태그 선택", "LoRA", "Workflow 옵션"],
     );
     assert.equal(await page.locator("#generate-count-field").isVisible(), true);
     assert.equal(await page.locator("#generate-count-field + #submit-button").count(), 1);
@@ -181,7 +234,7 @@ async function main() {
     assert.equal(await page.locator("#anima-width").inputValue(), "1024");
     assert.equal(await page.locator("#anima-height").inputValue(), "1536");
     await page.locator("#generate-workflow").selectOption("minimax_h3");
-    assert.equal(await page.locator("#generate-scenario-fields").isVisible(), false);
+    assert.equal(await page.locator("#generate-tag-fields").isVisible(), false);
     assert.equal(await page.locator("#generate-count-field").isVisible(), false);
     assert.equal(await page.locator("#lora-step").textContent(), "02");
     assert.equal(await page.locator("#workflow-options-step").textContent(), "03");
@@ -263,7 +316,7 @@ async function main() {
     await page.locator("#refresh-loras-button").click();
     await page.locator('.sidebar [data-view="lora-presets"]').click();
     await page.locator('[data-use-lora-preset="preset-2"]').click();
-    await page.locator("#generate-prefix").fill("portrait");
+    await page.locator("#generate-anima-prompt").fill("portrait");
     await page.locator("#anima-aspect-ratio").selectOption("16:9");
     await page.locator("#anima-resolution").selectOption("1280x720");
     await page.locator("#generate-count").fill("2");
@@ -273,7 +326,7 @@ async function main() {
     assert.equal(await page.locator("#view-generate").isVisible(), true);
     assert.equal(await page.locator("#view-jobs").isVisible(), false);
     assert.equal(await page.locator("#submit-button").textContent(), "작업 제출");
-    assert.equal(await page.locator("#generate-prefix").inputValue(), "portrait");
+    assert.equal(await page.locator("#generate-anima-prompt").inputValue(), "portrait");
     assert.equal(await page.locator("#notice").isVisible(), true);
     assert.match(await page.locator("#notice").textContent(), /작업 접수 완료 · 요청 2건/);
     assert.equal(await page.locator("#notice").evaluate(notice => notice === notice.parentElement.lastElementChild), true);
@@ -388,49 +441,152 @@ async function main() {
     await page.locator("#refresh-outputs-button").click();
     await page.waitForFunction(() => document.querySelectorAll(".output-card").length === 24);
     assert.ok(previewRequests.length > 0);
-    const scenarioPage = await browser.newPage({ viewport: { width: 1280, height: 950 } });
-    await scenarioPage.route("**/*", handleBrowserRequest);
-    await scenarioPage.goto("http://home-server.test/");
-    await scenarioPage.locator('#available-loras option[value="first.safetensors"]').waitFor({ state: "attached" });
-    await scenarioPage.locator('.sidebar [data-view="prompts"]').click();
-    await scenarioPage.locator("#preset-name").fill("다중 상황 Prompt");
-    await scenarioPage.locator("#preset-prefix").fill("portrait");
-    await scenarioPage.locator("#add-scenario-button").click();
-    await scenarioPage.locator(".scenario-editor-card").waitFor();
-    await scenarioPage.locator('.scenario-editor-card [data-scenario-field="name"]').fill("주간");
-    await scenarioPage.locator('.scenario-editor-card [data-scenario-field="situation"]').fill("daylight");
-    await scenarioPage.locator("#save-preset-button").click();
-    await scenarioPage.waitForFunction(() => document.getElementById("preset-version").textContent === "현재 v1");
-    await scenarioPage.locator("#add-scenario-button").click();
-    assert.equal(await scenarioPage.locator(".scenario-editor-card").count(), 2);
-    await scenarioPage.locator('.scenario-editor-card [data-scenario-field="name"]').nth(1).fill("야간");
-    await scenarioPage.locator('.scenario-editor-card [data-scenario-field="situation"]').nth(1).fill("nightlight");
-    await scenarioPage.locator("#save-preset-button").click();
-    await scenarioPage.waitForFunction(() => document.getElementById("preset-version").textContent === "현재 v2");
-    assert.equal(savedPromptPresets.length, 1);
-    assert.deepEqual(savedPromptPresets[0].body.scenarios.map(scenario => scenario.name), ["주간", "야간"]);
-    assert.equal(new Set(savedPromptPresets[0].body.scenarios.map(scenario => scenario.id)).size, 2);
-    await scenarioPage.reload();
-    await scenarioPage.locator('#generate-preset option[value="prompt-1"]').waitFor({ state: "attached" });
-    await scenarioPage.locator("#generate-preset").selectOption("prompt-1");
-    assert.equal(await scenarioPage.locator("#generate-scenarios input:checked").count(), 2);
-    assert.equal(await scenarioPage.locator(".scenario-editor-card").count(), 2);
-    await scenarioPage.locator("#edit-preset-button").click();
-    const scenarioFields = await scenarioPage.locator('.scenario-editor-card[data-scenario-index="0"] [data-scenario-field]').all();
-    const fieldPositions = [];
-    for (const scenarioField of scenarioFields) {
-      const fieldName = await scenarioField.getAttribute("data-scenario-field");
-      if (fieldName === "name") continue;
-      fieldPositions.push(await scenarioField.boundingBox());
-    }
-    assert.equal(fieldPositions.length, 6);
-    for (let fieldIndex = 1; fieldIndex < fieldPositions.length; fieldIndex += 1) {
-      assert.ok(fieldPositions[fieldIndex].y > fieldPositions[fieldIndex - 1].y);
-      assert.equal(fieldPositions[fieldIndex].x, fieldPositions[0].x);
-    }
-    await scenarioPage.close();
+    const tagPage = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+    const tagPageErrors = [];
+    tagPage.on("pageerror", error => tagPageErrors.push(error.message));
+    await tagPage.route("**/*", handleBrowserRequest);
+    await tagPage.goto("http://home-server.test/");
+    await tagPage.locator('.sidebar [data-view="tags"]').click();
+    await tagPage.locator("#tag-group-name").fill("장면");
+    await tagPage.locator('#tag-group-form button[type="submit"]').click();
+    await tagPage.locator('[data-edit-tag-group="tag-group-1"]').waitFor();
+    await tagPage.locator("#new-tag-group-button").click();
+    await tagPage.locator("#tag-group-name").fill("캐릭터");
+    await tagPage.locator("#tag-group-default-expanded").uncheck();
+    await tagPage.locator('#tag-group-form button[type="submit"]').click();
+    await tagPage.locator('[data-edit-tag-group="tag-group-2"]').waitFor();
+    await tagPage.locator("#tag-entry-group").selectOption("tag-group-1");
+    await tagPage.locator("#tag-entry-key").fill("ACTION");
+    await tagPage.locator("#tag-entry-name").fill("몬스터 공격");
+    await tagPage.locator("#tag-entry-content").fill("[CHR], attacking monster");
+    await tagPage.locator('#tag-entry-form button[type="submit"]').click();
+    await tagPage.locator('[data-edit-tag-entry="tag-entry-1"]').waitFor();
+    await tagPage.locator("#tag-entry-group").selectOption("tag-group-2");
+    await tagPage.locator("#tag-entry-key").fill("CHR");
+    await tagPage.locator("#tag-entry-name").fill("1인 a");
+    await tagPage.locator("#tag-entry-content").fill("character A");
+    await tagPage.locator('#tag-entry-form button[type="submit"]').click();
+    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"]').waitFor();
+    assert.equal(await tagPage.locator('[data-manage-tag-group-open]').count(), 2);
+    assert.equal(await tagPage.locator('[data-manage-tag-group-open="tag-group-1"]').evaluate(group => group.open), true);
+    assert.equal(await tagPage.locator('[data-manage-tag-group-open="tag-group-2"]').evaluate(group => group.open), false);
+    assert.match(await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').textContent(), /1개 항목/);
+    assert.equal(await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').isVisible(), false);
+    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').click();
+    assert.equal(await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').isVisible(), true);
+    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').click();
+    await tagPage.locator('.sidebar [data-view="generate"]').click();
+    await tagPage.locator("#generate-anima-prompt").fill("[ACTION]");
+    assert.match(await tagPage.locator("#tag-selection-status").textContent(), /\[ACTION\] 선택 필요/);
+    assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-2"]').count(), 0);
+    assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-1"]').evaluate(group => group.open), true);
+    await tagPage.locator('[data-select-tag="tag-entry-1"]').check();
+    assert.match(await tagPage.locator("#tag-selection-status").textContent(), /\[CHR\] 선택 필요/);
+    assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-2"]').evaluate(group => group.open), false);
+    await tagPage.locator('[data-tag-group-open="tag-group-2"] summary').click();
+    await tagPage.locator('[data-select-tag="tag-entry-2"]').check();
+    await tagPage.locator('[data-tag-group-open="tag-group-2"] summary').click();
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-2"]').isChecked(), true);
+    await tagPage.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await tagPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await tagPage.screenshot({ path: path.join(screenshotDirectory, "tag-selection-mobile.png"), fullPage: true });
+    await tagPage.locator('.mobile-nav [data-view="tags"]').click();
+    assert.equal(await tagPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await tagPage.screenshot({ path: path.join(screenshotDirectory, "tag-management-mobile.png"), fullPage: true });
+    await tagPage.locator('.mobile-nav [data-view="generate"]').click();
+    await tagPage.setViewportSize({ width: 1280, height: 950 });
+    await tagPage.locator("#preview-button").click();
+    await tagPage.locator("#preview-results").getByText("character A, attacking monster").waitFor();
+    assert.deepEqual(tagPreviewRequests.at(-1).selected_tag_ids, ["tag-entry-1", "tag-entry-2"]);
+    await tagPage.locator("#submit-button").click();
+    await tagPage.waitForFunction(() => document.querySelector("#submit-button").disabled === false);
+    assert.equal(batchSubmissions.at(-1).prompt_mode, undefined);
+    assert.deepEqual(batchSubmissions.at(-1).selected_tag_ids, ["tag-entry-1", "tag-entry-2"]);
+    await tagPage.locator("#save-current-preset-button").click();
+    assert.equal(await tagPage.locator("#preset-anima-prompt").inputValue(), "[ACTION]");
+    await tagPage.locator("#preset-name").fill("태그 조합 preset");
+    await tagPage.locator("#save-preset-button").click();
+    await tagPage.waitForFunction(() => document.getElementById("preset-version").textContent === "현재 v1");
+    assert.deepEqual(savedPromptPresets.at(-1).body, { prompt: "[ACTION]", negative: "" });
+    await tagPage.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await tagPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await tagPage.screenshot({ path: path.join(screenshotDirectory, "tag-preset-mobile.png"), fullPage: true });
+    await tagPage.setViewportSize({ width: 1280, height: 950 });
+    await tagPage.locator('.sidebar [data-view="tags"]').click();
+    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').click();
+    await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').click();
+    await tagPage.locator("#tag-entry-content").fill("character B");
+    await Promise.all([
+      tagPage.waitForResponse(response => response.url().endsWith("/api/tags/entries/tag-entry-2") && response.request().method() === "PUT"),
+      tagPage.locator('#tag-entry-form button[type="submit"]').click(),
+    ]);
+    await tagPage.locator('.sidebar [data-view="generate"]').click();
+    assert.match(await tagPage.locator("#tag-selection-status").textContent(), /\[ACTION\] 선택 필요/);
+    await tagPage.locator('[data-select-tag="tag-entry-1"]').check();
+    await tagPage.locator('[data-tag-group-open="tag-group-2"] summary').click();
+    await tagPage.locator('[data-select-tag="tag-entry-2"]').check();
+    await Promise.all([
+      tagPage.waitForResponse(response => response.url().endsWith("/api/prompts/preview")),
+      tagPage.locator("#preview-button").click(),
+    ]);
+    assert.deepEqual(tagPreviewRequests.at(-1).body, { prompt: "[ACTION]", negative: "" });
+    assert.deepEqual(tagPreviewRequests.at(-1).selected_tag_ids, ["tag-entry-1", "tag-entry-2"]);
+    await tagPage.locator('.sidebar [data-view="tags"]').click();
+    await tagPage.locator("#new-tag-group-button").click();
+    await tagPage.locator("#tag-group-name").fill("가장 앞");
+    await tagPage.locator('#tag-group-form button[type="submit"]').click();
+    await tagPage.locator('[data-manage-tag-group-open="tag-group-3"]').waitFor();
+    await tagPage.locator("#tag-entry-group").selectOption("tag-group-1");
+    await tagPage.locator("#tag-entry-key").fill("ACTION");
+    await tagPage.locator("#tag-entry-name").fill("걷기");
+    await tagPage.locator("#tag-entry-content").fill("walking");
+    await tagPage.locator('#tag-entry-form button[type="submit"]').click();
+    await tagPage.locator('[data-edit-tag-entry="tag-entry-3"]').waitFor();
+    await tagPage.locator("#tag-entry-group").selectOption("tag-group-3");
+    await tagPage.locator("#tag-entry-key").fill("ACTION");
+    await tagPage.locator("#tag-entry-name").fill("새 장면");
+    await tagPage.locator("#tag-entry-content").fill("new action");
+    await tagPage.locator('#tag-entry-form button[type="submit"]').click();
+    await tagPage.locator('[data-edit-tag-entry="tag-entry-4"]').waitFor();
+    assert.deepEqual(await tagPage.locator("[data-manage-tag-group-open]").evaluateAll(
+      groups => groups.map(group => group.dataset.manageTagGroupOpen),
+    ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
+    assert.deepEqual(await tagPage.locator("#tag-group-list [data-edit-tag-group]").evaluateAll(
+      buttons => buttons.map(button => button.dataset.editTagGroup),
+    ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
+    assert.deepEqual(await tagPage.locator("#tag-entry-group option").evaluateAll(
+      options => options.map(option => option.value),
+    ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
+    assert.deepEqual(await tagPage.locator('[data-manage-tag-group-open="tag-group-1"] .tag-entry-row strong').allTextContents(),
+      ["걷기", "몬스터 공격"]);
+    await tagPage.locator('.sidebar [data-view="generate"]').click();
+    assert.deepEqual(await tagPage.locator("[data-tag-group-open]").evaluateAll(
+      groups => groups.map(group => group.dataset.tagGroupOpen),
+    ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
+    assert.deepEqual(await tagPage.locator('[data-tag-group-open="tag-group-1"] .tag-choice strong').allTextContents(),
+      ["걷기", "몬스터 공격"]);
+    await tagPage.locator('[data-clear-visible-tag-group="tag-group-1"]').click();
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-1"]').isChecked(), false);
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-3"]').isChecked(), false);
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-4"]').isChecked(), false);
+    await tagPage.locator('[data-select-visible-tag-group="tag-group-1"]').click();
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-1"]').isChecked(), true);
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-3"]').isChecked(), true);
+    await tagPage.locator('[data-select-visible-tag-group="tag-group-3"]').click();
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-4"]').isChecked(), true);
+    await tagPage.locator('[data-clear-visible-tag-group="tag-group-3"]').click();
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-4"]').isChecked(), false);
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-1"]').isChecked(), true);
+    await Promise.all([
+      tagPage.waitForResponse(response => response.url().endsWith("/api/prompts/preview")),
+      tagPage.locator("#preview-button").click(),
+    ]);
+    assert.deepEqual(tagPreviewRequests.at(-1).selected_tag_ids,
+      ["tag-entry-1", "tag-entry-2", "tag-entry-3"]);
+    assert.deepEqual(tagPageErrors, []);
+    await tagPage.close();
     assert.deepEqual(pageErrors, []);
-    console.log("Passed: LoRA presets, grouped jobs, pagination, cancellation, deletion, multiple scenarios, mobile layout.");
+    console.log("Passed: LoRA presets, grouped jobs, tag groups and selection, mobile layout.");
   } finally {
     await browser.close();
   }

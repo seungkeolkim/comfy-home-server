@@ -19,14 +19,14 @@ class Database:
     """요청마다 독립적인 SQLite 연결을 사용합니다."""
 
     def __init__(self, database_path: Path) -> None:
-        """설정 데이터를 유지하고 작업 스키마를 현재 버전으로 전환합니다."""
+        """현재 버전의 SQLite schema를 준비합니다."""
 
         self.database_path = database_path
         database_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version > 2:
+            if schema_version not in {0, 4}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             for create_statement in (
                 """CREATE TABLE IF NOT EXISTS presets (
@@ -61,8 +61,6 @@ class Database:
                 )""",
             ):
                 connection.execute(create_statement)
-            if schema_version == 0:
-                connection.execute("DROP TABLE IF EXISTS jobs")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS jobs (
                     job_id TEXT PRIMARY KEY,
@@ -72,8 +70,6 @@ class Database:
                     description TEXT NOT NULL DEFAULT ''
                 )"""
             )
-            if schema_version == 1:
-                connection.execute("ALTER TABLE jobs ADD COLUMN description TEXT NOT NULL DEFAULT ''")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS job_requests (
                     request_id TEXT PRIMARY KEY,
@@ -91,8 +87,31 @@ class Database:
             )
             connection.execute("CREATE INDEX IF NOT EXISTS jobs_created_at ON jobs(created_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS job_requests_job_id ON job_requests(job_id, request_index)")
-            if schema_version < 2:
-                connection.execute("PRAGMA user_version = 2")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS tag_groups (
+                    group_id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    default_expanded INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS tag_entries (
+                    tag_id TEXT PRIMARY KEY,
+                    group_id TEXT NOT NULL REFERENCES tag_groups(group_id),
+                    tag_key TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    weight REAL NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )"""
+            )
+            connection.execute("CREATE INDEX IF NOT EXISTS tag_entries_group ON tag_entries(group_id, created_at)")
+            connection.execute("CREATE INDEX IF NOT EXISTS tag_entries_key ON tag_entries(tag_key)")
+            if schema_version == 0:
+                connection.execute("PRAGMA user_version = 4")
 
     def _connect(self) -> sqlite3.Connection:
         """row 이름으로 결과를 읽는 SQLite 연결을 엽니다."""
@@ -145,6 +164,102 @@ class Database:
                 "SELECT * FROM preset_versions WHERE preset_id = ? ORDER BY version DESC", (preset_id,)
             ).fetchall()
         return [{"version": row["version"], "body": json.loads(row["body_json"]), "saved_at": row["saved_at"]} for row in rows]
+
+    def list_tag_groups(self) -> list[dict[str, Any]]:
+        """화면 표시 그룹과 기본 펼침 상태를 생성 순서로 반환합니다."""
+
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM tag_groups ORDER BY created_at, group_id").fetchall()
+        return [self._tag_group_from_row(row) for row in rows]
+
+    def get_tag_group(self, group_id: str) -> dict[str, Any] | None:
+        """식별자에 해당하는 태그 그룹을 반환합니다."""
+
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM tag_groups WHERE group_id = ?", (group_id,)).fetchone()
+        return self._tag_group_from_row(row) if row else None
+
+    def save_tag_group(self, group_id: str, name: str, default_expanded: bool) -> dict[str, Any]:
+        """새 그룹을 만들거나 지정한 기존 그룹의 표시 설정을 갱신합니다."""
+
+        timestamp = current_timestamp()
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO tag_groups VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(group_id) DO UPDATE SET name=excluded.name,
+                default_expanded=excluded.default_expanded, updated_at=excluded.updated_at""",
+                (group_id, name, int(default_expanded), timestamp, timestamp),
+            )
+        return self.get_tag_group(group_id) or {}
+
+    def delete_tag_group(self, group_id: str) -> bool:
+        """비어 있는 그룹만 삭제하며 항목이 있으면 SQLite 제약으로 거부합니다."""
+
+        with self._connect() as connection:
+            result = connection.execute("DELETE FROM tag_groups WHERE group_id = ?", (group_id,))
+        return result.rowcount > 0
+
+    def list_tag_entries(self) -> list[dict[str, Any]]:
+        """그룹과 생성 순서로 모든 태그 항목을 반환합니다."""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT tag_entries.* FROM tag_entries JOIN tag_groups USING (group_id)
+                ORDER BY tag_groups.created_at, tag_groups.group_id,
+                tag_entries.created_at, tag_entries.tag_id"""
+            ).fetchall()
+        return [self._tag_entry_from_row(row) for row in rows]
+
+    def get_tag_entry(self, tag_id: str) -> dict[str, Any] | None:
+        """식별자에 해당하는 태그 항목을 반환합니다."""
+
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM tag_entries WHERE tag_id = ?", (tag_id,)).fetchone()
+        return self._tag_entry_from_row(row) if row else None
+
+    def save_tag_entry(self, tag_id: str, values: dict[str, Any]) -> dict[str, Any]:
+        """태그 항목의 안정적인 ID를 유지하며 본문과 선택 속성을 저장합니다."""
+
+        timestamp = current_timestamp()
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO tag_entries VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tag_id) DO UPDATE SET group_id=excluded.group_id,
+                tag_key=excluded.tag_key, name=excluded.name, content=excluded.content,
+                weight=excluded.weight, updated_at=excluded.updated_at""",
+                (
+                    tag_id, values["group_id"], values["tag_key"], values["name"],
+                    values["content"], values["weight"],
+                    timestamp, timestamp,
+                ),
+            )
+        return self.get_tag_entry(tag_id) or {}
+
+    def delete_tag_entry(self, tag_id: str) -> bool:
+        """태그 항목의 현재 정의만 삭제하고 기존 작업 기록은 유지합니다."""
+
+        with self._connect() as connection:
+            result = connection.execute("DELETE FROM tag_entries WHERE tag_id = ?", (tag_id,))
+        return result.rowcount > 0
+
+    def _tag_group_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        """그룹 row를 API 응답으로 변환합니다."""
+
+        return {
+            "group_id": row["group_id"], "name": row["name"],
+            "default_expanded": bool(row["default_expanded"]),
+            "created_at": row["created_at"], "updated_at": row["updated_at"],
+        }
+
+    def _tag_entry_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        """태그 항목 row를 API 응답으로 변환합니다."""
+
+        return {
+            "tag_id": row["tag_id"], "group_id": row["group_id"],
+            "tag_key": row["tag_key"], "name": row["name"],
+            "content": row["content"], "weight": row["weight"],
+            "created_at": row["created_at"], "updated_at": row["updated_at"],
+        }
 
     def list_lora_profiles(self) -> list[dict[str, Any]]:
         """Workflow별 LoRA 기본 강도 설정을 반환합니다."""

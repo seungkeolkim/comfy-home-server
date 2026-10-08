@@ -46,6 +46,9 @@
           <button class="nav-button" data-view="prompts">
             <span>☷</span> Prompt
           </button>
+          <button class="nav-button" data-view="tags">
+            <span>▤</span> 태그 관리
+          </button>
           <button class="nav-button" data-view="lora-presets">
             <span>◇</span> LoRA 조합
           </button>
@@ -105,17 +108,11 @@
                 </button>
               </div>
               <div id="anima-prompt-fields" class="stack">
-                <label for="generate-prefix">공통 Prompt</label>
+                <label for="generate-anima-prompt">Anima Prompt</label>
                 <textarea
-                  id="generate-prefix"
-                  rows="5"
-                  placeholder="공통으로 사용할 Prompt를 입력하세요."
-                ></textarea>
-                <label for="generate-suffix">마무리 Prompt</label>
-                <textarea
-                  id="generate-suffix"
-                  rows="2"
-                  placeholder="선택 사항"
+                  id="generate-anima-prompt"
+                  rows="7"
+                  placeholder="예: masterpiece, [SCENE]"
                 ></textarea>
                 <label for="generate-negative">Negative Prompt</label>
                 <textarea
@@ -123,8 +120,6 @@
                   rows="2"
                   placeholder="Anima에서 사용합니다."
                 ></textarea>
-                <label for="generate-separator">문구 구분자</label
-                ><input id="generate-separator" value=", " />
               </div>
               <div id="minimax-prompt-fields" class="stack hidden">
                 <label for="generate-minimax-prompt">MiniMax 영상 Prompt</label>
@@ -136,18 +131,15 @@
                 <p class="hint">입력한 평문을 이미지마다 동일하게 사용합니다. wildcard는 확장하지 않습니다.</p>
               </div>
             </div>
-            <div id="generate-scenario-fields" class="panel stack">
+            <div id="generate-tag-fields" class="panel stack">
               <div class="panel-heading">
                 <span class="step">02</span>
-                <h3>상황 선택</h3>
+                <h3>태그 선택</h3>
+                <button id="manage-tags-button" class="button subtle small" type="button">태그 관리</button>
               </div>
-              <p class="hint">
-                체크한 상황 중 하나가 요청마다 선택됩니다. 내부 선택지는
-                wildcard로 확장됩니다.
-              </p>
-              <div id="generate-scenarios" class="scenario-choices empty-state">
-                등록된 상황이 없습니다. Prompt 화면에서 추가하세요.
-              </div>
+              <p class="hint">Prompt의 [TAG]와 선택한 항목의 하위 [TAG]에 필요한 선택지만 표시합니다. 그룹의 전체 선택·해제는 현재 표시된 항목에 적용됩니다.</p>
+              <p id="tag-selection-status" class="hint"></p>
+              <div id="generate-tag-groups" class="stack"></div>
             </div>
             <div class="panel stack">
               <div class="panel-heading">
@@ -285,7 +277,7 @@
               <p id="preview-hint" class="hint">
                 미리보기는 실제 Impact wildcard 결과를 보여줍니다.
               </p>
-              <p id="generate-count-hint" class="hint">입력한 횟수만큼 개별 요청을 제출합니다. 요청마다 상황과 wildcard를 새로 선택해 한 장씩 생성합니다.</p>
+              <p id="generate-count-hint" class="hint">입력한 횟수만큼 개별 요청을 제출합니다. 요청마다 태그 항목과 wildcard를 새로 선택해 한 장씩 생성합니다.</p>
               <label for="job-description">작업 설명 · 선택</label>
               <input id="job-description" type="text" maxlength="200" placeholder="예: 아침 조명 비교" />
             </div>
@@ -345,7 +337,7 @@
         <section id="view-prompts" class="view hidden">
           <div class="section-intro">
             <h2>Prompt builder</h2>
-            <p id="preset-form-description">상황을 읽기 쉬운 단위로 편집하고 버전으로 저장합니다.</p>
+            <p id="preset-form-description">공통 문구와 선택한 태그 조합을 버전으로 저장합니다.</p>
           </div>
           <div class="panel stack">
             <div class="field-row">
@@ -362,26 +354,11 @@
               </div>
             </div>
             <div id="preset-anima-fields" class="stack">
-              <label for="preset-prefix">공통 Prompt</label
-              ><textarea id="preset-prefix" rows="5"></textarea>
-              <label for="preset-suffix">마무리 Prompt</label
-              ><textarea id="preset-suffix" rows="3"></textarea>
+              <label for="preset-anima-prompt">Anima Prompt</label
+              ><textarea id="preset-anima-prompt" rows="8" placeholder="예: masterpiece, [SCENE]"></textarea>
               <label for="preset-negative">Negative Prompt</label
               ><textarea id="preset-negative" rows="3"></textarea>
-              <label for="preset-separator">문구 구분자</label
-              ><input id="preset-separator" value=", " />
-              <div class="panel-divider"></div>
-              <div class="panel-heading">
-                <h3>상황</h3>
-                <button
-                  id="add-scenario-button"
-                  class="button subtle small"
-                  type="button"
-                >
-                  상황 추가
-                </button>
-              </div>
-              <div id="scenario-editor" class="stack"></div>
+              <p class="hint">[SCENE]처럼 Prompt에 참조를 직접 적습니다. 태그 항목 선택은 생성 화면에서 합니다.</p>
             </div>
             <div id="preset-minimax-fields" class="stack hidden">
               <label for="preset-minimax-prompt">MiniMax 영상 Prompt</label>
@@ -390,7 +367,7 @@
                 rows="12"
                 placeholder="MiniMax에 전달할 Prompt를 그대로 입력하세요."
               ></textarea>
-              <p class="hint">입력한 평문을 저장합니다. wildcard나 상황 조합은 사용하지 않습니다.</p>
+              <p class="hint">입력한 평문을 저장합니다. wildcard나 태그 조합은 사용하지 않습니다.</p>
             </div>
             <div class="inline-actions">
               <button
@@ -406,6 +383,39 @@
             <div class="panel-heading"><h3>저장된 preset</h3></div>
             <div id="preset-list" class="preset-list"></div>
             <div id="preset-version-history" class="preset-list"></div>
+          </div>
+        </section>
+        <section id="view-tags" class="view hidden">
+          <div class="section-intro">
+            <h2>태그 관리</h2>
+            <p>표시 그룹과 Prompt에 사용할 태그 항목을 관리합니다.</p>
+          </div>
+          <div class="panel stack">
+            <div class="panel-heading"><h3>표시 그룹</h3><button id="new-tag-group-button" class="button subtle small" type="button">새 그룹</button></div>
+            <form id="tag-group-form" class="stack">
+              <label for="tag-group-name">그룹 이름</label>
+              <input id="tag-group-name" maxlength="120" required placeholder="예: 캐릭터" />
+              <label class="tag-inline-check"><input id="tag-group-default-expanded" type="checkbox" checked /> 생성·태그 관리 화면에서 기본으로 펼치기</label>
+              <button class="button primary" type="submit">그룹 저장</button>
+            </form>
+            <div id="tag-group-list" class="preset-list"></div>
+          </div>
+          <div class="panel stack">
+            <div class="panel-heading"><h3>태그 항목</h3><button id="new-tag-entry-button" class="button subtle small" type="button">새 항목</button></div>
+            <form id="tag-entry-form" class="stack">
+              <div class="field-row">
+                <div><label for="tag-entry-group">표시 그룹</label><select id="tag-entry-group" required></select></div>
+                <div><label for="tag-entry-key">참조 태그</label><input id="tag-entry-key" maxlength="64" required placeholder="CHR" pattern="[A-Z][A-Z0-9_]*" /></div>
+              </div>
+              <label for="tag-entry-name">항목 이름</label>
+              <input id="tag-entry-name" maxlength="120" required placeholder="예: 1인 a or b" />
+              <label for="tag-entry-content">본문</label>
+              <textarea id="tag-entry-content" rows="5" required placeholder="예: {캐릭터a|캐릭터b} 또는 [CHR], fight"></textarea>
+              <label for="tag-entry-weight">선택 weight</label>
+              <input id="tag-entry-weight" type="number" min="0.01" step="any" value="1" required />
+              <button class="button primary" type="submit">항목 저장</button>
+            </form>
+            <div id="tag-entry-list" class="preset-list"></div>
           </div>
         </section>
         <section id="view-lora-presets" class="view hidden">
@@ -449,6 +459,7 @@
         ><button data-view="jobs">◷<span>작업</span></button
         ><button data-view="outputs">▧<span>결과물</span></button
         ><button data-view="prompts">☷<span>Prompt</span></button
+        ><button data-view="tags">▤<span>태그</span></button
         ><button data-view="lora-presets">◇<span>LoRA 조합</span></button>
       </nav>
     </div>

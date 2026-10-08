@@ -6,24 +6,11 @@ from pathlib import Path
 import pytest
 
 from home_server.configuration import PROJECT_DIRECTORY
-from home_server.prompt_builder import choose_scenario, compile_prompt
 from home_server.workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
 
 
 WORKFLOW_DIRECTORY = PROJECT_DIRECTORY / "data" / "workflows"
 OUTPUT_STEM = f"from_home_server/anima/{WORKFLOW_OUTPUT_NAMES['anima']}"
-
-
-def test_prompt_builder_keeps_situations_together() -> None:
-    """중첩 wildcard가 다른 상황의 필드를 서로 섞지 않는지 확인합니다."""
-
-    body = {"prefix": "quality", "separator": ", ", "scenarios": [
-        {"id": "a", "name": "A", "characters": "person A", "situation": "indoors", "emotion": "calm"},
-        {"id": "b", "name": "B", "characters": "person B", "situation": "outdoors", "emotion": "happy"},
-    ]}
-    combined = compile_prompt(body, ["a", "b"])
-    assert "{person A, indoors, calm|person B, outdoors, happy}" in combined
-    assert choose_scenario(body, ["a"], 12)["id"] == "a"
 
 
 def test_anima_adapter_sets_prompt_lora_and_output() -> None:
