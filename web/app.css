@@ -536,6 +536,43 @@ input[type="file"] {
   margin: 0 0 5px;
   font-size: 14px;
 }
+.jobs-selection-toolbar,
+.job-selection-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.jobs-selection-toolbar {
+  flex-wrap: wrap;
+  margin-bottom: 15px;
+}
+.jobs-selection-toolbar > button {
+  flex-shrink: 0;
+}
+.jobs-selection-toolbar .inline-actions {
+  flex: 1;
+}
+.job-selection-heading {
+  min-width: 0;
+}
+.job-selection-heading > div {
+  min-width: 0;
+}
+.job-selection-heading h3 {
+  overflow-wrap: anywhere;
+}
+.job-selection-checkbox {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: #85d9c2;
+  cursor: pointer;
+}
+.job-selection-checkbox:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .job-card p {
   margin: 0;
   color: #92a1b6;

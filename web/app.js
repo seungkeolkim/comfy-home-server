@@ -39,6 +39,11 @@ const applicationState = {
   jobsPage: 1,
   jobFilterId: null,
   jobsLoadRevision: 0,
+  visibleJobs: [],
+  jobsSelectionScope: null,
+  jobSelectionMode: false,
+  selectedJobIds: new Set(),
+  deletingSelectedJobs: false,
   noticeHideTimer: null,
   pollingTimer: null,
 };
@@ -1011,6 +1016,47 @@ function requestCardMarkup(request, statusNames) {
     </div>`;
 }
 
+/** 활성 요청이 없는 작업만 삭제 대상으로 허용합니다. */
+function canDeleteJobHistory(job) {
+  return job.requests.every((request) =>
+    !["submitting", "pending", "running", "cancelling"].includes(request.status),
+  );
+}
+
+/** 선택 모드, 선택 건수와 삭제 처리 상태에 맞춰 일괄 조작 버튼을 갱신합니다. */
+function updateJobSelectionControls() {
+  const selectionMode = applicationState.jobSelectionMode;
+  const deletingJobs = applicationState.deletingSelectedJobs;
+  const selectedCount = applicationState.selectedJobIds.size;
+  const selectableJobs = applicationState.visibleJobs.filter(canDeleteJobHistory);
+  const allSelected = selectableJobs.length > 0 && selectableJobs.every((job) =>
+    applicationState.selectedJobIds.has(job.job_id),
+  );
+  element("toggle-job-selection").textContent = selectionMode ? "다중 삭제 취소" : "다중 삭제";
+  element("toggle-job-selection").setAttribute("aria-expanded", String(selectionMode));
+  element("toggle-job-selection").disabled = deletingJobs;
+  element("job-selection-actions").classList.toggle("hidden", !selectionMode);
+  element("select-all-jobs").textContent = allSelected ? "전부 선택 해제" : "전부 선택";
+  element("select-all-jobs").disabled = deletingJobs || selectableJobs.length === 0;
+  element("selected-job-count").textContent = deletingJobs ? "삭제 중…" : `${selectedCount}개 선택`;
+  element("delete-selected-job-history").disabled = deletingJobs || selectedCount === 0;
+  element("delete-selected-job-outputs").disabled = deletingJobs || selectedCount === 0;
+  element("clear-jobs-filter").disabled = deletingJobs;
+  element("jobs-pagination").toggleAttribute("inert", deletingJobs);
+}
+
+/** 현재 페이지의 삭제 가능한 작업을 모두 선택하거나 선택을 해제합니다. */
+function toggleAllJobSelections() {
+  if (!applicationState.jobSelectionMode || applicationState.deletingSelectedJobs) return;
+  const selectableJobs = applicationState.visibleJobs.filter(canDeleteJobHistory);
+  const allSelected = selectableJobs.every((job) => applicationState.selectedJobIds.has(job.job_id));
+  for (const job of selectableJobs) {
+    if (allSelected) applicationState.selectedJobIds.delete(job.job_id);
+    else applicationState.selectedJobIds.add(job.job_id);
+  }
+  renderJobsList();
+}
+
 /** 한 번의 제출을 하나의 상위 작업 카드로 표시합니다. */
 function jobCardMarkup(job, statusNames, openJobIds) {
   const requestSettings = job.requests[0]?.detail.resolved?.settings || job.requests[0]?.detail.settings || {};
@@ -1022,27 +1068,56 @@ function jobCardMarkup(job, statusNames, openJobIds) {
     (failedCount ? ` · 실패 ${failedCount}` : "");
   const openAttribute = openJobIds.has(job.job_id) ? " open" : "";
   const canCancel = job.requests.some((request) => ["pending", "running"].includes(request.status));
-  const canDelete = job.requests.every((request) =>
-    !["submitting", "pending", "running", "cancelling"].includes(request.status),
-  );
+  const canDelete = canDeleteJobHistory(job);
+  const selectionCheckbox = applicationState.jobSelectionMode
+    ? `<input class="job-selection-checkbox" type="checkbox" data-select-job="${escapeHtml(job.job_id)}"
+        aria-label="작업 ${escapeHtml(job.job_id)} 선택" ${applicationState.selectedJobIds.has(job.job_id) ? "checked" : ""}
+        ${!canDelete || applicationState.deletingSelectedJobs ? "disabled" : ""}
+        ${!canDelete ? 'title="진행 중인 작업은 선택할 수 없습니다."' : ""}>`
+    : "";
   return `
     <article class="job-card">
-      <div>
+      <div class="job-selection-heading">
+        ${selectionCheckbox}
+        <div>
         <h3>${escapeHtml(job.workflow)} · 작업 ${escapeHtml(job.job_id)}</h3>
         <p>${escapeHtml(job.created_at)} · ${dimensions.ratio} · ${dimensions.resolution} · ${escapeHtml(progressText)}</p>
         ${job.description ? `<p class="job-description">${escapeHtml(job.description)}</p>` : ""}
+        </div>
       </div>
       <span class="status-badge ${escapeHtml(job.status)}">${escapeHtml(statusNames[job.status] || job.status)}</span>
       <div class="job-actions inline-actions">
         <button class="button subtle small" data-show-job-results="${escapeHtml(job.job_id)}">작업 결과 보기</button>
         ${canCancel ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.job_id)}">작업 취소</button>` : ""}
-        ${canDelete ? `<button class="button subtle small" data-delete-job="${escapeHtml(job.job_id)}">이력만 삭제</button><button class="button danger small" data-delete-job-outputs="${escapeHtml(job.job_id)}">이력·결과물 삭제</button>` : ""}
+        ${canDelete && !applicationState.jobSelectionMode ? `<button class="button subtle small" data-delete-job="${escapeHtml(job.job_id)}">이력만 삭제</button><button class="button danger small" data-delete-job-outputs="${escapeHtml(job.job_id)}">이력·결과물 삭제</button>` : ""}
       </div>
       <details class="job-requests" data-job-details="${escapeHtml(job.job_id)}"${openAttribute}>
         <summary>하위 요청 ${job.request_count}건</summary>
         <div class="job-request-list">${job.requests.map((request) => requestCardMarkup(request, statusNames)).join("")}</div>
       </details>
     </article>`;
+}
+
+/** 현재 작업 카드를 다시 그리면서 펼친 요청과 checkbox의 keyboard focus를 유지합니다. */
+function renderJobsList() {
+  const statusNames = {
+    submitting: "제출 중", pending: "대기", running: "실행 중", cancelling: "취소 중",
+    completed: "완료", failed: "실패", partial: "일부 완료", cancelled: "취소", stopped: "중단",
+  };
+  const focusedJobId = document.activeElement?.dataset.selectJob;
+  const openJobIds = new Set();
+  for (const details of element("jobs-list").querySelectorAll("details[open]")) {
+    openJobIds.add(details.dataset.jobDetails);
+  }
+  element("jobs-list").innerHTML = applicationState.visibleJobs.length
+    ? applicationState.visibleJobs.map((job) => jobCardMarkup(job, statusNames, openJobIds)).join("")
+    : `<p class="empty-state">${applicationState.jobFilterId ? "해당 작업 이력이 없습니다." : "제출한 작업이 없습니다."}</p>`;
+  if (focusedJobId) {
+    for (const checkbox of element("jobs-list").querySelectorAll("[data-select-job]")) {
+      if (checkbox.dataset.selectJob === focusedJobId) checkbox.focus({ preventScroll: true });
+    }
+  }
+  updateJobSelectionControls();
 }
 
 /** 현재 페이지와 인접한 페이지로 이동할 버튼을 표시합니다. */
@@ -1068,7 +1143,7 @@ function renderJobsPagination(page, totalPages) {
 
 /** 앱이 제출한 상위 작업과 하위 요청의 최신 상태를 표시합니다. */
 async function loadJobs() {
-  if (element("application").classList.contains("hidden")) return;
+  if (element("application").classList.contains("hidden") || applicationState.deletingSelectedJobs) return;
   const loadRevision = ++applicationState.jobsLoadRevision;
   try {
     const query = new URLSearchParams({ page: String(applicationState.jobsPage), page_size: "10" });
@@ -1084,30 +1159,64 @@ async function loadJobs() {
     element("jobs-filter-label").textContent = applicationState.jobFilterId
       ? `작업 ${applicationState.jobFilterId}만 표시 중`
       : "";
-    const statusNames = {
-      submitting: "제출 중",
-      pending: "대기",
-      running: "실행 중",
-      cancelling: "취소 중",
-      completed: "완료",
-      failed: "실패",
-      partial: "일부 완료",
-      cancelled: "취소",
-      stopped: "중단",
-    };
-    const openJobIds = new Set(
-      [...document.querySelectorAll("#jobs-list details[open]")].map((details) =>
-        details.dataset.jobDetails,
-      ),
-    );
-    element("jobs-list").innerHTML = response.items.length
-      ? response.items.map((job) => jobCardMarkup(job, statusNames, openJobIds)).join("")
-      : `<p class="empty-state">${applicationState.jobFilterId ? "해당 작업 이력이 없습니다." : "제출한 작업이 없습니다."}</p>`;
+    const selectionScope = JSON.stringify([response.page, applicationState.jobFilterId]);
+    if (selectionScope !== applicationState.jobsSelectionScope) applicationState.selectedJobIds.clear();
+    applicationState.jobsSelectionScope = selectionScope;
+    applicationState.visibleJobs = response.items;
+    const selectableJobIds = new Set(response.items.filter(canDeleteJobHistory).map((job) => job.job_id));
+    for (const selectedJobId of applicationState.selectedJobIds) {
+      if (!selectableJobIds.has(selectedJobId)) applicationState.selectedJobIds.delete(selectedJobId);
+    }
     renderJobsPagination(response.page, response.total_pages);
+    renderJobsList();
   } catch (error) {
     if (applicationState.currentView === "jobs")
       showNotice(error.message, true);
   }
+}
+
+/** 한 번의 확인 후 선택된 작업을 삭제하고 실패한 이력은 다시 시도할 수 있도록 남깁니다. */
+async function deleteSelectedJobHistory(deleteOutputs) {
+  if (!applicationState.jobSelectionMode || applicationState.deletingSelectedJobs) return;
+  const selectedJobIds = [...applicationState.selectedJobIds];
+  if (selectedJobIds.length === 0) return;
+  const confirmation = deleteOutputs
+    ? `선택한 작업 ${selectedJobIds.length}개의 이력과 원래 생성 위치에 남은 결과물을 영구 삭제하시겠습니까? 이동된 파일은 삭제하지 않습니다. 이 작업은 되돌릴 수 없습니다.`
+    : `선택한 작업 ${selectedJobIds.length}개의 이력을 영구 삭제하시겠습니까? 결과물 파일은 유지됩니다. 이 작업은 되돌릴 수 없습니다.`;
+  if (!window.confirm(confirmation)) return;
+  applicationState.deletingSelectedJobs = true;
+  applicationState.jobsLoadRevision += 1;
+  renderJobsList();
+  let deletedJobsCount = 0;
+  let deletedFilesCount = 0;
+  const deletionFailures = [];
+  try {
+    const outputOption = deleteOutputs ? "?delete_outputs=true" : "";
+    for (const selectedJobId of selectedJobIds) {
+      try {
+        const result = await apiRequest(`/api/jobs/${encodeURIComponent(selectedJobId)}${outputOption}`, {
+          method: "DELETE",
+        });
+        deletedJobsCount += 1;
+        deletedFilesCount += result.deleted_files;
+        applicationState.selectedJobIds.delete(selectedJobId);
+        applicationState.visibleJobs = applicationState.visibleJobs.filter(job => job.job_id !== selectedJobId);
+      } catch (error) {
+        deletionFailures.push(`작업 ${selectedJobId}: ${error.message}`);
+      }
+    }
+    if (deletedJobsCount > 0) applicationState.outputFilter = null;
+  } finally {
+    applicationState.deletingSelectedJobs = false;
+    await loadJobs();
+    renderJobsList();
+  }
+  const deletionSummary = deleteOutputs
+    ? `작업 이력 ${deletedJobsCount}개와 결과물 ${deletedFilesCount}개를 삭제했습니다.`
+    : `작업 이력 ${deletedJobsCount}개를 삭제했습니다. 결과물 파일은 유지됩니다.`;
+  showNotice(deletionFailures.length
+    ? `${deletionSummary} 삭제 실패 ${deletionFailures.length}개 · ${deletionFailures[0]}`
+    : deletionSummary, deletionFailures.length > 0);
 }
 
 /** 선택한 작업의 이력과 요청한 경우 원래 위치의 결과물을 삭제합니다. */
@@ -1424,6 +1533,27 @@ function bindEvents() {
   element("submit-button").addEventListener("click", () =>
     runAction(submitBatch),
   );
+  element("toggle-job-selection").addEventListener("click", () => {
+    if (applicationState.deletingSelectedJobs) return;
+    applicationState.jobSelectionMode = !applicationState.jobSelectionMode;
+    applicationState.selectedJobIds.clear();
+    renderJobsList();
+  });
+  element("select-all-jobs").addEventListener("click", toggleAllJobSelections);
+  element("delete-selected-job-history").addEventListener("click", () =>
+    runAction(() => deleteSelectedJobHistory(false)),
+  );
+  element("delete-selected-job-outputs").addEventListener("click", () =>
+    runAction(() => deleteSelectedJobHistory(true)),
+  );
+  element("jobs-list").addEventListener("change", (event) => {
+    const selectionCheckbox = event.target.closest("[data-select-job]");
+    if (!selectionCheckbox || selectionCheckbox.disabled || applicationState.deletingSelectedJobs) return;
+    const selectedJobId = selectionCheckbox.dataset.selectJob;
+    if (selectionCheckbox.checked) applicationState.selectedJobIds.add(selectedJobId);
+    else applicationState.selectedJobIds.delete(selectedJobId);
+    updateJobSelectionControls();
+  });
   element("jobs-list").addEventListener("click", (event) => {
     const cancelButton = event.target.closest("[data-cancel-request]");
     const cancelJobButton = event.target.closest("[data-cancel-job]");
@@ -1460,11 +1590,12 @@ function bindEvents() {
   });
   element("jobs-pagination").addEventListener("click", (event) => {
     const pageButton = event.target.closest("[data-jobs-page]");
-    if (!pageButton || pageButton.disabled) return;
+    if (!pageButton || pageButton.disabled || applicationState.deletingSelectedJobs) return;
     applicationState.jobsPage = Number(pageButton.dataset.jobsPage);
     runAction(loadJobs);
   });
   element("clear-jobs-filter").addEventListener("click", () => {
+    if (applicationState.deletingSelectedJobs) return;
     applicationState.jobFilterId = null;
     applicationState.jobsPage = 1;
     runAction(loadJobs);

@@ -75,6 +75,8 @@ Anima Prompt preset 버전에는 Prompt 본문과 Negative Prompt만 저장합�
 
 생성 화면에서 선택적인 한 줄 작업 설명을 입력할 수 있으며 작업 목록에 표시됩니다. 대기·실행 중인 작업은 전체 또는 하위 요청별로 취소할 수 있습니다. 작업이 종료된 뒤에는 `이력만 삭제` 또는 `이력·결과물 삭제`를 선택합니다. 후자는 작업 history에 기록된 원래 생성 위치의 결과물만 삭제합니다. 이미 이동·삭제되어 없는 파일은 로그에 남기고 건너뛰며, 이동된 파일은 유지합니다.
 
+작업 화면의 `다중 삭제`를 누르면 각 작업 옆에 checkbox와 일괄 삭제 버튼이 나타납니다. `전부 선택`은 현재 페이지의 종료된 작업만 선택하며 다시 누르면 모두 해제합니다. 한 개 이상 선택하면 `선택된 이력만 삭제`와 `선택된 이력·결과물 삭제`가 활성화되고, 삭제 전 선택 건수와 삭제 방식을 한 번 확인합니다. 자동 새로고침 중에도 선택을 유지하며, 페이지나 작업 필터를 바꾸거나 `다중 삭제 취소`를 누르면 선택을 초기화합니다. 일부 작업의 삭제가 실패하면 성공·실패 건수를 표시하고 실패한 이력은 선택된 상태로 남깁니다.
+
 결과물 목록은 24건씩 페이지 이동합니다. 이미지는 요청할 때 메모리에서 최대 384px WebP preview로 변환하며 별도 thumbnail 파일을 저장하지 않습니다. 영상은 목록에서 파일 정보만 표시하고 `열기`를 누를 때 원본을 불러옵니다. 결과물 탭 진입 또는 수동 새로고침 때 파일 목록을 다시 읽으며, 새로고침하면 첫 페이지로 돌아갑니다.
 
 ## 저장 위치
@@ -100,4 +102,5 @@ API 테스트는 `python -m pytest -q`로 실행합니다. LoRA 조합의 browse
 npm install --prefix runtime/browser-check --no-package-lock --no-audit --no-fund playwright
 $env:NODE_PATH = (Resolve-Path runtime/browser-check/node_modules).Path
 node tests/browser_lora_presets.cjs
+node tests/browser_job_deletion.cjs
 ```
