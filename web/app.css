@@ -385,6 +385,9 @@ input[type="file"] {
 .tag-entry-row > div:first-child {
   min-width: 0;
 }
+#tag-entry-list .tag-entry-row {
+  background: #172235;
+}
 .tag-content-preview {
   overflow-wrap: anywhere;
   white-space: pre-wrap;

@@ -466,7 +466,15 @@ async function main() {
     await tagPage.locator("#tag-entry-name").fill("1인 a");
     await tagPage.locator("#tag-entry-content").fill("character A");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
-    await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').waitFor();
+    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"]').waitFor();
+    assert.equal(await tagPage.locator('[data-manage-tag-group-open]').count(), 2);
+    assert.equal(await tagPage.locator('[data-manage-tag-group-open="tag-group-1"]').evaluate(group => group.open), true);
+    assert.equal(await tagPage.locator('[data-manage-tag-group-open="tag-group-2"]').evaluate(group => group.open), false);
+    assert.match(await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').textContent(), /1개 항목/);
+    assert.equal(await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').isVisible(), false);
+    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').click();
+    assert.equal(await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').isVisible(), true);
+    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').click();
     await tagPage.locator('.sidebar [data-view="generate"]').click();
     await tagPage.locator("#generate-anima-prompt").fill("[ACTION]");
     assert.match(await tagPage.locator("#tag-selection-status").textContent(), /\[ACTION\] 선택 필요/);
@@ -505,6 +513,7 @@ async function main() {
     await tagPage.screenshot({ path: path.join(screenshotDirectory, "tag-preset-mobile.png"), fullPage: true });
     await tagPage.setViewportSize({ width: 1280, height: 950 });
     await tagPage.locator('.sidebar [data-view="tags"]').click();
+    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').click();
     await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').click();
     await tagPage.locator("#tag-entry-content").fill("character B");
     await Promise.all([
@@ -522,6 +531,40 @@ async function main() {
     ]);
     assert.deepEqual(tagPreviewRequests.at(-1).body, { prompt: "[ACTION]", negative: "" });
     assert.deepEqual(tagPreviewRequests.at(-1).selected_tag_ids, ["tag-entry-1", "tag-entry-2"]);
+    await tagPage.locator('.sidebar [data-view="tags"]').click();
+    await tagPage.locator("#new-tag-group-button").click();
+    await tagPage.locator("#tag-group-name").fill("가장 앞");
+    await tagPage.locator('#tag-group-form button[type="submit"]').click();
+    await tagPage.locator('[data-manage-tag-group-open="tag-group-3"]').waitFor();
+    await tagPage.locator("#tag-entry-group").selectOption("tag-group-1");
+    await tagPage.locator("#tag-entry-key").fill("ACTION");
+    await tagPage.locator("#tag-entry-name").fill("걷기");
+    await tagPage.locator("#tag-entry-content").fill("walking");
+    await tagPage.locator('#tag-entry-form button[type="submit"]').click();
+    await tagPage.locator('[data-edit-tag-entry="tag-entry-3"]').waitFor();
+    await tagPage.locator("#tag-entry-group").selectOption("tag-group-3");
+    await tagPage.locator("#tag-entry-key").fill("ACTION");
+    await tagPage.locator("#tag-entry-name").fill("새 장면");
+    await tagPage.locator("#tag-entry-content").fill("new action");
+    await tagPage.locator('#tag-entry-form button[type="submit"]').click();
+    await tagPage.locator('[data-edit-tag-entry="tag-entry-4"]').waitFor();
+    assert.deepEqual(await tagPage.locator("[data-manage-tag-group-open]").evaluateAll(
+      groups => groups.map(group => group.dataset.manageTagGroupOpen),
+    ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
+    assert.deepEqual(await tagPage.locator("#tag-group-list [data-edit-tag-group]").evaluateAll(
+      buttons => buttons.map(button => button.dataset.editTagGroup),
+    ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
+    assert.deepEqual(await tagPage.locator("#tag-entry-group option").evaluateAll(
+      options => options.map(option => option.value),
+    ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
+    assert.deepEqual(await tagPage.locator('[data-manage-tag-group-open="tag-group-1"] .tag-entry-row strong').allTextContents(),
+      ["걷기", "몬스터 공격"]);
+    await tagPage.locator('.sidebar [data-view="generate"]').click();
+    assert.deepEqual(await tagPage.locator("[data-tag-group-open]").evaluateAll(
+      groups => groups.map(group => group.dataset.tagGroupOpen),
+    ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
+    assert.deepEqual(await tagPage.locator('[data-tag-group-open="tag-group-1"] .tag-choice strong').allTextContents(),
+      ["걷기", "몬스터 공격"]);
     assert.deepEqual(tagPageErrors, []);
     await tagPage.close();
     assert.deepEqual(pageErrors, []);

@@ -9,6 +9,7 @@ const ANIMA_RESOLUTIONS = {
   "2:3": [[576, 864], [768, 1152], [1024, 1536]],
   "9:16": [[576, 1024], [720, 1280], [864, 1536]],
 };
+const TAG_NAME_COLLATOR = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
 
 const applicationState = {
   presets: [],
@@ -28,6 +29,7 @@ const applicationState = {
   tagEntries: [],
   selectedTagIds: new Set(),
   expandedTagGroupIds: null,
+  expandedTagManagerGroupIds: null,
   editingTagGroupId: null,
   editingTagEntryId: null,
   currentView: "generate",
@@ -54,6 +56,26 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+/** 표시 그룹을 한국어 이름순으로 정렬하고 같은 이름은 ID로 순서를 고정합니다. */
+function sortedTagGroups() {
+  return [...applicationState.tagGroups].sort((leftGroup, rightGroup) => {
+    const nameOrder = TAG_NAME_COLLATOR.compare(leftGroup.name, rightGroup.name);
+    return nameOrder || leftGroup.group_id.localeCompare(rightGroup.group_id);
+  });
+}
+
+/** 한 그룹의 태그 항목을 화면 이름순으로 정렬합니다. */
+function sortedTagEntriesInGroup(groupId) {
+  return applicationState.tagEntries
+    .filter((entry) => entry.group_id === groupId)
+    .sort((leftEntry, rightEntry) => {
+      const nameOrder = TAG_NAME_COLLATOR.compare(leftEntry.name, rightEntry.name);
+      if (nameOrder) return nameOrder;
+      const keyOrder = TAG_NAME_COLLATOR.compare(leftEntry.tag_key, rightEntry.tag_key);
+      return keyOrder || leftEntry.tag_id.localeCompare(rightEntry.tag_id);
+    });
 }
 
 /** 너비와 높이를 약분한 비율과 해상도 문자열로 만듭니다. */
@@ -387,11 +409,16 @@ async function loadTags() {
       applicationState.expandedTagGroupIds = new Set(
         catalog.groups.filter((group) => group.default_expanded).map((group) => group.group_id),
       );
+    if (applicationState.expandedTagManagerGroupIds === null)
+      applicationState.expandedTagManagerGroupIds = new Set(
+        catalog.groups.filter((group) => group.default_expanded).map((group) => group.group_id),
+      );
     const existingGroupIds = new Set(catalog.groups.map((group) => group.group_id));
     for (const group of catalog.groups) {
-      if (!applicationState.expandedTagGroupIds.has(group.group_id) &&
-          !applicationState.knownTagGroupIds?.has(group.group_id) && group.default_expanded)
+      if (!applicationState.knownTagGroupIds?.has(group.group_id) && group.default_expanded) {
         applicationState.expandedTagGroupIds.add(group.group_id);
+        applicationState.expandedTagManagerGroupIds.add(group.group_id);
+      }
     }
     applicationState.knownTagGroupIds = existingGroupIds;
     const existingTagIds = new Set(catalog.entries.map((entry) => entry.tag_id));
@@ -452,7 +479,7 @@ function renderGenerateTagGroups() {
     .map((tagKey) => `[${tagKey}] ${missingKeys.includes(tagKey) ? "선택 필요" : "선택됨"}`)
     .join(" · ");
 
-  const relevantGroups = applicationState.tagGroups.filter((group) =>
+  const relevantGroups = sortedTagGroups().filter((group) =>
     applicationState.tagEntries.some((entry) =>
       entry.group_id === group.group_id && requiredKeys.has(entry.tag_key)));
   const missingDefinitions = [...requiredKeys].filter((tagKey) =>
@@ -461,8 +488,8 @@ function renderGenerateTagGroups() {
     ? `<p class="empty-state">${missingDefinitions.map((key) => `[${escapeHtml(key)}]`).join(", ")} 태그 항목을 태그 관리 탭에서 추가해 주세요.</p>`
     : "";
   container.innerHTML = missingMarkup + relevantGroups.map((group) => {
-    const entries = applicationState.tagEntries.filter((entry) =>
-      entry.group_id === group.group_id && requiredKeys.has(entry.tag_key));
+    const entries = sortedTagEntriesInGroup(group.group_id)
+      .filter((entry) => requiredKeys.has(entry.tag_key));
     const selectedCount = entries.filter((entry) => applicationState.selectedTagIds.has(entry.tag_id)).length;
     const openAttribute = applicationState.expandedTagGroupIds?.has(group.group_id) ? " open" : "";
     const entryMarkup = entries.map((entry) => `
@@ -479,23 +506,37 @@ function renderGenerateTagGroups() {
 
 /** 그룹 및 태그 항목의 저장 목록과 편집 대상 선택 버튼을 표시합니다. */
 function renderTagManager() {
-  const groupOptions = applicationState.tagGroups.map((group) =>
+  const groups = sortedTagGroups();
+  const selectedGroupId = element("tag-entry-group").value;
+  const groupOptions = groups.map((group) =>
     `<option value="${escapeHtml(group.group_id)}">${escapeHtml(group.name)}</option>`).join("");
   element("tag-entry-group").innerHTML = groupOptions;
-  element("tag-group-list").innerHTML = applicationState.tagGroups.length
-    ? applicationState.tagGroups.map((group) => `
+  if (groups.some((group) => group.group_id === selectedGroupId))
+    element("tag-entry-group").value = selectedGroupId;
+  element("tag-group-list").innerHTML = groups.length
+    ? groups.map((group) => `
       <div class="preset-row"><div><strong>${escapeHtml(group.name)}</strong><small>${group.default_expanded ? "기본 펼침" : "기본 접힘"}</small></div>
       <div class="inline-actions"><button class="button subtle small" data-edit-tag-group="${escapeHtml(group.group_id)}">편집</button>
       <button class="button danger small" data-delete-tag-group="${escapeHtml(group.group_id)}">삭제</button></div></div>`).join("")
     : '<p class="empty-state">표시 그룹이 없습니다.</p>';
-  element("tag-entry-list").innerHTML = applicationState.tagEntries.length
-    ? applicationState.tagEntries.map((entry) => `
-      <div class="preset-row tag-entry-row"><div><strong>${escapeHtml(entry.name)}</strong>
-      <small>[${escapeHtml(entry.tag_key)}] · ${escapeHtml(applicationState.tagGroups.find((group) => group.group_id === entry.group_id)?.name || "그룹 없음")} · weight ${escapeHtml(entry.weight)}</small>
-      <small class="tag-content-preview">${escapeHtml(entry.content)}</small></div>
-      <div class="inline-actions"><button class="button subtle small" data-edit-tag-entry="${escapeHtml(entry.tag_id)}">편집</button>
-      <button class="button danger small" data-delete-tag-entry="${escapeHtml(entry.tag_id)}">삭제</button></div></div>`).join("")
-    : '<p class="empty-state">태그 항목이 없습니다.</p>';
+  element("tag-entry-list").innerHTML = groups.length
+    ? groups.map((group) => {
+      const entries = sortedTagEntriesInGroup(group.group_id);
+      const openAttribute = applicationState.expandedTagManagerGroupIds?.has(group.group_id) ? " open" : "";
+      const entryMarkup = entries.length
+        ? entries.map((entry) => `
+          <div class="preset-row tag-entry-row"><div><strong>${escapeHtml(entry.name)}</strong>
+          <small>[${escapeHtml(entry.tag_key)}] · weight ${escapeHtml(entry.weight)}</small>
+          <small class="tag-content-preview">${escapeHtml(entry.content)}</small></div>
+          <div class="inline-actions"><button class="button subtle small" data-edit-tag-entry="${escapeHtml(entry.tag_id)}">편집</button>
+          <button class="button danger small" data-delete-tag-entry="${escapeHtml(entry.tag_id)}">삭제</button></div></div>`).join("")
+        : '<p class="hint">이 그룹에 태그 항목이 없습니다.</p>';
+      return `<details class="tag-group" data-manage-tag-group-open="${escapeHtml(group.group_id)}"${openAttribute}>
+        <summary>${escapeHtml(group.name)} <span>${entries.length}개 항목</span></summary>
+        <div class="tag-group-options">${entryMarkup}</div>
+      </details>`;
+    }).join("")
+    : '<p class="empty-state">표시 그룹이 없습니다. 그룹을 먼저 추가해 주세요.</p>';
 }
 
 /** 표시 그룹 편집 양식을 새 그룹 상태로 되돌립니다. */
@@ -1257,6 +1298,12 @@ function bindEvents() {
     if (editButton) editTagEntry(editButton.dataset.editTagEntry);
     if (deleteButton) runAction(() => deleteTagEntry(deleteButton.dataset.deleteTagEntry));
   });
+  element("tag-entry-list").addEventListener("toggle", (event) => {
+    const groupId = event.target.dataset.manageTagGroupOpen;
+    if (!groupId || !applicationState.expandedTagManagerGroupIds) return;
+    if (event.target.open) applicationState.expandedTagManagerGroupIds.add(groupId);
+    else applicationState.expandedTagManagerGroupIds.delete(groupId);
+  }, true);
   element("generate-preset").addEventListener("change", (event) => {
     if (event.target.value) loadPresetIntoEditor(event.target.value);
     else applicationState.currentPresetId = null;
