@@ -565,6 +565,24 @@ async function main() {
     ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
     assert.deepEqual(await tagPage.locator('[data-tag-group-open="tag-group-1"] .tag-choice strong').allTextContents(),
       ["걷기", "몬스터 공격"]);
+    await tagPage.locator('[data-clear-visible-tag-group="tag-group-1"]').click();
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-1"]').isChecked(), false);
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-3"]').isChecked(), false);
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-4"]').isChecked(), false);
+    await tagPage.locator('[data-select-visible-tag-group="tag-group-1"]').click();
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-1"]').isChecked(), true);
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-3"]').isChecked(), true);
+    await tagPage.locator('[data-select-visible-tag-group="tag-group-3"]').click();
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-4"]').isChecked(), true);
+    await tagPage.locator('[data-clear-visible-tag-group="tag-group-3"]').click();
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-4"]').isChecked(), false);
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-1"]').isChecked(), true);
+    await Promise.all([
+      tagPage.waitForResponse(response => response.url().endsWith("/api/prompts/preview")),
+      tagPage.locator("#preview-button").click(),
+    ]);
+    assert.deepEqual(tagPreviewRequests.at(-1).selected_tag_ids,
+      ["tag-entry-1", "tag-entry-2", "tag-entry-3"]);
     assert.deepEqual(tagPageErrors, []);
     await tagPage.close();
     assert.deepEqual(pageErrors, []);

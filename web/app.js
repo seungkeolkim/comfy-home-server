@@ -499,7 +499,13 @@ function renderGenerateTagGroups() {
       </label>`).join("");
     return `<details class="tag-group" data-tag-group-open="${escapeHtml(group.group_id)}"${openAttribute}>
       <summary>${escapeHtml(group.name)} <span>${selectedCount}개 선택 · ${entries.length}개 항목</span></summary>
-      <div class="tag-group-options">${entryMarkup}</div>
+      <div class="tag-group-options">
+        <div class="inline-actions">
+          <button class="button subtle small" type="button" data-select-visible-tag-group="${escapeHtml(group.group_id)}">전체 선택</button>
+          <button class="button subtle small" type="button" data-clear-visible-tag-group="${escapeHtml(group.group_id)}">전체 해제</button>
+        </div>
+        ${entryMarkup}
+      </div>
     </details>`;
   }).join("");
 }
@@ -1268,6 +1274,20 @@ function bindEvents() {
     if (!tagId) return;
     if (event.target.checked) applicationState.selectedTagIds.add(tagId);
     else applicationState.selectedTagIds.delete(tagId);
+    renderGenerateTagGroups();
+  });
+  element("generate-tag-groups").addEventListener("click", (event) => {
+    const selectButton = event.target.closest("[data-select-visible-tag-group]");
+    const clearButton = event.target.closest("[data-clear-visible-tag-group]");
+    if (!selectButton && !clearButton) return;
+    const groupId = selectButton?.dataset.selectVisibleTagGroup || clearButton.dataset.clearVisibleTagGroup;
+    const visibleKeys = requiredTagKeys();
+    const visibleEntries = sortedTagEntriesInGroup(groupId)
+      .filter((entry) => visibleKeys.has(entry.tag_key));
+    for (const entry of visibleEntries) {
+      if (selectButton) applicationState.selectedTagIds.add(entry.tag_id);
+      else applicationState.selectedTagIds.delete(entry.tag_id);
+    }
     renderGenerateTagGroups();
   });
   element("generate-tag-groups").addEventListener("toggle", (event) => {
