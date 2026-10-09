@@ -595,6 +595,97 @@ def test_saver_history_outputs_keep_native_names(tmp_path: Path, workflow: str) 
         assert client.get("/api/outputs", params={"request_id": request_id}).json()["total"] == 0
 
 
+def test_negative_tags_are_validated_previewed_and_submitted_as_fixed_text(tmp_path: Path) -> None:
+    """Negative 전용 중첩 참조와 wildcard를 확정하고 오류는 ComfyUI 제출 전에 거부합니다."""
+
+    output_directory = tmp_path / "output"
+    config = AppConfig(
+        host="127.0.0.1", port=8388, password="test", comfy_endpoint="http://example.test",
+        comfy_output_directory=output_directory,
+        managed_output_directory=output_directory / "from_home_server",
+        runtime_directory=tmp_path / "runtime", workflow_directory=PROJECT_DIRECTORY / "data" / "workflows",
+    )
+    app = create_app(config)
+    fake_comfy = FakeComfyClient()
+
+    async def resolve_test_wildcards(prompt: str, seed: int) -> str:
+        """태그 확정 뒤 전달된 wildcard 본문을 기록하고 테스트용 문구 하나로 치환합니다."""
+
+        fake_comfy.wildcard_prompts.append(prompt)
+        return prompt.replace("{blur|noise}", "blur")
+
+    fake_comfy.populate_wildcards = resolve_test_wildcards
+    app.state.home_server.comfy = fake_comfy
+    with TestClient(app) as client:
+        client.post("/api/login", json={"password": "test"})
+        selected_tags = []
+        for reference_key, content in (("AVOID", "[BAD_DETAIL]"), ("BAD_DETAIL", "bad hands, {blur|noise}")):
+            group = client.post("/api/tags/groups", json={"name": reference_key, "tag_key": reference_key}).json()
+            tag = client.post("/api/tags/entries", json={
+                "group_id": group["group_id"], "name": reference_key, "content": content,
+            }).json()
+            selected_tags.append(tag)
+        body = {"prompt": "portrait", "negative": "lowres, [AVOID]"}
+        selected_ids = [tag["tag_id"] for tag in selected_tags]
+        for selected_subset, missing_key in (([], "AVOID"), (selected_ids[:1], "BAD_DETAIL")):
+            for endpoint in ("/api/prompts/preview", "/api/batches"):
+                rejected = client.post(endpoint, json={
+                    "workflow": "anima", "body": body, "selected_tag_ids": selected_subset,
+                })
+                assert rejected.status_code == 422
+                assert missing_key in rejected.json()["detail"]
+        assert fake_comfy.submissions == []
+        assert fake_comfy.wildcard_prompts == []
+        assert client.get("/api/jobs").json()["total"] == 0
+        for endpoint in ("/api/prompts/preview", "/api/batches"):
+            assert client.post(endpoint, json={
+                "workflow": "anima", "body": {"prompt": "portrait", "negative": None},
+            }).status_code == 422
+
+        preview_response = client.post("/api/prompts/preview", json={
+            "workflow": "anima", "body": body, "selected_tag_ids": selected_ids, "count": 1,
+        })
+        assert preview_response.status_code == 200
+        example = preview_response.json()["examples"][0]
+        assert example["prompt"] == "portrait"
+        assert example["negative"] == "lowres, bad hands, blur"
+        assert example["selected_path"] == []
+        assert [item["tag_key"] for item in example["negative_selected_path"]] == ["AVOID", "BAD_DETAIL"]
+        assert fake_comfy.wildcard_prompts == ["portrait", "lowres, bad hands, {blur|noise}"]
+
+        submission_response = client.post("/api/batches", json={
+            "workflow": "anima", "body": body, "selected_tag_ids": selected_ids, "count": 1,
+        })
+        assert submission_response.status_code == 200
+        for attempt_index in range(30):
+            job = app.state.home_server.database.get_job(submission_response.json()["job_id"])
+            if job["requests"][0]["prompt_id"]:
+                break
+            time.sleep(0.05)
+        request_detail = job["requests"][0]["detail"]
+        assert request_detail["body"]["negative"] == "lowres, [AVOID]"
+        assert request_detail["resolved"]["negative"] == example["negative"]
+        assert request_detail["resolved"]["negative_selected_path"] == example["negative_selected_path"]
+        submitted_workflow, metadata = fake_comfy.submissions[0]
+        assert submitted_workflow["4"]["inputs"]["populated_text"] == example["negative"]
+        assert submitted_workflow["4"]["inputs"]["mode"] == "fixed"
+        assert metadata["home_server_request"]["negative"] == example["negative"]
+        assert metadata["home_server_request"]["negative_selected_path"] == example["negative_selected_path"]
+
+        cycle_tag = selected_tags[1]
+        assert client.put(f"/api/tags/entries/{cycle_tag['tag_id']}", json={
+            "group_id": cycle_tag["group_id"], "name": "BAD_DETAIL", "content": "[AVOID]",
+        }).status_code == 200
+        for endpoint in ("/api/prompts/preview", "/api/batches"):
+            rejected = client.post(endpoint, json={
+                "workflow": "anima", "body": body, "selected_tag_ids": selected_ids,
+            })
+            assert rejected.status_code == 422
+            assert "cycle" in rejected.json()["detail"]
+        assert len(fake_comfy.submissions) == 1
+        assert client.get("/api/jobs").json()["total"] == 1
+
+
 def test_shared_group_references_update_candidates_and_preserve_snapshots(tmp_path: Path) -> None:
     """동일 참조의 여러 그룹을 추첨하고 그룹 편집과 항목 이동 시 현재 후보만 갱신합니다."""
 

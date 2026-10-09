@@ -33,6 +33,17 @@ def anima_prompt(body: dict[str, Any]) -> str:
     return prompt_text
 
 
+def anima_negative_prompt(body: dict[str, Any]) -> str:
+    """비어 있어도 되는 Negative Prompt의 타입과 길이를 검증합니다."""
+
+    negative_text = body.get("negative", "")
+    if not isinstance(negative_text, str):
+        raise ValueError("Negative Prompt는 문자열이어야 합니다.")
+    if len(negative_text) > MAX_PROMPT_LENGTH:
+        raise ValueError("Negative Prompt 길이 제한을 초과했습니다.")
+    return negative_text
+
+
 def validate_tag_selection(prompt_text: str, selected_tags: list[dict[str, Any]]) -> None:
     """그룹 참조를 복사한 항목 snapshot에서 모든 선택지의 누락과 cycle을 검사합니다."""
 
@@ -85,9 +96,28 @@ def resolve_tag_prompt(
 ) -> tuple[str, list[dict[str, Any]]]:
     """같은 그룹 참조의 항목 snapshot을 합쳐 각 참조를 weight로 독립 추첨합니다."""
 
+    return resolve_tag_text(anima_prompt(body), selected_tags, random.Random(seed))
+
+
+def resolve_anima_prompts(
+    body: dict[str, Any], selected_tags: list[dict[str, Any]], seed: int,
+) -> tuple[str, str, list[dict[str, Any]], list[dict[str, Any]]]:
+    """두 Prompt의 각 참조를 공유 난수 흐름으로 독립 추첨하고 선택 경로를 구분합니다."""
+
     prompt_text = anima_prompt(body)
-    validate_tag_selection(prompt_text, selected_tags)
+    negative_text = anima_negative_prompt(body)
     random_generator = random.Random(seed)
+    prompt_template, selected_path = resolve_tag_text(prompt_text, selected_tags, random_generator)
+    negative_template, negative_selected_path = resolve_tag_text(negative_text, selected_tags, random_generator)
+    return prompt_template, negative_template, selected_path, negative_selected_path
+
+
+def resolve_tag_text(
+    template_text: str, selected_tags: list[dict[str, Any]], random_generator: random.Random,
+) -> tuple[str, list[dict[str, Any]]]:
+    """검증한 문자열의 중첩 태그를 확장하며 빈 Negative Prompt도 그대로 반환합니다."""
+
+    validate_tag_selection(template_text, selected_tags)
     candidates_by_key: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for tag in selected_tags:
         candidates_by_key[tag["tag_key"]].append(tag)
@@ -123,4 +153,4 @@ def resolve_tag_prompt(
             raise ValueError("태그 치환 후 Prompt 길이 제한을 초과했습니다.")
         return expanded_text
 
-    return expand_text(prompt_text, 0), selected_path
+    return expand_text(template_text, 0), selected_path

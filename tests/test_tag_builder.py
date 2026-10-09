@@ -2,7 +2,7 @@
 
 import pytest
 
-from home_server.tag_builder import resolve_tag_prompt, validate_tag_selection
+from home_server.tag_builder import MAX_PROMPT_LENGTH, resolve_anima_prompts, resolve_tag_prompt, validate_tag_selection
 
 
 def tag_entry(tag_id: str, tag_key: str, content: str, weight: float = 1) -> dict:
@@ -116,3 +116,58 @@ def test_plain_anima_prompt_needs_no_tag_selection() -> None:
     """태그 참조가 없는 Anima Prompt는 원문 그대로 통과합니다."""
 
     assert resolve_tag_prompt({"prompt": "quiet scene"}, [], 1) == ("quiet scene", [])
+
+
+def test_negative_only_references_expand_nested_tags_and_keep_separate_paths() -> None:
+    """Positive에 참조가 없어도 Negative의 하위 참조를 확장하고 선택 경로를 따로 남깁니다."""
+
+    selected_tags = [
+        tag_entry("avoid", "AVOID", "[DETAIL], low quality"),
+        tag_entry("detail", "DETAIL", "bad hands"),
+    ]
+    result = resolve_anima_prompts({"prompt": "portrait", "negative": "[AVOID]"}, selected_tags, 77)
+    prompt_text, negative_text, selected_path, negative_selected_path = result
+    assert prompt_text == "portrait"
+    assert negative_text == "bad hands, low quality"
+    assert selected_path == []
+    assert [item["tag_key"] for item in negative_selected_path] == ["AVOID", "DETAIL"]
+    assert resolve_anima_prompts({"prompt": "portrait", "negative": "[AVOID]"}, selected_tags, 77) == result
+
+
+def test_same_reference_in_positive_and_negative_is_chosen_independently() -> None:
+    """같은 키가 두 Prompt에 쓰여도 하나의 선택을 재사용하지 않고 각각 추첨합니다."""
+
+    selected_tags = [tag_entry("a", "SHARED", "A"), tag_entry("b", "SHARED", "B")]
+    body = {"prompt": "[SHARED]", "negative": "[SHARED]"}
+    results = {resolve_anima_prompts(body, selected_tags, seed)[:2] for seed in range(100)}
+    assert results == {("A", "A"), ("A", "B"), ("B", "A"), ("B", "B")}
+
+
+@pytest.mark.parametrize("selected_tags,message", [
+    ([], "AVOID"),
+    ([tag_entry("avoid", "AVOID", "[MISSING]")], "MISSING"),
+    ([tag_entry("avoid", "AVOID", "[AVOID]")], "cycle"),
+])
+def test_negative_references_reject_missing_candidates_and_cycles(selected_tags: list[dict], message: str) -> None:
+    """Negative에만 존재하는 누락이나 cycle도 확정 전에 거부합니다."""
+
+    with pytest.raises(ValueError, match=message):
+        resolve_anima_prompts({"prompt": "portrait", "negative": "[AVOID]"}, selected_tags, 77)
+
+
+@pytest.mark.parametrize("negative_text", [None, [], 123, "a" * (MAX_PROMPT_LENGTH + 1)])
+def test_negative_prompt_validates_type_and_length(negative_text) -> None:
+    """잘못된 타입을 문자열로 강제 변환하지 않고 Negative 길이 제한도 검사합니다."""
+
+    with pytest.raises(ValueError, match="Negative Prompt"):
+        resolve_anima_prompts({"prompt": "portrait", "negative": negative_text}, [], 77)
+
+
+def test_empty_negative_keeps_positive_selection_unchanged() -> None:
+    """Negative가 없으면 기존 Positive 선택 결과와 seed 재현성을 유지합니다."""
+
+    selected_tags = [tag_entry("a", "CHR", "A"), tag_entry("b", "CHR", "B")]
+    prompt_text, negative_text, selected_path, negative_selected_path = resolve_anima_prompts({"prompt": "[CHR]"}, selected_tags, 77)
+    assert (prompt_text, selected_path) == resolve_tag_prompt({"prompt": "[CHR]"}, selected_tags, 77)
+    assert negative_text == ""
+    assert negative_selected_path == []

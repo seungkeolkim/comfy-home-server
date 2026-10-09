@@ -437,11 +437,11 @@ async function loadTags() {
   }
 }
 
-/** Prompt와 선택된 태그 본문에서 필요한 참조 키를 재귀적으로 찾습니다. */
+/** 두 Prompt와 선택된 태그 본문에서 필요한 참조 키를 재귀적으로 찾습니다. */
 function requiredTagKeys() {
   const requiredKeys = new Set();
   const visitedTagIds = new Set();
-  const pendingTexts = [element("generate-anima-prompt").value];
+  const pendingTexts = [element("generate-anima-prompt").value, element("generate-negative").value];
   while (pendingTexts.length) {
     const templateText = pendingTexts.shift();
     for (const match of templateText.matchAll(/\[([A-Z][A-Z0-9_]*)\]/g)) {
@@ -476,7 +476,7 @@ function renderGenerateTagGroups() {
   const container = element("generate-tag-groups");
   const requiredKeys = requiredTagKeys();
   if (!requiredKeys.size) {
-    element("tag-selection-status").textContent = "Prompt에 [TAG] 참조가 없습니다. 태그 선택이 필요하지 않습니다.";
+    element("tag-selection-status").textContent = "Prompt와 Negative Prompt에 [TAG] 참조가 없습니다. 태그 선택이 필요하지 않습니다.";
     container.innerHTML = "";
     return;
   }
@@ -951,7 +951,11 @@ async function previewPrompt() {
   }
   element("preview-results").innerHTML = response.examples.map((example) => {
     const selectedNames = example.selected_path.map((item) => item.name).join(" → ");
-    return `<div class="preview-item"><strong>${example.index}. ${escapeHtml(selectedNames)} · seed ${example.seed}</strong>${escapeHtml(example.prompt)}</div>`;
+    const negativeNames = (example.negative_selected_path || []).map((item) => item.name).join(" → ");
+    const negativeMarkup = example.negative
+      ? `<div class="preview-negative"><strong>Negative Prompt${negativeNames ? ` · ${escapeHtml(negativeNames)}` : ""}</strong>${escapeHtml(example.negative)}</div>`
+      : "";
+    return `<div class="preview-item"><strong>${example.index}. ${escapeHtml(selectedNames)} · seed ${example.seed}</strong>${escapeHtml(example.prompt)}${negativeMarkup}</div>`;
   }).join("");
 }
 
@@ -1026,6 +1030,7 @@ function jobLoraSummary(requestDetail) {
 /** 상위 작업에 속한 ComfyUI 요청의 상태와 조작 버튼을 표시합니다. */
 function requestCardMarkup(request, statusNames) {
   const promptText = request.detail.resolved?.prompt || "확정 전";
+  const negativeText = request.detail.resolved?.negative ?? request.detail.body?.negative ?? "";
   const selectedLoras = Array.isArray(request.detail.loras) ? request.detail.loras : [];
   const loraDescriptions = [];
   for (const selectedLora of selectedLoras) {
@@ -1035,6 +1040,8 @@ function requestCardMarkup(request, statusNames) {
   const loraText = loraDescriptions.join(", ") || "lora없음";
   const selectedPath = request.detail.resolved?.selected_path || [];
   const selectedTagNames = selectedPath.map((item) => item.name).join(" → ");
+  const negativeSelectedPath = request.detail.resolved?.negative_selected_path || [];
+  const negativeTagNames = negativeSelectedPath.map((item) => item.name).join(" → ");
   return `
     <div class="job-request">
       <div>
@@ -1044,6 +1051,8 @@ function requestCardMarkup(request, statusNames) {
       <span class="status-badge ${escapeHtml(request.status)}">${escapeHtml(statusNames[request.status] || request.status)}</span>
       <div class="job-detail"><strong>Prompt</strong> ${escapeHtml(promptText)}</div>
       ${selectedTagNames ? `<div class="job-detail"><strong>태그 경로</strong> ${escapeHtml(selectedTagNames)}</div>` : ""}
+      ${negativeText ? `<div class="job-detail"><strong>Negative Prompt</strong> ${escapeHtml(negativeText)}</div>` : ""}
+      ${negativeTagNames ? `<div class="job-detail"><strong>Negative 태그 경로</strong> ${escapeHtml(negativeTagNames)}</div>` : ""}
       <div class="job-detail"><strong>LoRA</strong> ${escapeHtml(loraText)}</div>
       ${request.error_message ? `<div class="job-detail"><strong>오류</strong> ${escapeHtml(request.error_message)}</div>` : ""}
       <div class="job-actions inline-actions">
@@ -1416,6 +1425,7 @@ function bindEvents() {
   });
   element("manage-tags-button").addEventListener("click", () => switchView("tags"));
   element("generate-anima-prompt").addEventListener("input", renderGenerateTagGroups);
+  element("generate-negative").addEventListener("input", renderGenerateTagGroups);
   element("generate-tag-groups").addEventListener("change", (event) => {
     const tagId = event.target.dataset.selectTag;
     if (!tagId) return;

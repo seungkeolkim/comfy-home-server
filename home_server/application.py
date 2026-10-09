@@ -26,7 +26,7 @@ from .comfy_client import ComfyClient
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
 from .logging_setup import configure_application_logging
-from .tag_builder import anima_prompt, resolve_tag_prompt, validate_tag_selection
+from .tag_builder import anima_negative_prompt, anima_prompt, resolve_anima_prompts, validate_tag_selection
 from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
 
 
@@ -64,7 +64,7 @@ def settings_dimensions(settings: dict[str, Any]) -> tuple[int, int] | None:
 
 
 def selected_tag_definitions(
-    database: Database, selected_tag_ids: list[str], prompt_text: str,
+    database: Database, selected_tag_ids: list[str], prompt_text: str, negative_text: str = "",
 ) -> list[dict[str, Any]]:
     """그룹의 현재 참조 태그를 선택 항목에 복사하여 제출 시점의 정의를 검증합니다."""
 
@@ -81,7 +81,7 @@ def selected_tag_definitions(
     if missing_tag_ids:
         raise ValueError("삭제되거나 찾을 수 없는 태그 항목이 선택되었습니다. 목록을 새로고침해 주세요.")
     selected_tags = [available_tags[tag_id] for tag_id in selected_tag_ids]
-    validate_tag_selection(prompt_text, selected_tags)
+    validate_tag_selection("\n".join([prompt_text, negative_text]), selected_tags)
     return selected_tags
 
 
@@ -534,17 +534,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(422, "지원하지 않는 workflow입니다.")
         try:
             prompt_text = anima_prompt(payload.body)
+            negative_text = anima_negative_prompt(payload.body)
             selected_tags = selected_tag_definitions(
-                server.database, payload.selected_tag_ids, prompt_text,
+                server.database, payload.selected_tag_ids, prompt_text, negative_text,
             )
             examples = []
             for example_index in range(payload.count):
                 wildcard_seed = secrets.randbelow(2**31)
-                template, selected_path = resolve_tag_prompt(payload.body, selected_tags, wildcard_seed)
+                template, negative_template, selected_path, negative_selected_path = resolve_anima_prompts(
+                    payload.body, selected_tags, wildcard_seed,
+                )
                 resolved = await server.comfy.populate_wildcards(template, wildcard_seed)
+                resolved_negative = await server.comfy.populate_wildcards(negative_template, wildcard_seed)
                 examples.append({
                     "index": example_index + 1, "seed": wildcard_seed,
-                    "prompt": resolved, "selected_path": selected_path,
+                    "prompt": resolved, "negative": resolved_negative, "selected_path": selected_path,
+                    "negative_selected_path": negative_selected_path,
                 })
         except ValueError as exception:
             raise HTTPException(422, str(exception)) from exception
@@ -650,8 +655,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 plain_prompt(payload.body)
             else:
                 prompt_text = anima_prompt(payload.body)
+                negative_text = anima_negative_prompt(payload.body)
                 selected_tags = selected_tag_definitions(
-                    server.database, payload.selected_tag_ids, prompt_text,
+                    server.database, payload.selected_tag_ids, prompt_text, negative_text,
                 )
             available_loras = set(await server.comfy.list_loras()) if payload.loras else set()
             missing_loras = [selected_lora.get("name") for selected_lora in payload.loras if selected_lora.get("name") not in available_loras]
@@ -963,16 +969,17 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
             try:
                 if request["workflow"] == "anima":
                     wildcard_seed = secrets.randbelow(2**31)
-                    prompt_template, selected_path = resolve_tag_prompt(
+                    prompt_template, negative_template, selected_path, negative_selected_path = resolve_anima_prompts(
                         detail["body"], detail["selected_tags"], wildcard_seed,
                     )
                     prompt_text = await server.comfy.populate_wildcards(prompt_template, wildcard_seed)
                     negative_text = await server.comfy.populate_wildcards(
-                        str(detail["body"].get("negative", "")), wildcard_seed,
+                        negative_template, wildcard_seed,
                     )
                 else:
                     wildcard_seed = None
                     selected_path = []
+                    negative_selected_path = []
                     prompt_text = plain_prompt(detail["body"])
                     negative_text = ""
                 api_workflow, ui_workflow = load_workflows(server.config.workflow_directory, request["workflow"])
@@ -999,6 +1006,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                         "request_id": request_id, "job_id": request["job_id"],
                         "prompt": prompt_text, "negative": negative_text,
                         "selected_path": selected_path,
+                        "negative_selected_path": negative_selected_path,
                         "wildcard_seed": wildcard_seed, "settings": request_settings,
                         "loras": detail["loras"],
                     },
@@ -1007,6 +1015,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                 server.database.set_request_accepted(
                     request_id, prompt_id, {"prompt": prompt_text, "negative": negative_text,
                                             "selected_path": selected_path,
+                                            "negative_selected_path": negative_selected_path,
                                             "wildcard_seed": wildcard_seed, "settings": request_settings},
                 )
                 LOGGER.info("요청 접수: request_id=%s prompt_id=%s", request_id, prompt_id)

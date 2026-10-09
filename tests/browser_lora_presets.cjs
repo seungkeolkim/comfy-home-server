@@ -99,15 +99,19 @@ async function handleBrowserRequest(route) {
   else if (requestPath === "/api/prompts/preview" && method === "POST") {
     const payload = request.postDataJSON();
     tagPreviewRequests.push(payload);
+    const negativeHasAction = payload.body.negative?.includes("[ACTION]");
+    const previewPath = [
+      { tag_id: "tag-entry-1", name: "몬스터 공격" },
+      { tag_id: "tag-entry-2", name: "1인 a" },
+    ];
     response = {
       combined_prompt: null,
       examples: [{
         index: 1, seed: 77,
-        prompt: "character A, attacking monster",
-        selected_path: [
-          { tag_id: "tag-entry-1", name: "몬스터 공격" },
-          { tag_id: "tag-entry-2", name: "1인 a" },
-        ],
+        prompt: negativeHasAction ? payload.body.prompt : "character A, attacking monster",
+        negative: negativeHasAction ? "character A, attacking monster" : payload.body.negative || "",
+        selected_path: negativeHasAction ? [] : previewPath,
+        negative_selected_path: negativeHasAction ? previewPath : [],
       }],
     };
   }
@@ -151,6 +155,10 @@ async function handleBrowserRequest(route) {
   } else if (requestPath === "/api/batches") {
     const submission = request.postDataJSON();
     const loraPresetName = submission.lora_preset_name || null;
+    const negativeHasAction = submission.body.negative?.includes("[ACTION]");
+    const resolvedNegative = negativeHasAction ? "character A, attacking monster" : submission.body.negative || "";
+    const negativeSelectedPath = negativeHasAction
+      ? [{ tag_id: "tag-entry-1", name: "몬스터 공격" }, { tag_id: "tag-entry-2", name: "1인 a" }] : [];
     batchSubmissions.push(submission);
     response = { job_id: "test-job", request_ids: ["request-1", "request-2"] };
     savedJobs.push({
@@ -158,9 +166,10 @@ async function handleBrowserRequest(route) {
       created_at: "2026-10-07", status: "pending", status_counts: { pending: 1, completed: 1 },
       requests: [
         { request_id: "request-1", request_index: 1, prompt_id: "prompt-1", status: "pending",
-          detail: { settings: submission.settings, loras: submission.loras, lora_preset_name: loraPresetName } },
+          detail: { body: submission.body, settings: submission.settings, loras: submission.loras, lora_preset_name: loraPresetName } },
         { request_id: "request-2", request_index: 2, prompt_id: "prompt-2", status: "completed",
-          detail: { settings: submission.settings, loras: submission.loras, lora_preset_name: loraPresetName, resolved: { prompt: "portrait" } } },
+          detail: { body: submission.body, settings: submission.settings, loras: submission.loras, lora_preset_name: loraPresetName,
+            resolved: { prompt: "portrait", negative: resolvedNegative, negative_selected_path: negativeSelectedPath } } },
       ],
     });
   } else if (requestPath === "/api/requests/request-1/cancel") {
@@ -664,6 +673,36 @@ async function main() {
     assert.equal(await tagPage.locator('[data-tag-group-open]').count(), 1);
     assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-3"] [data-select-tag="tag-entry-4"]').count(), 1);
     assert.equal(savedTagEntries.filter(entry => entry.group_id === "tag-group-3").length, 1);
+    await tagPage.locator("#generate-anima-prompt").fill("portrait");
+    await tagPage.locator("#generate-negative").fill("[ACTION]");
+    await tagPage.locator('[data-clear-visible-tag-group="tag-group-1"]').click();
+    assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-1"]').count(), 1);
+    assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-2"]').count(), 0);
+    await tagPage.locator('[data-select-tag="tag-entry-1"]').check();
+    const negativeCharacterGroup = tagPage.locator('[data-tag-group-open="tag-group-2"]');
+    if (!(await negativeCharacterGroup.evaluate(details => details.open))) await negativeCharacterGroup.locator("summary").click();
+    await tagPage.locator('[data-select-tag="tag-entry-2"]').check();
+    await Promise.all([
+      tagPage.waitForResponse(response => response.url().endsWith("/api/prompts/preview")),
+      tagPage.locator("#preview-button").click(),
+    ]);
+    assert.deepEqual(tagPreviewRequests.at(-1).body, { prompt: "portrait", negative: "[ACTION]" });
+    assert.deepEqual(tagPreviewRequests.at(-1).selected_tag_ids, ["tag-entry-1", "tag-entry-2"]);
+    await tagPage.locator(".preview-negative").waitFor();
+    assert.match(await tagPage.locator(".preview-negative").textContent(), /Negative Prompt.*몬스터 공격.*character A, attacking monster/s);
+    const previousMockJobIndex = savedJobs.findIndex(job => job.job_id === "test-job");
+    if (previousMockJobIndex >= 0) savedJobs.splice(previousMockJobIndex, 1);
+    await tagPage.locator("#submit-button").click();
+    await tagPage.waitForFunction(() => document.getElementById("submit-button").disabled === false);
+    assert.deepEqual(batchSubmissions.at(-1).body, { prompt: "portrait", negative: "[ACTION]" });
+    assert.deepEqual(batchSubmissions.at(-1).selected_tag_ids, ["tag-entry-1", "tag-entry-2"]);
+    await tagPage.locator('.sidebar [data-view="jobs"]').click();
+    const negativeJobDetails = tagPage.locator('[data-job-details="test-job"]');
+    await negativeJobDetails.waitFor();
+    if (!(await negativeJobDetails.evaluate(details => details.open))) await negativeJobDetails.locator("summary").click();
+    assert.match(await negativeJobDetails.locator(".job-request").last().textContent(), /Negative Prompt character A, attacking monster/);
+    assert.match(await negativeJobDetails.locator(".job-request").last().textContent(), /Negative 태그 경로 몬스터 공격 → 1인 a/);
+    await tagPage.screenshot({ path: path.join(screenshotDirectory, "negative-tag-job-desktop.png"), fullPage: true });
     assert.deepEqual(tagPageErrors, []);
     await tagPage.close();
     await verifyJobLoraDisplay(browser);

@@ -507,6 +507,9 @@ input[type="file"] {
   margin-bottom: 6px;
   color: #8fdbca;
 }
+.preview-negative {
+  margin-top: 12px;
+}
 .notice {
   position: fixed;
   right: 24px;
