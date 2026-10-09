@@ -789,11 +789,24 @@ function renderLoraPresetList() {
     : '<p class="empty-state">저장된 LoRA 조합이 없습니다.</p>';
 }
 
+/** 실제 선택 조합이 원본과 일치할 때만 표시용 preset명을 제출합니다. */
+function generationLoraPresetName() {
+  if (!applicationState.selectedLoras.length) return null;
+  const workflow = element("generate-workflow").value;
+  const selectedPreset = applicationState.loraPresets.find((preset) =>
+    preset.preset_id === applicationState.currentLoraPresetId && preset.workflow === workflow,
+  );
+  if (!selectedPreset) return null;
+  const selectedCombination = normalizeLoraEntries(applicationState.selectedLoras, workflow);
+  const presetCombination = normalizeLoraEntries(selectedPreset.loras, workflow);
+  return JSON.stringify(selectedCombination) === JSON.stringify(presetCombination) ? selectedPreset.name : null;
+}
+
 /** 생성 화면의 카드 변경이 원본 preset과 다른지 표시합니다. */
 function renderGenerationLoraPresetStatus() {
   const workflow = element("generate-workflow").value;
   const preset = applicationState.loraPresets.find((item) => item.preset_id === applicationState.currentLoraPresetId && item.workflow === workflow);
-  const modified = preset && JSON.stringify(normalizeLoraEntries(applicationState.selectedLoras, workflow)) !== JSON.stringify(normalizeLoraEntries(preset.loras, workflow));
+  const modified = preset && generationLoraPresetName() === null;
   element("generate-lora-preset").value = preset?.preset_id || "";
   element("generate-lora-preset-status").textContent = `${preset?.name || "직접 구성"} · ${applicationState.selectedLoras.length} LoRA${modified ? " · 수정됨" : ""}`;
   element("save-generation-lora-preset-button").disabled = !applicationState.selectedLoras.length;
@@ -989,6 +1002,7 @@ async function submitBatch() {
         count: workflow === "anima" ? Number(element("generate-count").value) : 1,
         settings: generationSettings(),
         loras: applicationState.selectedLoras,
+        lora_preset_name: generationLoraPresetName(),
         upload_ids: uploadIds,
       }),
     });
@@ -1003,11 +1017,22 @@ async function submitBatch() {
   }
 }
 
+/** 저장된 실제 LoRA 목록과 표시용 이름으로 작업 요약의 조합 출처를 반환합니다. */
+function jobLoraSummary(requestDetail) {
+  if (!Array.isArray(requestDetail.loras) || requestDetail.loras.length === 0) return "lora없음";
+  return `LoRA ${requestDetail.lora_preset_name || "custom"}`;
+}
+
 /** 상위 작업에 속한 ComfyUI 요청의 상태와 조작 버튼을 표시합니다. */
 function requestCardMarkup(request, statusNames) {
   const promptText = request.detail.resolved?.prompt || "확정 전";
   const selectedLoras = Array.isArray(request.detail.loras) ? request.detail.loras : [];
-  const loraNames = selectedLoras.map((selectedLora) => selectedLora.name).filter(Boolean).join(", ") || "없음";
+  const loraDescriptions = [];
+  for (const selectedLora of selectedLoras) {
+    if (!selectedLora.name) continue;
+    loraDescriptions.push(`${selectedLora.name} (STR ${selectedLora.strength ?? 1})`);
+  }
+  const loraText = loraDescriptions.join(", ") || "lora없음";
   const selectedPath = request.detail.resolved?.selected_path || [];
   const selectedTagNames = selectedPath.map((item) => item.name).join(" → ");
   return `
@@ -1019,7 +1044,7 @@ function requestCardMarkup(request, statusNames) {
       <span class="status-badge ${escapeHtml(request.status)}">${escapeHtml(statusNames[request.status] || request.status)}</span>
       <div class="job-detail"><strong>Prompt</strong> ${escapeHtml(promptText)}</div>
       ${selectedTagNames ? `<div class="job-detail"><strong>태그 경로</strong> ${escapeHtml(selectedTagNames)}</div>` : ""}
-      <div class="job-detail"><strong>LoRA</strong> ${escapeHtml(loraNames)}</div>
+      <div class="job-detail"><strong>LoRA</strong> ${escapeHtml(loraText)}</div>
       ${request.error_message ? `<div class="job-detail"><strong>오류</strong> ${escapeHtml(request.error_message)}</div>` : ""}
       <div class="job-actions inline-actions">
         ${["pending", "running"].includes(request.status) ? `<button class="button subtle small" data-cancel-request="${escapeHtml(request.request_id)}">요청 취소</button>` : ""}
@@ -1071,6 +1096,7 @@ function toggleAllJobSelections() {
 
 /** 한 번의 제출을 하나의 상위 작업 카드로 표시합니다. */
 function jobCardMarkup(job, statusNames, openJobIds) {
+  const loraSummary = jobLoraSummary(job.requests[0]?.detail || {});
   const requestSettings = job.requests[0]?.detail.resolved?.settings || job.requests[0]?.detail.settings || {};
   const dimensions = formatDimensions(requestSettings.width, requestSettings.height);
   const completedCount = job.status_counts.completed || 0;
@@ -1093,7 +1119,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
         ${selectionCheckbox}
         <div>
         <h3>${escapeHtml(job.workflow)} · 작업 ${escapeHtml(job.job_id)}</h3>
-        <p>${escapeHtml(job.created_at)} · ${dimensions.ratio} · ${dimensions.resolution} · ${escapeHtml(progressText)}</p>
+        <p>${escapeHtml(job.created_at)} · ${dimensions.ratio} · ${dimensions.resolution} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
         ${job.description ? `<p class="job-description">${escapeHtml(job.description)}</p>` : ""}
         </div>
       </div>

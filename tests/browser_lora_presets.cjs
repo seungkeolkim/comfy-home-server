@@ -150,6 +150,7 @@ async function handleBrowserRequest(route) {
     response = { deleted: true };
   } else if (requestPath === "/api/batches") {
     const submission = request.postDataJSON();
+    const loraPresetName = submission.lora_preset_name || null;
     batchSubmissions.push(submission);
     response = { job_id: "test-job", request_ids: ["request-1", "request-2"] };
     savedJobs.push({
@@ -157,9 +158,9 @@ async function handleBrowserRequest(route) {
       created_at: "2026-10-07", status: "pending", status_counts: { pending: 1, completed: 1 },
       requests: [
         { request_id: "request-1", request_index: 1, prompt_id: "prompt-1", status: "pending",
-          detail: { settings: submission.settings, loras: submission.loras } },
+          detail: { settings: submission.settings, loras: submission.loras, lora_preset_name: loraPresetName } },
         { request_id: "request-2", request_index: 2, prompt_id: "prompt-2", status: "completed",
-          detail: { settings: submission.settings, loras: submission.loras, resolved: { prompt: "portrait" } } },
+          detail: { settings: submission.settings, loras: submission.loras, lora_preset_name: loraPresetName, resolved: { prompt: "portrait" } } },
       ],
     });
   } else if (requestPath === "/api/requests/request-1/cancel") {
@@ -193,6 +194,65 @@ async function setCardWeight(page, containerIdentifier, index, field, value) {
 /** 비동기 저장과 화면 갱신이 끝날 때까지 preset 선택 목록을 확인합니다. */
 async function waitForPreset(page, presetIdentifier) {
   await page.locator(`[data-edit-lora-preset="${presetIdentifier}"]`).waitFor();
+}
+
+/** 원본 preset, 수정 조합, 직접 구성, 미사용과 이전 이력의 LoRA 표시를 검증합니다. */
+async function verifyJobLoraDisplay(browser) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+  const pageErrors = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  await page.route("**/*", handleBrowserRequest);
+  await page.goto("http://home-server.test/");
+  await page.locator('#generate-lora-preset option[value="preset-2"]').waitFor({ state: "attached" });
+  await page.locator("#generate-anima-prompt").fill("portrait");
+  const displayCases = [
+    { presetIdentifier: "preset-2", strength: null, addCustomLora: false, expectedName: "Portrait variant", expectedSummary: "LoRA Portrait variant" },
+    { presetIdentifier: "preset-2", strength: 0, addCustomLora: false, expectedName: null, expectedSummary: "LoRA custom" },
+    { presetIdentifier: "", strength: -0.2, addCustomLora: true, expectedName: null, expectedSummary: "LoRA custom" },
+    { presetIdentifier: "", strength: null, addCustomLora: false, expectedName: null, expectedSummary: "lora없음" },
+  ];
+  for (const displayCase of displayCases) {
+    savedJobs.length = 0;
+    await page.locator('.sidebar [data-view="generate"]').click();
+    await page.locator("#generate-lora-preset").selectOption(displayCase.presetIdentifier);
+    if (displayCase.addCustomLora) {
+      await page.locator("#available-loras").selectOption("first.safetensors");
+      await page.locator("#add-lora-button").click();
+    }
+    if (displayCase.strength !== null) {
+      await setCardWeight(page, "selected-loras", 0, "strength", displayCase.strength);
+    }
+    await page.locator("#submit-button").click();
+    await page.waitForFunction(() => document.getElementById("submit-button").disabled === false);
+    assert.equal(batchSubmissions.at(-1).lora_preset_name, displayCase.expectedName);
+    await page.locator('.sidebar [data-view="jobs"]').click();
+    await page.waitForFunction(expectedSummary =>
+      document.querySelector(".job-selection-heading p")?.textContent.includes(expectedSummary), displayCase.expectedSummary);
+    const details = page.locator(".job-requests");
+    if (!(await details.evaluate(element => element.open))) await details.locator("summary").click();
+    if (displayCase.strength !== null) {
+      assert.ok((await page.locator(".job-request").first().textContent()).includes(`first.safetensors (STR ${displayCase.strength})`));
+    }
+  }
+
+  const longLoraFilename = `${"long_lora_name_".repeat(20)}.safetensors`;
+  savedJobs[0].requests[0].detail = {
+    loras: [{ name: longLoraFilename }, { name: "zero.safetensors", strength: 0 }, { name: "negative.safetensors", strength: -0.2 }],
+  };
+  await page.locator('.sidebar [data-view="generate"]').click();
+  await page.locator('.sidebar [data-view="jobs"]').click();
+  await page.waitForFunction(() => document.querySelector(".job-selection-heading p")?.textContent.includes("LoRA custom"));
+  const legacyDetails = page.locator(".job-requests");
+  if (!(await legacyDetails.evaluate(element => element.open))) await legacyDetails.locator("summary").click();
+  const legacyText = await page.locator(".job-request").first().textContent();
+  assert.ok(legacyText.includes(`${longLoraFilename} (STR 1)`));
+  assert.ok(legacyText.includes("zero.safetensors (STR 0)"));
+  assert.ok(legacyText.includes("negative.safetensors (STR -0.2)"));
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await page.screenshot({ path: path.join(screenshotDirectory, "job-lora-summary-mobile.png"), fullPage: true });
+  assert.deepEqual(pageErrors, []);
+  await page.close();
 }
 
 /** LoRA 조합, 작업 계층, 결과 필터와 mobile 화면을 검증합니다. */
@@ -336,6 +396,7 @@ async function main() {
     }), true);
     assert.equal(batchSubmissions[0].count, 2);
     assert.equal(batchSubmissions[0].loras[0].strength, 0.85);
+    assert.equal(batchSubmissions[0].lora_preset_name, "Portrait variant");
     assert.equal(batchSubmissions[0].description, "아침 조명 비교");
     assert.equal(batchSubmissions[0].settings.width, 1280);
     assert.equal(batchSubmissions[0].settings.height, 720);
@@ -343,12 +404,12 @@ async function main() {
     assert.equal(await page.locator(".job-card").count(), 1);
     assert.equal(await page.locator(".job-description").textContent(), "아침 조명 비교");
     assert.match(await page.locator(".job-card > div:first-child p").first().textContent(),
-      /2026-10-07 · 16:9 · 1280 × 720 · 완료 1\/2장/);
+      /2026-10-07 · 16:9 · 1280 × 720 · 완료 1\/2장 · LoRA Portrait variant/);
     assert.equal(await page.locator(".job-card .status-badge").first().textContent(), "대기");
     await page.locator(".job-requests summary").click();
     assert.equal(await page.locator(".job-request").count(), 2);
     assert.match(await page.locator(".job-request").last().textContent(), /Prompt portrait/);
-    assert.match(await page.locator(".job-request").last().textContent(), /LoRA first\.safetensors, second\.safetensors/);
+    assert.match(await page.locator(".job-request").last().textContent(), /LoRA first\.safetensors \(STR 0\.85\), second\.safetensors \(STR 1\)/);
     await page.locator('[data-cancel-request="request-1"]').click();
     await page.locator(".job-card .status-badge").first().getByText("일부 완료").waitFor();
     assert.equal(await page.locator(".job-requests").getAttribute("open"), "");
@@ -605,6 +666,7 @@ async function main() {
     assert.equal(savedTagEntries.filter(entry => entry.group_id === "tag-group-3").length, 1);
     assert.deepEqual(tagPageErrors, []);
     await tagPage.close();
+    await verifyJobLoraDisplay(browser);
     assert.deepEqual(pageErrors, []);
     console.log("Passed: LoRA presets, grouped jobs, tag groups and selection, mobile layout.");
   } finally {

@@ -128,6 +128,7 @@ class BatchInput(BaseModel):
     count: int = Field(default=1, ge=1, le=100)
     settings: dict[str, Any] = Field(default_factory=dict)
     loras: list[dict[str, Any]] = Field(default_factory=list)
+    lora_preset_name: str | None = Field(default=None, max_length=120)
     upload_ids: list[str] = Field(default_factory=list)
 
     @field_validator("description")
@@ -681,7 +682,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "request_id": request_id, "job_id": job_id, "workflow": payload.workflow,
                 "status": "submitting", "output_stem": output_stem,
                 "detail": {"upload_id": upload_id, "body": payload.body, "selected_tags": selected_tags,
-                           "settings": request_settings, "loras": payload.loras},
+                           "settings": request_settings, "loras": payload.loras,
+                           "lora_preset_name": payload.lora_preset_name if payload.loras else None},
             }
             submitted_requests.append(request)
 
