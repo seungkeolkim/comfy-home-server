@@ -251,6 +251,7 @@ async function verifyJobLoraDisplay(browser) {
   await page.locator('.sidebar [data-view="generate"]').click();
   await page.locator('.sidebar [data-view="jobs"]').click();
   await page.waitForFunction(() => document.querySelector(".job-selection-heading p")?.textContent.includes("LoRA custom"));
+  assert.equal(await page.locator(".job-original-prompt").textContent(), "입력 Prompt 기록 없음");
   const legacyDetails = page.locator(".job-requests");
   if (!(await legacyDetails.evaluate(element => element.open))) await legacyDetails.locator("summary").click();
   const legacyText = await page.locator(".job-request").first().textContent();
@@ -260,6 +261,18 @@ async function verifyJobLoraDisplay(browser) {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   await page.screenshot({ path: path.join(screenshotDirectory, "job-lora-summary-mobile.png"), fullPage: true });
+  const originalPrompt = `[ACTION]\n<div data-unwanted-prompt>입력한 원본</div>\n${"long_prompt_text_".repeat(40)}`;
+  const originalNegative = "[AVOID]\nlow quality";
+  savedJobs[0].requests[0].detail.body = { prompt: originalPrompt, negative: originalNegative };
+  savedJobs[0].requests[0].detail.resolved = { prompt: "tag resolved final text", negative: "negative resolved final text" };
+  await page.waitForFunction(() => document.querySelector(".job-original-prompt")?.textContent.includes("[ACTION]"));
+  assert.equal(await page.locator(".job-original-prompt").textContent(), `입력 Prompt ${originalPrompt}`);
+  assert.equal(await page.locator(".job-original-negative-prompt").textContent(), `입력 Negative Prompt ${originalNegative}`);
+  assert.equal(await page.locator("[data-unwanted-prompt]").count(), 0);
+  assert.match(await page.locator(".job-request").first().textContent(), /Prompt tag resolved final text/);
+  assert.match(await page.locator(".job-request").first().textContent(), /Negative Prompt negative resolved final text/);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await page.screenshot({ path: path.join(screenshotDirectory, "job-original-prompt-mobile.png"), fullPage: true });
   assert.deepEqual(pageErrors, []);
   await page.close();
 }
@@ -412,6 +425,8 @@ async function main() {
     await page.locator('.sidebar [data-view="jobs"]').click();
     assert.equal(await page.locator(".job-card").count(), 1);
     assert.equal(await page.locator(".job-description").textContent(), "아침 조명 비교");
+    assert.equal(await page.locator(".job-original-prompt").textContent(), "입력 Prompt portrait");
+    assert.equal(await page.locator(".job-original-negative-prompt").count(), 0);
     assert.match(await page.locator(".job-card > div:first-child p").first().textContent(),
       /2026-10-07 · 16:9 · 1280 × 720 · 완료 1\/2장 · LoRA Portrait variant/);
     assert.equal(await page.locator(".job-card .status-badge").first().textContent(), "대기");
@@ -699,6 +714,9 @@ async function main() {
     await tagPage.locator('.sidebar [data-view="jobs"]').click();
     const negativeJobDetails = tagPage.locator('[data-job-details="test-job"]');
     await negativeJobDetails.waitFor();
+    const negativeJobCard = negativeJobDetails.locator("..");
+    assert.equal(await negativeJobCard.locator(".job-original-prompt").textContent(), "입력 Prompt portrait");
+    assert.equal(await negativeJobCard.locator(".job-original-negative-prompt").textContent(), "입력 Negative Prompt [ACTION]");
     if (!(await negativeJobDetails.evaluate(details => details.open))) await negativeJobDetails.locator("summary").click();
     assert.match(await negativeJobDetails.locator(".job-request").last().textContent(), /Negative Prompt character A, attacking monster/);
     assert.match(await negativeJobDetails.locator(".job-request").last().textContent(), /Negative 태그 경로 몬스터 공격 → 1인 a/);

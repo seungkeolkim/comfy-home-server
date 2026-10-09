@@ -1105,6 +1105,9 @@ function toggleAllJobSelections() {
 
 /** 한 번의 제출을 하나의 상위 작업 카드로 표시합니다. */
 function jobCardMarkup(job, statusNames, openJobIds) {
+  const originalBody = job.requests[0]?.detail?.body || {};
+  const originalPrompt = typeof originalBody.prompt === "string" ? originalBody.prompt : "기록 없음";
+  const originalNegative = typeof originalBody.negative === "string" ? originalBody.negative : "";
   const loraSummary = jobLoraSummary(job.requests[0]?.detail || {});
   const requestSettings = job.requests[0]?.detail.resolved?.settings || job.requests[0]?.detail.settings || {};
   const dimensions = formatDimensions(requestSettings.width, requestSettings.height);
@@ -1133,6 +1136,8 @@ function jobCardMarkup(job, statusNames, openJobIds) {
         </div>
       </div>
       <span class="status-badge ${escapeHtml(job.status)}">${escapeHtml(statusNames[job.status] || job.status)}</span>
+      <div class="job-detail job-original-prompt"><strong>입력 Prompt</strong> ${escapeHtml(originalPrompt)}</div>
+      ${originalNegative ? `<div class="job-detail job-original-negative-prompt"><strong>입력 Negative Prompt</strong> ${escapeHtml(originalNegative)}</div>` : ""}
       <div class="job-actions inline-actions">
         <button class="button subtle small" data-show-job-results="${escapeHtml(job.job_id)}">작업 결과 보기</button>
         ${canCancel ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.job_id)}">작업 취소</button>` : ""}
