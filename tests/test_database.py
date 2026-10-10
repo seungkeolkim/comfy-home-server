@@ -1,6 +1,7 @@
 """현재 SQLite schema와 작업 계층 저장을 검증합니다."""
 
 import sqlite3
+import json
 from pathlib import Path
 
 import pytest
@@ -61,7 +62,7 @@ def test_group_tag_migration_backs_up_and_preserves_all_records(tmp_path: Path) 
     assert migrated_database.get_tag_group("empty-group")["tag_key"] == ""
     with sqlite3.connect(database_path) as connection:
         connection.row_factory = sqlite3.Row
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         migrated_entries = [dict(row) for row in connection.execute("SELECT * FROM tag_entries ORDER BY tag_id")]
@@ -69,7 +70,8 @@ def test_group_tag_migration_backs_up_and_preserves_all_records(tmp_path: Path) 
             original_entry.pop("tag_key")
         assert migrated_entries == original_entries
         for table_name, original_rows in original_tables.items():
-            assert [tuple(row) for row in connection.execute(f"SELECT * FROM {table_name}")] == original_rows
+            migrated_rows = [tuple(row) for row in connection.execute(f"SELECT * FROM {table_name}")]
+            assert migrated_rows == original_rows
         group_index = next(row for row in connection.execute("PRAGMA index_list(tag_groups)") if row["name"] == "tag_groups_key")
         assert group_index["unique"] == 0
 
@@ -119,7 +121,7 @@ def test_new_database_stores_jobs_presets_and_tags(tmp_path: Path) -> None:
     assert reopened_database.list_presets()[0]["body"] == {"prompt": "portrait, [SCENE]"}
     assert reopened_database.list_lora_profiles()[0]["settings"] == {"strength": 0.7}
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
     with pytest.raises(sqlite3.IntegrityError):
         database.add_job("rolled-back", "anima", "", requests)
     assert database.get_job("rolled-back") is None
@@ -282,3 +284,117 @@ def test_protection_is_checked_before_file_callback_and_locked_until_deletion(tm
     assert database.delete_job("protected-job", before_deletion=verify_deletion_lock)
     assert callback_invocations == ["called"]
     assert database.get_job("protected-job") is None
+
+
+def test_large_job_summary_and_monitor_do_not_parse_child_snapshots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """100개 후보 Snapshot을 보존하면서 목록·감시에는 작은 상태 정보만 사용합니다."""
+
+    database = Database(tmp_path / "home_server.sqlite3")
+    detail = {"body": {"prompt": "portrait"}, "selected_tags": [{"content": "candidate" * 5000}],
+              "settings": {"width": 768, "height": 1024}, "loras": []}
+    requests = []
+    for request_index in range(100):
+        requests.append({"request_id": f"request-{request_index}", "status": "submitting",
+                         "output_stem": "anima/output", "detail": detail})
+    database.add_job("large-job", "anima", "large", requests)
+
+    def reject_snapshot_conversion(row: sqlite3.Row) -> dict:
+        """요약·감시 조회가 개별 상세 변환을 호출하면 실패시킵니다."""
+
+        raise AssertionError("전체 요청 Snapshot을 파싱했습니다.")
+
+    monkeypatch.setattr(database, "_request_from_row", reject_snapshot_conversion)
+    summaries = database.list_job_summaries()
+    assert len(json.dumps(summaries).encode()) < 2000
+    assert "requests" not in summaries["items"][0]
+    assert "selected_tags" not in summaries["items"][0]["summary"]
+    assert summaries["items"][0]["status_counts"] == {"submitting": 100}
+    active_requests = database.list_active_requests()
+    assert len(active_requests) == 100
+    assert all("detail" not in request for request in active_requests)
+    with database._connect() as connection:
+        assert json.loads(connection.execute("SELECT detail_json FROM request_details LIMIT 1").fetchone()[0]) == detail
+
+
+def test_active_monitor_does_not_hide_older_requests_above_a_thousand(tmp_path: Path) -> None:
+    """감시·취소 대상이 1000개를 넘더라도 오래된 활성 요청을 누락하지 않습니다."""
+
+    database = Database(tmp_path / "home_server.sqlite3")
+    for job_index in range(11):
+        requests = []
+        for request_index in range(100):
+            requests.append({"request_id": f"request-{job_index}-{request_index}", "status": "pending",
+                             "output_stem": "anima/output", "detail": {}})
+        database.add_job(f"job-{job_index}", "anima", "", requests)
+    assert len(database.list_active_requests()) == 1100
+    assert len(database.list_active_requests(limit=10)) == 10
+
+
+def test_cancellation_survives_late_acceptance_and_queue_updates(tmp_path: Path) -> None:
+    """취소 도중 접수된 prompt ID를 추적하고 이전 queue Snapshot이 취소를 덮어쓰지 않습니다."""
+
+    database_path = tmp_path / "home_server.sqlite3"
+    database = Database(database_path)
+    database.add_job("cancel-job", "anima", "", [{
+        "request_id": "inflight-request", "status": "submitting", "output_stem": "anima/output", "detail": {},
+    }])
+    assert database.request_job_cancellation("cancel-job") == 1
+    assert Database(database_path).get_job("cancel-job")["cancellation_requested"] is True
+    database.set_request_accepted("inflight-request", "late-prompt", {"prompt": "resolved"})
+    database.apply_request_states([{"request_id": "inflight-request", "status": "pending"}])
+    request = database.get_request("inflight-request")
+    assert request["status"] == "cancelling"
+    assert request["prompt_id"] == "late-prompt"
+    database.cancel_unsubmitted_request("inflight-request")
+    assert database.get_request("inflight-request")["status"] == "cancelling"
+
+
+def test_version_six_migration_preserves_protected_history_and_inputs(tmp_path: Path) -> None:
+    """Version 6의 보호 설정과 원본 Snapshot을 유지하며 취소 의도 column만 추가합니다."""
+
+    database_path = tmp_path / "home_server.sqlite3"
+    database = Database(database_path)
+    detail = {"body": {"prompt": "saved"}, "selected_tags": [{"tag_id": "original"}]}
+    database.add_job("protected", "anima", "", [{
+        "request_id": "saved", "status": "completed", "output_stem": "anima/output", "detail": detail,
+    }])
+    database.set_job_deletion_protection("protected", True)
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("ALTER TABLE jobs DROP COLUMN cancellation_requested")
+        connection.execute("PRAGMA user_version = 6")
+    migrated_database = Database(database_path)
+    assert migrated_database.get_job("protected")["deletion_protected"] is True
+    assert migrated_database.get_job("protected")["cancellation_requested"] is False
+    assert migrated_database.get_job_inputs("protected")["requests"][0]["detail"] == detail
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 8
+
+
+def test_request_detail_migration_backs_up_and_preserves_snapshots_and_cascade(tmp_path: Path) -> None:
+    """Version 7의 큰 Snapshot을 별도 테이블로 옮기고 상태 갱신·삭제에서 보존 규칙을 지킵니다."""
+
+    database_path = tmp_path / "home_server.sqlite3"
+    database = Database(database_path)
+    detail = {"body": {"prompt": "original"}, "selected_tags": [{"content": "candidate" * 5000}],
+              "resolved": {"prompt": "resolved", "output_paths": ["anima/image.png"]}}
+    database.add_job("legacy", "anima", "legacy", [{
+        "request_id": "legacy-request", "status": "completed", "output_stem": "anima/output", "detail": detail,
+    }])
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("ALTER TABLE job_requests ADD COLUMN detail_json TEXT NOT NULL DEFAULT '{}'")
+        connection.execute("UPDATE job_requests SET detail_json = (SELECT detail_json FROM request_details WHERE request_details.request_id = job_requests.request_id)")
+        connection.execute("DROP TABLE request_details")
+        connection.execute("PRAGMA user_version = 7")
+    migrated_database = Database(database_path)
+    assert migrated_database.get_request("legacy-request")["detail"] == detail
+    with sqlite3.connect(database_path) as connection:
+        assert "detail_json" not in {row[1] for row in connection.execute("PRAGMA table_info(job_requests)")}
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+    backup_paths = list((tmp_path / "backups").glob("*before_request_details*.sqlite3"))
+    assert len(backup_paths) == 1
+    with sqlite3.connect(backup_paths[0]) as backup_connection:
+        assert json.loads(backup_connection.execute("SELECT detail_json FROM job_requests").fetchone()[0]) == detail
+        assert backup_connection.execute("PRAGMA user_version").fetchone()[0] == 7
+    assert migrated_database.delete_job("legacy")
+    with sqlite3.connect(database_path) as connection:
+        assert connection.execute("SELECT COUNT(*) FROM request_details").fetchone()[0] == 0

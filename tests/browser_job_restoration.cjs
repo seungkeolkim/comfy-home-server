@@ -99,6 +99,10 @@ function createRestorationRequestHandler(fixtures) {
     if (request.method() !== "GET") fixtures.mutations.push(requestPath);
     let response;
     if (requestPath === "/api/session") response = { authenticated: true };
+    else if (requestPath === "/api/jobs/activity") response = { active_count: 0 };
+    else if (requestPath.startsWith("/api/jobs/") && requestPath.endsWith("/inputs")) {
+      response = fixtures.jobs.find(job => job.job_id === requestPath.split("/").at(-2));
+    }
     else if (requestPath === "/api/status") response = { comfy_connected: true, output_directory: "test-output" };
     else if (requestPath === "/api/outputs") response = { files: [], total: 0, total_pages: 1 };
     else if (requestPath === "/api/jobs") {

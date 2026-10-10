@@ -49,6 +49,7 @@ function createBrowserRequestHandler(mockState) {
     let response = {};
     let responseStatus = 200;
     if (requestPath === "/api/session") response = { authenticated: true };
+    else if (requestPath === "/api/jobs/activity") response = { active_count: 4 };
     else if (requestPath === "/api/status") response = { comfy_connected: true, output_directory: "test-output" };
     else if (requestPath === "/api/jobs") {
       const pageNumber = Number(requestUrl.searchParams.get("page") || 1);

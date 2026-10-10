@@ -34,6 +34,7 @@ async function handleBrowserRequest(route) {
   const method = request.method();
   if (requestPath === "/api/session") response = { authenticated: true };
   else if (requestPath === "/api/status") response = { comfy_connected: true, output_directory: "test-output" };
+  else if (requestPath === "/api/jobs/activity") response = { active_count: 0 };
   else if (requestPath === "/api/jobs") {
     jobQueries.push(requestUrl.search);
     const pageNumber = Number(requestUrl.searchParams.get("page") || 1);
@@ -432,6 +433,7 @@ async function main() {
       /2026-10-07 · 16:9 · 1280 × 720 · 완료 1\/2장 · LoRA Portrait variant/);
     assert.equal(await page.locator(".job-card .status-badge").first().textContent(), "대기");
     await page.locator(".job-requests summary").click();
+    await page.locator(".job-request").first().waitFor();
     assert.equal(await page.locator(".job-request").count(), 2);
     assert.match(await page.locator(".job-request").last().textContent(), /Prompt portrait/);
     assert.match(await page.locator(".job-request").last().textContent(), /LoRA first\.safetensors \(STR 0\.85\), second\.safetensors \(STR 1\)/);

@@ -11,8 +11,8 @@ import shutil
 import sqlite3
 import time
 import uuid
+from functools import lru_cache
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
@@ -37,6 +37,8 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 PREVIEW_SIZE = 384
 MAX_PREVIEW_PIXELS = 80_000_000
 LOGGER = logging.getLogger(__name__)
+CANCEL_CONFIRMATION_SECONDS = 15
+MISSING_REQUEST_GRACE_SECONDS = 30
 
 
 def image_dimensions(image_path: Path) -> tuple[int, int] | None:
@@ -50,6 +52,13 @@ def image_dimensions(image_path: Path) -> tuple[int, int] | None:
             return width, height
     except (OSError, ValueError, UnidentifiedImageError, Image.DecompressionBombError):
         return None
+
+
+@lru_cache(maxsize=2048)
+def cached_image_dimensions(image_path: Path, modified_at_ns: int, file_size: int) -> tuple[int, int] | None:
+    """현재 파일 속성이 같은 이미지의 크기를 재사용하고 변경되면 다시 읽습니다."""
+
+    return image_dimensions(image_path)
 
 
 def settings_dimensions(settings: dict[str, Any]) -> tuple[int, int] | None:
@@ -279,6 +288,10 @@ class HomeServer:
         self.login_failures: dict[str, list[float]] = {}
         self.comfy_queue_available: bool | None = None
         self.submission_tasks: set[asyncio.Task[Any]] = set()
+        self.request_refresh_lock = asyncio.Lock()
+        self.missing_request_since: dict[str, float] = {}
+        self.cancellation_retry_after: dict[str, float] = {}
+        self.cancellation_wakeup = asyncio.Event()
         self._mark_interrupted_submissions()
 
     def record_comfy_connection(self, connected: bool, error_type: str | None = None) -> None:
@@ -298,6 +311,10 @@ class HomeServer:
         for request in self.database.list_active_requests():
             if request["status"] == "submitting":
                 self.database.update_request(request["request_id"], "stopped", "앱 재시작으로 제출 여부를 확인하지 못했습니다.")
+            elif request["status"] == "cancelling" and not request["prompt_id"]:
+                self.database.update_request(
+                    request["request_id"], "stopped", "앱 재시작으로 제출 중 취소 요청의 접수 여부를 확인하지 못했습니다.",
+                )
 
     def managed_path(self, relative_path: str, must_exist: bool = False) -> Path:
         """관리 output 밖으로 나가는 경로와 symlink를 거부합니다."""
@@ -325,12 +342,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         log_path = configure_application_logging(server.config.runtime_directory)
         LOGGER.info("서버 시작: 로그 파일=%s", log_path)
         monitor_task = asyncio.create_task(_monitor_requests(server))
+        cancellation_task = asyncio.create_task(_monitor_cancellations(server))
         try:
             yield
         finally:
             monitor_task.cancel()
-            await asyncio.gather(monitor_task, return_exceptions=True)
-            for submission_task in server.submission_tasks:
+            cancellation_task.cancel()
+            await asyncio.gather(monitor_task, cancellation_task, return_exceptions=True)
+            for submission_task in list(server.submission_tasks):
                 submission_task.cancel()
             if server.submission_tasks:
                 await asyncio.gather(*server.submission_tasks, return_exceptions=True)
@@ -703,7 +722,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             }
             submitted_requests.append(request)
 
-        server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests)
+        await asyncio.to_thread(server.database.add_job, job_id, payload.workflow, payload.description, submitted_requests)
         submission_task = asyncio.create_task(_submit_requests(server, submitted_requests))
         server.submission_tasks.add(submission_task)
         submission_task.add_done_callback(server.submission_tasks.discard)
@@ -716,21 +735,48 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         page_size: int = Query(default=10, ge=1, le=50),
         job_id: str = "",
         refresh: bool = False,
+        summary: bool = False,
     ):
         """작업 이력을 페이지 단위로 반환하고 필요하면 요청 상태를 갱신합니다."""
 
         if refresh:
             await _refresh_requests(server)
-        return server.database.list_jobs(page=page, page_size=page_size, job_id=job_id)
+        read_jobs = server.database.list_job_summaries if summary else server.database.list_jobs
+        response = await asyncio.to_thread(read_jobs, page=page, page_size=page_size, job_id=job_id)
+        return await asyncio.to_thread(JSONResponse, response)
 
     @app.get("/api/jobs/deletion-candidates")
-    async def job_deletion_candidates(job_id: str = ""):
+    def job_deletion_candidates(job_id: str = ""):
         """현재 목록의 모든 페이지에서 삭제 가능한 작업 ID만 반환합니다."""
 
         return {"job_ids": server.database.list_deletable_job_ids(job_id)}
 
+    @app.get("/api/jobs/activity")
+    def jobs_activity():
+        """다른 탭에서는 하위 요청을 읽지 않고 활성 작업 수만 반환합니다."""
+
+        return {"active_count": server.database.count_active_jobs()}
+
+    @app.get("/api/jobs/{job_id}/inputs")
+    def job_inputs(job_id: str):
+        """생성 탭 복원에 필요한 작업 공통 입력을 반환합니다."""
+
+        job = server.database.get_job_inputs(job_id)
+        if job is None:
+            raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        return job
+
+    @app.get("/api/jobs/{job_id}")
+    def job_details(job_id: str):
+        """사용자가 펼친 작업의 하위 요청 상세를 반환합니다."""
+
+        job = server.database.get_job(job_id)
+        if job is None:
+            raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        return job
+
     @app.patch("/api/jobs/{job_id}/protection")
-    async def update_job_protection(job_id: str, payload: JobProtectionInput):
+    def update_job_protection(job_id: str, payload: JobProtectionInput):
         """작업의 삭제 보호를 켜거나 해제합니다."""
 
         if not server.database.set_job_deletion_protection(job_id, payload.deletion_protected):
@@ -739,48 +785,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/requests/{request_id}/cancel")
     async def cancel_request(request_id: str):
-        """ComfyUI에서 대기·실행 중인 하위 요청 하나를 취소합니다."""
+        """하위 요청의 취소 의도를 기록하고 전송 완료를 기다리지 않고 응답합니다."""
 
-        request = server.database.get_request(request_id)
+        request = await asyncio.to_thread(server.database.get_submission_state, request_id)
         if request is None:
             raise HTTPException(404, "요청을 찾을 수 없습니다.")
-        if request["status"] not in {"pending", "running"}:
-            raise HTTPException(409, "대기·실행 중인 요청만 취소할 수 있습니다.")
-        if not await _cancel_comfy_request(server, request):
-            await _refresh_requests(server)
-            raise HTTPException(409, "ComfyUI에서 취소 가능한 요청을 찾지 못했습니다.")
+        if request["status"] not in {"submitting", "pending", "running", "cancelling"}:
+            raise HTTPException(409, "진행 중인 요청만 취소할 수 있습니다.")
+        if not await asyncio.to_thread(server.database.mark_request_cancelling, request_id):
+            raise HTTPException(409, "요청이 이미 종료되었습니다.")
+        server.cancellation_retry_after.pop(request_id, None)
+        server.cancellation_wakeup.set()
         return {"status": "cancelling"}
 
     @app.post("/api/jobs/{job_id}/cancel")
     async def cancel_job(job_id: str):
-        """상위 작업에 속한 대기·실행 요청을 각각 취소합니다."""
+        """아직 제출 중인 요청까지 작업 단위 취소를 기록하고 즉시 접수 결과를 반환합니다."""
 
-        job = server.database.get_job(job_id)
-        if job is None:
+        requested_count = await asyncio.to_thread(server.database.request_job_cancellation, job_id)
+        if requested_count is None:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
-        active_requests = [
-            request for request in job["requests"] if request["status"] in {"pending", "running"}
-        ]
-        if not active_requests:
+        if not requested_count:
             raise HTTPException(409, "취소할 수 있는 요청이 없습니다.")
-        cancelled_count = 0
-        failed_count = 0
+        active_requests = await asyncio.to_thread(server.database.list_active_requests)
         for request in active_requests:
-            try:
-                if await _cancel_comfy_request(server, request):
-                    cancelled_count += 1
-                else:
-                    failed_count += 1
-            except Exception:
-                failed_count += 1
-                LOGGER.exception("작업 내 요청 취소 실패: request_id=%s", request["request_id"])
-        if not cancelled_count and failed_count:
-            await _refresh_requests(server)
-            raise HTTPException(409, "ComfyUI에서 취소 가능한 요청을 찾지 못했습니다.")
-        return {"cancelled_count": cancelled_count, "failed_count": failed_count}
+            if request["job_id"] == job_id:
+                server.cancellation_retry_after.pop(request["request_id"], None)
+        server.cancellation_wakeup.set()
+        LOGGER.info("작업 취소 접수: job_id=%s requested_count=%s", job_id, requested_count)
+        return {"status": "cancelling", "requested_count": requested_count}
 
     @app.delete("/api/jobs/{job_id}")
-    async def delete_job(job_id: str, delete_outputs: bool = False):
+    def delete_job(job_id: str, delete_outputs: bool = False):
         """완료된 작업 이력과 선택한 경우 원래 위치의 결과물을 삭제합니다."""
 
         job = server.database.get_job(job_id)
@@ -832,7 +868,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return {"deleted": True, "deleted_files": deleted_files, "missing_files": missing_files}
 
     @app.get("/api/outputs")
-    async def outputs(
+    def outputs(
         page: int = Query(default=1, ge=1),
         page_size: int = Query(default=24, ge=1, le=100),
         prefix: str = "",
@@ -882,6 +918,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "path": relative_path,
                 "name": output_path.name, "size": file_stat.st_size,
                 "modified_at": file_stat.st_mtime,
+                "modified_at_ns": file_stat.st_mtime_ns,
                 "kind": "video" if output_path.suffix.lower() in {".mp4", ".webm", ".mkv", ".mov"} else "image",
             })
         found_files.sort(key=lambda item: (item["modified_at"], item["path"]), reverse=True)
@@ -893,7 +930,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             output_request = requests_by_output_path.get(file["path"], {})
             file["job_id"] = output_request.get("job_id")
             file_path = server.config.managed_output_directory / file["path"]
-            dimensions = image_dimensions(file_path) if file["kind"] == "image" else None
+            modified_at_ns = file.pop("modified_at_ns")
+            dimensions = cached_image_dimensions(file_path, modified_at_ns, file["size"]) if file["kind"] == "image" else None
             file["dimensions_source"] = "file" if dimensions else None
             if dimensions is None:
                 dimensions = settings_dimensions(output_request.get("settings", {}))
@@ -979,28 +1017,73 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     return app
 
 
-async def _cancel_comfy_request(server: HomeServer, request: dict[str, Any]) -> bool:
-    """지정한 ComfyUI 요청만 취소하고 확인될 때까지 추적합니다."""
+async def _monitor_cancellations(server: HomeServer) -> None:
+    """취소된 작업의 접수 ID만 묶어 전송하고 실패 시 간격을 두고 재시도합니다."""
 
-    cancelled = await server.comfy.cancel_prompt(request["prompt_id"])
-    if not cancelled:
-        return False
-    server.database.mark_request_cancelling(request["request_id"])
-    LOGGER.info("요청 취소 접수: request_id=%s prompt_id=%s", request["request_id"], request["prompt_id"])
-    return True
+    while True:
+        try:
+            active_requests = await asyncio.to_thread(server.database.list_active_requests)
+            active_request_ids = {request["request_id"] for request in active_requests}
+            server.cancellation_retry_after = {
+                request_id: retry_after for request_id, retry_after in server.cancellation_retry_after.items()
+                if request_id in active_request_ids
+            }
+            cancellation_requests = []
+            for request in active_requests:
+                if request["status"] != "cancelling" or not request["prompt_id"]:
+                    continue
+                if time.monotonic() < server.cancellation_retry_after.get(request["request_id"], 0):
+                    continue
+                cancellation_requests.append(request)
+            for first_index in range(0, len(cancellation_requests), 100):
+                request_batch = cancellation_requests[first_index:first_index + 100]
+                request_ids = [request["request_id"] for request in request_batch]
+                cancellation_error = None
+                try:
+                    await server.comfy.cancel_prompts([request["prompt_id"] for request in request_batch])
+                    LOGGER.info("ComfyUI 취소 전송: count=%s", len(request_batch))
+                except Exception as exception:
+                    cancellation_error = "ComfyUI 취소 전송 실패. 자동 재시도 중입니다."
+                    LOGGER.warning("ComfyUI 취소 전송 실패: count=%s error_type=%s", len(request_batch), type(exception).__name__)
+                for request_id in request_ids:
+                    server.cancellation_retry_after[request_id] = time.monotonic() + 5
+                await asyncio.to_thread(server.database.record_cancellation_error, request_ids, cancellation_error)
+        except Exception:
+            LOGGER.exception("취소 요청 처리 중 오류가 발생했습니다.")
+        try:
+            await asyncio.wait_for(server.cancellation_wakeup.wait(), timeout=1)
+        except TimeoutError:
+            pass
+        server.cancellation_wakeup.clear()
+
+
+async def _skip_cancelled_submission(server: HomeServer, request_id: str) -> bool:
+    """네트워크 전송 직전 취소를 재확인하고 미접수 요청을 취소 완료로 만듭니다."""
+
+    submission_state = await asyncio.to_thread(server.database.get_submission_state, request_id)
+    if submission_state is None or submission_state["status"] != "submitting":
+        if submission_state and submission_state["status"] == "cancelling" and not submission_state["prompt_id"]:
+            await asyncio.to_thread(server.database.cancel_unsubmitted_request, request_id)
+        return True
+    return False
 
 
 async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -> None:
     """ComfyUI에 요청을 순서대로 접수하고 업로드 임시 파일을 제거합니다."""
 
+    workflow_templates: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
     try:
         for request in requests:
             request_id = request["request_id"]
             detail = request["detail"]
+            submission_started = False
             try:
+                if await _skip_cancelled_submission(server, request_id):
+                    continue
                 if request["workflow"] == "anima":
                     wildcard_seed = secrets.randbelow(2**31)
-                    prompt_template, negative_template, selected_path, negative_selected_path = resolve_anima_prompts(
+                    prompt_template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
+                        resolve_anima_prompts,
                         detail["body"], detail["selected_tags"], wildcard_seed,
                     )
                     prompt_text = await server.comfy.populate_wildcards(prompt_template, wildcard_seed)
@@ -1013,11 +1096,16 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                     negative_selected_path = []
                     prompt_text = plain_prompt(detail["body"])
                     negative_text = ""
-                api_workflow, ui_workflow = load_workflows(server.config.workflow_directory, request["workflow"])
+                if request["workflow"] not in workflow_templates:
+                    workflow_templates[request["workflow"]] = await asyncio.to_thread(
+                        load_workflows, server.config.workflow_directory, request["workflow"],
+                    )
+                api_workflow, ui_workflow = workflow_templates[request["workflow"]]
                 if request["workflow"] == "anima":
                     request_settings = dict(detail["settings"])
                     request_settings["seed"] = secrets.randbelow(2**31)
-                    request_workflow, metadata_workflow = prepare_anima(
+                    request_workflow, metadata_workflow = await asyncio.to_thread(
+                        prepare_anima,
                         api_workflow, ui_workflow, prompt_text, negative_text,
                         request_settings, detail["loras"], request["output_stem"],
                     )
@@ -1027,7 +1115,8 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                     upload_path = next(server.upload_directory.glob(f"{upload_id}.*"))
                     uploaded_name = f"{request_id}_{upload_path.name}"
                     uploaded_reference = await server.comfy.upload_image(upload_path, uploaded_name)
-                    request_workflow, metadata_workflow = prepare_minimax(
+                    request_workflow, metadata_workflow = await asyncio.to_thread(
+                        prepare_minimax,
                         api_workflow, ui_workflow, uploaded_reference, prompt_text,
                         request_settings, detail["loras"], request["output_stem"],
                     )
@@ -1042,16 +1131,31 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                         "loras": detail["loras"],
                     },
                 }
+                if await _skip_cancelled_submission(server, request_id):
+                    continue
+                submission_started = True
                 prompt_id = await server.comfy.submit(request_workflow, metadata)
-                server.database.set_request_accepted(
+                await asyncio.to_thread(
+                    server.database.set_request_accepted,
                     request_id, prompt_id, {"prompt": prompt_text, "negative": negative_text,
                                             "selected_path": selected_path,
                                             "negative_selected_path": negative_selected_path,
                                             "wildcard_seed": wildcard_seed, "settings": request_settings},
                 )
+                server.cancellation_wakeup.set()
                 LOGGER.info("요청 접수: request_id=%s prompt_id=%s", request_id, prompt_id)
             except Exception as exception:
-                server.database.update_request(request_id, "failed", str(exception))
+                submission_state = await asyncio.to_thread(server.database.get_submission_state, request_id)
+                if submission_state and submission_state["status"] == "cancelling" and not submission_state["prompt_id"]:
+                    if submission_started:
+                        await asyncio.to_thread(
+                            server.database.update_request, request_id, "stopped",
+                            "제출 응답을 받지 못해 ComfyUI 접수 여부를 확인할 수 없습니다.",
+                        )
+                    else:
+                        await asyncio.to_thread(server.database.cancel_unsubmitted_request, request_id)
+                else:
+                    await asyncio.to_thread(server.database.update_request, request_id, "failed", str(exception))
                 LOGGER.error("요청 제출 실패: request_id=%s error_type=%s", request_id, type(exception).__name__)
     finally:
         for request in requests:
@@ -1062,52 +1166,78 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
 
 
 async def _refresh_requests(server: HomeServer) -> None:
-    """ComfyUI queue와 history를 조회해 하위 요청 상태를 갱신합니다."""
+    """중복 감시를 막고 작은 상태 조회와 묶음 DB 갱신으로 진행 상태를 확인합니다."""
 
-    active_requests = [request for request in server.database.list_active_requests() if request["prompt_id"]]
-    if not active_requests:
-        return
-    try:
-        queue = await server.comfy.queue()
-        server.record_comfy_connection(True)
-    except Exception as exception:
-        server.record_comfy_connection(False, type(exception).__name__)
-        return
-    running_ids = {str(item[1]) for item in queue.get("queue_running", [])}
-    pending_ids = {str(item[1]) for item in queue.get("queue_pending", [])}
-    for request in active_requests:
-        prompt_id = request["prompt_id"]
-        if prompt_id in running_ids:
-            if request["status"] not in {"running", "cancelling"}:
-                server.database.update_queue_state(request["request_id"], "running")
-                LOGGER.info("요청 실행: request_id=%s prompt_id=%s", request["request_id"], prompt_id)
-        elif prompt_id in pending_ids:
-            if request["status"] not in {"pending", "cancelling"}:
-                server.database.update_queue_state(request["request_id"], "pending")
-                LOGGER.info("요청 대기: request_id=%s prompt_id=%s", request["request_id"], prompt_id)
-        else:
-            try:
-                history = await server.comfy.history(prompt_id)
-            except Exception:
-                continue
-            record = history.get(prompt_id)
+    async with server.request_refresh_lock:
+        active_requests = await asyncio.to_thread(server.database.list_active_requests)
+        accepted_requests = [request for request in active_requests if request["prompt_id"]]
+        active_request_ids = {request["request_id"] for request in active_requests}
+        server.missing_request_since = {
+            request_id: missing_since for request_id, missing_since in server.missing_request_since.items()
+            if request_id in active_request_ids
+        }
+        if not accepted_requests:
+            return
+        try:
+            queue = await server.comfy.queue()
+            server.record_comfy_connection(True)
+        except Exception as exception:
+            server.record_comfy_connection(False, type(exception).__name__)
+            server.missing_request_since.clear()
+            return
+        running_ids = {str(item[1]) for item in queue.get("queue_running", [])}
+        pending_ids = {str(item[1]) for item in queue.get("queue_pending", [])}
+        updates = []
+        history_requests = []
+        for request in accepted_requests:
+            if request["prompt_id"] in running_ids or request["prompt_id"] in pending_ids:
+                server.missing_request_since.pop(request["request_id"], None)
+                next_status = "running" if request["prompt_id"] in running_ids else "pending"
+                if request["status"] not in {next_status, "cancelling"}:
+                    updates.append({"request_id": request["request_id"], "status": next_status})
+            else:
+                history_requests.append(request)
+        history_semaphore = asyncio.Semaphore(4)
+
+        async def read_history_state(request: dict[str, Any]) -> dict[str, Any] | None:
+            """이력 읽기 동시 수를 제한하고 실패한 조회를 유실 판정에 사용하지 않습니다."""
+
+            async with history_semaphore:
+                try:
+                    history = await server.comfy.history(request["prompt_id"])
+                except Exception:
+                    server.missing_request_since.pop(request["request_id"], None)
+                    return None
+            record = history.get(request["prompt_id"])
             if not record:
-                if request["status"] == "cancelling":
-                    cancellation_age = datetime.now(timezone.utc) - datetime.fromisoformat(request["updated_at"])
-                    if cancellation_age.total_seconds() >= 15:
-                        server.database.update_request(request["request_id"], "cancelled")
-                        LOGGER.info("이력 없는 취소 요청 확정: request_id=%s prompt_id=%s", request["request_id"], prompt_id)
-                continue
-            status = record.get("status", {})
-            status_name = str(status.get("status_str", ""))
+                missing_since = server.missing_request_since.setdefault(request["request_id"], time.monotonic())
+                grace_seconds = CANCEL_CONFIRMATION_SECONDS if request["status"] == "cancelling" else MISSING_REQUEST_GRACE_SECONDS
+                if time.monotonic() - missing_since < grace_seconds:
+                    return None
+                next_status = "cancelled" if request["status"] == "cancelling" else "stopped"
+                error_message = None if next_status == "cancelled" else "ComfyUI 대기열과 완료 이력에서 요청을 확인할 수 없어 추적을 중단했습니다."
+                return {"request_id": request["request_id"], "status": next_status, "error_message": error_message}
+            server.missing_request_since.pop(request["request_id"], None)
+            status_info = record.get("status", {})
+            status_name = str(status_info.get("status_str", ""))
             if status_name == "success":
-                output_paths = _history_output_paths(server, record, request["workflow"])
-                server.database.complete_request(request["request_id"], output_paths)
-                LOGGER.info("요청 완료: request_id=%s prompt_id=%s", request["request_id"], prompt_id)
-            elif status_name in {"error", "interrupted"}:
-                request_status = "cancelled" if status_name == "interrupted" and request["status"] == "cancelling" else "failed"
-                server.database.update_request(request["request_id"], request_status, None if request_status == "cancelled" else status_name)
-                LOGGER.info("요청 종료: request_id=%s prompt_id=%s status=%s", request["request_id"], prompt_id, request_status)
+                output_paths = await asyncio.to_thread(_history_output_paths, server, record, request["workflow"])
+                return {"request_id": request["request_id"], "status": "completed", "output_paths": output_paths}
+            interruption_recorded = any(
+                isinstance(message, (list, tuple)) and message and message[0] == "execution_interrupted"
+                for message in status_info.get("messages", [])
+            )
+            if status_name in {"error", "interrupted"}:
+                next_status = "cancelled" if status_name == "interrupted" or interruption_recorded else "failed"
+                return {"request_id": request["request_id"], "status": next_status,
+                        "error_message": None if next_status == "cancelled" else status_name}
+            return None
+
+        history_updates = await asyncio.gather(*(read_history_state(request) for request in history_requests))
+        updates.extend(update for update in history_updates if update is not None)
+        applied_updates = await asyncio.to_thread(server.database.apply_request_states, updates)
+        for update in applied_updates:
+            LOGGER.info("요청 상태 갱신: request_id=%s status=%s", update["request_id"], update["status"])
 
 
 async def _monitor_requests(server: HomeServer) -> None:

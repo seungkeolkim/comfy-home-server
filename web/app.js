@@ -40,6 +40,14 @@ const applicationState = {
   jobFilterId: null,
   jobsLoadRevision: 0,
   visibleJobs: [],
+  jobsLoadPromise: null,
+  jobsReloadRequested: false,
+  jobsLoading: false,
+  jobsLoadedOnce: false,
+  jobsLoadError: null,
+  jobsRenderSignature: null,
+  jobDetails: new Map(),
+  cancellingJobIds: new Set(),
   jobsSelectionScope: null,
   jobSelectionMode: false,
   selectedJobIds: new Set(),
@@ -143,6 +151,8 @@ function showNotice(message, isError = false) {
 
 /** 로그인 화면만 표시합니다. */
 function showLogin() {
+  window.clearTimeout(applicationState.pollingTimer);
+  applicationState.pollingTimer = null;
   element("application").classList.add("hidden");
   element("login-screen").classList.remove("hidden");
 }
@@ -157,12 +167,31 @@ async function showApplication() {
     loadLoras(),
     loadLoraPresets(),
     loadJobs(),
-    loadOutputs(),
     loadStatus(),
   ]);
   if (!applicationState.pollingTimer) {
-    applicationState.pollingTimer = window.setInterval(loadJobs, 1000);
+    scheduleJobsPolling();
   }
+}
+
+/** 이전 조회가 끝난 뒤 현재 탭에 필요한 다음 상태 조회를 예약합니다. */
+function scheduleJobsPolling() {
+  window.clearTimeout(applicationState.pollingTimer);
+  applicationState.pollingTimer = window.setTimeout(async () => {
+    if (element("application").classList.contains("hidden")) return;
+    try {
+      if (applicationState.currentView === "jobs") {
+        await loadJobs({ refreshAfterCurrentRequest: false });
+      } else {
+        const activity = await apiRequest("/api/jobs/activity");
+        element("active-count").textContent = `작업 ${activity.active_count}`;
+      }
+    } catch (error) {
+      if (applicationState.currentView === "jobs") showNotice(error.message, true);
+    } finally {
+      if (!element("application").classList.contains("hidden")) scheduleJobsPolling();
+    }
+  }, applicationState.currentView === "jobs" ? 1000 : 5000);
 }
 
 /** 현재 화면을 바꿉니다. */
@@ -190,6 +219,7 @@ function switchView(viewName) {
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (viewName === "outputs") loadOutputs();
   if (viewName === "jobs") loadJobs();
+  scheduleJobsPolling();
 }
 
 /** Workflow를 바꿀 때 기존 모델의 Prompt와 LoRA 선택을 초기화합니다. */
@@ -1062,7 +1092,7 @@ function requestCardMarkup(request, statusNames) {
       <div class="job-detail"><strong>LoRA</strong> ${escapeHtml(loraText)}</div>
       ${request.error_message ? `<div class="job-detail"><strong>오류</strong> ${escapeHtml(request.error_message)}</div>` : ""}
       <div class="job-actions inline-actions">
-        ${["pending", "running"].includes(request.status) ? `<button class="button subtle small" data-cancel-request="${escapeHtml(request.request_id)}">요청 취소</button>` : ""}
+        ${["submitting", "pending", "running"].includes(request.status) ? `<button class="button subtle small" data-cancel-request="${escapeHtml(request.request_id)}">요청 취소</button>` : ""}
         <button class="button subtle small" data-show-request-results="${escapeHtml(request.request_id)}">요청 결과 보기</button>
       </div>
     </div>`;
@@ -1070,9 +1100,11 @@ function requestCardMarkup(request, statusNames) {
 
 /** 보호되지 않고 활성 요청이 없는 작업만 삭제 대상으로 허용합니다. */
 function canDeleteJobHistory(job) {
-  return !job.deletion_protected && job.requests.every((request) =>
-    !["submitting", "pending", "running", "cancelling"].includes(request.status),
-  );
+  const activeStatuses = ["submitting", "pending", "running", "cancelling"];
+  const hasActiveRequests = job.requests
+    ? job.requests.some(request => activeStatuses.includes(request.status))
+    : activeStatuses.some(status => job.status_counts[status]);
+  return !job.deletion_protected && !hasActiveRequests;
 }
 
 /** 선택·삭제·보호 설정을 변경 중인지 확인합니다. */
@@ -1243,8 +1275,7 @@ async function restoreJobGeneration(jobIdentifier) {
   element("submit-button").disabled = true;
   renderJobsList();
   try {
-    const jobResponse = await apiRequest(`/api/jobs?job_id=${encodeURIComponent(jobIdentifier)}`);
-    const job = jobResponse.items.find((candidate) => candidate.job_id === jobIdentifier);
+    const job = await apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}/inputs`);
     const requestDetail = job?.requests[0]?.detail;
     if (!job || !["anima", "minimax_h3"].includes(job.workflow) || typeof requestDetail?.body?.prompt !== "string")
       throw new Error("이 작업에는 복원할 원본 Prompt 기록이 없습니다.");
@@ -1305,19 +1336,30 @@ async function restoreJobGeneration(jobIdentifier) {
 
 /** 한 번의 제출을 하나의 상위 작업 카드로 표시합니다. */
 function jobCardMarkup(job, statusNames, openJobIds) {
-  const originalBody = job.requests[0]?.detail?.body || {};
+  const summaryDetail = job.summary || job.requests?.[0]?.detail || {};
+  const originalBody = summaryDetail.body || {};
   const originalPrompt = typeof originalBody.prompt === "string" ? originalBody.prompt : "기록 없음";
   const originalNegative = typeof originalBody.negative === "string" ? originalBody.negative : "";
-  const loraSummary = jobLoraSummary(job.requests[0]?.detail || {});
-  const requestSettings = job.requests[0]?.detail.resolved?.settings || job.requests[0]?.detail.settings || {};
+  const loraSummary = jobLoraSummary(summaryDetail);
+  const requestSettings = summaryDetail.resolved?.settings || summaryDetail.settings || {};
   const dimensions = formatDimensions(requestSettings.width, requestSettings.height);
   const completedCount = job.status_counts.completed || 0;
   const failedCount = job.status_counts.failed || 0;
   const countUnit = job.workflow === "anima" ? "장" : "건";
   const progressText = `완료 ${completedCount}/${job.request_count}${countUnit}` +
-    (failedCount ? ` · 실패 ${failedCount}` : "");
+    (failedCount ? ` · 실패 ${failedCount}` : "") +
+    (job.status_counts.cancelled ? ` · 취소 ${job.status_counts.cancelled}` : "") +
+    (job.status_counts.cancelling ? ` · 취소 중 ${job.status_counts.cancelling}` : "") +
+    (job.cancellation_failures ? ` · 취소 전송 실패 ${job.cancellation_failures} · 재시도 중` : "");
   const openAttribute = openJobIds.has(job.job_id) ? " open" : "";
-  const canCancel = job.requests.some((request) => ["pending", "running"].includes(request.status));
+  const canCancel = ["submitting", "pending", "running", "cancelling"].some(status => job.status_counts[status]);
+  const cancellationIsBusy = applicationState.cancellingJobIds.has(job.job_id) ||
+    (job.cancellation_requested && !job.cancellation_failures);
+  const cachedDetails = applicationState.jobDetails.get(job.job_id);
+  const requests = job.requests || cachedDetails?.job?.requests;
+  const requestMarkup = openJobIds.has(job.job_id) && requests
+    ? requests.map(request => requestCardMarkup(request, statusNames)).join("")
+    : `<p class="hint">${cachedDetails?.error ? escapeHtml(cachedDetails.error) : "하위 요청을 불러오는 중입니다."}</p>`;
   const canDelete = canDeleteJobHistory(job);
   const selectionCheckbox = applicationState.jobSelectionMode
     ? `<input class="job-selection-checkbox" type="checkbox" data-select-job="${escapeHtml(job.job_id)}"
@@ -1342,13 +1384,13 @@ function jobCardMarkup(job, statusNames, openJobIds) {
       <div class="job-actions inline-actions">
         <button class="button subtle small" data-show-job-results="${escapeHtml(job.job_id)}">작업 결과 보기</button>
         <button class="button ${job.deletion_protected ? "job-protected" : "subtle"} small" data-toggle-job-protection="${escapeHtml(job.job_id)}" aria-pressed="${Boolean(job.deletion_protected)}" ${jobSelectionIsBusy() ? "disabled" : ""}>${job.deletion_protected ? "보호 해제" : "삭제 보호"}</button>
-        ${canCancel ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.job_id)}">작업 취소</button>` : ""}
+        ${canCancel ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.job_id)}" ${cancellationIsBusy ? "disabled" : ""}>${cancellationIsBusy ? "취소 처리 중" : job.cancellation_requested ? "취소 재시도" : "작업 취소"}</button>` : ""}
         ${canDelete && !applicationState.jobSelectionMode ? `<button class="button subtle small" data-delete-job="${escapeHtml(job.job_id)}">이력만 삭제</button><button class="button danger small" data-delete-job-outputs="${escapeHtml(job.job_id)}">이력·결과물 삭제</button>` : ""}
         <button class="button job-restore small" data-restore-job="${escapeHtml(job.job_id)}" ${applicationState.restoringJobId ? "disabled" : ""}>생성 탭에서 복원</button>
       </div>
       <details class="job-requests" data-job-details="${escapeHtml(job.job_id)}"${openAttribute}>
         <summary>하위 요청 ${job.request_count}건</summary>
-        <div class="job-request-list">${job.requests.map((request) => requestCardMarkup(request, statusNames)).join("")}</div>
+        <div class="job-request-list">${requestMarkup}</div>
       </details>
     </article>`;
 }
@@ -1366,13 +1408,50 @@ function renderJobsList() {
   }
   element("jobs-list").innerHTML = applicationState.visibleJobs.length
     ? applicationState.visibleJobs.map((job) => jobCardMarkup(job, statusNames, openJobIds)).join("")
-    : `<p class="empty-state">${applicationState.jobFilterId ? "해당 작업 이력이 없습니다." : "제출한 작업이 없습니다."}</p>`;
+    : `<p class="empty-state">${applicationState.jobsLoading && !applicationState.jobsLoadedOnce
+      ? "작업을 불러오는 중입니다." : applicationState.jobsLoadError
+        ? "작업 목록을 불러오지 못했습니다. 다시 조회해 주세요."
+        : applicationState.jobFilterId ? "해당 작업 이력이 없습니다." : "제출한 작업이 없습니다."}</p>`;
   if (focusedJobId) {
     for (const checkbox of element("jobs-list").querySelectorAll("[data-select-job]")) {
       if (checkbox.dataset.selectJob === focusedJobId) checkbox.focus({ preventScroll: true });
     }
   }
   updateJobSelectionControls();
+  for (const jobIdentifier of openJobIds) loadJobDetails(jobIdentifier);
+}
+
+/** 상태 집계가 바뀌었는지 확인할 작은 상세 갱신 기준을 만듭니다. */
+function jobDetailsSignature(job) {
+  return JSON.stringify([job.updated_at, job.status_counts, job.cancellation_failures]);
+}
+
+/** 펼친 작업만 상세를 조회하고 동일 작업의 중복 요청은 합칩니다. */
+async function loadJobDetails(jobIdentifier) {
+  const job = applicationState.visibleJobs.find(candidate => candidate.job_id === jobIdentifier);
+  if (!job) return;
+  if (job.requests) {
+    const requestList = document.querySelector(`[data-job-details="${CSS.escape(jobIdentifier)}"] .job-request-list`);
+    if (requestList) {
+      const statusNames = { submitting: "제출 중", pending: "대기", running: "실행 중", cancelling: "취소 중",
+        completed: "완료", failed: "실패", partial: "일부 완료", cancelled: "취소", stopped: "중단" };
+      requestList.innerHTML = job.requests.map(request => requestCardMarkup(request, statusNames)).join("");
+    }
+    return;
+  }
+  const signature = jobDetailsSignature(job);
+  const cachedDetails = applicationState.jobDetails.get(jobIdentifier);
+  if (cachedDetails?.loading || cachedDetails?.signature === signature) return;
+  const details = { job: cachedDetails?.job, signature, loading: true, error: null };
+  applicationState.jobDetails.set(jobIdentifier, details);
+  try {
+    details.job = await apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}`);
+  } catch (error) {
+    details.error = error.message;
+  } finally {
+    details.loading = false;
+    renderJobsList();
+  }
 }
 
 /** 현재 페이지와 인접한 페이지로 이동할 버튼을 표시합니다. */
@@ -1397,42 +1476,80 @@ function renderJobsPagination(page, totalPages) {
 }
 
 /** 앱이 제출한 상위 작업과 하위 요청의 최신 상태를 표시합니다. */
-async function loadJobs() {
+async function loadJobs({ refreshAfterCurrentRequest = true } = {}) {
   if (element("application").classList.contains("hidden") || applicationState.deletingSelectedJobs || applicationState.selectingEveryJob) return;
-  const loadRevision = ++applicationState.jobsLoadRevision;
-  const selectionMode = applicationState.jobSelectionMode;
+  if (applicationState.jobsLoadPromise) {
+    if (refreshAfterCurrentRequest) applicationState.jobsReloadRequested = true;
+    return applicationState.jobsLoadPromise;
+  }
+  applicationState.jobsLoadPromise = refreshJobPages();
+  return applicationState.jobsLoadPromise;
+}
+
+/** 사용자 조작 중 조회 조건이 바뀌면 현재 요청 완료 후 최신 조건으로 다시 읽습니다. */
+async function refreshJobPages() {
+  applicationState.jobsLoading = true;
+  element("jobs-loading-status").textContent = "작업 상태를 갱신하는 중입니다.";
+  if (!applicationState.jobsLoadedOnce) renderJobsList();
   try {
-    const query = new URLSearchParams({ page: String(applicationState.jobsPage), page_size: "10" });
-    if (applicationState.jobFilterId) query.set("job_id", applicationState.jobFilterId);
-    const candidateQuery = new URLSearchParams();
-    if (applicationState.jobFilterId) candidateQuery.set("job_id", applicationState.jobFilterId);
-    const [response, candidates] = await Promise.all([
-      apiRequest(`/api/jobs?${query}`),
-      selectionMode ? apiRequest(`/api/jobs/deletion-candidates?${candidateQuery}`) : Promise.resolve(null),
-    ]);
-    if (loadRevision !== applicationState.jobsLoadRevision || selectionMode !== applicationState.jobSelectionMode) return;
-    if (applicationState.jobsPage > response.total_pages) {
-      applicationState.jobsPage = response.total_pages;
-      return loadJobs();
-    }
-    element("active-count").textContent = `작업 ${response.active_count}`;
-    element("jobs-filter").classList.toggle("hidden", !applicationState.jobFilterId);
-    element("jobs-filter-label").textContent = applicationState.jobFilterId
-      ? `작업 ${applicationState.jobFilterId}만 표시 중`
-      : "";
-    const selectionScope = applicationState.jobFilterId || "";
-    if (selectionScope !== applicationState.jobsSelectionScope) applicationState.selectedJobIds.clear();
-    applicationState.jobsSelectionScope = selectionScope;
-    applicationState.visibleJobs = response.items;
-    applicationState.deletableJobIds = new Set(candidates?.job_ids || []);
-    for (const selectedJobId of applicationState.selectedJobIds) {
-      if (!applicationState.deletableJobIds.has(selectedJobId)) applicationState.selectedJobIds.delete(selectedJobId);
-    }
-    renderJobsPagination(response.page, response.total_pages);
-    renderJobsList();
+    do {
+      applicationState.jobsReloadRequested = false;
+      const loadRevision = ++applicationState.jobsLoadRevision;
+      const selectionMode = applicationState.jobSelectionMode;
+      const jobsPage = applicationState.jobsPage;
+      const jobFilterId = applicationState.jobFilterId;
+      const query = new URLSearchParams({ page: String(jobsPage), page_size: "10", summary: "true" });
+      if (jobFilterId) query.set("job_id", jobFilterId);
+      const candidateQuery = new URLSearchParams();
+      if (jobFilterId) candidateQuery.set("job_id", jobFilterId);
+      const [response, candidates] = await Promise.all([
+        apiRequest(`/api/jobs?${query}`),
+        selectionMode ? apiRequest(`/api/jobs/deletion-candidates?${candidateQuery}`) : Promise.resolve(null),
+      ]);
+      if (loadRevision !== applicationState.jobsLoadRevision || selectionMode !== applicationState.jobSelectionMode ||
+          jobsPage !== applicationState.jobsPage || jobFilterId !== applicationState.jobFilterId) {
+        applicationState.jobsReloadRequested = true;
+        continue;
+      }
+      if (jobsPage > response.total_pages) {
+        applicationState.jobsPage = response.total_pages;
+        applicationState.jobsReloadRequested = true;
+        continue;
+      }
+      applicationState.jobsLoadedOnce = true;
+      applicationState.jobsLoadError = null;
+      element("active-count").textContent = `작업 ${response.active_count}`;
+      element("jobs-filter").classList.toggle("hidden", !jobFilterId);
+      element("jobs-filter-label").textContent = jobFilterId ? `작업 ${jobFilterId}만 표시 중` : "";
+      const selectionScope = jobFilterId || "";
+      if (selectionScope !== applicationState.jobsSelectionScope) applicationState.selectedJobIds.clear();
+      applicationState.jobsSelectionScope = selectionScope;
+      applicationState.visibleJobs = response.items;
+      const visibleJobIds = new Set(response.items.map(job => job.job_id));
+      for (const cachedJobId of applicationState.jobDetails.keys()) {
+        if (!visibleJobIds.has(cachedJobId)) applicationState.jobDetails.delete(cachedJobId);
+      }
+      applicationState.deletableJobIds = new Set(candidates?.job_ids || []);
+      for (const selectedJobId of applicationState.selectedJobIds) {
+        if (!applicationState.deletableJobIds.has(selectedJobId)) applicationState.selectedJobIds.delete(selectedJobId);
+      }
+      const renderSignature = JSON.stringify([response.items, candidates, jobsPage, jobFilterId]);
+      if (renderSignature !== applicationState.jobsRenderSignature) {
+        applicationState.jobsRenderSignature = renderSignature;
+        renderJobsPagination(response.page, response.total_pages);
+        renderJobsList();
+      }
+    } while (applicationState.jobsReloadRequested && !applicationState.deletingSelectedJobs && !applicationState.selectingEveryJob);
   } catch (error) {
-    if (applicationState.currentView === "jobs")
-      showNotice(error.message, true);
+    applicationState.jobsLoadError = error.message;
+    if (applicationState.currentView === "jobs") showNotice(error.message, true);
+    if (!applicationState.visibleJobs.length) renderJobsList();
+  } finally {
+    applicationState.jobsLoading = false;
+    applicationState.jobsLoadPromise = null;
+    element("jobs-loading-status").textContent = applicationState.jobsLoadError
+      ? "조회에 실패했습니다. 자동 재시도 중이며 마지막 목록을 유지합니다." : "";
+    if (!applicationState.jobsLoadedOnce) renderJobsList();
   }
 }
 
@@ -1461,7 +1578,6 @@ async function deleteSelectedJobHistory(deleteOutputs) {
         deletedJobsCount += 1;
         deletedFilesCount += result.deleted_files;
         applicationState.selectedJobIds.delete(selectedJobId);
-        applicationState.visibleJobs = applicationState.visibleJobs.filter(job => job.job_id !== selectedJobId);
       } catch (error) {
         deletionFailures.push(`작업 ${selectedJobId}: ${error.message}`);
       }
@@ -1592,6 +1708,13 @@ function runAction(action) {
 
 /** 사용자 조작과 메뉴 이동을 연결합니다. */
 function bindEvents() {
+  element("jobs-list").addEventListener("toggle", (event) => {
+    if (event.target.matches(".job-requests") && event.target.open) {
+      const cachedDetails = applicationState.jobDetails.get(event.target.dataset.jobDetails);
+      if (cachedDetails?.error) cachedDetails.signature = null;
+      loadJobDetails(event.target.dataset.jobDetails);
+    }
+  }, true);
   element("anima-aspect-ratio").addEventListener("change", updateAnimaResolutionOptions);
   element("anima-resolution").addEventListener("change", applyAnimaResolution);
   element("login-form").addEventListener("submit", (event) => {
@@ -1841,11 +1964,19 @@ function bindEvents() {
       });
     if (cancelJobButton)
       runAction(async () => {
-        const result = await apiRequest(`/api/jobs/${cancelJobButton.dataset.cancelJob}/cancel`, {
-          method: "POST",
-        });
-        showNotice(`${result.cancelled_count}건의 취소를 요청했습니다.`);
-        await loadJobs();
+        const jobIdentifier = cancelJobButton.dataset.cancelJob;
+        if (applicationState.cancellingJobIds.has(jobIdentifier)) return;
+        applicationState.cancellingJobIds.add(jobIdentifier);
+        renderJobsList();
+        showNotice("추가 제출 중단과 작업 취소를 요청하는 중입니다.");
+        try {
+          const result = await apiRequest(`/api/jobs/${jobIdentifier}/cancel`, { method: "POST" });
+          showNotice(`${result.requested_count ?? result.cancelled_count}건의 취소를 접수했습니다. 진행 상태를 확인해 주세요.`);
+          await loadJobs();
+        } finally {
+          applicationState.cancellingJobIds.delete(jobIdentifier);
+          renderJobsList();
+        }
       });
     if (deleteJobButton)
       runAction(() => deleteJobHistory(deleteJobButton.dataset.deleteJob, false));

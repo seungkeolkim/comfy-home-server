@@ -28,9 +28,13 @@ class Database:
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
             if schema_version == 4:
                 self._backup_before_group_tag_migration(connection)
+            elif schema_version in {5, 6, 7}:
+                request_columns = {column[1] for column in connection.execute("PRAGMA table_info(job_requests)")}
+                if "detail_json" in request_columns:
+                    self._backup_before_schema_change(connection, "request_details")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6}:
+            if schema_version not in {0, 4, 5, 6, 7, 8}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -80,6 +84,8 @@ class Database:
             job_columns = {column[1] for column in connection.execute("PRAGMA table_info(jobs)")}
             if "deletion_protected" not in job_columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN deletion_protected INTEGER NOT NULL DEFAULT 0")
+            if "cancellation_requested" not in job_columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN cancellation_requested INTEGER NOT NULL DEFAULT 0")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS job_requests (
                     request_id TEXT PRIMARY KEY,
@@ -88,7 +94,6 @@ class Database:
                     prompt_id TEXT,
                     status TEXT NOT NULL,
                     output_stem TEXT NOT NULL,
-                    detail_json TEXT NOT NULL,
                     error_message TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
@@ -97,6 +102,17 @@ class Database:
             )
             connection.execute("CREATE INDEX IF NOT EXISTS jobs_created_at ON jobs(created_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS job_requests_job_id ON job_requests(job_id, request_index)")
+            connection.execute("CREATE INDEX IF NOT EXISTS job_requests_status ON job_requests(status)")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS request_details (
+                    request_id TEXT PRIMARY KEY REFERENCES job_requests(request_id) ON DELETE CASCADE,
+                    detail_json TEXT NOT NULL
+                )"""
+            )
+            request_columns = {column[1] for column in connection.execute("PRAGMA table_info(job_requests)")}
+            if "detail_json" in request_columns:
+                connection.execute("INSERT INTO request_details SELECT request_id, detail_json FROM job_requests")
+                connection.execute("ALTER TABLE job_requests DROP COLUMN detail_json")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS tag_groups (
                     group_id TEXT PRIMARY KEY,
@@ -120,15 +136,20 @@ class Database:
             )
             connection.execute("CREATE INDEX IF NOT EXISTS tag_entries_group ON tag_entries(group_id, created_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS tag_groups_key ON tag_groups(tag_key)")
-            connection.execute("PRAGMA user_version = 6")
+            connection.execute("PRAGMA user_version = 8")
 
     def _backup_before_group_tag_migration(self, connection: sqlite3.Connection) -> None:
         """SQLite backup API로 schema 변경 전 일관된 복구용 DB를 보관합니다."""
 
+        self._backup_before_schema_change(connection, "group_tag_keys")
+
+    def _backup_before_schema_change(self, connection: sqlite3.Connection, change_name: str) -> None:
+        """데이터를 옮기기 전 검증된 SQLite 백업을 만들어 실패 시 기존 DB를 보존합니다."""
+
         backup_directory = self.database_path.parent / "backups"
         backup_directory.mkdir(parents=True, exist_ok=True)
         backup_timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
-        backup_path = backup_directory / f"{self.database_path.stem}_before_group_tag_keys_{backup_timestamp}.sqlite3"
+        backup_path = backup_directory / f"{self.database_path.stem}_before_{change_name}_{backup_timestamp}.sqlite3"
         with sqlite3.connect(backup_path) as backup_connection:
             connection.backup(backup_connection)
             integrity_result = backup_connection.execute("PRAGMA integrity_check").fetchone()[0]
@@ -398,12 +419,18 @@ class Database:
             )
             for request_index, request in enumerate(requests, start=1):
                 connection.execute(
-                    "INSERT INTO job_requests VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO job_requests "
+                    "(request_id, job_id, request_index, prompt_id, status, output_stem, error_message, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         request["request_id"], job_id, request_index, None, request["status"],
-                        request["output_stem"], json.dumps(request["detail"], ensure_ascii=False),
+                        request["output_stem"],
                         None, timestamp, timestamp,
                     ),
+                )
+                connection.execute(
+                    "INSERT INTO request_details VALUES (?, ?)",
+                    (request["request_id"], json.dumps(request["detail"], ensure_ascii=False)),
                 )
 
     def list_jobs(self, page: int = 1, page_size: int = 10, job_id: str = "") -> dict[str, Any]:
@@ -425,7 +452,8 @@ class Database:
             if job_rows:
                 placeholders = ",".join("?" for _ in job_rows)
                 request_rows = connection.execute(
-                    "SELECT job_requests.*, jobs.workflow FROM job_requests JOIN jobs USING (job_id) "
+                    "SELECT job_requests.*, jobs.workflow, request_details.detail_json "
+                    "FROM job_requests JOIN jobs USING (job_id) JOIN request_details USING (request_id) "
                     f"WHERE job_requests.job_id IN ({placeholders}) ORDER BY request_index",
                     tuple(row["job_id"] for row in job_rows),
                 ).fetchall()
@@ -437,6 +465,83 @@ class Database:
             "page": page, "page_size": page_size, "total": total,
             "total_pages": max(1, (total + page_size - 1) // page_size),
             "active_count": active_count,
+        }
+
+    def count_active_jobs(self) -> int:
+        """상세 Snapshot을 읽지 않고 활성 작업 수만 조회합니다."""
+
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT COUNT(DISTINCT job_id) FROM job_requests "
+                "WHERE status IN ('submitting', 'pending', 'running', 'cancelling')"
+            ).fetchone()[0]
+
+    def list_job_summaries(self, page: int = 1, page_size: int = 10, job_id: str = "") -> dict[str, Any]:
+        """카드의 공통 입력과 상태 집계만 읽고 하위 요청의 Snapshot은 전송하지 않습니다."""
+
+        filter_clause = " WHERE job_id = ?" if job_id else ""
+        filter_values = (job_id,) if job_id else ()
+        with self._connect() as connection:
+            total = connection.execute("SELECT COUNT(*) FROM jobs" + filter_clause, filter_values).fetchone()[0]
+            job_rows = connection.execute(
+                "SELECT * FROM jobs" + filter_clause + " ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                (*filter_values, page_size, (page - 1) * page_size),
+            ).fetchall()
+            items = []
+            for job_row in job_rows:
+                status_rows = connection.execute(
+                    "SELECT status, COUNT(*) AS request_count, MAX(updated_at) AS updated_at, "
+                    "SUM(CASE WHEN status = 'cancelling' AND error_message IS NOT NULL THEN 1 ELSE 0 END) "
+                    "AS cancellation_failures FROM job_requests WHERE job_id = ? GROUP BY status",
+                    (job_row["job_id"],),
+                ).fetchall()
+                status_counts = {row["status"]: row["request_count"] for row in status_rows}
+                first_request = connection.execute(
+                    "SELECT detail_json FROM job_requests JOIN request_details USING (request_id) "
+                    "WHERE job_id = ? ORDER BY request_index LIMIT 1",
+                    (job_row["job_id"],),
+                ).fetchone()
+                first_detail = json.loads(first_request["detail_json"]) if first_request else {}
+                summary_detail = {}
+                for detail_key in ("body", "settings", "loras", "lora_preset_name"):
+                    if detail_key in first_detail:
+                        summary_detail[detail_key] = first_detail[detail_key]
+                resolved_settings = first_detail.get("resolved", {}).get("settings")
+                if resolved_settings:
+                    summary_detail["resolved"] = {"settings": resolved_settings}
+                items.append({
+                    "job_id": job_row["job_id"], "workflow": job_row["workflow"],
+                    "description": job_row["description"], "request_count": job_row["request_count"],
+                    "created_at": job_row["created_at"],
+                    "updated_at": max((row["updated_at"] for row in status_rows), default=job_row["created_at"]),
+                    "deletion_protected": bool(job_row["deletion_protected"]),
+                    "cancellation_requested": bool(job_row["cancellation_requested"]),
+                    "cancellation_failures": sum(row["cancellation_failures"] for row in status_rows),
+                    "status": self._job_status(status_counts, job_row["request_count"]),
+                    "status_counts": status_counts, "summary": summary_detail,
+                })
+        return {
+            "items": items, "page": page, "page_size": page_size, "total": total,
+            "total_pages": max(1, (total + page_size - 1) // page_size),
+            "active_count": self.count_active_jobs(),
+        }
+
+    def get_job_inputs(self, job_id: str) -> dict[str, Any] | None:
+        """작업 단위 복원에 필요한 첫 요청의 원본 Snapshot만 읽습니다."""
+
+        with self._connect() as connection:
+            job_row = connection.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+            if job_row is None:
+                return None
+            request_row = connection.execute(
+                "SELECT job_requests.*, jobs.workflow, request_details.detail_json "
+                "FROM job_requests JOIN jobs USING (job_id) JOIN request_details USING (request_id) "
+                "WHERE job_id = ? ORDER BY request_index LIMIT 1", (job_id,),
+            ).fetchone()
+        return {
+            "job_id": job_id, "workflow": job_row["workflow"], "description": job_row["description"],
+            "request_count": job_row["request_count"],
+            "requests": [self._request_from_row(request_row)] if request_row else [],
         }
 
     def list_deletable_job_ids(self, job_id: str = "") -> list[str]:
@@ -472,9 +577,9 @@ class Database:
         placeholders = ",".join("?" for _ in output_paths)
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT job_requests.job_id, job_requests.detail_json, output_path.value AS output_path "
-                "FROM job_requests "
-                "JOIN json_each(job_requests.detail_json, '$.resolved.output_paths') AS output_path "
+                "SELECT job_requests.job_id, request_details.detail_json, output_path.value AS output_path "
+                "FROM job_requests JOIN request_details USING (request_id) "
+                "JOIN json_each(request_details.detail_json, '$.resolved.output_paths') AS output_path "
                 f"WHERE output_path.value IN ({placeholders}) "
                 "ORDER BY job_requests.updated_at DESC",
                 tuple(output_paths),
@@ -498,7 +603,8 @@ class Database:
             if job_row is None:
                 return None
             request_rows = connection.execute(
-                "SELECT job_requests.*, jobs.workflow FROM job_requests JOIN jobs USING (job_id) "
+                "SELECT job_requests.*, jobs.workflow, request_details.detail_json "
+                "FROM job_requests JOIN jobs USING (job_id) JOIN request_details USING (request_id) "
                 "WHERE job_requests.job_id = ? ORDER BY request_index", (job_id,)
             ).fetchall()
         return self._job_from_row(job_row, [self._request_from_row(row) for row in request_rows])
@@ -508,21 +614,111 @@ class Database:
 
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT job_requests.*, jobs.workflow FROM job_requests JOIN jobs USING (job_id) "
+                "SELECT job_requests.*, jobs.workflow, request_details.detail_json "
+                "FROM job_requests JOIN jobs USING (job_id) JOIN request_details USING (request_id) "
                 "WHERE request_id = ?", (request_id,)
             ).fetchone()
         return self._request_from_row(row) if row else None
 
-    def list_active_requests(self, limit: int = 1000) -> list[dict[str, Any]]:
-        """아직 제출 중이거나 ComfyUI 상태를 기다리는 요청을 반환합니다."""
+    def list_active_requests(self, limit: int | None = None) -> list[dict[str, Any]]:
+        """감시에 필요한 식별자와 상태만 읽고 detail JSON을 파싱하지 않습니다."""
 
         with self._connect() as connection:
+            limit_clause = " LIMIT ?" if limit is not None else ""
             rows = connection.execute(
-                "SELECT job_requests.*, jobs.workflow FROM job_requests JOIN jobs USING (job_id) "
+                "SELECT request_id, job_id, prompt_id, status, updated_at, jobs.workflow "
+                "FROM job_requests JOIN jobs USING (job_id) "
                 "WHERE status IN ('submitting', 'pending', 'running', 'cancelling') "
-                "ORDER BY job_requests.created_at DESC LIMIT ?", (limit,)
+                "ORDER BY job_requests.created_at DESC" + limit_clause,
+                (limit,) if limit is not None else (),
             ).fetchall()
-        return [self._request_from_row(row) for row in rows]
+        return [dict(row) for row in rows]
+
+    def get_submission_state(self, request_id: str) -> dict[str, Any] | None:
+        """전송 전후의 취소 여부를 작은 row로 확인합니다."""
+
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT request_id, status, prompt_id FROM job_requests WHERE request_id = ?", (request_id,),
+            ).fetchone()
+        return dict(row) if row else None
+
+    def request_job_cancellation(self, job_id: str) -> int | None:
+        """제출 중인 요청까지 취소 의도를 원자적으로 기록하고 대상 수를 반환합니다."""
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("SELECT 1 FROM jobs WHERE job_id = ?", (job_id,)).fetchone() is None:
+                return None
+            active_count = connection.execute(
+                "SELECT COUNT(*) FROM job_requests WHERE job_id = ? "
+                "AND status IN ('submitting', 'pending', 'running', 'cancelling')", (job_id,),
+            ).fetchone()[0]
+            if active_count:
+                connection.execute("UPDATE jobs SET cancellation_requested = 1 WHERE job_id = ?", (job_id,))
+                connection.execute(
+                    "UPDATE job_requests SET status = 'cancelling', error_message = NULL, updated_at = ? "
+                    "WHERE job_id = ? AND status IN ('submitting', 'pending', 'running')",
+                    (current_timestamp(), job_id),
+                )
+        return active_count
+
+    def cancel_unsubmitted_request(self, request_id: str) -> None:
+        """제출 loop가 전송하지 않았다고 확인한 요청만 취소 완료로 기록합니다."""
+
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE job_requests SET status = 'cancelled', error_message = NULL, updated_at = ? "
+                "WHERE request_id = ? AND prompt_id IS NULL AND status = 'cancelling'",
+                (current_timestamp(), request_id),
+            )
+
+    def record_cancellation_error(self, request_ids: list[str], error_message: str | None) -> None:
+        """취소 전송의 오류를 한 transaction으로 기록하고 terminal 상태는 보존합니다."""
+
+        with self._connect() as connection:
+            connection.executemany(
+                "UPDATE job_requests SET error_message = ? WHERE request_id = ? AND status = 'cancelling'",
+                [(error_message, request_id) for request_id in request_ids],
+            )
+
+    def apply_request_states(self, updates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """감시에서 확인한 상태를 묶어 저장하며 취소 의도를 queue 상태로 덮어쓰지 않습니다."""
+
+        if not updates:
+            return []
+        timestamp = current_timestamp()
+        applied_updates = []
+        with self._connect() as connection:
+            for update in updates:
+                if update["status"] in {"pending", "running"}:
+                    change_result = connection.execute(
+                        "UPDATE job_requests SET status = ?, updated_at = ? WHERE request_id = ? "
+                        "AND status IN ('pending', 'running') AND status != ?",
+                        (update["status"], timestamp, update["request_id"], update["status"]),
+                    )
+                elif "output_paths" in update:
+                    change_result = connection.execute(
+                        "UPDATE job_requests SET status = 'completed', error_message = NULL, updated_at = ? "
+                        "WHERE request_id = ? AND status IN ('pending', 'running', 'cancelling')",
+                        (timestamp, update["request_id"]),
+                    )
+                    if change_result.rowcount:
+                        connection.execute(
+                            "UPDATE request_details SET detail_json = json_set(detail_json, '$.resolved.output_paths', json(?)) "
+                            "WHERE request_id = ?",
+                            (json.dumps(update["output_paths"], ensure_ascii=False), update["request_id"]),
+                        )
+                else:
+                    allowed_states = "('pending', 'running')" if update["status"] == "stopped" else "('pending', 'running', 'cancelling')"
+                    change_result = connection.execute(
+                        "UPDATE job_requests SET status = ?, error_message = ?, updated_at = ? "
+                        f"WHERE request_id = ? AND status IN {allowed_states}",
+                        (update["status"], update.get("error_message"), timestamp, update["request_id"]),
+                    )
+                if change_result.rowcount:
+                    applied_updates.append(update)
+        return applied_updates
 
     def update_request(self, request_id: str, status: str, error_message: str | None = None) -> None:
         """개별 요청의 상태와 오류를 갱신합니다."""
@@ -539,7 +735,7 @@ class Database:
         with self._connect() as connection:
             result = connection.execute(
                 "UPDATE job_requests SET status = 'cancelling', updated_at = ? "
-                "WHERE request_id = ? AND status IN ('pending', 'running')",
+                "WHERE request_id = ? AND status IN ('submitting', 'pending', 'running', 'cancelling')",
                 (current_timestamp(), request_id),
             )
         return result.rowcount > 0
@@ -581,29 +777,38 @@ class Database:
         """완료 요청의 실제 출력 참조를 보관합니다."""
 
         with self._connect() as connection:
-            row = connection.execute("SELECT detail_json FROM job_requests WHERE request_id = ?", (request_id,)).fetchone()
+            row = connection.execute("SELECT detail_json FROM request_details WHERE request_id = ?", (request_id,)).fetchone()
             if row is None:
                 raise ValueError("완료한 요청을 찾을 수 없습니다.")
             detail = json.loads(row["detail_json"])
             detail.setdefault("resolved", {})["output_paths"] = output_paths
             connection.execute(
-                "UPDATE job_requests SET status = ?, detail_json = ?, updated_at = ? WHERE request_id = ?",
-                ("completed", json.dumps(detail, ensure_ascii=False), current_timestamp(), request_id),
+                "UPDATE job_requests SET status = ?, updated_at = ? WHERE request_id = ?",
+                ("completed", current_timestamp(), request_id),
             )
+            connection.execute("UPDATE request_details SET detail_json = ? WHERE request_id = ?",
+                               (json.dumps(detail, ensure_ascii=False), request_id))
 
     def set_request_accepted(self, request_id: str, prompt_id: str, resolved: dict[str, Any]) -> None:
         """ComfyUI 접수 ID와 확정 Prompt를 개별 요청에 기록합니다."""
 
         with self._connect() as connection:
-            row = connection.execute("SELECT detail_json FROM job_requests WHERE request_id = ?", (request_id,)).fetchone()
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT detail_json, status FROM job_requests JOIN request_details USING (request_id) WHERE request_id = ?",
+                (request_id,),
+            ).fetchone()
             if row is None:
                 raise ValueError("접수한 요청을 찾을 수 없습니다.")
             detail = json.loads(row["detail_json"])
             detail["resolved"] = resolved
             connection.execute(
-                "UPDATE job_requests SET prompt_id = ?, status = ?, detail_json = ?, updated_at = ? WHERE request_id = ?",
-                (prompt_id, "pending", json.dumps(detail, ensure_ascii=False), current_timestamp(), request_id),
+                "UPDATE job_requests SET prompt_id = ?, status = ?, updated_at = ? WHERE request_id = ?",
+                (prompt_id, "cancelling" if row["status"] == "cancelling" else "pending",
+                 current_timestamp(), request_id),
             )
+            connection.execute("UPDATE request_details SET detail_json = ? WHERE request_id = ?",
+                               (json.dumps(detail, ensure_ascii=False), request_id))
 
     def _preset_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
         """DB row를 preset 응답으로 변환합니다."""
@@ -632,6 +837,19 @@ class Database:
         for request in requests:
             request_status = request["status"]
             status_counts[request_status] = status_counts.get(request_status, 0) + 1
+        return {
+            "job_id": row["job_id"], "workflow": row["workflow"],
+            "description": row["description"],
+            "deletion_protected": bool(row["deletion_protected"]),
+            "cancellation_requested": bool(row["cancellation_requested"]),
+            "request_count": row["request_count"], "created_at": row["created_at"],
+            "updated_at": max((request["updated_at"] for request in requests), default=row["created_at"]),
+            "status": self._job_status(status_counts, len(requests)), "status_counts": status_counts, "requests": requests,
+        }
+
+    def _job_status(self, status_counts: dict[str, int], request_count: int) -> str:
+        """상태 집계만으로 상세 조회와 요약 조회의 동일한 작업 상태를 계산합니다."""
+
         if status_counts.get("running"):
             status = "running"
         elif status_counts.get("cancelling"):
@@ -640,21 +858,14 @@ class Database:
             status = "pending"
         elif status_counts.get("submitting"):
             status = "submitting"
-        elif status_counts.get("completed") == len(requests):
+        elif status_counts.get("completed") == request_count:
             status = "completed"
         elif status_counts.get("completed"):
             status = "partial"
-        elif status_counts.get("cancelled") == len(requests):
+        elif status_counts.get("cancelled") == request_count:
             status = "cancelled"
-        elif status_counts.get("stopped") == len(requests):
+        elif status_counts.get("stopped") == request_count:
             status = "stopped"
         else:
             status = "failed"
-        return {
-            "job_id": row["job_id"], "workflow": row["workflow"],
-            "description": row["description"],
-            "deletion_protected": bool(row["deletion_protected"]),
-            "request_count": row["request_count"], "created_at": row["created_at"],
-            "updated_at": max((request["updated_at"] for request in requests), default=row["created_at"]),
-            "status": status, "status_counts": status_counts, "requests": requests,
-        }
+        return status

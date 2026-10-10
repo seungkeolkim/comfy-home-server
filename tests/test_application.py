@@ -1,6 +1,9 @@
 """인증과 모델별 Prompt, 파일 경계, 제출 상태 API를 검증합니다."""
 
 import json
+import asyncio
+import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from io import BytesIO
 from pathlib import Path
@@ -80,6 +83,50 @@ class FakeComfyClient:
         return True
 
 
+    async def cancel_prompts(self, prompt_ids: list[str]) -> None:
+        """앱의 묶음 취소를 개별 가짜 요청의 취소 기록으로 반영합니다."""
+
+        for prompt_id in prompt_ids:
+            await self.cancel_prompt(prompt_id)
+
+
+class BlockingSubmissionComfyClient(FakeComfyClient):
+    """접수 응답을 지연시켜 네트워크 전송 중 작업 취소 경합을 재현합니다."""
+
+    def __init__(self) -> None:
+        """별도 Thread에서 제어할 제출 gate와 취소 호출 기록을 준비합니다."""
+
+        super().__init__()
+        self.submission_started = threading.Event()
+        self.release_submission = threading.Event()
+        self.cancelled_prompt_ids = []
+
+    async def submit(self, workflow: dict, metadata: dict) -> str:
+        """실제 접수 전에 응답을 막고 gate를 열면 뒤늦게 prompt ID를 반환합니다."""
+
+        self.submission_started.set()
+        await asyncio.to_thread(self.release_submission.wait, 5)
+        return await super().submit(workflow, metadata)
+
+    async def cancel_prompts(self, prompt_ids: list[str]) -> None:
+        """취소한 대상만 기록해 다른 작업을 건드리지 않았는지 확인합니다."""
+
+        self.cancelled_prompt_ids.extend(prompt_ids)
+        await super().cancel_prompts(prompt_ids)
+
+
+def wait_for_job_status(client: TestClient, job_id: str, expected_status: str) -> dict:
+    """즉시 접수된 비동기 취소가 감시에 반영될 때까지 제한 시간 안에서 기다립니다."""
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        job = client.get("/api/jobs", params={"job_id": job_id, "refresh": True}).json()["items"][0]
+        if job["status"] == expected_status:
+            return job
+        time.sleep(0.02)
+    raise AssertionError(f"작업 {job_id}가 {expected_status} 상태가 되지 않았습니다: {job['status']}")
+
+
 def create_test_anima_tag(client: TestClient, content: str = "subject") -> str:
     """Anima API 테스트에서 사용할 SCENE 태그를 생성합니다."""
 
@@ -91,6 +138,198 @@ def create_test_anima_tag(client: TestClient, content: str = "subject") -> str:
     })
     assert tag_response.status_code == 201
     return tag_response.json()["tag_id"]
+
+
+def create_processing_test_app(tmp_path: Path, comfy_client: FakeComfyClient):
+    """성능·취소 회귀 테스트에 사용할 독립된 runtime과 앱을 만듭니다."""
+
+    output_directory = tmp_path / "output"
+    config = AppConfig(
+        host="127.0.0.1", port=8388, password="test", comfy_endpoint="http://example.test",
+        comfy_output_directory=output_directory, managed_output_directory=output_directory / "from_home_server",
+        runtime_directory=tmp_path / "runtime", workflow_directory=PROJECT_DIRECTORY / "data" / "workflows",
+    )
+    app = create_app(config)
+    app.state.home_server.comfy = comfy_client
+    return app
+
+
+def test_hundred_request_cancellation_stops_submission_and_catches_late_prompt(tmp_path: Path) -> None:
+    """100개 작업 취소는 전송 응답을 기다리지 않고 접수하며 뒤늦은 한 요청도 취소합니다."""
+
+    fake_comfy = BlockingSubmissionComfyClient()
+    app = create_processing_test_app(tmp_path, fake_comfy)
+    with TestClient(app) as client:
+        client.post("/api/login", json={"password": "test"})
+        selected_tag_id = create_test_anima_tag(client)
+        batch_response = client.post("/api/batches", json={
+            "workflow": "anima", "body": {"prompt": "portrait [SCENE]"},
+            "selected_tag_ids": [selected_tag_id], "count": 100,
+        }).json()
+        assert fake_comfy.submission_started.wait(2)
+        try:
+            started = time.monotonic()
+            cancellation = client.post(f"/api/jobs/{batch_response['job_id']}/cancel")
+            assert time.monotonic() - started < 1
+            assert cancellation.json() == {"status": "cancelling", "requested_count": 100}
+            assert not fake_comfy.submissions
+            summary = client.get("/api/jobs", params={"summary": True}).json()["items"][0]
+            assert summary["cancellation_requested"] is True
+            assert client.delete(f"/api/jobs/{batch_response['job_id']}").status_code == 409
+        finally:
+            fake_comfy.release_submission.set()
+        job = wait_for_job_status(client, batch_response["job_id"], "cancelled")
+        assert job["status_counts"] == {"cancelled": 100}
+        assert len(fake_comfy.submissions) == 1
+        assert fake_comfy.cancelled_prompt_ids == ["prompt-1"]
+        assert client.delete(f"/api/jobs/{batch_response['job_id']}").status_code == 200
+
+
+def test_missing_queue_history_waits_then_stops_without_claiming_completion(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """외부 queue 삭제는 grace 동안 기다리고 완료·취소로 단정하지 않고 중단 상태로 정리합니다."""
+
+    fake_comfy = FakeComfyClient()
+    app = create_processing_test_app(tmp_path, fake_comfy)
+    database = app.state.home_server.database
+    database.add_job("missing-job", "anima", "", [{
+        "request_id": "missing-request", "status": "submitting", "output_stem": "anima/output", "detail": {},
+    }])
+    database.set_request_accepted("missing-request", "missing-prompt", {})
+    with TestClient(app) as client:
+        client.post("/api/login", json={"password": "test"})
+        client.get("/api/jobs", params={"refresh": True})
+        assert database.get_request("missing-request")["status"] == "pending"
+        monkeypatch.setattr("home_server.application.MISSING_REQUEST_GRACE_SECONDS", 0)
+        client.get("/api/jobs", params={"refresh": True})
+        request = database.get_request("missing-request")
+        assert request["status"] == "stopped"
+        assert "확인할 수 없어" in request["error_message"]
+        assert client.get("/api/jobs/activity").json() == {"active_count": 0}
+
+
+def test_restart_does_not_claim_unconfirmed_inflight_cancellation_completed(tmp_path: Path) -> None:
+    """재시작으로 잃은 제출 응답은 취소 완료로 단정하지 않고 확인 불가 중단으로 남깁니다."""
+
+    first_app = create_processing_test_app(tmp_path, FakeComfyClient())
+    database = first_app.state.home_server.database
+    database.add_job("interrupted", "anima", "", [{
+        "request_id": "inflight", "status": "submitting", "output_stem": "anima/output", "detail": {},
+    }])
+    database.request_job_cancellation("interrupted")
+    second_app = create_processing_test_app(tmp_path, FakeComfyClient())
+    request = second_app.state.home_server.database.get_request("inflight")
+    assert request["status"] == "stopped"
+    assert "확인하지 못했습니다" in request["error_message"]
+    assert second_app.state.home_server.database.get_job("interrupted")["cancellation_requested"] is True
+
+
+def test_cancellation_error_is_visible_and_retry_finishes_selected_requests(tmp_path: Path) -> None:
+    """취소 전송 실패를 카드 요약에 남기고 재접수로 같은 요청을 안전하게 처리합니다."""
+
+    class FailingCancellationComfyClient(FakeComfyClient):
+        """첫 번째 묶음 취소만 실패시키고 다음 시도는 정상 반영합니다."""
+
+        def __init__(self) -> None:
+            """취소 전송 시도 횟수를 준비합니다."""
+
+            super().__init__()
+            self.cancellation_attempts = 0
+
+        async def cancel_prompts(self, prompt_ids: list[str]) -> None:
+            """복구 가능한 통신 장애를 한 번 발생시킵니다."""
+
+            self.cancellation_attempts += 1
+            if self.cancellation_attempts == 1:
+                raise RuntimeError("temporary cancellation failure")
+            await super().cancel_prompts(prompt_ids)
+
+    fake_comfy = FailingCancellationComfyClient()
+    app = create_processing_test_app(tmp_path, fake_comfy)
+    database = app.state.home_server.database
+    database.add_job("retry-job", "anima", "", [{
+        "request_id": f"retry-{request_index}", "status": "submitting", "output_stem": "anima/output", "detail": {},
+    } for request_index in range(2)])
+    for request_index in range(2):
+        database.set_request_accepted(f"retry-{request_index}", f"prompt-{request_index}", {})
+    with TestClient(app) as client:
+        client.post("/api/login", json={"password": "test"})
+        assert client.post("/api/jobs/retry-job/cancel").status_code == 200
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            summary = client.get("/api/jobs", params={"summary": True}).json()["items"][0]
+            if summary["cancellation_failures"] == 2:
+                break
+            time.sleep(0.02)
+        assert summary["cancellation_failures"] == 2
+        assert client.post("/api/jobs/retry-job/cancel").json()["requested_count"] == 2
+        assert wait_for_job_status(client, "retry-job", "cancelled")["status_counts"] == {"cancelled": 2}
+        assert fake_comfy.cancellation_attempts == 2
+
+
+def test_summary_details_and_restoration_endpoints_keep_original_candidates(tmp_path: Path) -> None:
+    """가벼운 목록·별도 상세·첫 요청 복원 API가 후보와 해상도 등 원본을 보존합니다."""
+
+    app = create_processing_test_app(tmp_path, FakeComfyClient())
+    database = app.state.home_server.database
+    detail = {"body": {"prompt": "original"}, "selected_tags": [{"tag_id": "candidate", "content": "old"}],
+              "settings": {"width": 768, "height": 1024}, "loras": [{"name": "example.safetensors", "strength": 0.7}]}
+    database.add_job("history", "anima", "복원", [
+        {"request_id": "first", "status": "completed", "output_stem": "anima/result", "detail": detail},
+        {"request_id": "second", "status": "completed", "output_stem": "anima/result", "detail": detail},
+    ])
+    with TestClient(app) as client:
+        client.post("/api/login", json={"password": "test"})
+        summary = client.get("/api/jobs", params={"summary": True}).json()["items"][0]
+        assert "requests" not in summary
+        assert "selected_tags" not in summary["summary"]
+        assert summary["status_counts"] == {"completed": 2}
+        assert len(client.get("/api/jobs/history").json()["requests"]) == 2
+        inputs = client.get("/api/jobs/history/inputs").json()
+        assert inputs["request_count"] == 2
+        assert len(inputs["requests"]) == 1
+        assert inputs["requests"][0]["detail"] == detail
+
+
+def test_slow_image_metadata_does_not_block_session_and_invalidates_on_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """파일 읽기 중에도 Session 응답을 처리하고 변경된 이미지의 크기를 다시 읽습니다."""
+
+    from home_server.application import image_dimensions, cached_image_dimensions
+
+    app = create_processing_test_app(tmp_path, FakeComfyClient())
+    image_path = app.state.home_server.config.managed_output_directory / "image.png"
+    Image.new("RGB", (32, 48)).save(image_path)
+    metadata_started = threading.Event()
+    release_metadata = threading.Event()
+    dimension_reads = []
+
+    def blocked_image_dimensions(selected_path: Path):
+        """파일 읽기를 멈춰 Event loop와 분리됐는지 확인합니다."""
+
+        dimension_reads.append(selected_path)
+        metadata_started.set()
+        release_metadata.wait(3)
+        return image_dimensions(selected_path)
+
+    cached_image_dimensions.cache_clear()
+    monkeypatch.setattr("home_server.application.image_dimensions", blocked_image_dimensions)
+    with TestClient(app) as client:
+        client.post("/api/login", json={"password": "test"})
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            output_future = executor.submit(client.get, "/api/outputs")
+            assert metadata_started.wait(2)
+            try:
+                started = time.monotonic()
+                assert client.get("/api/session").status_code == 200
+                assert time.monotonic() - started < 1
+                assert not output_future.done()
+            finally:
+                release_metadata.set()
+            assert output_future.result().json()["files"][0]["width"] == 32
+        assert client.get("/api/outputs").json()["files"][0]["height"] == 48
+        assert len(dimension_reads) == 1
+        Image.new("RGB", (64, 80)).save(image_path)
+        assert client.get("/api/outputs").json()["files"][0]["width"] == 64
+        assert len(dimension_reads) == 2
 
 
 def test_login_batch_and_output_folder_boundary(tmp_path: Path) -> None:
@@ -151,7 +390,7 @@ def test_login_batch_and_output_folder_boundary(tmp_path: Path) -> None:
         assert jobs[0]["requests"][0]["prompt_id"] == "prompt-1"
         assert fake_comfy.submissions[0][0]["13"]["inputs"]["path"] == "from_home_server/anima"
         assert client.post(f"/api/requests/{request_id}/cancel").json()["status"] == "cancelling"
-        assert client.get("/api/jobs", params={"refresh": True}).json()["items"][0]["status"] == "cancelled"
+        assert wait_for_job_status(client, job_id, "cancelled")["status"] == "cancelled"
 
         image_path = managed_directory / "anima" / "sample.png"
         image_path.parent.mkdir(parents=True)
@@ -478,8 +717,8 @@ def test_job_description_cancel_and_history_actions(tmp_path: Path) -> None:
         assert jobs_page["active_count"] == 1
         assert client.delete(f"/api/jobs/{job_id}").status_code == 409
         cancel = client.post(f"/api/jobs/{job_id}/cancel")
-        assert cancel.json() == {"cancelled_count": 2, "failed_count": 0}
-        assert client.get("/api/jobs", params={"refresh": True}).json()["items"][0]["status"] == "cancelled"
+        assert cancel.json() == {"status": "cancelling", "requested_count": 2}
+        assert wait_for_job_status(client, job_id, "cancelled")["status"] == "cancelled"
         assert client.post(f"/api/requests/{response.json()['request_ids'][0]}/cancel").status_code == 409
 
         retained_file = managed_directory / "anima" / "retained.png"
