@@ -73,6 +73,14 @@ Anima Prompt preset 버전에는 Prompt 본문과 Negative Prompt만 저장합�
 
 작업 카드에는 제출 시 입력한 원본 `입력 Prompt`와 내용이 있는 경우 `입력 Negative Prompt`를 펼치지 않고 표시합니다. `[TAG]` 참조와 줄바꿈을 포함한 원문을 그대로 보여 주며, 원본이 저장되지 않은 이전 이력은 `기록 없음`으로 표시합니다. 하위 요청을 펼치면 기존처럼 각 요청에서 태그와 wildcard를 치환한 확정 Prompt·Negative Prompt와 태그 선택 경로를 확인할 수 있습니다.
 
+작업 카드의 `생성 탭에서 복원`은 상위 작업 단위로 Workflow·원본 Prompt·Negative Prompt·LoRA 파일과 강도·Workflow 옵션·요청 횟수·작업 설명을 생성 탭에 채웁니다. 자동 제출하지 않으며 태그 추첨 결과·wildcard 선택·random seed는 복원하지 않습니다.
+
+태그는 제출 당시 체크한 항목 중 현재 존재하고 현재 Prompt 참조에서 체크 가능한 항목만 선택하며, 변경된 본문·weight·그룹 참조는 현재 정의를 사용합니다. 삭제된 항목은 되살리지 않으며 필요한 선택지가 없으면 기존 제출 검증에서 안내합니다.
+
+Prompt·LoRA preset은 기록된 ID의 현재 구성이 제출 당시 입력과 같을 때만 선택하고, 변경·삭제된 preset은 `직접 작성`·`직접 구성`으로 복원합니다. Preset ID가 없는 이전 이력은 같은 본문의 현재 Prompt preset이 하나일 때만 연결하며, LoRA는 같은 이름의 현재 preset이 하나이고 구성도 같을 때만 연결합니다. 후보가 여러 개이거나 일치하지 않으면 직접 작성·직접 구성으로 복원합니다.
+
+MiniMax 입력 이미지는 비워 두므로 다시 선택해야 합니다. 원본 Prompt 기록이 없는 이력은 복원할 수 없습니다.
+
 결과물 크기는 용량 뒤에 비율·해상도로 표시합니다. 이미지는 파일의 실제 크기를 읽고, 영상은 연결된 요청의 설정값을 `(설정)`으로 표시합니다. 크기를 확인할 수 없는 파일은 `—`로 표시합니다.
 
 생성 화면에서 선택적인 한 줄 작업 설명을 입력할 수 있으며 작업 목록에 표시됩니다. 대기·실행 중인 작업은 전체 또는 하위 요청별로 취소할 수 있습니다. 작업이 종료된 뒤에는 `이력만 삭제` 또는 `이력·결과물 삭제`를 선택합니다. 후자는 작업 history에 기록된 원래 생성 위치의 결과물만 삭제합니다. 이미 이동·삭제되어 없는 파일은 로그에 남기고 건너뛰며, 이동된 파일은 유지합니다.
@@ -107,4 +115,5 @@ npm install --prefix runtime/browser-check --no-package-lock --no-audit --no-fun
 $env:NODE_PATH = (Resolve-Path runtime/browser-check/node_modules).Path
 node tests/browser_lora_presets.cjs
 node tests/browser_job_deletion.cjs
+node tests/browser_job_restoration.cjs
 ```

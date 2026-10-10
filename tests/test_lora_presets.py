@@ -178,7 +178,7 @@ def test_lora_presets_keep_workflow_weights_and_submit_snapshot(lora_preset_clie
 
 
 def test_preset_name_is_display_only_and_generation_uses_saved_weights(lora_preset_client) -> None:
-    """제출 후 preset을 수정·삭제해도 저장한 실제 파일과 강도로 각 요청을 생성합니다."""
+    """Preset 수정·삭제 후에도 원본 입력·복원용 ID를 보존하고 저장한 강도로 생성합니다."""
 
     client, application, comfy_client = lora_preset_client
     client.post("/api/login", json={"password": "test-password"})
@@ -188,6 +188,9 @@ def test_preset_name_is_display_only_and_generation_uses_saved_weights(lora_pres
     ]
     saved_preset = client.post("/api/loras/presets", json={
         "name": "Original preset", "workflow": "anima", "loras": original_loras,
+    }).json()
+    saved_prompt_preset = client.post("/api/presets", json={
+        "name": "Original prompt", "workflow": "anima", "body": {"prompt": "portrait"},
     }).json()
     release_submission = threading.Event()
 
@@ -203,6 +206,7 @@ def test_preset_name_is_display_only_and_generation_uses_saved_weights(lora_pres
         response = client.post("/api/batches", json={
             "workflow": "anima", "body": {"prompt": "portrait"}, "count": 2,
             "loras": original_loras, "lora_preset_name": saved_preset["name"],
+            "prompt_preset_id": saved_prompt_preset["preset_id"], "lora_preset_id": saved_preset["preset_id"],
         })
         assert response.status_code == 200
         job_identifier = response.json()["job_id"]
@@ -212,6 +216,10 @@ def test_preset_name_is_display_only_and_generation_uses_saved_weights(lora_pres
             "loras": [{"name": "first.safetensors", "strength": 0.95, "clip_strength": 0.8}],
         }).status_code == 200
         assert client.delete(f"/api/loras/presets/{saved_preset['preset_id']}").status_code == 200
+        assert client.post("/api/presets", json={
+            "preset_id": saved_prompt_preset["preset_id"], "name": "Changed prompt", "workflow": "anima",
+            "body": {"prompt": "changed portrait"},
+        }).status_code == 200
     finally:
         release_submission.set()
     for attempt_index in range(30):
@@ -228,6 +236,9 @@ def test_preset_name_is_display_only_and_generation_uses_saved_weights(lora_pres
     for request in job["requests"]:
         assert request["detail"]["loras"] == original_loras
         assert request["detail"]["lora_preset_name"] == "Original preset"
+        assert request["detail"]["body"] == {"prompt": "portrait"}
+        assert request["detail"]["prompt_preset_id"] == saved_prompt_preset["preset_id"]
+        assert request["detail"]["lora_preset_id"] == saved_preset["preset_id"]
     assert Database(application.state.home_server.database.database_path).get_job(job_identifier)["requests"][0]["detail"]["lora_preset_name"] == "Original preset"
 
 

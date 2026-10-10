@@ -44,6 +44,7 @@ const applicationState = {
   jobSelectionMode: false,
   selectedJobIds: new Set(),
   deletingSelectedJobs: false,
+  restoringJobId: null,
   noticeHideTimer: null,
   pollingTimer: null,
 };
@@ -1006,6 +1007,8 @@ async function submitBatch() {
         count: workflow === "anima" ? Number(element("generate-count").value) : 1,
         settings: generationSettings(),
         loras: applicationState.selectedLoras,
+        prompt_preset_id: applicationState.currentPresetId,
+        lora_preset_id: applicationState.currentLoraPresetId,
         lora_preset_name: generationLoraPresetName(),
         upload_ids: uploadIds,
       }),
@@ -1103,6 +1106,141 @@ function toggleAllJobSelections() {
   renderJobsList();
 }
 
+/** 기록된 Prompt preset이 현재 본문과 같은 경우에만 연결합니다. */
+function matchingJobPromptPreset(workflow, requestDetail) {
+  let candidatePresets = applicationState.presets.filter((candidate) => candidate.workflow === workflow);
+  if (requestDetail.prompt_preset_id) {
+    candidatePresets = candidatePresets.filter((candidate) => candidate.preset_id === requestDetail.prompt_preset_id);
+  }
+  const originalBody = requestDetail.body;
+  const matchingPresets = candidatePresets.filter((candidate) =>
+    candidate.body.prompt === originalBody.prompt &&
+    (workflow !== "anima" || (candidate.body.negative || "") === (originalBody.negative || "")),
+  );
+  return matchingPresets.length === 1 ? matchingPresets[0] : null;
+}
+
+/** 현재 LoRA preset과 기록된 파일 순서 및 강도가 같을 때만 연결합니다. */
+function matchingJobLoraPreset(workflow, requestDetail) {
+  const selectedLoras = requestDetail.loras || [];
+  if (!selectedLoras.length) return null;
+  let preset = null;
+  if (requestDetail.lora_preset_id) {
+    preset = applicationState.loraPresets.find((candidate) =>
+      candidate.preset_id === requestDetail.lora_preset_id && candidate.workflow === workflow,
+    );
+  } else if (requestDetail.lora_preset_name) {
+    const namedPresets = applicationState.loraPresets.filter((candidate) =>
+      candidate.name === requestDetail.lora_preset_name && candidate.workflow === workflow,
+    );
+    if (namedPresets.length === 1) preset = namedPresets[0];
+  }
+  if (!preset) return null;
+  const originalCombination = normalizeLoraEntries(selectedLoras, workflow);
+  const currentCombination = normalizeLoraEntries(preset.loras, workflow);
+  return JSON.stringify(originalCombination) === JSON.stringify(currentCombination) ? preset : null;
+}
+
+/** 기록된 옵션을 채우고 목록에 없는 Anima 해상도는 사용자 지정으로 표시합니다. */
+function restoreGenerationSettings(workflow, settings) {
+  if (workflow === "anima") {
+    const width = Number(settings.width ?? element("anima-width").defaultValue);
+    const height = Number(settings.height ?? element("anima-height").defaultValue);
+    let matchingRatio = "custom";
+    for (const [aspectRatio, resolutions] of Object.entries(ANIMA_RESOLUTIONS)) {
+      if (resolutions.some(([candidateWidth, candidateHeight]) => candidateWidth === width && candidateHeight === height)) {
+        matchingRatio = aspectRatio;
+        break;
+      }
+    }
+    element("anima-aspect-ratio").value = matchingRatio;
+    updateAnimaResolutionOptions();
+    if (matchingRatio !== "custom") element("anima-resolution").value = `${width}x${height}`;
+    element("anima-width").value = width;
+    element("anima-height").value = height;
+    element("anima-steps").value = settings.steps ?? element("anima-steps").defaultValue;
+    element("anima-cfg").value = settings.cfg ?? element("anima-cfg").defaultValue;
+    return;
+  }
+  for (const [inputIdentifier, settingKey] of [
+    ["minimax-width", "width"], ["minimax-height", "height"],
+    ["minimax-duration", "duration"], ["minimax-frame-rate", "frame_rate"],
+    ["minimax-upscale-model", "upscale_model_name"],
+  ]) {
+    const inputElement = element(inputIdentifier);
+    inputElement.value = settings[settingKey] ?? inputElement.defaultValue;
+  }
+  element("minimax-upscale").value = settings.upscale_mode || "off";
+}
+
+/** 상위 작업의 공통 입력을 현재 목록에 맞춰 복원하며 새 요청은 제출하지 않습니다. */
+async function restoreJobGeneration(jobIdentifier) {
+  if (applicationState.restoringJobId) return;
+  if (element("submit-button").disabled) throw new Error("작업 제출이 끝난 뒤 복원해 주세요.");
+  applicationState.restoringJobId = jobIdentifier;
+  element("submit-button").disabled = true;
+  renderJobsList();
+  try {
+    const jobResponse = await apiRequest(`/api/jobs?job_id=${encodeURIComponent(jobIdentifier)}`);
+    const job = jobResponse.items.find((candidate) => candidate.job_id === jobIdentifier);
+    const requestDetail = job?.requests[0]?.detail;
+    if (!job || !["anima", "minimax_h3"].includes(job.workflow) || typeof requestDetail?.body?.prompt !== "string")
+      throw new Error("이 작업에는 복원할 원본 Prompt 기록이 없습니다.");
+    const [currentPresets, currentLoraPresets, currentTags] = await Promise.all([
+      apiRequest("/api/presets"), apiRequest("/api/loras/presets"), apiRequest("/api/tags"),
+    ]);
+    applicationState.presets = currentPresets;
+    applicationState.loraPresets = currentLoraPresets;
+    applicationState.tagGroups = currentTags.groups;
+    applicationState.tagEntries = currentTags.entries;
+    resetGenerationWorkflow(job.workflow);
+    applicationState.currentBody = structuredClone(requestDetail.body);
+    fillPromptFields(requestDetail.body, true);
+    const promptPreset = matchingJobPromptPreset(job.workflow, requestDetail);
+    applicationState.currentPresetId = promptPreset?.preset_id || null;
+    element("preset-workflow").value = job.workflow;
+    element("preset-name").value = promptPreset?.name || "";
+    element("preset-version").textContent = promptPreset ? `현재 v${promptPreset.version}` : "새 preset";
+    applicationState.presetVersions = [];
+    element("preset-version-history").innerHTML = "";
+    renderPresetList();
+    const loraPreset = matchingJobLoraPreset(job.workflow, requestDetail);
+    applyLoraCombination(job.workflow, requestDetail.loras || [], loraPreset?.preset_id || null);
+
+    // 과거 정의는 되살리지 않고 현재 참조에서 체크할 수 있는 항목만 남깁니다.
+    const currentTagIds = new Set(currentTags.entries.map((entry) => entry.tag_id));
+    if (job.workflow === "anima") {
+      for (const selectedTag of requestDetail.selected_tags || []) {
+        if (currentTagIds.has(selectedTag.tag_id)) applicationState.selectedTagIds.add(selectedTag.tag_id);
+      }
+      applicationState.selectedTagIds = new Set(activeSelectedTagIds());
+    }
+    applicationState.expandedTagGroupIds = new Set(
+      currentTags.groups.filter((group) => group.default_expanded).map((group) => group.group_id),
+    );
+    renderGenerateTagGroups();
+    renderTagManager();
+    restoreGenerationSettings(job.workflow, requestDetail.settings || {});
+    element("generate-count").value = job.workflow === "anima" ? job.request_count : 1;
+    element("job-description").value = job.description || "";
+    applicationState.selectedFiles = [];
+    element("minimax-images").value = "";
+    element("minimax-directory").value = "";
+    element("selected-images").textContent = "선택한 이미지가 없습니다.";
+    element("preview-results").innerHTML = "";
+    element("preview-results").classList.add("hidden");
+    switchView("generate");
+    showNotice(job.workflow === "minimax_h3"
+      ? "작업의 입력값을 복원했습니다. MiniMax 입력 이미지를 다시 선택해 주세요."
+      : "작업의 입력값을 복원했습니다.");
+    await loadLoras();
+  } finally {
+    applicationState.restoringJobId = null;
+    element("submit-button").disabled = false;
+    renderJobsList();
+  }
+}
+
 /** 한 번의 제출을 하나의 상위 작업 카드로 표시합니다. */
 function jobCardMarkup(job, statusNames, openJobIds) {
   const originalBody = job.requests[0]?.detail?.body || {};
@@ -1142,6 +1280,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
         <button class="button subtle small" data-show-job-results="${escapeHtml(job.job_id)}">작업 결과 보기</button>
         ${canCancel ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.job_id)}">작업 취소</button>` : ""}
         ${canDelete && !applicationState.jobSelectionMode ? `<button class="button subtle small" data-delete-job="${escapeHtml(job.job_id)}">이력만 삭제</button><button class="button danger small" data-delete-job-outputs="${escapeHtml(job.job_id)}">이력·결과물 삭제</button>` : ""}
+        <button class="button job-restore small" data-restore-job="${escapeHtml(job.job_id)}" ${applicationState.restoringJobId ? "disabled" : ""}>생성 탭에서 복원</button>
       </div>
       <details class="job-requests" data-job-details="${escapeHtml(job.job_id)}"${openAttribute}>
         <summary>하위 요청 ${job.request_count}건</summary>
@@ -1609,6 +1748,9 @@ function bindEvents() {
     updateJobSelectionControls();
   });
   element("jobs-list").addEventListener("click", (event) => {
+    const restoreJobButton = event.target.closest("[data-restore-job]");
+    if (restoreJobButton && !restoreJobButton.disabled)
+      runAction(() => restoreJobGeneration(restoreJobButton.dataset.restoreJob));
     const cancelButton = event.target.closest("[data-cancel-request]");
     const cancelJobButton = event.target.closest("[data-cancel-job]");
     const deleteJobButton = event.target.closest("[data-delete-job]");

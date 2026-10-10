@@ -128,6 +128,8 @@ class BatchInput(BaseModel):
     count: int = Field(default=1, ge=1, le=100)
     settings: dict[str, Any] = Field(default_factory=dict)
     loras: list[dict[str, Any]] = Field(default_factory=list)
+    prompt_preset_id: str | None = Field(default=None, max_length=64)
+    lora_preset_id: str | None = Field(default=None, max_length=64)
     lora_preset_name: str | None = Field(default=None, max_length=120)
     upload_ids: list[str] = Field(default_factory=list)
 
@@ -689,6 +691,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "status": "submitting", "output_stem": output_stem,
                 "detail": {"upload_id": upload_id, "body": payload.body, "selected_tags": selected_tags,
                            "settings": request_settings, "loras": payload.loras,
+                           "prompt_preset_id": payload.prompt_preset_id,
+                           "lora_preset_id": payload.lora_preset_id if payload.loras else None,
                            "lora_preset_name": payload.lora_preset_name if payload.loras else None},
             }
             submitted_requests.append(request)
