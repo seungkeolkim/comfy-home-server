@@ -34,6 +34,7 @@ async function handleBrowserRequest(route) {
   const method = request.method();
   if (requestPath === "/api/session") response = { authenticated: true };
   else if (requestPath === "/api/status") response = { comfy_connected: true, output_directory: "test-output" };
+  else if (requestPath === "/api/jobs/activity") response = { active_count: 0 };
   else if (requestPath === "/api/jobs") {
     jobQueries.push(requestUrl.search);
     const pageNumber = Number(requestUrl.searchParams.get("page") || 1);
@@ -99,15 +100,19 @@ async function handleBrowserRequest(route) {
   else if (requestPath === "/api/prompts/preview" && method === "POST") {
     const payload = request.postDataJSON();
     tagPreviewRequests.push(payload);
+    const negativeHasAction = payload.body.negative?.includes("[ACTION]");
+    const previewPath = [
+      { tag_id: "tag-entry-1", name: "몬스터 공격" },
+      { tag_id: "tag-entry-2", name: "1인 a" },
+    ];
     response = {
       combined_prompt: null,
       examples: [{
         index: 1, seed: 77,
-        prompt: "character A, attacking monster",
-        selected_path: [
-          { tag_id: "tag-entry-1", name: "몬스터 공격" },
-          { tag_id: "tag-entry-2", name: "1인 a" },
-        ],
+        prompt: negativeHasAction ? payload.body.prompt : "character A, attacking monster",
+        negative: negativeHasAction ? "character A, attacking monster" : payload.body.negative || "",
+        selected_path: negativeHasAction ? [] : previewPath,
+        negative_selected_path: negativeHasAction ? previewPath : [],
       }],
     };
   }
@@ -150,16 +155,22 @@ async function handleBrowserRequest(route) {
     response = { deleted: true };
   } else if (requestPath === "/api/batches") {
     const submission = request.postDataJSON();
+    const loraPresetName = submission.lora_preset_name || null;
+    const negativeHasAction = submission.body.negative?.includes("[ACTION]");
+    const resolvedNegative = negativeHasAction ? "character A, attacking monster" : submission.body.negative || "";
+    const negativeSelectedPath = negativeHasAction
+      ? [{ tag_id: "tag-entry-1", name: "몬스터 공격" }, { tag_id: "tag-entry-2", name: "1인 a" }] : [];
     batchSubmissions.push(submission);
     response = { job_id: "test-job", request_ids: ["request-1", "request-2"] };
     savedJobs.push({
       job_id: "test-job", workflow: "anima", description: submission.description, request_count: 2,
       created_at: "2026-10-07", status: "pending", status_counts: { pending: 1, completed: 1 },
+      inputs: { body: submission.body, settings: submission.settings, loras: submission.loras, lora_preset_name: loraPresetName },
       requests: [
         { request_id: "request-1", request_index: 1, prompt_id: "prompt-1", status: "pending",
-          detail: { settings: submission.settings, loras: submission.loras } },
+          result: {} },
         { request_id: "request-2", request_index: 2, prompt_id: "prompt-2", status: "completed",
-          detail: { settings: submission.settings, loras: submission.loras, resolved: { prompt: "portrait" } } },
+          result: { prompt: "portrait", negative: resolvedNegative, negative_selected_path: negativeSelectedPath } },
       ],
     });
   } else if (requestPath === "/api/requests/request-1/cancel") {
@@ -195,6 +206,78 @@ async function waitForPreset(page, presetIdentifier) {
   await page.locator(`[data-edit-lora-preset="${presetIdentifier}"]`).waitFor();
 }
 
+/** 원본 preset, 수정 조합, 직접 구성, 미사용과 이전 이력의 LoRA 표시를 검증합니다. */
+async function verifyJobLoraDisplay(browser) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+  const pageErrors = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  await page.route("**/*", handleBrowserRequest);
+  await page.goto("http://home-server.test/");
+  await page.locator('#generate-lora-preset option[value="preset-2"]').waitFor({ state: "attached" });
+  await page.locator("#generate-anima-prompt").fill("portrait");
+  const displayCases = [
+    { presetIdentifier: "preset-2", strength: null, addCustomLora: false, expectedName: "Portrait variant", expectedSummary: "LoRA Portrait variant" },
+    { presetIdentifier: "preset-2", strength: 0, addCustomLora: false, expectedName: null, expectedSummary: "LoRA custom" },
+    { presetIdentifier: "", strength: -0.2, addCustomLora: true, expectedName: null, expectedSummary: "LoRA custom" },
+    { presetIdentifier: "", strength: null, addCustomLora: false, expectedName: null, expectedSummary: "lora없음" },
+  ];
+  for (const displayCase of displayCases) {
+    savedJobs.length = 0;
+    await page.locator('.sidebar [data-view="generate"]').click();
+    await page.locator("#generate-lora-preset").selectOption(displayCase.presetIdentifier);
+    if (displayCase.addCustomLora) {
+      await page.locator("#available-loras").selectOption("first.safetensors");
+      await page.locator("#add-lora-button").click();
+    }
+    if (displayCase.strength !== null) {
+      await setCardWeight(page, "selected-loras", 0, "strength", displayCase.strength);
+    }
+    await page.locator("#submit-button").click();
+    await page.waitForFunction(() => document.getElementById("submit-button").disabled === false);
+    assert.equal(batchSubmissions.at(-1).lora_preset_name, displayCase.expectedName);
+    await page.locator('.sidebar [data-view="jobs"]').click();
+    await page.waitForFunction(expectedSummary =>
+      document.querySelector(".job-selection-heading p")?.textContent.includes(expectedSummary), displayCase.expectedSummary);
+    const details = page.locator(".job-requests");
+    if (!(await details.evaluate(element => element.open))) await details.locator("summary").click();
+    if (displayCase.strength !== null) {
+      assert.ok((await page.locator(".job-request").first().textContent()).includes(`first.safetensors (STR ${displayCase.strength})`));
+    }
+  }
+
+  const longLoraFilename = `${"long_lora_name_".repeat(20)}.safetensors`;
+  savedJobs[0].inputs = {
+    loras: [{ name: longLoraFilename }, { name: "zero.safetensors", strength: 0 }, { name: "negative.safetensors", strength: -0.2 }],
+  };
+  await page.locator('.sidebar [data-view="generate"]').click();
+  await page.locator('.sidebar [data-view="jobs"]').click();
+  await page.waitForFunction(() => document.querySelector(".job-selection-heading p")?.textContent.includes("LoRA custom"));
+  assert.equal(await page.locator(".job-original-prompt").textContent(), "입력 Prompt 기록 없음");
+  const legacyDetails = page.locator(".job-requests");
+  if (!(await legacyDetails.evaluate(element => element.open))) await legacyDetails.locator("summary").click();
+  const legacyText = await page.locator(".job-request").first().textContent();
+  assert.ok(legacyText.includes(`${longLoraFilename} (STR 1)`));
+  assert.ok(legacyText.includes("zero.safetensors (STR 0)"));
+  assert.ok(legacyText.includes("negative.safetensors (STR -0.2)"));
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await page.screenshot({ path: path.join(screenshotDirectory, "job-lora-summary-mobile.png"), fullPage: true });
+  const originalPrompt = `[ACTION]\n<div data-unwanted-prompt>입력한 원본</div>\n${"long_prompt_text_".repeat(40)}`;
+  const originalNegative = "[AVOID]\nlow quality";
+  savedJobs[0].inputs.body = { prompt: originalPrompt, negative: originalNegative };
+  savedJobs[0].requests[0].result = { prompt: "tag resolved final text", negative: "negative resolved final text" };
+  await page.waitForFunction(() => document.querySelector(".job-original-prompt")?.textContent.includes("[ACTION]"));
+  assert.equal(await page.locator(".job-original-prompt").textContent(), `입력 Prompt ${originalPrompt}`);
+  assert.equal(await page.locator(".job-original-negative-prompt").textContent(), `입력 Negative Prompt ${originalNegative}`);
+  assert.equal(await page.locator("[data-unwanted-prompt]").count(), 0);
+  assert.match(await page.locator(".job-request").first().textContent(), /Prompt tag resolved final text/);
+  assert.match(await page.locator(".job-request").first().textContent(), /Negative Prompt negative resolved final text/);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  await page.screenshot({ path: path.join(screenshotDirectory, "job-original-prompt-mobile.png"), fullPage: true });
+  assert.deepEqual(pageErrors, []);
+  await page.close();
+}
+
 /** LoRA 조합, 작업 계층, 결과 필터와 mobile 화면을 검증합니다. */
 async function main() {
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "msedge", headless: true });
@@ -214,9 +297,10 @@ async function main() {
     assert.equal(await page.locator("#anima-aspect-ratio").inputValue(), "2:3");
     assert.deepEqual(await page.locator("#anima-aspect-ratio option").evaluateAll(options =>
       options.map(option => option.value)), ["16:9", "3:2", "4:3", "1:1", "3:4", "2:3", "9:16", "custom"]);
-    assert.equal(await page.locator("#anima-resolution").inputValue(), "1024x1536");
+    assert.equal(await page.locator("#anima-resolution").inputValue(), "576x864");
     await page.locator("#anima-aspect-ratio").selectOption("16:9");
     assert.equal(await page.locator("#anima-resolution option").count(), 3);
+    assert.equal(await page.locator("#anima-resolution").inputValue(), "1024x576");
     await page.locator("#anima-resolution").selectOption("1280x720");
     assert.equal(await page.locator("#anima-width").inputValue(), "1280");
     assert.equal(await page.locator("#anima-height").inputValue(), "720");
@@ -231,8 +315,8 @@ async function main() {
     }), [1408, 960]);
     await page.locator("#anima-aspect-ratio").selectOption("2:3");
     assert.equal(await page.locator("#anima-resolution").isDisabled(), false);
-    assert.equal(await page.locator("#anima-width").inputValue(), "1024");
-    assert.equal(await page.locator("#anima-height").inputValue(), "1536");
+    assert.equal(await page.locator("#anima-width").inputValue(), "576");
+    assert.equal(await page.locator("#anima-height").inputValue(), "864");
     await page.locator("#generate-workflow").selectOption("minimax_h3");
     assert.equal(await page.locator("#generate-tag-fields").isVisible(), false);
     assert.equal(await page.locator("#generate-count-field").isVisible(), false);
@@ -336,19 +420,23 @@ async function main() {
     }), true);
     assert.equal(batchSubmissions[0].count, 2);
     assert.equal(batchSubmissions[0].loras[0].strength, 0.85);
+    assert.equal(batchSubmissions[0].lora_preset_name, "Portrait variant");
     assert.equal(batchSubmissions[0].description, "아침 조명 비교");
     assert.equal(batchSubmissions[0].settings.width, 1280);
     assert.equal(batchSubmissions[0].settings.height, 720);
     await page.locator('.sidebar [data-view="jobs"]').click();
     assert.equal(await page.locator(".job-card").count(), 1);
     assert.equal(await page.locator(".job-description").textContent(), "아침 조명 비교");
+    assert.equal(await page.locator(".job-original-prompt").textContent(), "입력 Prompt portrait");
+    assert.equal(await page.locator(".job-original-negative-prompt").count(), 0);
     assert.match(await page.locator(".job-card > div:first-child p").first().textContent(),
-      /2026-10-07 · 16:9 · 1280 × 720 · 완료 1\/2장/);
+      /2026-10-07 · 16:9 · 1280 × 720 · 완료 1\/2장 · LoRA Portrait variant/);
     assert.equal(await page.locator(".job-card .status-badge").first().textContent(), "대기");
     await page.locator(".job-requests summary").click();
+    await page.locator(".job-request").first().waitFor();
     assert.equal(await page.locator(".job-request").count(), 2);
     assert.match(await page.locator(".job-request").last().textContent(), /Prompt portrait/);
-    assert.match(await page.locator(".job-request").last().textContent(), /LoRA first\.safetensors, second\.safetensors/);
+    assert.match(await page.locator(".job-request").last().textContent(), /LoRA first\.safetensors \(STR 0\.85\), second\.safetensors \(STR 1\)/);
     await page.locator('[data-cancel-request="request-1"]').click();
     await page.locator(".job-card .status-badge").first().getByText("일부 완료").waitFor();
     assert.equal(await page.locator(".job-requests").getAttribute("open"), "");
@@ -381,9 +469,10 @@ async function main() {
       savedJobs.push({
         job_id: `old-job-${jobNumber}`, workflow: "anima", description: `이전 작업 ${jobNumber}`,
         request_count: 1, created_at: "2026-10-06", status: "completed",
+        inputs: {},
         status_counts: { completed: 1 }, requests: [{
           request_id: `old-request-${jobNumber}`, request_index: 1,
-          prompt_id: `old-prompt-${jobNumber}`, status: "completed", detail: {},
+          prompt_id: `old-prompt-${jobNumber}`, status: "completed", result: {},
         }],
       });
     }
@@ -448,25 +537,25 @@ async function main() {
     await tagPage.goto("http://home-server.test/");
     await tagPage.locator('.sidebar [data-view="tags"]').click();
     await tagPage.locator("#tag-group-name").fill("장면");
+    await tagPage.locator("#tag-group-key").fill("ACTION");
     await tagPage.locator('#tag-group-form button[type="submit"]').click();
     await tagPage.locator('[data-edit-tag-group="tag-group-1"]').waitFor();
     await tagPage.locator("#new-tag-group-button").click();
     await tagPage.locator("#tag-group-name").fill("캐릭터");
+    await tagPage.locator("#tag-group-key").fill("CHR");
     await tagPage.locator("#tag-group-default-expanded").uncheck();
     await tagPage.locator('#tag-group-form button[type="submit"]').click();
     await tagPage.locator('[data-edit-tag-group="tag-group-2"]').waitFor();
     await tagPage.locator("#tag-entry-group").selectOption("tag-group-1");
-    await tagPage.locator("#tag-entry-key").fill("ACTION");
     await tagPage.locator("#tag-entry-name").fill("몬스터 공격");
     await tagPage.locator("#tag-entry-content").fill("[CHR], attacking monster");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
     await tagPage.locator('[data-edit-tag-entry="tag-entry-1"]').waitFor();
     await tagPage.locator("#tag-entry-group").selectOption("tag-group-2");
-    await tagPage.locator("#tag-entry-key").fill("CHR");
     await tagPage.locator("#tag-entry-name").fill("1인 a");
     await tagPage.locator("#tag-entry-content").fill("character A");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
-    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"]').waitFor();
+    await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').waitFor({ state: "attached" });
     assert.equal(await tagPage.locator('[data-manage-tag-group-open]').count(), 2);
     assert.equal(await tagPage.locator('[data-manage-tag-group-open="tag-group-1"]').evaluate(group => group.open), true);
     assert.equal(await tagPage.locator('[data-manage-tag-group-open="tag-group-2"]').evaluate(group => group.open), false);
@@ -534,16 +623,15 @@ async function main() {
     await tagPage.locator('.sidebar [data-view="tags"]').click();
     await tagPage.locator("#new-tag-group-button").click();
     await tagPage.locator("#tag-group-name").fill("가장 앞");
+    await tagPage.locator("#tag-group-key").fill("ACTION");
     await tagPage.locator('#tag-group-form button[type="submit"]').click();
     await tagPage.locator('[data-manage-tag-group-open="tag-group-3"]').waitFor();
     await tagPage.locator("#tag-entry-group").selectOption("tag-group-1");
-    await tagPage.locator("#tag-entry-key").fill("ACTION");
     await tagPage.locator("#tag-entry-name").fill("걷기");
     await tagPage.locator("#tag-entry-content").fill("walking");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
     await tagPage.locator('[data-edit-tag-entry="tag-entry-3"]').waitFor();
     await tagPage.locator("#tag-entry-group").selectOption("tag-group-3");
-    await tagPage.locator("#tag-entry-key").fill("ACTION");
     await tagPage.locator("#tag-entry-name").fill("새 장면");
     await tagPage.locator("#tag-entry-content").fill("new action");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
@@ -583,8 +671,63 @@ async function main() {
     ]);
     assert.deepEqual(tagPreviewRequests.at(-1).selected_tag_ids,
       ["tag-entry-1", "tag-entry-2", "tag-entry-3"]);
+    assert.equal(await tagPage.locator("#tag-entry-key").count(), 0);
+    assert.deepEqual(savedTagGroups.map(group => group.tag_key), ["ACTION", "CHR", "ACTION"]);
+    assert.equal(savedTagEntries.every(entry => !Object.hasOwn(entry, "tag_key")), true);
+    assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-3"] [data-select-tag="tag-entry-4"]').count(), 1);
+    await tagPage.locator('.sidebar [data-view="tags"]').click();
+    await tagPage.locator('[data-edit-tag-group="tag-group-3"]').click();
+    assert.equal(await tagPage.locator("#tag-group-key").inputValue(), "ACTION");
+    await tagPage.locator("#tag-group-key").fill("SIDE");
+    await Promise.all([
+      tagPage.waitForResponse(response => response.url().endsWith("/api/tags/groups/tag-group-3") && response.request().method() === "PUT"),
+      tagPage.locator('#tag-group-form button[type="submit"]').click(),
+    ]);
+    await tagPage.waitForFunction(() => document.querySelector('#tag-entry-group option[value="tag-group-3"]').textContent.includes("[SIDE]"));
+    await tagPage.locator("#tag-entry-group").selectOption("tag-group-3");
+    assert.match(await tagPage.locator("#tag-entry-reference").textContent(), /\[SIDE\]/);
+    await tagPage.locator('.sidebar [data-view="generate"]').click();
+    assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-3"]').count(), 0);
+    await tagPage.locator("#generate-anima-prompt").fill("[SIDE]");
+    assert.equal(await tagPage.locator('[data-tag-group-open]').count(), 1);
+    assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-3"] [data-select-tag="tag-entry-4"]').count(), 1);
+    assert.equal(savedTagEntries.filter(entry => entry.group_id === "tag-group-3").length, 1);
+    await tagPage.locator("#generate-anima-prompt").fill("portrait");
+    await tagPage.locator("#generate-negative").fill("[ACTION]");
+    await tagPage.locator('[data-clear-visible-tag-group="tag-group-1"]').click();
+    assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-1"]').count(), 1);
+    assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-2"]').count(), 0);
+    await tagPage.locator('[data-select-tag="tag-entry-1"]').check();
+    const negativeCharacterGroup = tagPage.locator('[data-tag-group-open="tag-group-2"]');
+    if (!(await negativeCharacterGroup.evaluate(details => details.open))) await negativeCharacterGroup.locator("summary").click();
+    await tagPage.locator('[data-select-tag="tag-entry-2"]').check();
+    await Promise.all([
+      tagPage.waitForResponse(response => response.url().endsWith("/api/prompts/preview")),
+      tagPage.locator("#preview-button").click(),
+    ]);
+    assert.deepEqual(tagPreviewRequests.at(-1).body, { prompt: "portrait", negative: "[ACTION]" });
+    assert.deepEqual(tagPreviewRequests.at(-1).selected_tag_ids, ["tag-entry-1", "tag-entry-2"]);
+    await tagPage.locator(".preview-negative").waitFor();
+    assert.match(await tagPage.locator(".preview-negative").textContent(), /Negative Prompt.*몬스터 공격.*character A, attacking monster/s);
+    const previousMockJobIndex = savedJobs.findIndex(job => job.job_id === "test-job");
+    if (previousMockJobIndex >= 0) savedJobs.splice(previousMockJobIndex, 1);
+    await tagPage.locator("#submit-button").click();
+    await tagPage.waitForFunction(() => document.getElementById("submit-button").disabled === false);
+    assert.deepEqual(batchSubmissions.at(-1).body, { prompt: "portrait", negative: "[ACTION]" });
+    assert.deepEqual(batchSubmissions.at(-1).selected_tag_ids, ["tag-entry-1", "tag-entry-2"]);
+    await tagPage.locator('.sidebar [data-view="jobs"]').click();
+    const negativeJobDetails = tagPage.locator('[data-job-details="test-job"]');
+    await negativeJobDetails.waitFor();
+    const negativeJobCard = negativeJobDetails.locator("..");
+    assert.equal(await negativeJobCard.locator(".job-original-prompt").textContent(), "입력 Prompt portrait");
+    assert.equal(await negativeJobCard.locator(".job-original-negative-prompt").textContent(), "입력 Negative Prompt [ACTION]");
+    if (!(await negativeJobDetails.evaluate(details => details.open))) await negativeJobDetails.locator("summary").click();
+    assert.match(await negativeJobDetails.locator(".job-request").last().textContent(), /Negative Prompt character A, attacking monster/);
+    assert.match(await negativeJobDetails.locator(".job-request").last().textContent(), /Negative 태그 경로 몬스터 공격 → 1인 a/);
+    await tagPage.screenshot({ path: path.join(screenshotDirectory, "negative-tag-job-desktop.png"), fullPage: true });
     assert.deepEqual(tagPageErrors, []);
     await tagPage.close();
+    await verifyJobLoraDisplay(browser);
     assert.deepEqual(pageErrors, []);
     console.log("Passed: LoRA presets, grouped jobs, tag groups and selection, mobile layout.");
   } finally {

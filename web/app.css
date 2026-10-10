@@ -175,6 +175,9 @@ button:disabled {
   margin: 0;
   font-size: 13px;
 }
+.tag-entry-section-intro {
+  margin-top: 32px;
+}
 .view {
   animation: show 0.2s ease;
 }
@@ -313,6 +316,23 @@ input[type="file"] {
   background: #4b2934;
   color: #ffced4;
   border-color: #76404d;
+}
+.button.job-restore {
+  background: #273f69;
+  color: #d5e8ff;
+  border-color: #507ab2;
+}
+.button.job-protected {
+  background: #493b25;
+  color: #ffe0a3;
+  border-color: #806844;
+}
+.job-protection-badge {
+  display: inline-block;
+  margin-left: 6px;
+  color: #ffe0a3;
+  font-size: 12px;
+  font-weight: 700;
 }
 .button.subtle {
   background: #1c2939;
@@ -504,6 +524,9 @@ input[type="file"] {
   margin-bottom: 6px;
   color: #8fdbca;
 }
+.preview-negative {
+  margin-top: 12px;
+}
 .notice {
   position: fixed;
   right: 24px;
@@ -532,9 +555,50 @@ input[type="file"] {
   border: 1px solid #2b3447;
   border-radius: 14px;
 }
+
+#jobs-loading-status {
+  min-height: 1.4em;
+}
 .job-card h3 {
   margin: 0 0 5px;
   font-size: 14px;
+}
+.jobs-selection-toolbar,
+.job-selection-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.jobs-selection-toolbar {
+  flex-wrap: wrap;
+  margin-bottom: 15px;
+}
+.jobs-selection-toolbar > button {
+  flex-shrink: 0;
+}
+.jobs-selection-toolbar .inline-actions {
+  flex: 1;
+}
+.job-selection-heading {
+  min-width: 0;
+}
+.job-selection-heading > div {
+  min-width: 0;
+}
+.job-selection-heading h3 {
+  overflow-wrap: anywhere;
+}
+.job-selection-checkbox {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: #85d9c2;
+  cursor: pointer;
+}
+.job-selection-checkbox:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .job-card p {
   margin: 0;
@@ -550,6 +614,7 @@ input[type="file"] {
 .job-card .job-detail {
   grid-column: 1/-1;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   color: #b4bed2;
   font-size: 12px;
 }

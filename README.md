@@ -4,35 +4,25 @@ ComfyUI API에 Anima 이미지와 DaSiWa MiniMax H3 영상을 bulk로 제출하�
 
 ## Docker Compose 실행
 
-Docker Desktop의 Linux container를 사용합니다. `.env.example`을 `.env`로 복사하고 `COMFY_MANAGED_OUTPUT_DIRECTORY`를 Windows의 ComfyUI `output/from_home_server` 절대 경로로 설정하세요. `.env`는 Git에서 제외됩니다. `config.toml`의 비밀번호와 로컬 실행 설정은 그대로 사용하고, 컨테이너 안에서만 ComfyUI 주소와 output 경로를 환경변수로 바꿉니다.
+앱 서버는 Docker Compose로 실행합니다. Docker Desktop의 Linux container를 사용합니다. `.env.example`을 `.env`로 복사하고 `COMFY_MANAGED_OUTPUT_DIRECTORY`를 Windows의 ComfyUI `output/from_home_server` 절대 경로로 설정하세요. `.env`는 Git에서 제외됩니다. `config.toml`의 비밀번호와 앱 설정은 그대로 사용하고, 컨테이너 안에서만 ComfyUI 주소와 output 경로를 환경변수로 바꿉니다.
 
 ```powershell
 Copy-Item .env.example .env
 # .env의 COMFY_MANAGED_OUTPUT_DIRECTORY를 실제 경로로 수정
-docker compose up -d --build
-docker compose ps
-docker compose logs -f home-server
+.\run_compose.ps1 up
+docker compose -f .\compose.yaml ps
+docker compose -f .\compose.yaml logs -f home-server
+# 종료
+.\run_compose.ps1 down
 ```
 
-`home_server/`, `web/`, `data/workflows/`, `config.toml`은 읽기 전용으로 mount합니다. `runtime/`과 ComfyUI의 `output/from_home_server`만 쓰기 가능하며 기존 SQLite DB와 로그를 계속 사용합니다. Python 코드 변경은 컨테이너 안의 Uvicorn reload가 감지합니다. `web/` 변경은 브라우저 새로고침으로 반영되고, workflow JSON은 작업 제출 시 다시 읽습니다. 의존성 변경은 `docker compose up -d --build`, `config.toml` 변경은 `docker compose restart home-server`로 반영하세요.
+`run_compose.ps1 up`은 스크립트 위치의 `compose.yaml`을 절대 경로로 지정하여 `docker compose --project-directory <프로젝트 경로> -f <compose.yaml 경로> up -d --build`를 실행합니다. Image를 build한 뒤 백그라운드로 시작하며, 명령을 생략해도 `up`으로 실행합니다. 다른 폴더에서 스크립트를 실행해도 프로젝트의 `.env`와 상대 경로를 사용합니다. `runtime/`은 없으면 준비하며, `down`은 컨테이너와 Compose network만 정리하고 DB·로그·생성물은 유지합니다.
+
+`home_server/`, `web/`, `data/workflows/`, `config.toml`은 읽기 전용으로 mount합니다. `runtime/`과 ComfyUI의 `output/from_home_server`만 쓰기 가능하며 기존 SQLite DB와 로그를 계속 사용합니다. Python 코드 변경은 컨테이너 안의 Uvicorn reload가 감지합니다. `web/` 변경은 브라우저 새로고침으로 반영되고, workflow JSON은 작업 제출 시 다시 읽습니다. 의존성 변경은 `.\run_compose.ps1 up`, `config.toml` 변경은 `docker compose -f .\compose.yaml restart home-server`로 반영하세요.
 
 reload 시 로그인 session이 초기화되고 제출 중인 작업이 중단될 수 있습니다.
 
-상태는 `docker compose ps`, 로그는 `docker compose logs -f home-server`, 종료는 `docker compose down`으로 관리합니다. Docker Desktop의 일반 bridge network와 `host.docker.internal:8188`로 Windows의 ComfyUI에 접속합니다.
-
-## Python 직접 실행
-
-Python 3.11 이상에서 실행합니다.
-
-PowerShell에서 다음 스크립트를 실행하면 `.venv`를 만들고 의존성을 설치한 뒤 서버를 시작합니다. 이후 `requirements.txt`가 변경되면 다음 실행 때 의존성을 다시 설치합니다.
-
-```powershell
-.\run_home_server.ps1
-```
-
-기본 실행은 `home_server/`의 Python 코드가 변경될 때 서버를 자동 재시작합니다. 자동 재시작 없이 실행하려면 `.\run_home_server.ps1 -NoReload`를 사용합니다. 수동 실행은 `python -m pip install -r requirements.txt` 후 `python -m home_server` 또는 `python -m home_server --reload`로 가능합니다. `web/` 파일은 브라우저를 새로고침하면 반영되고, workflow JSON은 요청할 때 다시 읽습니다. `config.toml` 변경 사항은 서버를 직접 재시작해야 합니다.
-
-자동 재시작 시 로그인 session이 초기화되며 제출 중인 작업이 중단될 수 있습니다. 상시 실행에는 `-NoReload`를 사용하세요.
+상태는 `docker compose -f .\compose.yaml ps`, 로그는 `docker compose -f .\compose.yaml logs -f home-server`, 종료는 `.\run_compose.ps1 down`으로 관리합니다. Docker Desktop의 일반 bridge network와 `host.docker.internal:8188`로 Windows의 ComfyUI에 접속합니다.
 
 브라우저에서 `http://localhost:8388`로 접속합니다. 설정은 프로젝트의 [config.toml](config.toml)에 있습니다. 기본 비밀번호는 설정 파일에 평문으로 저장되어 있습니다.
 
@@ -57,34 +47,69 @@ MiniMax H3는 wildcard 없이 평문 Prompt 하나를 입력하고, 브라우저
 
 Anima의 Workflow 옵션에서는 비율을 먼저 고른 뒤 해상도를 선택합니다. 기존 너비·높이 직접 입력은 비율의 `사용자 지정`에서 사용할 수 있습니다. 선택한 너비·높이는 각 요청의 설정과 작업 이력에 저장됩니다.
 
-Anima Prompt에는 `[SCENE]`처럼 대문자 태그 참조를 텍스트로 직접 적습니다. 생성 화면은 Prompt의 참조에 필요한 태그 항목만 그룹별로 표시합니다. `[SCENE]` 항목을 선택하면 그 본문에 적힌 `[CHR]` 등의 종속 참조가 나타납니다. 그룹마다 기본 펼침·접힘 상태를 지정하며 접힌 그룹도 열어서 선택할 수 있습니다. 각 참조 위치에서는 체크된 동일 태그의 항목 하나를 weight에 따라 선택합니다. 참조는 여러 단계를 거칠 수 있고 같은 태그가 두 번 나오면 각각 독립적으로 선택하므로 같은 항목이 반복될 수 있습니다. 제출 전에 누락된 선택지와 참조 cycle을 검사하고, 모든 태그와 wildcard를 확정한 Prompt를 ComfyUI에 전달합니다. 요청 횟수만큼 독립적으로 추첨하므로 가능한 모든 조합을 한 번씩 생성하는 방식은 아닙니다.
+Anima Prompt와 Negative Prompt에는 `[SCENE]`처럼 대문자 태그 참조를 텍스트로 직접 적습니다. 참조 태그는 개별 항목이 아닌 그룹에서 설정하며 여러 그룹이 같은 참조 태그를 가질 수 있습니다. 생성 화면은 두 Prompt의 참조 태그를 가진 그룹을 모두 찾고 각 그룹의 하위 항목을 전부 표시합니다. `[SCENE]` 항목을 선택하면 그 본문에 적힌 `[CHR]` 등의 종속 참조를 가진 그룹도 나타납니다. 그룹마다 기본 펼침·접힘 상태를 지정하며 접힌 그룹도 열어서 선택할 수 있습니다. 각 참조 위치에서는 같은 참조 태그의 여러 그룹에서 체크된 항목을 하나의 후보 집합으로 묶고, 항목 하나를 기존 weight에 따라 선택합니다. 참조는 여러 단계를 거칠 수 있고 같은 태그가 두 번 나오면 각각 독립적으로 선택하므로 같은 항목이 반복될 수 있습니다. Positive와 Negative에 같은 참조를 적어도 각각 독립적으로 추첨합니다. 제출 전에 두 Prompt의 누락된 선택지와 참조 cycle을 검사하고, 모든 태그와 wildcard를 확정한 두 Prompt를 ComfyUI에 전달합니다. 미리보기와 작업 세부에는 확정된 Negative Prompt와 별도의 태그 선택 경로도 표시합니다. 요청 횟수만큼 독립적으로 추첨하므로 가능한 모든 조합을 한 번씩 생성하는 방식은 아닙니다.
 
 생성 화면과 태그 관리 화면의 그룹은 한국어 이름순으로, 그룹 안의 태그 항목은 화면 이름순으로 표시합니다. 숫자가 포함된 이름은 자연스러운 숫자 순서로 정렬합니다.
 
 생성 화면의 각 그룹에는 현재 표시된 태그 항목을 한 번에 선택하거나 해제하는 버튼이 있습니다. 아직 Prompt 참조에서 필요하지 않아 숨겨진 항목은 일괄선택에 포함되지 않습니다.
 
-Anima Prompt preset 버전에는 Prompt 본문과 Negative Prompt만 저장합니다. 태그 항목은 별도 DB에서 관리하며 생성할 때 현재 정의를 사용합니다. 제출한 작업에는 그 시점의 태그 정의, 선택 경로와 확정 Prompt가 남습니다. 기존 `Anima onepiece`의 최신 상황 두 개는 Prompt 본문의 `[SCENE]` 참조, 공통 SCENE 항목과 두 CHR 선택지로 옮겼습니다.
+Anima Prompt preset 버전에는 Prompt 본문과 Negative Prompt만 저장합니다. 태그 그룹과 항목은 별도 DB에서 관리하며 생성할 때 현재 정의를 사용합니다. 항목은 소속 그룹의 참조 태그를 따르므로 그룹의 참조 태그를 바꾸거나 항목을 다른 그룹으로 이동하면 다음 생성부터 적용됩니다. 제출한 작업에는 그 시점의 그룹 참조와 태그 정의, 선택 경로 및 확정 Prompt가 남으며 이후 편집의 영향을 받지 않습니다. 기존 `Anima onepiece`의 최신 상황 두 개는 Prompt 본문의 `[SCENE]` 참조, 공통 SCENE 항목과 두 CHR 선택지로 옮겼습니다.
 
 작업 화면에서는 한 번의 제출을 하나의 작업으로 표시합니다. 펼치면 개별 요청을 확인할 수 있고, 작업 결과 보기에서는 완료된 요청의 결과를 함께 보여줍니다. 일부 요청만 완료되거나 실패하면 진행 건수와 `일부 완료` 상태가 표시됩니다.
 
-작업 요약에는 제출 시간·요청 설정의 비율·해상도·완료 장수를 순서대로 표시하고, 하위 요청에는 확정 Prompt와 선택한 LoRA 이름을 표시합니다. 설정이 없는 이전 이력은 비율과 해상도를 `—`로 표시합니다.
+작업 요약에는 제출 시간·요청 설정의 비율·해상도·완료 장수·LoRA 조합을 순서대로 표시합니다. 원본 그대로 사용한 조합은 제출 당시 preset명, 직접 구성하거나 preset을 수정한 조합은 `custom`, LoRA를 사용하지 않은 작업은 `lora없음`으로 표시합니다. 기존 이력에서 preset 출처가 저장되지 않은 LoRA 조합도 `custom`으로 표시합니다. 하위 요청에는 확정 Prompt와 실제 LoRA 파일별 STR을 표시합니다. Preset명은 표시용으로만 추가 저장하며, 생성은 기존처럼 작업에 저장된 LoRA 파일 목록과 강도를 사용하므로 이후 preset 수정·삭제의 영향을 받지 않습니다. 설정이 없는 이전 이력은 비율과 해상도를 `—`로 표시합니다.
 
 결과물 목록의 `작업` 버튼은 원래 생성 경로와 이력이 일치하는 파일에만 표시합니다. 누르면 작업 탭에서 해당 작업 한 건만 보여주며, `전체 작업 보기`로 필터를 해제할 수 있습니다. 이력이 삭제되거나 파일이 원래 위치에서 이동된 경우에는 버튼을 표시하지 않습니다.
 
+작업 카드에는 제출 시 입력한 원본 `입력 Prompt`와 내용이 있는 경우 `입력 Negative Prompt`를 펼치지 않고 표시합니다. `[TAG]` 참조와 줄바꿈을 포함한 원문을 그대로 보여 주며, 원본이 저장되지 않은 이전 이력은 `기록 없음`으로 표시합니다. 하위 요청을 펼치면 기존처럼 각 요청에서 태그와 wildcard를 치환한 확정 Prompt·Negative Prompt와 태그 선택 경로를 확인할 수 있습니다.
+
+작업 카드의 `생성 탭에서 복원`은 상위 작업 단위로 Workflow·원본 Prompt·Negative Prompt·LoRA 파일과 강도·Workflow 옵션·요청 횟수·작업 설명을 생성 탭에 채웁니다. 자동 제출하지 않으며 태그 추첨 결과·wildcard 선택·random seed는 복원하지 않습니다.
+
+태그는 제출 당시 체크한 항목 중 현재 존재하고 현재 Prompt 참조에서 체크 가능한 항목만 선택하며, 변경된 본문·weight·그룹 참조는 현재 정의를 사용합니다. 삭제된 항목은 되살리지 않으며 필요한 선택지가 없으면 기존 제출 검증에서 안내합니다.
+
+Prompt·LoRA preset은 기록된 ID의 현재 구성이 제출 당시 입력과 같을 때만 선택하고, 변경·삭제된 preset은 `직접 작성`·`직접 구성`으로 복원합니다. Preset ID가 없는 이전 이력은 같은 본문의 현재 Prompt preset이 하나일 때만 연결하며, LoRA는 같은 이름의 현재 preset이 하나이고 구성도 같을 때만 연결합니다. 후보가 여러 개이거나 일치하지 않으면 직접 작성·직접 구성으로 복원합니다.
+
+MiniMax 입력 이미지는 비워 두므로 다시 선택해야 합니다. 원본 Prompt 기록이 없는 이력은 복원할 수 없습니다.
+
 결과물 크기는 용량 뒤에 비율·해상도로 표시합니다. 이미지는 파일의 실제 크기를 읽고, 영상은 연결된 요청의 설정값을 `(설정)`으로 표시합니다. 크기를 확인할 수 없는 파일은 `—`로 표시합니다.
 
-생성 화면에서 선택적인 한 줄 작업 설명을 입력할 수 있으며 작업 목록에 표시됩니다. 대기·실행 중인 작업은 전체 또는 하위 요청별로 취소할 수 있습니다. 작업이 종료된 뒤에는 `이력만 삭제` 또는 `이력·결과물 삭제`를 선택합니다. 후자는 작업 history에 기록된 원래 생성 위치의 결과물만 삭제합니다. 이미 이동·삭제되어 없는 파일은 로그에 남기고 건너뛰며, 이동된 파일은 유지합니다.
+생성 화면에서 선택적인 한 줄 작업 설명을 입력할 수 있으며 작업 목록에 표시됩니다. 제출·대기·실행 중인 작업은 전체 또는 하위 요청별로 취소할 수 있습니다. 취소를 접수하면 아직 전송하지 않은 요청의 제출을 중단하며, 전송 중 뒤늦게 접수된 요청도 취소 대상으로 추적합니다. 취소 버튼과 진행 건수는 접수 즉시 표시하고, ComfyUI의 실제 취소 확인은 백그라운드에서 진행합니다. 전송 실패는 자동 재시도하며 작업 카드에 실패 건수와 재시도 버튼을 표시합니다. ComfyUI에서 직접 제거되어 대기열·완료 기록에 모두 없는 요청은 일정 시간 재확인한 뒤 `중단`으로 표시합니다.
 
-결과물 목록은 24건씩 페이지 이동합니다. 이미지는 요청할 때 메모리에서 최대 384px WebP preview로 변환하며 별도 thumbnail 파일을 저장하지 않습니다. 영상은 목록에서 파일 정보만 표시하고 `열기`를 누를 때 원본을 불러옵니다. 결과물 탭 진입 또는 수동 새로고침 때 파일 목록을 다시 읽으며, 새로고침하면 첫 페이지로 돌아갑니다.
+작업 목록은 요약만 자동 조회하며 하위 요청 상세는 펼칠 때, 생성 입력은 복원할 때 별도로 불러옵니다. 진행 중인 조회가 끝나기 전에 다음 Polling을 시작하지 않고, 갱신 중이나 조회 실패 시 마지막 목록을 유지합니다. 다른 탭에서는 활성 작업 수만 조회합니다. 기존 후보 Snapshot은 SQLite에 그대로 보관합니다.
+
+작업이 종료된 뒤에는 `이력만 삭제` 또는 `이력·결과물 삭제`를 선택합니다. 후자는 작업 history에 기록된 원래 생성 위치의 결과물만 삭제합니다. 이미 이동·삭제되어 없는 파일은 로그에 남기고 건너뛰며, 이동된 파일은 유지합니다.
+
+작업 화면의 `다중 삭제`를 누르면 각 작업 옆에 checkbox와 일괄 삭제 버튼이 나타납니다. `현재 페이지 선택`은 해당 페이지의 삭제 가능한 작업을 선택하고, `작업 전체 선택`은 현재 목록의 모든 페이지에서 삭제 가능한 작업을 한 번에 선택합니다. 작업 한 건만 표시하는 필터가 적용된 경우에는 그 필터 범위만 선택합니다. 진행 중이거나 삭제 보호된 작업은 제외됩니다. 같은 버튼을 다시 누르면 해당 범위의 선택을 해제합니다. 한 개 이상 선택하면 `선택된 이력만 삭제`와 `선택된 이력·결과물 삭제`가 활성화되고, 삭제 전 전체 선택 건수와 삭제 방식을 한 번 확인합니다. 자동 새로고침과 페이지 이동 중에도 선택을 유지하며, 작업 필터를 바꾸거나 `다중 삭제 취소`를 누르면 선택을 초기화합니다. 전체 선택 후 새로 생긴 작업은 자동으로 추가 선택하지 않습니다. 선택한 작업이 보호되거나 진행 중 상태가 되면 선택에서 제외합니다. 일부 삭제가 실패하면 성공·실패 건수를 표시하고, 여전히 삭제 가능한 실패 이력은 선택된 상태로 남깁니다.
+
+각 작업의 `삭제 보호` 버튼으로 테스트 결과 등 보존할 작업을 보호할 수 있습니다. 설정은 SQLite에 저장되어 새로고침과 서버 재시작 후에도 유지됩니다. 보호된 작업은 `삭제 보호됨`으로 표시하고 checkbox를 비활성화하며 개별 삭제 버튼도 숨깁니다. `보호 해제` 전에는 전체 선택과 이력·결과물 삭제에서도 제외됩니다. 삭제 API는 DB 잠금 안에서 보호 상태를 다시 검사하며, 보호된 작업의 파일은 삭제하지 않습니다. 보호 설정은 생성·취소·복원 기능에는 영향을 주지 않습니다.
+
+결과물 목록은 24건씩 페이지 이동합니다. 이미지는 최대 384px, quality 75의 WebP 썸네일로 변환하고 압축된 bytes만 메모리 LRU Cache에 보관합니다. 기본 최대 개수는 10,000개이며 원본·Bitmap·썸네일 파일은 저장하지 않습니다. 같은 이미지의 동시 조회는 변환 결과를 공유하고, 서로 다른 이미지의 변환은 동시에 최대 두 건만 수행합니다. 영상은 목록에서 파일 정보만 표시하고 `열기`를 누를 때 원본을 불러옵니다. 결과물 탭 진입 또는 수동 새로고침 때 파일 목록을 다시 읽으며, 새로고침하면 첫 페이지로 돌아갑니다.
+
+`config.toml`의 `[outputs]`에서 Cache 개수와 기동 시 백그라운드 채우기를 설정합니다. 설정 변경 후 서버를 재기동하세요.
+
+```toml
+[outputs]
+thumbnail_cache_max_entries = 10000
+thumbnail_cache_warmup_enabled = false
+```
+
+백그라운드 채우기는 개발 중 반복 재기동 비용을 줄이도록 기본적으로 꺼져 있습니다. `true`로 켜면 기동 직후 별도 Thread에서 최신 이미지부터 최대 설정 개수까지만 채우며, 서비스 준비 완료를 기다리게 하지 않습니다. 기존 이미지 전체의 파일 정보를 탐색한 뒤 한 장씩 원본을 읽고 변환합니다. 생성 사이에 50ms씩 대기하며, 사용자가 조회한 썸네일을 백그라운드 작업 때문에 퇴출하지 않습니다. 메모리에만 보관하므로 썸네일을 SSD에 쓰지 않지만 재기동마다 원본 읽기와 CPU 변환 비용은 다시 발생합니다. 파일 존재·관리 경로·수정 시간·크기는 요청마다 확인하여 외부 삭제·이동·변경을 반영하며, 변경 없이 재시작한 경우에도 메모리 Cache는 새로 만들어집니다. [Cache 동작과 검증](docs/thumbnail_cache.md)을 참고하세요.
 
 ## 저장 위치
 
 - Prompt, LoRA 조합, 작업 기록 SQLite, 임시 upload: 프로젝트의 `runtime/`
 - 앱 로그: `runtime/logs/home_server.log` (5 MB마다 회전, 이전 로그 5개 보관). 콘솔에도 출력합니다.
+- DB·파일 처리와 큰 응답의 최종 JSON 직렬화는 Worker Thread에서 수행하고, 로그 출력은 별도 Queue Listener Thread에서 처리합니다. [Event Loop 처리·동시 요청 검증](docs/event_loop_processing.md)을 참고하세요.
 - Workflow 원본: 프로젝트의 `data/workflows/`
 - 생성물: `config.toml`의 `comfy.output_directory` 아래 `comfy.managed_output_folder`
 
 작업 계층 DB 전환은 시작할 때 한 번 수행합니다. 기존 요청 단위 작업 기록은 초기화되지만 Prompt preset·버전과 LoRA 기본값·조합 preset, 생성물 파일은 유지됩니다.
+
+참조 태그의 그룹 전환은 DB schema version 4에서 5로 자동 migration합니다. 변경 전에 SQLite backup API로 일관된 DB 복사본을 `runtime/backups/`에 저장하고 무결성을 확인합니다. 그룹 안의 기존 항목에서 공통 참조 태그를 옮기며 항목 ID·내용·weight와 기존 설정·작업 이력은 보존합니다. 비어 있는 기존 그룹은 참조 태그를 추론할 수 없어 비워 두므로 그룹 편집에서 설정해 주세요. 한 그룹에 서로 다른 참조 태그가 있으면 임의로 선택하지 않고 migration을 중단합니다.
+
+DB schema version 6에서는 기존 작업과 설정을 유지하면서 작업별 삭제 보호 column을 추가합니다. 기존 작업은 보호 해제 상태로 시작하며 각 작업에서 보호를 설정할 수 있습니다.
+
+DB schema version 9에서는 작업 공통 입력·체크한 태그 후보를 `job_inputs`에 작업당 한 번 저장하고, 개별 확정 Prompt·선택 경로·Seed·결과물 경로는 `request_results`에 요청당 한 번 저장합니다. 이전 모든 요청을 자동 Migration한 뒤 기존 Snapshot 테이블·column을 제거하며, 이후 조회는 새 구조만 사용합니다. Migration 전 백업을 `runtime/backups/`에 보관합니다. 하위 상세에서는 후보 데이터를 읽지 않고, 생성 탭 복원에서만 작업 공통 후보를 가져옵니다. [구조·Migration 검증](docs/job_request_storage_split.md)에 설명했습니다.
 
 생성물은 `{workflow}/{YYMMDD_HHmmss}_{seed}.{확장자}`를 기본으로 저장합니다. 예: `anima/261006_153012_123456789.png`. Anima는 `%time_%seed`, MiniMax는 `%date:yyMMdd_HHmmss%_%seed%` 예약어를 사용하며, MiniMax Saver에도 sampling과 동일한 seed 출력을 연결합니다. 시각은 ComfyUI Saver 실행 시점의 로컬 시간이고, 영상은 encoding 시작 직전입니다. Saver가 붙이는 counter나 `_audio` 접미사는 그대로 유지하며 앱에서 파일명을 후처리하지 않습니다. 작업의 결과 보기는 ComfyUI history의 실제 출력 파일명을 사용합니다. 기존 결과물도 계속 조회할 수 있으며, 목록은 앱이 열릴 때와 새로고침할 때 실제 폴더를 다시 읽습니다. 앱이 미완료 요청을 재시작 후 자동 재제출하지 않습니다.
 
@@ -100,4 +125,7 @@ API 테스트는 `python -m pytest -q`로 실행합니다. LoRA 조합의 browse
 npm install --prefix runtime/browser-check --no-package-lock --no-audit --no-fund playwright
 $env:NODE_PATH = (Resolve-Path runtime/browser-check/node_modules).Path
 node tests/browser_lora_presets.cjs
+node tests/browser_job_deletion.cjs
+node tests/browser_job_restoration.cjs
+node tests/browser_job_performance.cjs
 ```

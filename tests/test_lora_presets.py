@@ -1,5 +1,7 @@
 """LoRA 조합의 인증, snapshot 보존, 저장 검증과 실제 제출 입력을 확인합니다."""
 
+import asyncio
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -150,9 +152,9 @@ def test_lora_presets_keep_workflow_weights_and_submit_snapshot(lora_preset_clie
         "name": "Portrait", "workflow": "anima",
         "loras": [{"name": "second.safetensors", "strength": 0.6, "clip_strength": 0.35}],
     }).json()
-    tag_group = client.post("/api/tags/groups", json={"name": "Scenes"}).json()
+    tag_group = client.post("/api/tags/groups", json={"name": "Scenes", "tag_key": "SCENE"}).json()
     scene_tag = client.post("/api/tags/entries", json={
-        "group_id": tag_group["group_id"], "tag_key": "SCENE", "name": "Portrait",
+        "group_id": tag_group["group_id"], "name": "Portrait",
         "content": "subject", "weight": 1,
     }).json()
     response = client.post("/api/batches", json={
@@ -173,3 +175,88 @@ def test_lora_presets_keep_workflow_weights_and_submit_snapshot(lora_preset_clie
         "workflow": "anima", "body": {"prompt": "portrait, [SCENE]"}, "loras": anima_preset["loras"],
         "selected_tag_ids": [scene_tag["tag_id"]],
     }).status_code == 422
+
+
+def test_preset_name_is_display_only_and_generation_uses_saved_weights(lora_preset_client) -> None:
+    """Preset 수정·삭제 후에도 원본 입력·복원용 ID를 보존하고 저장한 강도로 생성합니다."""
+
+    client, application, comfy_client = lora_preset_client
+    client.post("/api/login", json={"password": "test-password"})
+    original_loras = [
+        {"name": "first.safetensors", "strength": 0.65, "clip_strength": 0.4},
+        {"name": "second.safetensors", "strength": -0.2, "clip_strength": 0},
+    ]
+    saved_preset = client.post("/api/loras/presets", json={
+        "name": "Original preset", "workflow": "anima", "loras": original_loras,
+    }).json()
+    saved_prompt_preset = client.post("/api/presets", json={
+        "name": "Original prompt", "workflow": "anima", "body": {"prompt": "portrait"},
+    }).json()
+    release_submission = threading.Event()
+
+    async def wait_for_preset_edit(prompt: str, seed: int) -> str:
+        """실제 workflow 구성 전에 preset 변경과 삭제를 수행할 시간을 확보합니다."""
+
+        while not release_submission.is_set():
+            await asyncio.sleep(0.01)
+        return prompt
+
+    comfy_client.populate_wildcards = wait_for_preset_edit
+    try:
+        response = client.post("/api/batches", json={
+            "workflow": "anima", "body": {"prompt": "portrait"}, "count": 2,
+            "loras": original_loras, "lora_preset_name": saved_preset["name"],
+            "prompt_preset_id": saved_prompt_preset["preset_id"], "lora_preset_id": saved_preset["preset_id"],
+        })
+        assert response.status_code == 200
+        job_identifier = response.json()["job_id"]
+        assert comfy_client.submissions == []
+        assert client.put(f"/api/loras/presets/{saved_preset['preset_id']}", json={
+            "name": "Changed preset", "workflow": "anima",
+            "loras": [{"name": "first.safetensors", "strength": 0.95, "clip_strength": 0.8}],
+        }).status_code == 200
+        assert client.delete(f"/api/loras/presets/{saved_preset['preset_id']}").status_code == 200
+        assert client.post("/api/presets", json={
+            "preset_id": saved_prompt_preset["preset_id"], "name": "Changed prompt", "workflow": "anima",
+            "body": {"prompt": "changed portrait"},
+        }).status_code == 200
+    finally:
+        release_submission.set()
+    for attempt_index in range(30):
+        if len(comfy_client.submissions) == 2:
+            break
+        time.sleep(0.05)
+    assert len(comfy_client.submissions) == 2
+    for submitted_workflow in comfy_client.submissions:
+        applied_loras = submitted_workflow["5"]["inputs"]["loras"]["__value__"]
+        assert [(lora["name"], lora["strength"], lora["clipStrength"]) for lora in applied_loras] == [
+            ("first.safetensors", 0.65, 0.4), ("second.safetensors", -0.2, 0),
+        ]
+    job = client.get("/api/jobs", params={"job_id": job_identifier}).json()["items"][0]
+    assert job["inputs"]["loras"] == original_loras
+    assert job["inputs"]["lora_preset_name"] == "Original preset"
+    assert job["inputs"]["body"] == {"prompt": "portrait"}
+    assert job["inputs"]["prompt_preset_id"] == saved_prompt_preset["preset_id"]
+    assert job["inputs"]["lora_preset_id"] == saved_preset["preset_id"]
+    assert Database(application.state.home_server.database.database_path).get_job(job_identifier)["inputs"]["lora_preset_name"] == "Original preset"
+
+
+@pytest.mark.parametrize("selected_loras,preset_name", [
+    ([], "Unused preset"),
+    ([{"name": "first.safetensors", "strength": 0, "clip_strength": -0.2}], None),
+])
+def test_custom_and_empty_lora_selections_keep_actual_configuration(
+    lora_preset_client, selected_loras: list[dict], preset_name: str | None,
+) -> None:
+    """직접 구성한 강도는 그대로 저장하고 LoRA가 없는 요청에는 preset명을 남기지 않습니다."""
+
+    client, application, comfy_client = lora_preset_client
+    client.post("/api/login", json={"password": "test-password"})
+    response = client.post("/api/batches", json={
+        "workflow": "anima", "body": {"prompt": "portrait"},
+        "loras": selected_loras, "lora_preset_name": preset_name,
+    })
+    assert response.status_code == 200
+    job = application.state.home_server.database.get_job(response.json()["job_id"])
+    assert job["inputs"]["loras"] == selected_loras
+    assert job["inputs"]["lora_preset_name"] is None
