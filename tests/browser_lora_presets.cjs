@@ -165,12 +165,12 @@ async function handleBrowserRequest(route) {
     savedJobs.push({
       job_id: "test-job", workflow: "anima", description: submission.description, request_count: 2,
       created_at: "2026-10-07", status: "pending", status_counts: { pending: 1, completed: 1 },
+      inputs: { body: submission.body, settings: submission.settings, loras: submission.loras, lora_preset_name: loraPresetName },
       requests: [
         { request_id: "request-1", request_index: 1, prompt_id: "prompt-1", status: "pending",
-          detail: { body: submission.body, settings: submission.settings, loras: submission.loras, lora_preset_name: loraPresetName } },
+          result: {} },
         { request_id: "request-2", request_index: 2, prompt_id: "prompt-2", status: "completed",
-          detail: { body: submission.body, settings: submission.settings, loras: submission.loras, lora_preset_name: loraPresetName,
-            resolved: { prompt: "portrait", negative: resolvedNegative, negative_selected_path: negativeSelectedPath } } },
+          result: { prompt: "portrait", negative: resolvedNegative, negative_selected_path: negativeSelectedPath } },
       ],
     });
   } else if (requestPath === "/api/requests/request-1/cancel") {
@@ -246,7 +246,7 @@ async function verifyJobLoraDisplay(browser) {
   }
 
   const longLoraFilename = `${"long_lora_name_".repeat(20)}.safetensors`;
-  savedJobs[0].requests[0].detail = {
+  savedJobs[0].inputs = {
     loras: [{ name: longLoraFilename }, { name: "zero.safetensors", strength: 0 }, { name: "negative.safetensors", strength: -0.2 }],
   };
   await page.locator('.sidebar [data-view="generate"]').click();
@@ -264,8 +264,8 @@ async function verifyJobLoraDisplay(browser) {
   await page.screenshot({ path: path.join(screenshotDirectory, "job-lora-summary-mobile.png"), fullPage: true });
   const originalPrompt = `[ACTION]\n<div data-unwanted-prompt>입력한 원본</div>\n${"long_prompt_text_".repeat(40)}`;
   const originalNegative = "[AVOID]\nlow quality";
-  savedJobs[0].requests[0].detail.body = { prompt: originalPrompt, negative: originalNegative };
-  savedJobs[0].requests[0].detail.resolved = { prompt: "tag resolved final text", negative: "negative resolved final text" };
+  savedJobs[0].inputs.body = { prompt: originalPrompt, negative: originalNegative };
+  savedJobs[0].requests[0].result = { prompt: "tag resolved final text", negative: "negative resolved final text" };
   await page.waitForFunction(() => document.querySelector(".job-original-prompt")?.textContent.includes("[ACTION]"));
   assert.equal(await page.locator(".job-original-prompt").textContent(), `입력 Prompt ${originalPrompt}`);
   assert.equal(await page.locator(".job-original-negative-prompt").textContent(), `입력 Negative Prompt ${originalNegative}`);
@@ -469,9 +469,10 @@ async function main() {
       savedJobs.push({
         job_id: `old-job-${jobNumber}`, workflow: "anima", description: `이전 작업 ${jobNumber}`,
         request_count: 1, created_at: "2026-10-06", status: "completed",
+        inputs: {},
         status_counts: { completed: 1 }, requests: [{
           request_id: `old-request-${jobNumber}`, request_index: 1,
-          prompt_id: `old-prompt-${jobNumber}`, status: "completed", detail: {},
+          prompt_id: `old-prompt-${jobNumber}`, status: "completed", result: {},
         }],
       });
     }

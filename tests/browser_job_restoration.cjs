@@ -39,37 +39,34 @@ function createRestorationFixtures() {
   const animaJob = {
     job_id: "anima-job", workflow: "anima", description: "상위 작업 설명", request_count: 4,
     created_at: "2026-10-10", status: "completed", status_counts: { completed: 4 },
-    requests: [],
+    inputs: { ...animaDetail, resolved: undefined }, requests: [],
   };
   for (let requestIndex = 1; requestIndex <= 4; requestIndex += 1) {
     animaJob.requests.push({ request_id: `anima-request-${requestIndex}`, request_index: requestIndex,
-      status: "completed", prompt_id: `anima-prompt-${requestIndex}`, detail: structuredClone(animaDetail) });
+      status: "completed", prompt_id: `anima-prompt-${requestIndex}`, result: structuredClone(animaDetail.resolved) });
   }
   const minimaxJob = {
     job_id: "minimax-job", workflow: "minimax_h3", description: "영상 설명", request_count: 2,
-    created_at: "2026-10-10", status: "completed", status_counts: { completed: 2 }, requests: [],
+    created_at: "2026-10-10", status: "completed", status_counts: { completed: 2 },
+    inputs: {
+      body: { prompt: "plain video prompt" }, selected_tags: [],
+      prompt_preset_id: "video-prompt", lora_preset_id: "video-lora", lora_preset_name: "영상 조합",
+      loras: structuredClone(minimaxLoras),
+      settings: { width: 704, height: 512, duration: 3.5, frame_rate: 30, upscale_mode: "model", upscale_model_name: "saved-upscale.pth" },
+    }, requests: [],
   };
   for (let requestIndex = 1; requestIndex <= 2; requestIndex += 1) {
     minimaxJob.requests.push({ request_id: `video-request-${requestIndex}`, request_index: requestIndex,
-      status: "completed", detail: {
-        body: { prompt: "plain video prompt" }, selected_tags: [], upload_id: "removed-upload",
-        prompt_preset_id: "video-prompt", lora_preset_id: "video-lora", lora_preset_name: "영상 조합",
-        loras: structuredClone(minimaxLoras),
-        settings: { width: 704, height: 512, duration: 3.5, frame_rate: 30, upscale_mode: "model", upscale_model_name: "saved-upscale.pth" },
-      } });
+      status: "completed", upload_id: "removed-upload", result: {} });
   }
   const legacyJob = structuredClone(animaJob);
   legacyJob.job_id = "legacy-job";
-  for (const request of legacyJob.requests) {
-    delete request.detail.prompt_preset_id;
-    delete request.detail.lora_preset_id;
-    request.detail.settings = { width: 1000, height: 800, steps: 15, cfg: 0.9 };
-  }
+  delete legacyJob.inputs.prompt_preset_id;
+  delete legacyJob.inputs.lora_preset_id;
+  legacyJob.inputs.settings = { width: 1000, height: 800, steps: 15, cfg: 0.9 };
   const missingBodyJob = structuredClone(animaJob);
   missingBodyJob.job_id = "missing-body-job";
-  for (const request of missingBodyJob.requests) {
-    delete request.detail.body;
-  }
+  delete missingBodyJob.inputs.body;
   return {
     jobs: [animaJob, minimaxJob, legacyJob, missingBodyJob], tagGroups, tagEntries,
     promptPresets: [
@@ -189,7 +186,7 @@ async function main() {
     assert.equal(await browserPage.locator("#generate-anima-prompt").inputValue(), "[SCENE], {morning|evening}");
     assert.equal(await browserPage.locator('[data-select-tag="character-b"]').count(), 0);
 
-    fixtures.promptPresets[0].body = structuredClone(fixtures.jobs[0].requests[0].detail.body);
+    fixtures.promptPresets[0].body = structuredClone(fixtures.jobs[0].inputs.body);
     fixtures.loraPresets[0].loras[0].strength = 0.7;
     await restoreJobFromCard(browserPage, "legacy-job");
     assert.equal(await browserPage.locator("#generate-preset").inputValue(), "anima-prompt");

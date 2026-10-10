@@ -233,13 +233,12 @@ def test_preset_name_is_display_only_and_generation_uses_saved_weights(lora_pres
             ("first.safetensors", 0.65, 0.4), ("second.safetensors", -0.2, 0),
         ]
     job = client.get("/api/jobs", params={"job_id": job_identifier}).json()["items"][0]
-    for request in job["requests"]:
-        assert request["detail"]["loras"] == original_loras
-        assert request["detail"]["lora_preset_name"] == "Original preset"
-        assert request["detail"]["body"] == {"prompt": "portrait"}
-        assert request["detail"]["prompt_preset_id"] == saved_prompt_preset["preset_id"]
-        assert request["detail"]["lora_preset_id"] == saved_preset["preset_id"]
-    assert Database(application.state.home_server.database.database_path).get_job(job_identifier)["requests"][0]["detail"]["lora_preset_name"] == "Original preset"
+    assert job["inputs"]["loras"] == original_loras
+    assert job["inputs"]["lora_preset_name"] == "Original preset"
+    assert job["inputs"]["body"] == {"prompt": "portrait"}
+    assert job["inputs"]["prompt_preset_id"] == saved_prompt_preset["preset_id"]
+    assert job["inputs"]["lora_preset_id"] == saved_preset["preset_id"]
+    assert Database(application.state.home_server.database.database_path).get_job(job_identifier)["inputs"]["lora_preset_name"] == "Original preset"
 
 
 @pytest.mark.parametrize("selected_loras,preset_name", [
@@ -259,5 +258,5 @@ def test_custom_and_empty_lora_selections_keep_actual_configuration(
     })
     assert response.status_code == 200
     job = application.state.home_server.database.get_job(response.json()["job_id"])
-    assert job["requests"][0]["detail"]["loras"] == selected_loras
-    assert job["requests"][0]["detail"]["lora_preset_name"] is None
+    assert job["inputs"]["loras"] == selected_loras
+    assert job["inputs"]["lora_preset_name"] is None

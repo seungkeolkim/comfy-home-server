@@ -6,21 +6,21 @@ const { chromium } = require("playwright");
 
 const projectDirectory = path.resolve(__dirname, "..");
 
-/** 12개 작업에 각각 100개 하위 요청과 큰 후보 Snapshot을 준비합니다. */
+/** 12개 작업의 공통 입력과 각각 100개 하위 요청 확정 결과를 준비합니다. */
 function createLargeJobs() {
   const jobs = [];
   for (let jobIndex = 0; jobIndex < 12; jobIndex += 1) {
     const status = jobIndex === 0 ? "submitting" : "completed";
-    const detail = { body: { prompt: "portrait", negative: "blurry" }, settings: { width: 768, height: 1024 },
-      loras: [], selected_tags: [{ tag_id: "candidate", content: "long candidate ".repeat(1000) }] };
+    const inputs = { body: { prompt: "portrait", negative: "blurry" },
+      settings: { width: 768, height: 1024 }, loras: [] };
     const requests = [];
     for (let requestIndex = 1; requestIndex <= 100; requestIndex += 1) {
       requests.push({ request_id: `job-${jobIndex}-request-${requestIndex}`, request_index: requestIndex,
-        status, detail, created_at: "2026-10-10" });
+        status, result: { prompt: "final portrait", selected_path: [{ name: "chosen tag" }] }, created_at: "2026-10-10" });
     }
     jobs.push({ job_id: `job-${jobIndex}`, workflow: "anima", description: "100개 검증", request_count: 100,
       created_at: "2026-10-10", updated_at: "2026-10-10", status, status_counts: { [status]: 100 },
-      deletion_protected: false, cancellation_requested: false, requests });
+      deletion_protected: false, cancellation_requested: false, inputs, requests });
   }
   return jobs;
 }
@@ -57,7 +57,7 @@ function createPerformanceHandler(mockState) {
       const pageNumber = Number(requestUrl.searchParams.get("page") || 1);
       const pageJobs = mockState.jobs.slice((pageNumber - 1) * 10, pageNumber * 10);
       response = { items: pageJobs.map(job => ({ ...job, requests: undefined, summary: {
-        body: job.requests[0].detail.body, settings: job.requests[0].detail.settings, loras: [],
+        body: job.inputs.body, settings: job.inputs.settings, loras: [],
       } })), page: pageNumber, total: mockState.jobs.length,
       total_pages: Math.max(1, Math.ceil(mockState.jobs.length / 10)), active_count: 0 };
       await new Promise(resolve => setTimeout(resolve, 1500));

@@ -28,13 +28,11 @@ class Database:
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
             if schema_version == 4:
                 self._backup_before_group_tag_migration(connection)
-            elif schema_version in {5, 6, 7}:
-                request_columns = {column[1] for column in connection.execute("PRAGMA table_info(job_requests)")}
-                if "detail_json" in request_columns:
-                    self._backup_before_schema_change(connection, "request_details")
+            elif schema_version in {5, 6, 7, 8}:
+                self._backup_before_schema_change(connection, "job_request_storage")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -104,15 +102,21 @@ class Database:
             connection.execute("CREATE INDEX IF NOT EXISTS job_requests_job_id ON job_requests(job_id, request_index)")
             connection.execute("CREATE INDEX IF NOT EXISTS job_requests_status ON job_requests(status)")
             connection.execute(
-                """CREATE TABLE IF NOT EXISTS request_details (
-                    request_id TEXT PRIMARY KEY REFERENCES job_requests(request_id) ON DELETE CASCADE,
-                    detail_json TEXT NOT NULL
+                """CREATE TABLE IF NOT EXISTS job_inputs (
+                    job_id TEXT PRIMARY KEY REFERENCES jobs(job_id) ON DELETE CASCADE,
+                    input_json TEXT NOT NULL,
+                    selected_tags_json TEXT NOT NULL
                 )"""
             )
-            request_columns = {column[1] for column in connection.execute("PRAGMA table_info(job_requests)")}
-            if "detail_json" in request_columns:
-                connection.execute("INSERT INTO request_details SELECT request_id, detail_json FROM job_requests")
-                connection.execute("ALTER TABLE job_requests DROP COLUMN detail_json")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS request_results (
+                    request_id TEXT PRIMARY KEY REFERENCES job_requests(request_id) ON DELETE CASCADE,
+                    upload_id TEXT,
+                    result_json TEXT NOT NULL
+                )"""
+            )
+            if schema_version != 9:
+                self._migrate_job_request_storage(connection)
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS tag_groups (
                     group_id TEXT PRIMARY KEY,
@@ -136,7 +140,70 @@ class Database:
             )
             connection.execute("CREATE INDEX IF NOT EXISTS tag_entries_group ON tag_entries(group_id, created_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS tag_groups_key ON tag_groups(tag_key)")
-            connection.execute("PRAGMA user_version = 8")
+            connection.execute("PRAGMA user_version = 9")
+
+    def _separate_request_detail(
+        self, detail: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], str | None, dict[str, Any]]:
+        """제출 입력에서 공통 설정·후보와 요청별 이미지·확정 결과를 분리합니다."""
+
+        common_inputs = {}
+        for detail_key, detail_value in detail.items():
+            if detail_key not in {"selected_tags", "upload_id", "resolved"}:
+                common_inputs[detail_key] = detail_value
+        return common_inputs, detail.get("selected_tags", []), detail.get("upload_id"), detail.get("resolved", {})
+
+    def _migrate_job_request_storage(self, connection: sqlite3.Connection) -> None:
+        """이전 모든 요청을 새 구조로 옮긴 뒤 원래 Snapshot 저장소를 제거합니다."""
+
+        request_columns = {column[1] for column in connection.execute("PRAGMA table_info(job_requests)")}
+        legacy_details_exist = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'request_details'"
+        ).fetchone() is not None
+        if "detail_json" in request_columns:
+            detail_query = "SELECT request_id, detail_json FROM job_requests WHERE job_id = ? ORDER BY request_index"
+        elif legacy_details_exist:
+            detail_query = (
+                "SELECT request_id, detail_json FROM job_requests JOIN request_details USING (request_id) "
+                "WHERE job_id = ? ORDER BY request_index"
+            )
+        else:
+            return
+
+        migrated_request_count = 0
+        for job_row in connection.execute("SELECT job_id FROM jobs").fetchall():
+            job_inputs = None
+            selected_tags = []
+            for request_row in connection.execute(detail_query, (job_row["job_id"],)):
+                detail = json.loads(request_row["detail_json"])
+                common_inputs, candidate_tags, upload_id, resolved_result = self._separate_request_detail(detail)
+                if job_inputs is None:
+                    job_inputs = common_inputs
+                    selected_tags = candidate_tags
+                elif job_inputs != common_inputs or selected_tags != candidate_tags:
+                    raise ValueError(f"작업 내 공통 입력이 달라 Migration을 중단합니다: {job_row['job_id']}")
+                connection.execute(
+                    "INSERT INTO request_results (request_id, upload_id, result_json) VALUES (?, ?, ?)",
+                    (request_row["request_id"], upload_id, json.dumps(resolved_result, ensure_ascii=False)),
+                )
+                migrated_request_count += 1
+            connection.execute(
+                "INSERT INTO job_inputs (job_id, input_json, selected_tags_json) VALUES (?, ?, ?)",
+                (job_row["job_id"], json.dumps(job_inputs or {}, ensure_ascii=False),
+                 json.dumps(selected_tags, ensure_ascii=False)),
+            )
+        expected_request_count = connection.execute("SELECT COUNT(*) FROM job_requests").fetchone()[0]
+        if migrated_request_count != expected_request_count:
+            raise ValueError("상세가 누락된 요청이 있어 Migration을 중단합니다.")
+        if legacy_details_exist:
+            original_detail_count = connection.execute("SELECT COUNT(*) FROM request_details").fetchone()[0]
+            if original_detail_count != migrated_request_count:
+                raise ValueError("요청에 연결되지 않은 상세 Row가 있어 Migration을 중단합니다.")
+            connection.execute("DROP TABLE request_details")
+        if "detail_json" in request_columns:
+            connection.execute("ALTER TABLE job_requests DROP COLUMN detail_json")
+        if connection.execute("PRAGMA foreign_key_check").fetchall():
+            raise ValueError("Migration 이후 FK 무결성 검사에 실패했습니다.")
 
     def _backup_before_group_tag_migration(self, connection: sqlite3.Connection) -> None:
         """SQLite backup API로 schema 변경 전 일관된 복구용 DB를 보관합니다."""
@@ -409,15 +476,23 @@ class Database:
         }
 
     def add_job(self, job_id: str, workflow: str, description: str, requests: list[dict[str, Any]]) -> None:
-        """상위 작업과 모든 하위 요청을 하나의 transaction으로 저장합니다."""
+        """공통 입력은 작업당 한 번, 확정 결과는 요청별로 같은 transaction에 저장합니다."""
 
         timestamp = current_timestamp()
+        common_inputs, selected_tags, _, _ = self._separate_request_detail(requests[0]["detail"] if requests else {})
         with self._connect() as connection:
             connection.execute(
                 "INSERT INTO jobs (job_id, workflow, request_count, created_at, description) VALUES (?, ?, ?, ?, ?)",
                 (job_id, workflow, len(requests), timestamp, description),
             )
+            connection.execute(
+                "INSERT INTO job_inputs (job_id, input_json, selected_tags_json) VALUES (?, ?, ?)",
+                (job_id, json.dumps(common_inputs, ensure_ascii=False), json.dumps(selected_tags, ensure_ascii=False)),
+            )
             for request_index, request in enumerate(requests, start=1):
+                request_inputs, request_tags, upload_id, resolved_result = self._separate_request_detail(request["detail"])
+                if request_inputs != common_inputs or request_tags != selected_tags:
+                    raise ValueError("같은 작업의 모든 요청은 공통 입력과 태그 후보가 같아야 합니다.")
                 connection.execute(
                     "INSERT INTO job_requests "
                     "(request_id, job_id, request_index, prompt_id, status, output_stem, error_message, created_at, updated_at) "
@@ -429,8 +504,8 @@ class Database:
                     ),
                 )
                 connection.execute(
-                    "INSERT INTO request_details VALUES (?, ?)",
-                    (request["request_id"], json.dumps(request["detail"], ensure_ascii=False)),
+                    "INSERT INTO request_results (request_id, upload_id, result_json) VALUES (?, ?, ?)",
+                    (request["request_id"], upload_id, json.dumps(resolved_result, ensure_ascii=False)),
                 )
 
     def list_jobs(self, page: int = 1, page_size: int = 10, job_id: str = "") -> dict[str, Any]:
@@ -445,15 +520,16 @@ class Database:
                 "WHERE status IN ('submitting', 'pending', 'running', 'cancelling')"
             ).fetchone()[0]
             job_rows = connection.execute(
-                "SELECT * FROM jobs" + filter_clause + " ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                "SELECT jobs.*, job_inputs.input_json FROM jobs JOIN job_inputs USING (job_id)" + filter_clause
+                + " ORDER BY created_at DESC, jobs.rowid DESC LIMIT ? OFFSET ?",
                 (*filter_values, page_size, (page - 1) * page_size),
             ).fetchall()
             request_rows = []
             if job_rows:
                 placeholders = ",".join("?" for _ in job_rows)
                 request_rows = connection.execute(
-                    "SELECT job_requests.*, jobs.workflow, request_details.detail_json "
-                    "FROM job_requests JOIN jobs USING (job_id) JOIN request_details USING (request_id) "
+                    "SELECT job_requests.*, jobs.workflow, request_results.upload_id, request_results.result_json "
+                    "FROM job_requests JOIN jobs USING (job_id) JOIN request_results USING (request_id) "
                     f"WHERE job_requests.job_id IN ({placeholders}) ORDER BY request_index",
                     tuple(row["job_id"] for row in job_rows),
                 ).fetchall()
@@ -477,14 +553,15 @@ class Database:
             ).fetchone()[0]
 
     def list_job_summaries(self, page: int = 1, page_size: int = 10, job_id: str = "") -> dict[str, Any]:
-        """카드의 공통 입력과 상태 집계만 읽고 하위 요청의 Snapshot은 전송하지 않습니다."""
+        """공통 입력과 상태 집계만 읽으며 선택 후보 JSON은 읽지 않습니다."""
 
         filter_clause = " WHERE job_id = ?" if job_id else ""
         filter_values = (job_id,) if job_id else ()
         with self._connect() as connection:
             total = connection.execute("SELECT COUNT(*) FROM jobs" + filter_clause, filter_values).fetchone()[0]
             job_rows = connection.execute(
-                "SELECT * FROM jobs" + filter_clause + " ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?",
+                "SELECT jobs.*, job_inputs.input_json FROM jobs JOIN job_inputs USING (job_id)" + filter_clause
+                + " ORDER BY created_at DESC, jobs.rowid DESC LIMIT ? OFFSET ?",
                 (*filter_values, page_size, (page - 1) * page_size),
             ).fetchall()
             items = []
@@ -497,16 +574,19 @@ class Database:
                 ).fetchall()
                 status_counts = {row["status"]: row["request_count"] for row in status_rows}
                 first_request = connection.execute(
-                    "SELECT detail_json FROM job_requests JOIN request_details USING (request_id) "
+                    "SELECT json_extract(result_json, '$.settings') AS resolved_settings "
+                    "FROM job_requests JOIN request_results USING (request_id) "
                     "WHERE job_id = ? ORDER BY request_index LIMIT 1",
                     (job_row["job_id"],),
                 ).fetchone()
-                first_detail = json.loads(first_request["detail_json"]) if first_request else {}
+                common_inputs = json.loads(job_row["input_json"])
                 summary_detail = {}
                 for detail_key in ("body", "settings", "loras", "lora_preset_name"):
-                    if detail_key in first_detail:
-                        summary_detail[detail_key] = first_detail[detail_key]
-                resolved_settings = first_detail.get("resolved", {}).get("settings")
+                    if detail_key in common_inputs:
+                        summary_detail[detail_key] = common_inputs[detail_key]
+                resolved_settings = None
+                if first_request and first_request["resolved_settings"]:
+                    resolved_settings = json.loads(first_request["resolved_settings"])
                 if resolved_settings:
                     summary_detail["resolved"] = {"settings": resolved_settings}
                 items.append({
@@ -527,21 +607,21 @@ class Database:
         }
 
     def get_job_inputs(self, job_id: str) -> dict[str, Any] | None:
-        """작업 단위 복원에 필요한 첫 요청의 원본 Snapshot만 읽습니다."""
+        """작업 단위 복원에 필요한 공통 입력과 체크 후보를 한 번만 읽습니다."""
 
         with self._connect() as connection:
-            job_row = connection.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+            job_row = connection.execute(
+                "SELECT jobs.*, job_inputs.input_json, job_inputs.selected_tags_json "
+                "FROM jobs JOIN job_inputs USING (job_id) WHERE job_id = ?", (job_id,),
+            ).fetchone()
             if job_row is None:
                 return None
-            request_row = connection.execute(
-                "SELECT job_requests.*, jobs.workflow, request_details.detail_json "
-                "FROM job_requests JOIN jobs USING (job_id) JOIN request_details USING (request_id) "
-                "WHERE job_id = ? ORDER BY request_index LIMIT 1", (job_id,),
-            ).fetchone()
+        inputs = json.loads(job_row["input_json"])
+        inputs["selected_tags"] = json.loads(job_row["selected_tags_json"])
         return {
             "job_id": job_id, "workflow": job_row["workflow"], "description": job_row["description"],
             "request_count": job_row["request_count"],
-            "requests": [self._request_from_row(request_row)] if request_row else [],
+            "inputs": inputs,
         }
 
     def list_deletable_job_ids(self, job_id: str = "") -> list[str]:
@@ -577,9 +657,10 @@ class Database:
         placeholders = ",".join("?" for _ in output_paths)
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT job_requests.job_id, request_details.detail_json, output_path.value AS output_path "
-                "FROM job_requests JOIN request_details USING (request_id) "
-                "JOIN json_each(request_details.detail_json, '$.resolved.output_paths') AS output_path "
+                "SELECT job_requests.job_id, job_inputs.input_json, request_results.result_json, "
+                "output_path.value AS output_path FROM job_requests JOIN job_inputs USING (job_id) "
+                "JOIN request_results USING (request_id) "
+                "JOIN json_each(request_results.result_json, '$.output_paths') AS output_path "
                 f"WHERE output_path.value IN ({placeholders}) "
                 "ORDER BY job_requests.updated_at DESC",
                 tuple(output_paths),
@@ -588,37 +669,46 @@ class Database:
         for row in rows:
             if row["output_path"] in requests_by_output_path:
                 continue
-            detail = json.loads(row["detail_json"])
-            settings = detail.get("resolved", {}).get("settings") or detail.get("settings", {})
+            resolved_result = json.loads(row["result_json"])
+            settings = resolved_result.get("settings") or json.loads(row["input_json"]).get("settings", {})
             requests_by_output_path[row["output_path"]] = {
                 "job_id": row["job_id"], "settings": settings,
             }
         return requests_by_output_path
 
     def get_job(self, job_id: str) -> dict[str, Any] | None:
-        """한 상위 작업과 하위 요청을 조회합니다."""
+        """작업의 작은 공통 입력과 하위 요청 확정 결과만 조회합니다."""
 
         with self._connect() as connection:
-            job_row = connection.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+            job_row = connection.execute(
+                "SELECT jobs.*, job_inputs.input_json FROM jobs JOIN job_inputs USING (job_id) WHERE job_id = ?",
+                (job_id,),
+            ).fetchone()
             if job_row is None:
                 return None
             request_rows = connection.execute(
-                "SELECT job_requests.*, jobs.workflow, request_details.detail_json "
-                "FROM job_requests JOIN jobs USING (job_id) JOIN request_details USING (request_id) "
+                "SELECT job_requests.*, jobs.workflow, request_results.upload_id, request_results.result_json "
+                "FROM job_requests JOIN jobs USING (job_id) JOIN request_results USING (request_id) "
                 "WHERE job_requests.job_id = ? ORDER BY request_index", (job_id,)
             ).fetchall()
         return self._job_from_row(job_row, [self._request_from_row(row) for row in request_rows])
 
     def get_request(self, request_id: str) -> dict[str, Any] | None:
-        """한 ComfyUI 요청을 조회합니다."""
+        """한 요청의 확정 결과와 작은 작업 공통 입력을 JOIN해서 조회합니다."""
 
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT job_requests.*, jobs.workflow, request_details.detail_json "
-                "FROM job_requests JOIN jobs USING (job_id) JOIN request_details USING (request_id) "
+                "SELECT job_requests.*, jobs.workflow, job_inputs.input_json, "
+                "request_results.upload_id, request_results.result_json "
+                "FROM job_requests JOIN jobs USING (job_id) JOIN job_inputs USING (job_id) "
+                "JOIN request_results USING (request_id) "
                 "WHERE request_id = ?", (request_id,)
             ).fetchone()
-        return self._request_from_row(row) if row else None
+        if row is None:
+            return None
+        request = self._request_from_row(row)
+        request["inputs"] = json.loads(row["input_json"])
+        return request
 
     def list_active_requests(self, limit: int | None = None) -> list[dict[str, Any]]:
         """감시에 필요한 식별자와 상태만 읽고 detail JSON을 파싱하지 않습니다."""
@@ -705,7 +795,7 @@ class Database:
                     )
                     if change_result.rowcount:
                         connection.execute(
-                            "UPDATE request_details SET detail_json = json_set(detail_json, '$.resolved.output_paths', json(?)) "
+                            "UPDATE request_results SET result_json = json_set(result_json, '$.output_paths', json(?)) "
                             "WHERE request_id = ?",
                             (json.dumps(update["output_paths"], ensure_ascii=False), update["request_id"]),
                         )
@@ -777,17 +867,17 @@ class Database:
         """완료 요청의 실제 출력 참조를 보관합니다."""
 
         with self._connect() as connection:
-            row = connection.execute("SELECT detail_json FROM request_details WHERE request_id = ?", (request_id,)).fetchone()
+            row = connection.execute("SELECT result_json FROM request_results WHERE request_id = ?", (request_id,)).fetchone()
             if row is None:
                 raise ValueError("완료한 요청을 찾을 수 없습니다.")
-            detail = json.loads(row["detail_json"])
-            detail.setdefault("resolved", {})["output_paths"] = output_paths
+            resolved_result = json.loads(row["result_json"])
+            resolved_result["output_paths"] = output_paths
             connection.execute(
                 "UPDATE job_requests SET status = ?, updated_at = ? WHERE request_id = ?",
                 ("completed", current_timestamp(), request_id),
             )
-            connection.execute("UPDATE request_details SET detail_json = ? WHERE request_id = ?",
-                               (json.dumps(detail, ensure_ascii=False), request_id))
+            connection.execute("UPDATE request_results SET result_json = ? WHERE request_id = ?",
+                               (json.dumps(resolved_result, ensure_ascii=False), request_id))
 
     def set_request_accepted(self, request_id: str, prompt_id: str, resolved: dict[str, Any]) -> None:
         """ComfyUI 접수 ID와 확정 Prompt를 개별 요청에 기록합니다."""
@@ -795,20 +885,18 @@ class Database:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT detail_json, status FROM job_requests JOIN request_details USING (request_id) WHERE request_id = ?",
+                "SELECT status FROM job_requests WHERE request_id = ?",
                 (request_id,),
             ).fetchone()
             if row is None:
                 raise ValueError("접수한 요청을 찾을 수 없습니다.")
-            detail = json.loads(row["detail_json"])
-            detail["resolved"] = resolved
             connection.execute(
                 "UPDATE job_requests SET prompt_id = ?, status = ?, updated_at = ? WHERE request_id = ?",
                 (prompt_id, "cancelling" if row["status"] == "cancelling" else "pending",
                  current_timestamp(), request_id),
             )
-            connection.execute("UPDATE request_details SET detail_json = ? WHERE request_id = ?",
-                               (json.dumps(detail, ensure_ascii=False), request_id))
+            connection.execute("UPDATE request_results SET result_json = ? WHERE request_id = ?",
+                               (json.dumps(resolved, ensure_ascii=False), request_id))
 
     def _preset_from_row(self, row: sqlite3.Row) -> dict[str, Any]:
         """DB row를 preset 응답으로 변환합니다."""
@@ -826,7 +914,8 @@ class Database:
             "request_id": row["request_id"], "job_id": row["job_id"], "workflow": row["workflow"],
             "request_index": row["request_index"], "prompt_id": row["prompt_id"],
             "status": row["status"], "output_stem": row["output_stem"],
-            "detail": json.loads(row["detail_json"]), "error_message": row["error_message"],
+            "upload_id": row["upload_id"], "result": json.loads(row["result_json"]),
+            "error_message": row["error_message"],
             "created_at": row["created_at"], "updated_at": row["updated_at"],
         }
 
@@ -839,6 +928,7 @@ class Database:
             status_counts[request_status] = status_counts.get(request_status, 0) + 1
         return {
             "job_id": row["job_id"], "workflow": row["workflow"],
+            "inputs": json.loads(row["input_json"]),
             "description": row["description"],
             "deletion_protected": bool(row["deletion_protected"]),
             "cancellation_requested": bool(row["cancellation_requested"]),

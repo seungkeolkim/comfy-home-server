@@ -836,7 +836,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             output_paths = {
                 path
                 for request in job["requests"]
-                for path in request["detail"].get("resolved", {}).get("output_paths", [])
+                for path in request["result"].get("output_paths", [])
             }
             for relative_path in sorted(output_paths):
                 try:
@@ -887,12 +887,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 raise HTTPException(404, "작업을 찾을 수 없습니다.")
             selected_output_paths = set()
             for request in job["requests"]:
-                selected_output_paths.update(request["detail"].get("resolved", {}).get("output_paths", []))
+                selected_output_paths.update(request["result"].get("output_paths", []))
         elif request_id:
             request = server.database.get_request(request_id)
             if request is None:
                 raise HTTPException(404, "요청을 찾을 수 없습니다.")
-            selected_output_paths = set(request["detail"].get("resolved", {}).get("output_paths", []))
+            selected_output_paths = set(request["result"].get("output_paths", []))
         if normalized_prefix:
             try:
                 server.managed_path(normalized_prefix)

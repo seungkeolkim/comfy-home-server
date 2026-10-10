@@ -1058,25 +1058,25 @@ async function submitBatch() {
 }
 
 /** 저장된 실제 LoRA 목록과 표시용 이름으로 작업 요약의 조합 출처를 반환합니다. */
-function jobLoraSummary(requestDetail) {
-  if (!Array.isArray(requestDetail.loras) || requestDetail.loras.length === 0) return "lora없음";
-  return `LoRA ${requestDetail.lora_preset_name || "custom"}`;
+function jobLoraSummary(jobInputs) {
+  if (!Array.isArray(jobInputs.loras) || jobInputs.loras.length === 0) return "lora없음";
+  return `LoRA ${jobInputs.lora_preset_name || "custom"}`;
 }
 
 /** 상위 작업에 속한 ComfyUI 요청의 상태와 조작 버튼을 표시합니다. */
-function requestCardMarkup(request, statusNames) {
-  const promptText = request.detail.resolved?.prompt || "확정 전";
-  const negativeText = request.detail.resolved?.negative ?? request.detail.body?.negative ?? "";
-  const selectedLoras = Array.isArray(request.detail.loras) ? request.detail.loras : [];
+function requestCardMarkup(request, statusNames, commonInputs) {
+  const promptText = request.result.prompt || "확정 전";
+  const negativeText = request.result.negative ?? commonInputs.body?.negative ?? "";
+  const selectedLoras = Array.isArray(commonInputs.loras) ? commonInputs.loras : [];
   const loraDescriptions = [];
   for (const selectedLora of selectedLoras) {
     if (!selectedLora.name) continue;
     loraDescriptions.push(`${selectedLora.name} (STR ${selectedLora.strength ?? 1})`);
   }
   const loraText = loraDescriptions.join(", ") || "lora없음";
-  const selectedPath = request.detail.resolved?.selected_path || [];
+  const selectedPath = request.result.selected_path || [];
   const selectedTagNames = selectedPath.map((item) => item.name).join(" → ");
-  const negativeSelectedPath = request.detail.resolved?.negative_selected_path || [];
+  const negativeSelectedPath = request.result.negative_selected_path || [];
   const negativeTagNames = negativeSelectedPath.map((item) => item.name).join(" → ");
   return `
     <div class="job-request">
@@ -1201,12 +1201,12 @@ async function toggleJobDeletionProtection(jobIdentifier) {
 }
 
 /** 기록된 Prompt preset이 현재 본문과 같은 경우에만 연결합니다. */
-function matchingJobPromptPreset(workflow, requestDetail) {
+function matchingJobPromptPreset(workflow, jobInputs) {
   let candidatePresets = applicationState.presets.filter((candidate) => candidate.workflow === workflow);
-  if (requestDetail.prompt_preset_id) {
-    candidatePresets = candidatePresets.filter((candidate) => candidate.preset_id === requestDetail.prompt_preset_id);
+  if (jobInputs.prompt_preset_id) {
+    candidatePresets = candidatePresets.filter((candidate) => candidate.preset_id === jobInputs.prompt_preset_id);
   }
-  const originalBody = requestDetail.body;
+  const originalBody = jobInputs.body;
   const matchingPresets = candidatePresets.filter((candidate) =>
     candidate.body.prompt === originalBody.prompt &&
     (workflow !== "anima" || (candidate.body.negative || "") === (originalBody.negative || "")),
@@ -1215,17 +1215,17 @@ function matchingJobPromptPreset(workflow, requestDetail) {
 }
 
 /** 현재 LoRA preset과 기록된 파일 순서 및 강도가 같을 때만 연결합니다. */
-function matchingJobLoraPreset(workflow, requestDetail) {
-  const selectedLoras = requestDetail.loras || [];
+function matchingJobLoraPreset(workflow, jobInputs) {
+  const selectedLoras = jobInputs.loras || [];
   if (!selectedLoras.length) return null;
   let preset = null;
-  if (requestDetail.lora_preset_id) {
+  if (jobInputs.lora_preset_id) {
     preset = applicationState.loraPresets.find((candidate) =>
-      candidate.preset_id === requestDetail.lora_preset_id && candidate.workflow === workflow,
+      candidate.preset_id === jobInputs.lora_preset_id && candidate.workflow === workflow,
     );
-  } else if (requestDetail.lora_preset_name) {
+  } else if (jobInputs.lora_preset_name) {
     const namedPresets = applicationState.loraPresets.filter((candidate) =>
-      candidate.name === requestDetail.lora_preset_name && candidate.workflow === workflow,
+      candidate.name === jobInputs.lora_preset_name && candidate.workflow === workflow,
     );
     if (namedPresets.length === 1) preset = namedPresets[0];
   }
@@ -1276,8 +1276,8 @@ async function restoreJobGeneration(jobIdentifier) {
   renderJobsList();
   try {
     const job = await apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}/inputs`);
-    const requestDetail = job?.requests[0]?.detail;
-    if (!job || !["anima", "minimax_h3"].includes(job.workflow) || typeof requestDetail?.body?.prompt !== "string")
+    const jobInputs = job?.inputs;
+    if (!job || !["anima", "minimax_h3"].includes(job.workflow) || typeof jobInputs?.body?.prompt !== "string")
       throw new Error("이 작업에는 복원할 원본 Prompt 기록이 없습니다.");
     const [currentPresets, currentLoraPresets, currentTags] = await Promise.all([
       apiRequest("/api/presets"), apiRequest("/api/loras/presets"), apiRequest("/api/tags"),
@@ -1287,9 +1287,9 @@ async function restoreJobGeneration(jobIdentifier) {
     applicationState.tagGroups = currentTags.groups;
     applicationState.tagEntries = currentTags.entries;
     resetGenerationWorkflow(job.workflow);
-    applicationState.currentBody = structuredClone(requestDetail.body);
-    fillPromptFields(requestDetail.body, true);
-    const promptPreset = matchingJobPromptPreset(job.workflow, requestDetail);
+    applicationState.currentBody = structuredClone(jobInputs.body);
+    fillPromptFields(jobInputs.body, true);
+    const promptPreset = matchingJobPromptPreset(job.workflow, jobInputs);
     applicationState.currentPresetId = promptPreset?.preset_id || null;
     element("preset-workflow").value = job.workflow;
     element("preset-name").value = promptPreset?.name || "";
@@ -1297,13 +1297,13 @@ async function restoreJobGeneration(jobIdentifier) {
     applicationState.presetVersions = [];
     element("preset-version-history").innerHTML = "";
     renderPresetList();
-    const loraPreset = matchingJobLoraPreset(job.workflow, requestDetail);
-    applyLoraCombination(job.workflow, requestDetail.loras || [], loraPreset?.preset_id || null);
+    const loraPreset = matchingJobLoraPreset(job.workflow, jobInputs);
+    applyLoraCombination(job.workflow, jobInputs.loras || [], loraPreset?.preset_id || null);
 
     // 과거 정의는 되살리지 않고 현재 참조에서 체크할 수 있는 항목만 남깁니다.
     const currentTagIds = new Set(currentTags.entries.map((entry) => entry.tag_id));
     if (job.workflow === "anima") {
-      for (const selectedTag of requestDetail.selected_tags || []) {
+      for (const selectedTag of jobInputs.selected_tags || []) {
         if (currentTagIds.has(selectedTag.tag_id)) applicationState.selectedTagIds.add(selectedTag.tag_id);
       }
       applicationState.selectedTagIds = new Set(activeSelectedTagIds());
@@ -1313,7 +1313,7 @@ async function restoreJobGeneration(jobIdentifier) {
     );
     renderGenerateTagGroups();
     renderTagManager();
-    restoreGenerationSettings(job.workflow, requestDetail.settings || {});
+    restoreGenerationSettings(job.workflow, jobInputs.settings || {});
     element("generate-count").value = job.workflow === "anima" ? job.request_count : 1;
     element("job-description").value = job.description || "";
     applicationState.selectedFiles = [];
@@ -1336,7 +1336,7 @@ async function restoreJobGeneration(jobIdentifier) {
 
 /** 한 번의 제출을 하나의 상위 작업 카드로 표시합니다. */
 function jobCardMarkup(job, statusNames, openJobIds) {
-  const summaryDetail = job.summary || job.requests?.[0]?.detail || {};
+  const summaryDetail = job.summary || job.inputs;
   const originalBody = summaryDetail.body || {};
   const originalPrompt = typeof originalBody.prompt === "string" ? originalBody.prompt : "기록 없음";
   const originalNegative = typeof originalBody.negative === "string" ? originalBody.negative : "";
@@ -1358,7 +1358,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
   const cachedDetails = applicationState.jobDetails.get(job.job_id);
   const requests = job.requests || cachedDetails?.job?.requests;
   const requestMarkup = openJobIds.has(job.job_id) && requests
-    ? requests.map(request => requestCardMarkup(request, statusNames)).join("")
+    ? requests.map(request => requestCardMarkup(request, statusNames, cachedDetails?.job?.inputs || summaryDetail)).join("")
     : `<p class="hint">${cachedDetails?.error ? escapeHtml(cachedDetails.error) : "하위 요청을 불러오는 중입니다."}</p>`;
   const canDelete = canDeleteJobHistory(job);
   const selectionCheckbox = applicationState.jobSelectionMode
@@ -1435,7 +1435,7 @@ async function loadJobDetails(jobIdentifier) {
     if (requestList) {
       const statusNames = { submitting: "제출 중", pending: "대기", running: "실행 중", cancelling: "취소 중",
         completed: "완료", failed: "실패", partial: "일부 완료", cancelled: "취소", stopped: "중단" };
-      requestList.innerHTML = job.requests.map(request => requestCardMarkup(request, statusNames)).join("");
+      requestList.innerHTML = job.requests.map(request => requestCardMarkup(request, statusNames, job.inputs)).join("");
     }
     return;
   }

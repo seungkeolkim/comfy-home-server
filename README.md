@@ -98,6 +98,8 @@ MiniMax 입력 이미지는 비워 두므로 다시 선택해야 합니다. 원�
 
 DB schema version 6에서는 기존 작업과 설정을 유지하면서 작업별 삭제 보호 column을 추가합니다. 기존 작업은 보호 해제 상태로 시작하며 각 작업에서 보호를 설정할 수 있습니다.
 
+DB schema version 9에서는 작업 공통 입력·체크한 태그 후보를 `job_inputs`에 작업당 한 번 저장하고, 개별 확정 Prompt·선택 경로·Seed·결과물 경로는 `request_results`에 요청당 한 번 저장합니다. 이전 모든 요청을 자동 Migration한 뒤 기존 Snapshot 테이블·column을 제거하며, 이후 조회는 새 구조만 사용합니다. Migration 전 백업을 `runtime/backups/`에 보관합니다. 하위 상세에서는 후보 데이터를 읽지 않고, 생성 탭 복원에서만 작업 공통 후보를 가져옵니다. [구조·Migration 검증](docs/job_request_storage_split.md)에 설명했습니다.
+
 생성물은 `{workflow}/{YYMMDD_HHmmss}_{seed}.{확장자}`를 기본으로 저장합니다. 예: `anima/261006_153012_123456789.png`. Anima는 `%time_%seed`, MiniMax는 `%date:yyMMdd_HHmmss%_%seed%` 예약어를 사용하며, MiniMax Saver에도 sampling과 동일한 seed 출력을 연결합니다. 시각은 ComfyUI Saver 실행 시점의 로컬 시간이고, 영상은 encoding 시작 직전입니다. Saver가 붙이는 counter나 `_audio` 접미사는 그대로 유지하며 앱에서 파일명을 후처리하지 않습니다. 작업의 결과 보기는 ComfyUI history의 실제 출력 파일명을 사용합니다. 기존 결과물도 계속 조회할 수 있으며, 목록은 앱이 열릴 때와 새로고침할 때 실제 폴더를 다시 읽습니다. 앱이 미완료 요청을 재시작 후 자동 재제출하지 않습니다.
 
 ## 외부 접속
@@ -114,4 +116,5 @@ $env:NODE_PATH = (Resolve-Path runtime/browser-check/node_modules).Path
 node tests/browser_lora_presets.cjs
 node tests/browser_job_deletion.cjs
 node tests/browser_job_restoration.cjs
+node tests/browser_job_performance.cjs
 ```

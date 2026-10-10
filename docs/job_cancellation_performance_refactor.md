@@ -1,5 +1,7 @@
 # 대량 작업 취소·조회 성능 개선
 
+이 문서는 Schema 8을 적용한 당시의 구현·측정 기록입니다. 현재 Schema 9의 공통 입력·확정 결과 분리는 [작업·요청 저장 구조](job_request_storage_split.md)를 참고하세요.
+
 - 작업일: 2026-10-10
 - 브랜치: `codex/job-cancellation-performance`
 - 기준 테스트 입력: 작업 `820f0bd49c29`의 Prompt, Negative Prompt, 태그 후보, LoRA, Workflow 옵션
@@ -54,7 +56,7 @@ Migration은 transaction 안에서 기존 JSON을 그대로 옮깁니다. 구형
 - 작업 시작 전 schema 6: `runtime/database_backups/before_job_cancellation_refactor_20261010_230133.sqlite3`
 - 큰 JSON 분리 직전 schema 7: `runtime/backups/home_server_before_request_details_20261010T143053_519501Z.sqlite3`
 
-현재 schema 8 DB는 이전 main 코드의 지원 버전 밖입니다. 이전 코드로 되돌릴 때는 서버를 중지하고 그 코드가 지원하는 schema 6 백업을 함께 복구해야 합니다. 백업 이후 새 작업을 생성했다면 그 이력도 별도로 보존해야 합니다.
+당시 schema 8 DB는 이전 main 코드의 지원 버전 밖입니다. 이전 코드로 되돌릴 때는 서버를 중지하고 그 코드가 지원하는 schema 6 백업을 함께 복구해야 합니다. 백업 이후 새 작업을 생성했다면 그 이력도 별도로 보존해야 합니다.
 
 ## API 변경
 

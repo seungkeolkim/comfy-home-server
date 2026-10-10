@@ -286,8 +286,11 @@ def test_summary_details_and_restoration_endpoints_keep_original_candidates(tmp_
         assert len(client.get("/api/jobs/history").json()["requests"]) == 2
         inputs = client.get("/api/jobs/history/inputs").json()
         assert inputs["request_count"] == 2
-        assert len(inputs["requests"]) == 1
-        assert inputs["requests"][0]["detail"] == detail
+        assert "requests" not in inputs
+        assert inputs["inputs"] == detail
+        details = client.get("/api/jobs/history").json()
+        assert "selected_tags" not in details["inputs"]
+        assert all("detail" not in request and request["result"] == {} for request in details["requests"])
 
 
 def test_slow_image_metadata_does_not_block_session_and_invalidates_on_change(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -547,9 +550,9 @@ def test_anima_request_count_submits_independent_single_images(tmp_path: Path, m
             assert metadata["home_server_request"]["request_id"] == request_ids[submission_index]
             assert metadata["home_server_request"]["job_id"] == job_id
             assert "batch_size" not in metadata["home_server_request"]["settings"]
-        assert all("batch_size" not in request["detail"]["settings"] for request in requests)
-        assert all(request["detail"]["settings"]["width"] == 1280 for request in requests)
-        assert all(request["detail"]["settings"]["height"] == 720 for request in requests)
+        assert "batch_size" not in jobs[0]["inputs"]["settings"]
+        assert jobs[0]["inputs"]["settings"]["width"] == 1280
+        assert jobs[0]["inputs"]["settings"]["height"] == 720
         assert {request["output_stem"] for request in requests} == {"from_home_server/anima/%time_%seed"}
 
         result_directory = config.managed_output_directory / "anima"
@@ -819,7 +822,7 @@ def test_saver_history_outputs_keep_native_names(tmp_path: Path, workflow: str) 
         }
         completed_job = client.get("/api/jobs", params={"refresh": True}).json()["items"][0]
         assert completed_job["status"] == "completed"
-        assert completed_job["requests"][0]["detail"]["resolved"]["output_paths"] == [f"{workflow}/{filename}"]
+        assert completed_job["requests"][0]["result"]["output_paths"] == [f"{workflow}/{filename}"]
         fake_comfy.history_records.clear()
         outputs = client.get("/api/outputs", params={"request_id": request_id}).json()
         assert [result["path"] for result in outputs["files"]] == [f"{workflow}/{filename}"]
@@ -989,10 +992,10 @@ def test_negative_tags_are_validated_previewed_and_submitted_as_fixed_text(tmp_p
             if job["requests"][0]["prompt_id"]:
                 break
             time.sleep(0.05)
-        request_detail = job["requests"][0]["detail"]
-        assert request_detail["body"]["negative"] == "lowres, [AVOID]"
-        assert request_detail["resolved"]["negative"] == example["negative"]
-        assert request_detail["resolved"]["negative_selected_path"] == example["negative_selected_path"]
+        request_result = job["requests"][0]["result"]
+        assert job["inputs"]["body"]["negative"] == "lowres, [AVOID]"
+        assert request_result["negative"] == example["negative"]
+        assert request_result["negative_selected_path"] == example["negative_selected_path"]
         submitted_workflow, metadata = fake_comfy.submissions[0]
         assert submitted_workflow["4"]["inputs"]["populated_text"] == example["negative"]
         assert submitted_workflow["4"]["inputs"]["mode"] == "fixed"
@@ -1066,7 +1069,7 @@ def test_shared_group_references_update_candidates_and_preserve_snapshots(tmp_pa
         current_definitions = selected_tag_definitions(database, selected_ids, "[CHR] [PEOPLE]")
         assert [definition["tag_key"] for definition in current_definitions] == ["PEOPLE", "PEOPLE", "CHR"]
         assert resolve_tag_prompt({"prompt": "[CHR]"}, current_definitions, 1)[0] == "character C"
-        historical_tags = database.get_job("group-snapshot")["requests"][0]["detail"]["selected_tags"]
+        historical_tags = database.get_job_inputs("group-snapshot")["inputs"]["selected_tags"]
         assert historical_tags == selected_definitions
 
         moved_entry = client.put(f"/api/tags/entries/{entries[0]['tag_id']}", json={
@@ -1161,9 +1164,9 @@ def test_tag_api_previews_and_submits_snapshot_before_comfy_queue(tmp_path: Path
                 break
             time.sleep(0.05)
         request = job["requests"][0]
-        assert request["detail"]["selected_tags"][2]["content"] == "character A"
-        assert request["detail"]["resolved"]["prompt"] == example["prompt"]
-        assert len(request["detail"]["resolved"]["selected_path"]) == 4
+        assert app.state.home_server.database.get_job_inputs(job["job_id"])["inputs"]["selected_tags"][2]["content"] == "character A"
+        assert request["result"]["prompt"] == example["prompt"]
+        assert len(request["result"]["selected_path"]) == 4
         assert fake_comfy.submissions[0][0]["3"]["inputs"]["mode"] == "fixed"
         assert fake_comfy.submissions[0][0]["3"]["inputs"]["populated_text"] == example["prompt"]
 
@@ -1179,7 +1182,7 @@ def test_tag_api_previews_and_submits_snapshot_before_comfy_queue(tmp_path: Path
             "group_id": character_group["group_id"],
             "name": "A", "content": "character B", "weight": 1,
         }).status_code == 200
-        assert app.state.home_server.database.get_job(response.json()["job_id"])["requests"][0]["detail"]["selected_tags"][2]["content"] == "character A"
+        assert app.state.home_server.database.get_job_inputs(response.json()["job_id"])["inputs"]["selected_tags"][2]["content"] == "character A"
         historical_preview = client.post("/api/prompts/preview", json={
             "workflow": "anima", "body": saved_body,
             "selected_tag_ids": selected_ids, "count": 1,

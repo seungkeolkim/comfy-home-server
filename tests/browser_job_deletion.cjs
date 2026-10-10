@@ -22,9 +22,10 @@ function createJobFixtures() {
       deletion_protected: false,
       request_count: 1, created_at: "2026-10-09", status: statuses[statusIndex],
       status_counts: { [requestStatus]: 1 },
+      inputs: { settings: { width: 1024, height: 1024 }, loras: [] },
       requests: [{
         request_id: `${jobIdentifier}-request`, request_index: 1, prompt_id: "test-prompt",
-        status: requestStatus, detail: { settings: { width: 1024, height: 1024 }, loras: [] },
+        status: requestStatus, result: {},
       }],
     });
   }
