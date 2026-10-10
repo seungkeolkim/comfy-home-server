@@ -11,6 +11,7 @@ from PIL import Image
 
 from home_server.application import create_app, selected_tag_definitions
 from home_server.configuration import AppConfig, PROJECT_DIRECTORY
+from home_server.database import Database
 from home_server.tag_builder import resolve_tag_prompt
 
 
@@ -593,6 +594,93 @@ def test_saver_history_outputs_keep_native_names(tmp_path: Path, workflow: str) 
         assert original_file.read_bytes() == b"result"
         original_file.unlink()
         assert client.get("/api/outputs", params={"request_id": request_id}).json()["total"] == 0
+
+
+@pytest.mark.parametrize("delete_outputs", [False, True])
+def test_job_protection_blocks_history_and_file_deletion_until_unlocked(tmp_path: Path, delete_outputs: bool) -> None:
+    """삭제 보호는 인증된 API에서도 이력·파일 삭제를 막고 해제 후에만 허용합니다."""
+
+    output_directory = tmp_path / "output"
+    config = AppConfig(
+        host="127.0.0.1", port=8388, password="test", comfy_endpoint="http://example.test",
+        comfy_output_directory=output_directory, managed_output_directory=output_directory / "from_home_server",
+        runtime_directory=tmp_path / "runtime", workflow_directory=PROJECT_DIRECTORY / "data" / "workflows",
+    )
+    application = create_app(config)
+    application.state.home_server.comfy = FakeComfyClient()
+    database = application.state.home_server.database
+    database.add_job("protected-job", "anima", "test work", [{
+        "request_id": "protected-request", "status": "completed", "output_stem": "anima/example", "detail": {},
+    }])
+    result_file = config.managed_output_directory / "anima" / "protected.png"
+    result_file.parent.mkdir(parents=True)
+    result_file.write_bytes(b"protected result")
+    database.complete_request("protected-request", ["anima/protected.png"])
+
+    with TestClient(application) as client:
+        protection_endpoint = "/api/jobs/protected-job/protection"
+        assert client.get("/api/jobs/deletion-candidates").status_code == 401
+        assert client.patch(protection_endpoint, json={"deletion_protected": True}).status_code == 401
+        assert client.post("/api/login", json={"password": "test"}).status_code == 200
+        assert client.patch("/api/jobs/missing/protection", json={"deletion_protected": True}).status_code == 404
+        assert client.patch(protection_endpoint, json={}).status_code == 422
+        assert client.get("/api/jobs/deletion-candidates").json()["job_ids"] == ["protected-job"]
+        protected_response = client.patch(protection_endpoint, json={"deletion_protected": True})
+        assert protected_response.json() == {"job_id": "protected-job", "deletion_protected": True}
+        assert client.get("/api/jobs").json()["items"][0]["deletion_protected"] is True
+        assert Database(database.database_path).get_job("protected-job")["deletion_protected"] is True
+        assert client.get("/api/jobs/deletion-candidates").json()["job_ids"] == []
+        deletion_endpoint = f"/api/jobs/protected-job?delete_outputs={str(delete_outputs).lower()}"
+        deletion_response = client.delete(deletion_endpoint)
+        assert deletion_response.status_code == 409
+        assert "삭제 보호" in deletion_response.json()["detail"]
+        assert result_file.read_bytes() == b"protected result"
+        assert database.get_job("protected-job") is not None
+        assert client.patch(protection_endpoint, json={"deletion_protected": False}).status_code == 200
+        assert client.get("/api/jobs/deletion-candidates").json()["job_ids"] == ["protected-job"]
+        deletion_response = client.delete(deletion_endpoint)
+        assert deletion_response.status_code == 200
+        assert deletion_response.json()["deleted_files"] == int(delete_outputs)
+        assert result_file.exists() is not delete_outputs
+        assert database.get_job("protected-job") is None
+
+
+def test_protection_changed_after_job_read_still_preserves_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """작업 조회 직후 보호가 설정되면 DB의 재검사로 파일 삭제도 차단합니다."""
+
+    output_directory = tmp_path / "output"
+    config = AppConfig(
+        host="127.0.0.1", port=8388, password="test", comfy_endpoint="http://example.test",
+        comfy_output_directory=output_directory, managed_output_directory=output_directory / "from_home_server",
+        runtime_directory=tmp_path / "runtime", workflow_directory=PROJECT_DIRECTORY / "data" / "workflows",
+    )
+    application = create_app(config)
+    application.state.home_server.comfy = FakeComfyClient()
+    database = application.state.home_server.database
+    database.add_job("racing-job", "anima", "", [{
+        "request_id": "racing-request", "status": "completed", "output_stem": "anima/example", "detail": {},
+    }])
+    result_file = config.managed_output_directory / "anima" / "result.png"
+    result_file.parent.mkdir(parents=True)
+    result_file.write_bytes(b"retained")
+    database.complete_request("racing-request", ["anima/result.png"])
+    read_original_job = database.get_job
+
+    def read_job_then_protect(job_identifier: str) -> dict | None:
+        """응답 Snapshot을 얻은 직후 다른 요청의 보호 설정을 재현합니다."""
+
+        original_snapshot = read_original_job(job_identifier)
+        database.set_job_deletion_protection(job_identifier, True)
+        return original_snapshot
+
+    monkeypatch.setattr(database, "get_job", read_job_then_protect)
+    with TestClient(application) as client:
+        client.post("/api/login", json={"password": "test"})
+        response = client.delete("/api/jobs/racing-job?delete_outputs=true")
+        assert response.status_code == 409
+        assert "삭제 보호" in response.json()["detail"]
+        assert result_file.read_bytes() == b"retained"
+        assert read_original_job("racing-job")["deletion_protected"] is True
 
 
 def test_negative_tags_are_validated_previewed_and_submitted_as_fixed_text(tmp_path: Path) -> None:

@@ -322,6 +322,18 @@ input[type="file"] {
   color: #d5e8ff;
   border-color: #507ab2;
 }
+.button.job-protected {
+  background: #493b25;
+  color: #ffe0a3;
+  border-color: #806844;
+}
+.job-protection-badge {
+  display: inline-block;
+  margin-left: 6px;
+  color: #ffe0a3;
+  font-size: 12px;
+  font-weight: 700;
+}
 .button.subtle {
   background: #1c2939;
 }

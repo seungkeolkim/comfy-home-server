@@ -61,7 +61,7 @@ def test_group_tag_migration_backs_up_and_preserves_all_records(tmp_path: Path) 
     assert migrated_database.get_tag_group("empty-group")["tag_key"] == ""
     with sqlite3.connect(database_path) as connection:
         connection.row_factory = sqlite3.Row
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         migrated_entries = [dict(row) for row in connection.execute("SELECT * FROM tag_entries ORDER BY tag_id")]
@@ -119,7 +119,7 @@ def test_new_database_stores_jobs_presets_and_tags(tmp_path: Path) -> None:
     assert reopened_database.list_presets()[0]["body"] == {"prompt": "portrait, [SCENE]"}
     assert reopened_database.list_lora_profiles()[0]["settings"] == {"strength": 0.7}
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 6
     with pytest.raises(sqlite3.IntegrityError):
         database.add_job("rolled-back", "anima", "", requests)
     assert database.get_job("rolled-back") is None
@@ -204,3 +204,81 @@ def test_output_paths_map_to_their_original_requests(tmp_path: Path) -> None:
         "anima/first.png": {"job_id": "first-job", "settings": {"width": 768, "height": 1024}},
         "anima/second.png": {"job_id": "second-job", "settings": {}},
     }
+
+
+def test_job_protection_migration_preserves_existing_history(tmp_path: Path) -> None:
+    """Version 5의 작업·설정을 보존해 보호 column을 추가하고 재접속 후에도 유지합니다."""
+
+    database_path = tmp_path / "home_server.sqlite3"
+    database = Database(database_path)
+    original_body = {"prompt": "original prompt", "negative": "negative prompt"}
+    database.save_preset("original-preset", "Original", "anima", original_body)
+    database.add_job("original-job", "anima", "migration test", [{
+        "request_id": "original-request", "status": "completed", "output_stem": "anima/example",
+        "detail": {"body": original_body},
+    }])
+    database.complete_request("original-request", ["anima/original.png"])
+    with sqlite3.connect(database_path) as connection:
+        connection.execute("ALTER TABLE jobs DROP COLUMN deletion_protected")
+        connection.execute("PRAGMA user_version = 5")
+
+    migrated_database = Database(database_path)
+    migrated_job = migrated_database.get_job("original-job")
+    assert migrated_job["deletion_protected"] is False
+    assert migrated_job["description"] == "migration test"
+    assert migrated_job["requests"][0]["detail"]["body"] == original_body
+    assert migrated_job["requests"][0]["detail"]["resolved"]["output_paths"] == ["anima/original.png"]
+    assert migrated_database.get_preset("original-preset")["body"] == original_body
+    assert migrated_database.set_job_deletion_protection("original-job", True)
+    assert Database(database_path).get_job("original-job")["deletion_protected"] is True
+    assert not migrated_database.set_job_deletion_protection("missing-job", True)
+
+
+def test_all_page_deletion_candidates_exclude_protected_and_active_jobs(tmp_path: Path) -> None:
+    """모든 페이지의 후보를 조회하고 보호 작업과 각종 진행 중 작업을 제외합니다."""
+
+    database = Database(tmp_path / "home_server.sqlite3")
+    active_statuses = ["submitting", "pending", "running", "cancelling"]
+    for job_number in range(25):
+        status = active_statuses[job_number] if job_number < len(active_statuses) else "completed"
+        database.add_job(f"job-{job_number}", "anima", "", [{
+            "request_id": f"request-{job_number}", "status": status,
+            "output_stem": "anima/example", "detail": {},
+        }])
+    database.set_job_deletion_protection("job-4", True)
+    database.set_job_deletion_protection("job-24", True)
+    assert set(database.list_deletable_job_ids()) == {f"job-{job_number}" for job_number in range(5, 24)}
+    assert database.list_deletable_job_ids("job-4") == []
+    assert database.list_deletable_job_ids("job-5") == ["job-5"]
+    assert database.list_deletable_job_ids("missing-job") == []
+    database.set_job_deletion_protection("job-4", False)
+    assert "job-4" in database.list_deletable_job_ids()
+
+
+def test_protection_is_checked_before_file_callback_and_locked_until_deletion(tmp_path: Path) -> None:
+    """보호를 먼저 검사하고 파일 처리 중에는 다른 연결의 보호 설정 변경을 막습니다."""
+
+    database_path = tmp_path / "home_server.sqlite3"
+    database = Database(database_path)
+    database.add_job("protected-job", "anima", "", [{
+        "request_id": "protected-request", "status": "completed", "output_stem": "anima/example", "detail": {},
+    }])
+    database.set_job_deletion_protection("protected-job", True)
+    callback_invocations = []
+
+    def verify_deletion_lock() -> None:
+        """다른 writer가 파일 처리 중 끼어들 수 없는지 확인합니다."""
+
+        callback_invocations.append("called")
+        with sqlite3.connect(database_path, timeout=0) as concurrent_connection:
+            with pytest.raises(sqlite3.OperationalError, match="locked"):
+                concurrent_connection.execute("UPDATE jobs SET deletion_protected = 1 WHERE job_id = 'protected-job'")
+
+    with pytest.raises(ValueError, match="삭제 보호"):
+        database.delete_job("protected-job", before_deletion=verify_deletion_lock)
+    assert callback_invocations == []
+    assert database.get_job("protected-job") is not None
+    database.set_job_deletion_protection("protected-job", False)
+    assert database.delete_job("protected-job", before_deletion=verify_deletion_lock)
+    assert callback_invocations == ["called"]
+    assert database.get_job("protected-job") is None

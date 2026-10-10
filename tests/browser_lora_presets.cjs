@@ -296,9 +296,10 @@ async function main() {
     assert.equal(await page.locator("#anima-aspect-ratio").inputValue(), "2:3");
     assert.deepEqual(await page.locator("#anima-aspect-ratio option").evaluateAll(options =>
       options.map(option => option.value)), ["16:9", "3:2", "4:3", "1:1", "3:4", "2:3", "9:16", "custom"]);
-    assert.equal(await page.locator("#anima-resolution").inputValue(), "1024x1536");
+    assert.equal(await page.locator("#anima-resolution").inputValue(), "576x864");
     await page.locator("#anima-aspect-ratio").selectOption("16:9");
     assert.equal(await page.locator("#anima-resolution option").count(), 3);
+    assert.equal(await page.locator("#anima-resolution").inputValue(), "1024x576");
     await page.locator("#anima-resolution").selectOption("1280x720");
     assert.equal(await page.locator("#anima-width").inputValue(), "1280");
     assert.equal(await page.locator("#anima-height").inputValue(), "720");
@@ -313,8 +314,8 @@ async function main() {
     }), [1408, 960]);
     await page.locator("#anima-aspect-ratio").selectOption("2:3");
     assert.equal(await page.locator("#anima-resolution").isDisabled(), false);
-    assert.equal(await page.locator("#anima-width").inputValue(), "1024");
-    assert.equal(await page.locator("#anima-height").inputValue(), "1536");
+    assert.equal(await page.locator("#anima-width").inputValue(), "576");
+    assert.equal(await page.locator("#anima-height").inputValue(), "864");
     await page.locator("#generate-workflow").selectOption("minimax_h3");
     assert.equal(await page.locator("#generate-tag-fields").isVisible(), false);
     assert.equal(await page.locator("#generate-count-field").isVisible(), false);

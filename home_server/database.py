@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -29,7 +30,7 @@ class Database:
                 self._backup_before_group_tag_migration(connection)
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5}:
+            if schema_version not in {0, 4, 5, 6}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -72,9 +73,13 @@ class Database:
                     workflow TEXT NOT NULL,
                     request_count INTEGER NOT NULL,
                     created_at TEXT NOT NULL,
-                    description TEXT NOT NULL DEFAULT ''
+                    description TEXT NOT NULL DEFAULT '',
+                    deletion_protected INTEGER NOT NULL DEFAULT 0
                 )"""
             )
+            job_columns = {column[1] for column in connection.execute("PRAGMA table_info(jobs)")}
+            if "deletion_protected" not in job_columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN deletion_protected INTEGER NOT NULL DEFAULT 0")
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS job_requests (
                     request_id TEXT PRIMARY KEY,
@@ -115,7 +120,7 @@ class Database:
             )
             connection.execute("CREATE INDEX IF NOT EXISTS tag_entries_group ON tag_entries(group_id, created_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS tag_groups_key ON tag_groups(tag_key)")
-            connection.execute("PRAGMA user_version = 5")
+            connection.execute("PRAGMA user_version = 6")
 
     def _backup_before_group_tag_migration(self, connection: sqlite3.Connection) -> None:
         """SQLite backup API로 schema 변경 전 일관된 복구용 DB를 보관합니다."""
@@ -434,6 +439,31 @@ class Database:
             "active_count": active_count,
         }
 
+    def list_deletable_job_ids(self, job_id: str = "") -> list[str]:
+        """모든 페이지에서 보호되지 않고 활성 요청이 없는 작업 ID를 반환합니다."""
+
+        filter_clause = " AND jobs.job_id = ?" if job_id else ""
+        filter_values = (job_id,) if job_id else ()
+        with self._connect() as connection:
+            job_rows = connection.execute(
+                "SELECT jobs.job_id FROM jobs WHERE jobs.deletion_protected = 0 "
+                "AND NOT EXISTS (SELECT 1 FROM job_requests WHERE job_requests.job_id = jobs.job_id "
+                "AND status IN ('submitting', 'pending', 'running', 'cancelling'))"
+                + filter_clause + " ORDER BY jobs.created_at DESC, jobs.rowid DESC",
+                filter_values,
+            ).fetchall()
+        return [job_row["job_id"] for job_row in job_rows]
+
+    def set_job_deletion_protection(self, job_id: str, deletion_protected: bool) -> bool:
+        """작업의 삭제 보호 설정을 저장하고 작업이 없으면 False를 반환합니다."""
+
+        with self._connect() as connection:
+            result = connection.execute(
+                "UPDATE jobs SET deletion_protected = ? WHERE job_id = ?",
+                (int(deletion_protected), job_id),
+            )
+        return result.rowcount > 0
+
     def find_output_requests(self, output_paths: list[str]) -> dict[str, dict[str, Any]]:
         """현재 페이지 결과물의 원래 생성 경로를 작업과 요청 설정에 연결합니다."""
 
@@ -524,14 +554,16 @@ class Database:
                 (status, current_timestamp(), request_id),
             )
 
-    def delete_job(self, job_id: str) -> bool:
-        """활성 요청이 없는 작업의 하위 요청과 이력을 함께 삭제합니다."""
+    def delete_job(self, job_id: str, before_deletion: Callable[[], None] | None = None) -> bool:
+        """보호·활성 상태를 잠금 안에서 검사한 뒤 파일 처리와 이력 삭제를 수행합니다."""
 
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            job_row = connection.execute("SELECT job_id FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
+            job_row = connection.execute("SELECT deletion_protected FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
             if job_row is None:
                 return False
+            if job_row["deletion_protected"]:
+                raise ValueError("삭제 보호된 작업입니다. 보호를 해제한 뒤 삭제해 주세요.")
             active_count = connection.execute(
                 "SELECT COUNT(*) FROM job_requests WHERE job_id = ? "
                 "AND status IN ('submitting', 'pending', 'running', 'cancelling')",
@@ -539,6 +571,8 @@ class Database:
             ).fetchone()[0]
             if active_count:
                 raise ValueError("진행 중인 작업은 삭제할 수 없습니다.")
+            if before_deletion is not None:
+                before_deletion()
             connection.execute("DELETE FROM job_requests WHERE job_id = ?", (job_id,))
             connection.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
         return True
@@ -619,6 +653,7 @@ class Database:
         return {
             "job_id": row["job_id"], "workflow": row["workflow"],
             "description": row["description"],
+            "deletion_protected": bool(row["deletion_protected"]),
             "request_count": row["request_count"], "created_at": row["created_at"],
             "updated_at": max((request["updated_at"] for request in requests), default=row["created_at"]),
             "status": status, "status_counts": status_counts, "requests": requests,

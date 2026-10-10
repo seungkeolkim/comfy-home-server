@@ -143,6 +143,12 @@ class BatchInput(BaseModel):
         return value.strip()
 
 
+class JobProtectionInput(BaseModel):
+    """상위 작업의 삭제 보호 설정입니다."""
+
+    deletion_protected: bool
+
+
 class TagGroupInput(BaseModel):
     """태그 그룹의 공통 참조 태그와 표시 설정을 검증합니다."""
 
@@ -717,6 +723,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             await _refresh_requests(server)
         return server.database.list_jobs(page=page, page_size=page_size, job_id=job_id)
 
+    @app.get("/api/jobs/deletion-candidates")
+    async def job_deletion_candidates(job_id: str = ""):
+        """현재 목록의 모든 페이지에서 삭제 가능한 작업 ID만 반환합니다."""
+
+        return {"job_ids": server.database.list_deletable_job_ids(job_id)}
+
+    @app.patch("/api/jobs/{job_id}/protection")
+    async def update_job_protection(job_id: str, payload: JobProtectionInput):
+        """작업의 삭제 보호를 켜거나 해제합니다."""
+
+        if not server.database.set_job_deletion_protection(job_id, payload.deletion_protected):
+            raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        return {"job_id": job_id, "deletion_protected": payload.deletion_protected}
+
     @app.post("/api/requests/{request_id}/cancel")
     async def cancel_request(request_id: str):
         """ComfyUI에서 대기·실행 중인 하위 요청 하나를 취소합니다."""
@@ -766,11 +786,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         job = server.database.get_job(job_id)
         if job is None:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        if job["deletion_protected"]:
+            raise HTTPException(409, "삭제 보호된 작업입니다. 보호를 해제한 뒤 삭제해 주세요.")
         if any(request["status"] in {"submitting", "pending", "running", "cancelling"} for request in job["requests"]):
             raise HTTPException(409, "진행 중인 작업은 삭제할 수 없습니다.")
         deleted_files = 0
         missing_files = 0
-        if delete_outputs:
+
+        def delete_recorded_outputs() -> None:
+            """DB 잠금으로 삭제 보호 변경을 막은 동안 원래 위치의 결과물만 삭제합니다."""
+
+            nonlocal deleted_files, missing_files
             output_paths = {
                 path
                 for request in job["requests"]
@@ -795,8 +821,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 except OSError as exception:
                     raise HTTPException(409, f"결과물을 삭제할 수 없습니다: {relative_path}") from exception
                 deleted_files += 1
+
         try:
-            deleted = server.database.delete_job(job_id)
+            deleted = server.database.delete_job(job_id, before_deletion=delete_recorded_outputs if delete_outputs else None)
         except ValueError as exception:
             raise HTTPException(409, str(exception)) from exception
         if not deleted:
