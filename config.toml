@@ -1,3 +1,8 @@
+[outputs]
+thumbnail_cache_max_entries = 10000
+# 개발 중 잦은 재기동에서는 끄고, 기동 후 최근 이미지를 미리 읽으려면 켭니다.
+thumbnail_cache_warmup_enabled = true
+
 [server]
 host = "0.0.0.0"
 port = 8388

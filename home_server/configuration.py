@@ -23,6 +23,8 @@ class AppConfig:
     managed_output_directory: Path
     runtime_directory: Path
     workflow_directory: Path
+    thumbnail_cache_max_entries: int = 10_000
+    thumbnail_cache_warmup_enabled: bool = False
 
 
 def load_config(config_path: Path | None = None) -> AppConfig:
@@ -34,6 +36,13 @@ def load_config(config_path: Path | None = None) -> AppConfig:
 
     server_data = config_data["server"]
     comfy_data = config_data["comfy"]
+    output_data = config_data.get("outputs", {})
+    thumbnail_cache_max_entries = output_data.get("thumbnail_cache_max_entries", 10_000)
+    thumbnail_cache_warmup_enabled = output_data.get("thumbnail_cache_warmup_enabled", False)
+    if type(thumbnail_cache_max_entries) is not int or thumbnail_cache_max_entries < 1:
+        raise ValueError("thumbnail_cache_max_entries는 1 이상의 정수여야 합니다.")
+    if type(thumbnail_cache_warmup_enabled) is not bool:
+        raise ValueError("thumbnail_cache_warmup_enabled는 true 또는 false여야 합니다.")
     configured_output_directory = os.environ.get(
         "HOME_SERVER_COMFY_OUTPUT_DIRECTORY", str(comfy_data["output_directory"])
     )
@@ -55,4 +64,6 @@ def load_config(config_path: Path | None = None) -> AppConfig:
         managed_output_directory=managed_directory,
         runtime_directory=PROJECT_DIRECTORY / "runtime",
         workflow_directory=PROJECT_DIRECTORY / "data" / "workflows",
+        thumbnail_cache_max_entries=thumbnail_cache_max_entries,
+        thumbnail_cache_warmup_enabled=thumbnail_cache_warmup_enabled,
     )

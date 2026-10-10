@@ -13,13 +13,12 @@ import time
 import uuid
 from functools import lru_cache
 from contextlib import asynccontextmanager
-from io import BytesIO
 from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response
-from PIL import Image, ImageOps, UnidentifiedImageError
+from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .comfy_client import ComfyClient
@@ -27,15 +26,13 @@ from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
 from .logging_setup import configure_application_logging, shutdown_application_logging
 from .tag_builder import MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt, resolve_anima_prompts, validate_tag_selection
+from .thumbnail_cache import PREVIEW_IMAGE_EXTENSIONS, PREVIEW_SIZE, ThumbnailCache, ThumbnailTooLargeError
 from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
 
 
 MEDIA_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mkv", ".mov"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
-PREVIEW_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-PREVIEW_SIZE = 384
-MAX_PREVIEW_PIXELS = 80_000_000
 LOGGER = logging.getLogger(__name__)
 CANCEL_CONFIRMATION_SECONDS = 15
 MISSING_REQUEST_GRACE_SECONDS = 30
@@ -272,6 +269,7 @@ class HomeServer:
         """프로젝트 내부 runtime과 관리 output 폴더를 준비합니다."""
 
         self.config = config
+        self.thumbnail_cache = ThumbnailCache(config.thumbnail_cache_max_entries)
         config.runtime_directory.mkdir(parents=True, exist_ok=True)
         config.managed_output_directory.mkdir(parents=True, exist_ok=True)
         self.upload_directory = config.runtime_directory / "uploads"
@@ -391,6 +389,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         log_path = configure_application_logging(server.config.runtime_directory)
         LOGGER.info("서버 시작: 로그 파일=%s", log_path)
+        if server.config.thumbnail_cache_warmup_enabled:
+            server.thumbnail_cache.start_warmup(server.config.managed_output_directory)
         monitor_task = asyncio.create_task(_monitor_requests(server))
         cancellation_task = asyncio.create_task(_monitor_cancellations(server))
         try:
@@ -404,6 +404,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if server.submission_tasks:
                 await asyncio.gather(*server.submission_tasks, return_exceptions=True)
             await server.comfy.close()
+            await asyncio.to_thread(server.thumbnail_cache.stop_warmup)
             LOGGER.info("서버 종료")
             await asyncio.to_thread(shutdown_application_logging)
 
@@ -984,7 +985,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/outputs/preview/{relative_path:path}")
     def output_preview(relative_path: str, request: Request):
-        """원본을 변경하거나 저장하지 않고 작은 WebP preview를 제공합니다."""
+        """현재 파일 버전의 압축된 WebP 썸네일을 LRU Cache에서 제공합니다."""
 
         try:
             file_path = server.managed_path(relative_path, must_exist=True)
@@ -1001,21 +1002,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if request.headers.get("if-none-match") == etag:
             return Response(status_code=304, headers=cache_headers)
         try:
-            with Image.open(file_path) as source_image:
-                if source_image.width * source_image.height > MAX_PREVIEW_PIXELS:
-                    raise HTTPException(413, "미리보기 크기 제한을 초과했습니다.")
-                oriented_image = ImageOps.exif_transpose(source_image)
-                image_mode = "RGBA" if "A" in oriented_image.getbands() or "transparency" in oriented_image.info else "RGB"
-                preview_image = oriented_image.convert(image_mode)
-                preview_image.thumbnail((PREVIEW_SIZE, PREVIEW_SIZE), Image.Resampling.LANCZOS)
-                output_buffer = BytesIO()
-                preview_image.save(output_buffer, format="WEBP", quality=75)
+            thumbnail_bytes = server.thumbnail_cache.get_or_create(file_path, file_stat.st_mtime_ns, file_stat.st_size)
+        except ThumbnailTooLargeError as exception:
+            raise HTTPException(413, str(exception)) from exception
         except FileNotFoundError as exception:
             raise HTTPException(404, "결과물을 찾을 수 없습니다.") from exception
         except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exception:
             LOGGER.warning("결과물 미리보기 생성 실패: path=%s error_type=%s", relative_path, type(exception).__name__)
             raise HTTPException(422, "결과물 미리보기를 만들 수 없습니다.") from exception
-        return Response(content=output_buffer.getvalue(), media_type="image/webp", headers=cache_headers)
+        return Response(content=thumbnail_bytes, media_type="image/webp", headers=cache_headers)
 
     @app.get("/media/{relative_path:path}")
     def media(relative_path: str):
