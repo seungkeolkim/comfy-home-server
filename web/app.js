@@ -1489,7 +1489,6 @@ async function loadJobs({ refreshAfterCurrentRequest = true } = {}) {
 /** 사용자 조작 중 조회 조건이 바뀌면 현재 요청 완료 후 최신 조건으로 다시 읽습니다. */
 async function refreshJobPages() {
   applicationState.jobsLoading = true;
-  element("jobs-loading-status").textContent = "작업 상태를 갱신하는 중입니다.";
   if (!applicationState.jobsLoadedOnce) renderJobsList();
   try {
     do {
