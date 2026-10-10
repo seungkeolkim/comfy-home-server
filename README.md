@@ -4,35 +4,25 @@ ComfyUI API에 Anima 이미지와 DaSiWa MiniMax H3 영상을 bulk로 제출하�
 
 ## Docker Compose 실행
 
-Docker Desktop의 Linux container를 사용합니다. `.env.example`을 `.env`로 복사하고 `COMFY_MANAGED_OUTPUT_DIRECTORY`를 Windows의 ComfyUI `output/from_home_server` 절대 경로로 설정하세요. `.env`는 Git에서 제외됩니다. `config.toml`의 비밀번호와 로컬 실행 설정은 그대로 사용하고, 컨테이너 안에서만 ComfyUI 주소와 output 경로를 환경변수로 바꿉니다.
+앱 서버는 Docker Compose로 실행합니다. Docker Desktop의 Linux container를 사용합니다. `.env.example`을 `.env`로 복사하고 `COMFY_MANAGED_OUTPUT_DIRECTORY`를 Windows의 ComfyUI `output/from_home_server` 절대 경로로 설정하세요. `.env`는 Git에서 제외됩니다. `config.toml`의 비밀번호와 앱 설정은 그대로 사용하고, 컨테이너 안에서만 ComfyUI 주소와 output 경로를 환경변수로 바꿉니다.
 
 ```powershell
 Copy-Item .env.example .env
 # .env의 COMFY_MANAGED_OUTPUT_DIRECTORY를 실제 경로로 수정
-docker compose up -d --build
-docker compose ps
-docker compose logs -f home-server
+.\run_compose.ps1 up
+docker compose -f .\compose.yaml ps
+docker compose -f .\compose.yaml logs -f home-server
+# 종료
+.\run_compose.ps1 down
 ```
 
-`home_server/`, `web/`, `data/workflows/`, `config.toml`은 읽기 전용으로 mount합니다. `runtime/`과 ComfyUI의 `output/from_home_server`만 쓰기 가능하며 기존 SQLite DB와 로그를 계속 사용합니다. Python 코드 변경은 컨테이너 안의 Uvicorn reload가 감지합니다. `web/` 변경은 브라우저 새로고침으로 반영되고, workflow JSON은 작업 제출 시 다시 읽습니다. 의존성 변경은 `docker compose up -d --build`, `config.toml` 변경은 `docker compose restart home-server`로 반영하세요.
+`run_compose.ps1 up`은 스크립트 위치의 `compose.yaml`을 절대 경로로 지정하여 `docker compose --project-directory <프로젝트 경로> -f <compose.yaml 경로> up -d --build`를 실행합니다. Image를 build한 뒤 백그라운드로 시작하며, 명령을 생략해도 `up`으로 실행합니다. 다른 폴더에서 스크립트를 실행해도 프로젝트의 `.env`와 상대 경로를 사용합니다. `runtime/`은 없으면 준비하며, `down`은 컨테이너와 Compose network만 정리하고 DB·로그·생성물은 유지합니다.
+
+`home_server/`, `web/`, `data/workflows/`, `config.toml`은 읽기 전용으로 mount합니다. `runtime/`과 ComfyUI의 `output/from_home_server`만 쓰기 가능하며 기존 SQLite DB와 로그를 계속 사용합니다. Python 코드 변경은 컨테이너 안의 Uvicorn reload가 감지합니다. `web/` 변경은 브라우저 새로고침으로 반영되고, workflow JSON은 작업 제출 시 다시 읽습니다. 의존성 변경은 `.\run_compose.ps1 up`, `config.toml` 변경은 `docker compose -f .\compose.yaml restart home-server`로 반영하세요.
 
 reload 시 로그인 session이 초기화되고 제출 중인 작업이 중단될 수 있습니다.
 
-상태는 `docker compose ps`, 로그는 `docker compose logs -f home-server`, 종료는 `docker compose down`으로 관리합니다. Docker Desktop의 일반 bridge network와 `host.docker.internal:8188`로 Windows의 ComfyUI에 접속합니다.
-
-## Python 직접 실행
-
-Python 3.11 이상에서 실행합니다.
-
-PowerShell에서 다음 스크립트를 실행하면 `.venv`를 만들고 의존성을 설치한 뒤 서버를 시작합니다. 이후 `requirements.txt`가 변경되면 다음 실행 때 의존성을 다시 설치합니다.
-
-```powershell
-.\run_home_server.ps1
-```
-
-기본 실행은 `home_server/`의 Python 코드가 변경될 때 서버를 자동 재시작합니다. 자동 재시작 없이 실행하려면 `.\run_home_server.ps1 -NoReload`를 사용합니다. 수동 실행은 `python -m pip install -r requirements.txt` 후 `python -m home_server` 또는 `python -m home_server --reload`로 가능합니다. `web/` 파일은 브라우저를 새로고침하면 반영되고, workflow JSON은 요청할 때 다시 읽습니다. `config.toml` 변경 사항은 서버를 직접 재시작해야 합니다.
-
-자동 재시작 시 로그인 session이 초기화되며 제출 중인 작업이 중단될 수 있습니다. 상시 실행에는 `-NoReload`를 사용하세요.
+상태는 `docker compose -f .\compose.yaml ps`, 로그는 `docker compose -f .\compose.yaml logs -f home-server`, 종료는 `.\run_compose.ps1 down`으로 관리합니다. Docker Desktop의 일반 bridge network와 `host.docker.internal:8188`로 Windows의 ComfyUI에 접속합니다.
 
 브라우저에서 `http://localhost:8388`로 접속합니다. 설정은 프로젝트의 [config.toml](config.toml)에 있습니다. 기본 비밀번호는 설정 파일에 평문으로 저장되어 있습니다.
 
