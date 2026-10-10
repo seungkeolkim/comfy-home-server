@@ -25,8 +25,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from .comfy_client import ComfyClient
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
-from .logging_setup import configure_application_logging
-from .tag_builder import anima_negative_prompt, anima_prompt, resolve_anima_prompts, validate_tag_selection
+from .logging_setup import configure_application_logging, shutdown_application_logging
+from .tag_builder import MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt, resolve_anima_prompts, validate_tag_selection
 from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
 
 
@@ -79,13 +79,10 @@ def selected_tag_definitions(
 
     if len(selected_tag_ids) != len(set(selected_tag_ids)):
         raise ValueError("같은 태그 항목을 중복 선택할 수 없습니다.")
-    available_groups = {group["group_id"]: group for group in database.list_tag_groups()}
-    available_tags = {}
-    for tag_entry in database.list_tag_entries():
-        tag_group = available_groups[tag_entry["group_id"]]
-        available_tags[tag_entry["tag_id"]] = {
-            **tag_entry, "tag_key": tag_group["tag_key"], "group_name": tag_group["name"],
-        }
+    if len(selected_tag_ids) > MAX_SELECTED_TAGS:
+        raise ValueError(f"태그 항목은 최대 {MAX_SELECTED_TAGS}개 선택할 수 있습니다.")
+    definitions = database.get_selected_tag_definitions(selected_tag_ids)
+    available_tags = {definition["tag_id"]: definition for definition in definitions}
     missing_tag_ids = [tag_id for tag_id in selected_tag_ids if tag_id not in available_tags]
     if missing_tag_ids:
         raise ValueError("삭제되거나 찾을 수 없는 태그 항목이 선택되었습니다. 목록을 새로고침해 주세요.")
@@ -330,6 +327,59 @@ class HomeServer:
         return candidate
 
 
+def store_batch_requests(
+    server: HomeServer, payload: BatchInput, selected_tags: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
+    """이미지 존재 확인·요청 구성·DB 저장을 Worker에서 함께 완료합니다."""
+
+    upload_ids = payload.upload_ids if payload.workflow == "minimax_h3" else [None] * payload.count
+    if len(upload_ids) > 100:
+        raise HTTPException(422, "한 Batch의 요청은 최대 100개입니다.")
+    for upload_id in payload.upload_ids:
+        if not any(server.upload_directory.glob(f"{upload_id}.*")):
+            raise HTTPException(422, f"업로드 파일이 없습니다: {upload_id}")
+
+    job_id = uuid.uuid4().hex[:12]
+    request_settings = dict(payload.settings)
+    if payload.workflow == "anima":
+        request_settings.pop("batch_size", None)
+    submitted_requests = []
+    for upload_id in upload_ids:
+        request_id = uuid.uuid4().hex[:12]
+        output_stem = f"{server.config.managed_output_directory.name}/{payload.workflow}/{WORKFLOW_OUTPUT_NAMES[payload.workflow]}"
+        request = {
+            "request_id": request_id, "job_id": job_id, "workflow": payload.workflow,
+            "status": "submitting", "output_stem": output_stem,
+            "detail": {"upload_id": upload_id, "body": payload.body, "selected_tags": selected_tags,
+                       "settings": request_settings, "loras": payload.loras,
+                       "prompt_preset_id": payload.prompt_preset_id,
+                       "lora_preset_id": payload.lora_preset_id if payload.loras else None,
+                       "lora_preset_name": payload.lora_preset_name if payload.loras else None},
+        }
+        submitted_requests.append(request)
+
+    server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests)
+    return job_id, submitted_requests
+
+
+def find_uploaded_image(upload_directory: Path, upload_id: str) -> Path:
+    """Worker에서 업로드 파일을 찾고 이미 사라진 입력을 명시적으로 표시합니다."""
+
+    for upload_path in upload_directory.glob(f"{upload_id}.*"):
+        return upload_path
+    raise ValueError("업로드 입력 이미지를 찾을 수 없습니다.")
+
+
+def clear_batch_uploads(upload_directory: Path, requests: list[dict[str, Any]]) -> None:
+    """Batch가 끝난 뒤 임시 입력 파일의 탐색·삭제를 Worker에서 수행합니다."""
+
+    for request in requests:
+        upload_id = request["detail"].get("upload_id")
+        if upload_id:
+            for upload_path in upload_directory.glob(f"{upload_id}.*"):
+                upload_path.unlink(missing_ok=True)
+
+
 def create_app(config: AppConfig | None = None) -> FastAPI:
     """앱 서버와 API route를 구성합니다."""
 
@@ -355,6 +405,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 await asyncio.gather(*server.submission_tasks, return_exceptions=True)
             await server.comfy.close()
             LOGGER.info("서버 종료")
+            await asyncio.to_thread(shutdown_application_logging)
 
     app = FastAPI(title="Comfy Home Server", lifespan=lifespan)
     app.state.home_server = server
@@ -455,13 +506,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return {"comfy_connected": connected, "queue_pending": queue_count, "output_directory": str(server.config.managed_output_directory)}
 
     @app.get("/api/presets")
-    async def presets():
+    def presets():
         """저장된 Prompt preset을 조회합니다."""
 
-        return server.database.list_presets()
+        return JSONResponse(server.database.list_presets())
 
     @app.post("/api/presets")
-    async def save_preset(payload: PresetInput):
+    def save_preset(payload: PresetInput):
         """Prompt preset의 새 버전을 저장합니다."""
 
         if payload.workflow not in {"anima", "minimax_h3"}:
@@ -479,36 +530,39 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except ValueError as exception:
             raise HTTPException(422, str(exception)) from exception
         preset_id = payload.preset_id or uuid.uuid4().hex
-        return server.database.save_preset(preset_id, payload.name.strip(), payload.workflow, body)
+        return JSONResponse(server.database.save_preset(preset_id, payload.name.strip(), payload.workflow, body))
 
     @app.get("/api/presets/{preset_id}/versions")
-    async def preset_versions(preset_id: str):
+    def preset_versions(preset_id: str):
         """저장된 Prompt의 이전 버전을 보여줍니다."""
 
-        return server.database.list_preset_versions(preset_id)
+        return JSONResponse(server.database.list_preset_versions(preset_id))
 
     @app.get("/api/tags")
-    async def list_tags():
+    def list_tags():
         """Anima 태그 항목과 표시 그룹을 함께 반환합니다."""
 
-        return {"groups": server.database.list_tag_groups(), "entries": server.database.list_tag_entries()}
+        return JSONResponse({"groups": server.database.list_tag_groups(), "entries": server.database.list_tag_entries()})
 
     @app.post("/api/tags/groups", status_code=201)
-    async def create_tag_group(payload: TagGroupInput):
+    def create_tag_group(payload: TagGroupInput):
         """기본 펼침 상태를 포함한 태그 표시 그룹을 만듭니다."""
 
-        return server.database.save_tag_group(uuid.uuid4().hex, payload.name, payload.tag_key, payload.default_expanded)
+        created_tag_group = server.database.save_tag_group(
+            uuid.uuid4().hex, payload.name, payload.tag_key, payload.default_expanded,
+        )
+        return JSONResponse(created_tag_group, status_code=201)
 
     @app.put("/api/tags/groups/{group_id}")
-    async def update_tag_group(group_id: str, payload: TagGroupInput):
+    def update_tag_group(group_id: str, payload: TagGroupInput):
         """존재하는 그룹의 이름과 기본 펼침 상태를 수정합니다."""
 
         if server.database.get_tag_group(group_id) is None:
             raise HTTPException(404, "태그 그룹을 찾을 수 없습니다.")
-        return server.database.save_tag_group(group_id, payload.name, payload.tag_key, payload.default_expanded)
+        return JSONResponse(server.database.save_tag_group(group_id, payload.name, payload.tag_key, payload.default_expanded))
 
     @app.delete("/api/tags/groups/{group_id}")
-    async def delete_tag_group(group_id: str):
+    def delete_tag_group(group_id: str):
         """항목이 없는 표시 그룹만 삭제합니다."""
 
         try:
@@ -517,33 +571,33 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(409, "그룹의 태그 항목을 먼저 이동하거나 삭제해 주세요.") from exception
         if not deleted:
             raise HTTPException(404, "태그 그룹을 찾을 수 없습니다.")
-        return {"deleted": True}
+        return JSONResponse({"deleted": True})
 
     @app.post("/api/tags/entries", status_code=201)
-    async def create_tag_entry(payload: TagEntryInput):
+    def create_tag_entry(payload: TagEntryInput):
         """그룹 안에 새 태그 선택지를 저장합니다."""
 
         if server.database.get_tag_group(payload.group_id) is None:
             raise HTTPException(422, "태그 그룹을 찾을 수 없습니다.")
-        return server.database.save_tag_entry(uuid.uuid4().hex, payload.model_dump())
+        return JSONResponse(server.database.save_tag_entry(uuid.uuid4().hex, payload.model_dump()), status_code=201)
 
     @app.put("/api/tags/entries/{tag_id}")
-    async def update_tag_entry(tag_id: str, payload: TagEntryInput):
+    def update_tag_entry(tag_id: str, payload: TagEntryInput):
         """안정적인 ID를 유지하며 기존 태그 항목을 수정합니다."""
 
         if server.database.get_tag_entry(tag_id) is None:
             raise HTTPException(404, "태그 항목을 찾을 수 없습니다.")
         if server.database.get_tag_group(payload.group_id) is None:
             raise HTTPException(422, "태그 그룹을 찾을 수 없습니다.")
-        return server.database.save_tag_entry(tag_id, payload.model_dump())
+        return JSONResponse(server.database.save_tag_entry(tag_id, payload.model_dump()))
 
     @app.delete("/api/tags/entries/{tag_id}")
-    async def delete_tag_entry(tag_id: str):
+    def delete_tag_entry(tag_id: str):
         """현재 태그 정의를 삭제하고 과거 작업 snapshot은 보존합니다."""
 
         if not server.database.delete_tag_entry(tag_id):
             raise HTTPException(404, "태그 항목을 찾을 수 없습니다.")
-        return {"deleted": True}
+        return JSONResponse({"deleted": True})
 
     @app.post("/api/prompts/preview")
     async def preview(payload: PreviewInput):
@@ -556,20 +610,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 prompt_text = plain_prompt(payload.body)
             except ValueError as exception:
                 raise HTTPException(422, str(exception)) from exception
-            return {"combined_prompt": prompt_text, "examples": [{"index": 1, "seed": None, "prompt": prompt_text}]}
+            return await asyncio.to_thread(JSONResponse, {
+                "combined_prompt": prompt_text, "examples": [{"index": 1, "seed": None, "prompt": prompt_text}],
+            })
         if payload.workflow != "anima":
             raise HTTPException(422, "지원하지 않는 workflow입니다.")
         try:
             prompt_text = anima_prompt(payload.body)
             negative_text = anima_negative_prompt(payload.body)
-            selected_tags = selected_tag_definitions(
-                server.database, payload.selected_tag_ids, prompt_text, negative_text,
+            selected_tags = await asyncio.to_thread(
+                selected_tag_definitions, server.database, payload.selected_tag_ids, prompt_text, negative_text,
             )
             examples = []
             for example_index in range(payload.count):
                 wildcard_seed = secrets.randbelow(2**31)
-                template, negative_template, selected_path, negative_selected_path = resolve_anima_prompts(
-                    payload.body, selected_tags, wildcard_seed,
+                template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
+                    resolve_anima_prompts, payload.body, selected_tags, wildcard_seed,
                 )
                 resolved = await server.comfy.populate_wildcards(template, wildcard_seed)
                 resolved_negative = await server.comfy.populate_wildcards(negative_template, wildcard_seed)
@@ -582,14 +638,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(422, str(exception)) from exception
         except Exception as exception:
             raise HTTPException(502, str(exception)) from exception
-        return {"combined_prompt": None, "examples": examples}
+        return await asyncio.to_thread(JSONResponse, {"combined_prompt": None, "examples": examples})
 
     @app.get("/api/loras")
     async def loras():
         """ComfyUI에서 현재 확인되는 LoRA 파일 목록을 제공합니다."""
 
         try:
-            return {"files": await server.comfy.list_loras(), "profiles": server.database.list_lora_profiles()}
+            available_files = await server.comfy.list_loras()
+            profiles = await asyncio.to_thread(server.database.list_lora_profiles)
+            return await asyncio.to_thread(JSONResponse, {"files": available_files, "profiles": profiles})
         except Exception as exception:
             raise HTTPException(502, str(exception)) from exception
 
@@ -603,25 +661,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if payload.name not in available_loras:
             raise HTTPException(422, "ComfyUI에서 LoRA 파일을 찾을 수 없습니다.")
         settings = payload.model_dump(include={"strength", "clip_strength", "video_strength", "audio_strength"})
-        server.database.save_lora_profile(payload.name, payload.workflow, settings)
+        await asyncio.to_thread(server.database.save_lora_profile, payload.name, payload.workflow, settings)
         return {"saved": True}
 
     @app.get("/api/loras/presets")
-    async def list_lora_presets():
+    def list_lora_presets():
         """ComfyUI 연결 여부와 관계없이 저장된 LoRA 조합을 조회합니다."""
 
-        return server.database.list_lora_presets()
+        return JSONResponse(server.database.list_lora_presets())
 
     @app.post("/api/loras/presets", status_code=201)
-    async def create_lora_preset(payload: LoraPresetInput):
+    def create_lora_preset(payload: LoraPresetInput):
         """현재 조합을 새 preset으로 저장합니다."""
 
-        return server.database.create_lora_preset(
+        return JSONResponse(server.database.create_lora_preset(
             uuid.uuid4().hex, payload.name, payload.workflow, payload.selected_loras_snapshot(),
-        )
+        ), status_code=201)
 
     @app.put("/api/loras/presets/{preset_id}")
-    async def update_lora_preset(preset_id: str, payload: LoraPresetInput):
+    def update_lora_preset(preset_id: str, payload: LoraPresetInput):
         """사용자가 저장한 기존 LoRA 조합을 명시적으로 갱신합니다."""
 
         updated_preset = server.database.update_lora_preset(
@@ -629,18 +687,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         )
         if updated_preset is None:
             raise HTTPException(404, "LoRA preset을 찾을 수 없습니다.")
-        return updated_preset
+        return JSONResponse(updated_preset)
 
     @app.delete("/api/loras/presets/{preset_id}")
-    async def delete_lora_preset(preset_id: str):
+    def delete_lora_preset(preset_id: str):
         """선택한 LoRA 조합 preset을 삭제합니다."""
 
         if not server.database.delete_lora_preset(preset_id):
             raise HTTPException(404, "LoRA preset을 찾을 수 없습니다.")
-        return {"deleted": True}
+        return JSONResponse({"deleted": True})
 
     @app.post("/api/uploads")
-    async def upload(file: UploadFile = File(...)):
+    def upload(file: UploadFile = File(...)):
         """Mobile 또는 desktop 입력 이미지를 제출 전 임시 저장합니다."""
 
         original_name = Path(file.filename or "image").name
@@ -652,7 +710,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         total_bytes = 0
         try:
             with upload_path.open("wb") as output_file:
-                while chunk := await file.read(1024 * 1024):
+                while chunk := file.file.read(1024 * 1024):
                     total_bytes += len(chunk)
                     if total_bytes > MAX_UPLOAD_BYTES:
                         raise HTTPException(413, "입력 이미지가 50 MB를 초과합니다.")
@@ -660,7 +718,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception:
             upload_path.unlink(missing_ok=True)
             raise
-        return {"upload_id": upload_id, "name": original_name, "size": total_bytes}
+        return JSONResponse({"upload_id": upload_id, "name": original_name, "size": total_bytes})
 
     @app.post("/api/batches")
     async def submit_batch(payload: BatchInput):
@@ -683,46 +741,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             else:
                 prompt_text = anima_prompt(payload.body)
                 negative_text = anima_negative_prompt(payload.body)
-                selected_tags = selected_tag_definitions(
-                    server.database, payload.selected_tag_ids, prompt_text, negative_text,
+                selected_tags = await asyncio.to_thread(
+                    selected_tag_definitions, server.database, payload.selected_tag_ids, prompt_text, negative_text,
                 )
             available_loras = set(await server.comfy.list_loras()) if payload.loras else set()
             missing_loras = [selected_lora.get("name") for selected_lora in payload.loras if selected_lora.get("name") not in available_loras]
             if missing_loras:
                 raise ValueError(f"ComfyUI에서 LoRA를 찾을 수 없습니다: {', '.join(str(name) for name in missing_loras)}")
-            load_workflows(server.config.workflow_directory, payload.workflow)
+            await asyncio.to_thread(load_workflows, server.config.workflow_directory, payload.workflow)
         except ValueError as exception:
             raise HTTPException(422, str(exception)) from exception
         except Exception as exception:
             raise HTTPException(502, str(exception)) from exception
 
-        upload_ids = payload.upload_ids if payload.workflow == "minimax_h3" else [None] * payload.count
-        if len(upload_ids) > 100:
-            raise HTTPException(422, "한 Batch의 요청은 최대 100개입니다.")
-        for upload_id in payload.upload_ids:
-            if not any(server.upload_directory.glob(f"{upload_id}.*")):
-                raise HTTPException(422, f"업로드 파일이 없습니다: {upload_id}")
-
-        job_id = uuid.uuid4().hex[:12]
-        request_settings = dict(payload.settings)
-        if payload.workflow == "anima":
-            request_settings.pop("batch_size", None)
-        submitted_requests = []
-        for upload_id in upload_ids:
-            request_id = uuid.uuid4().hex[:12]
-            output_stem = f"{server.config.managed_output_directory.name}/{payload.workflow}/{WORKFLOW_OUTPUT_NAMES[payload.workflow]}"
-            request = {
-                "request_id": request_id, "job_id": job_id, "workflow": payload.workflow,
-                "status": "submitting", "output_stem": output_stem,
-                "detail": {"upload_id": upload_id, "body": payload.body, "selected_tags": selected_tags,
-                           "settings": request_settings, "loras": payload.loras,
-                           "prompt_preset_id": payload.prompt_preset_id,
-                           "lora_preset_id": payload.lora_preset_id if payload.loras else None,
-                           "lora_preset_name": payload.lora_preset_name if payload.loras else None},
-            }
-            submitted_requests.append(request)
-
-        await asyncio.to_thread(server.database.add_job, job_id, payload.workflow, payload.description, submitted_requests)
+        job_id, submitted_requests = await asyncio.to_thread(store_batch_requests, server, payload, selected_tags)
         submission_task = asyncio.create_task(_submit_requests(server, submitted_requests))
         server.submission_tasks.add(submission_task)
         submission_task.add_done_callback(server.submission_tasks.discard)
@@ -742,20 +774,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if refresh:
             await _refresh_requests(server)
         read_jobs = server.database.list_job_summaries if summary else server.database.list_jobs
-        response = await asyncio.to_thread(read_jobs, page=page, page_size=page_size, job_id=job_id)
-        return await asyncio.to_thread(JSONResponse, response)
+
+        def read_job_page_response() -> JSONResponse:
+            """목록 조회부터 최종 JSON 직렬화까지 같은 Worker에서 완료합니다."""
+
+            response = read_jobs(page=page, page_size=page_size, job_id=job_id)
+            return JSONResponse(response)
+
+        return await asyncio.to_thread(read_job_page_response)
 
     @app.get("/api/jobs/deletion-candidates")
     def job_deletion_candidates(job_id: str = ""):
         """현재 목록의 모든 페이지에서 삭제 가능한 작업 ID만 반환합니다."""
 
-        return {"job_ids": server.database.list_deletable_job_ids(job_id)}
+        return JSONResponse({"job_ids": server.database.list_deletable_job_ids(job_id)})
 
     @app.get("/api/jobs/activity")
     def jobs_activity():
         """다른 탭에서는 하위 요청을 읽지 않고 활성 작업 수만 반환합니다."""
 
-        return {"active_count": server.database.count_active_jobs()}
+        return JSONResponse({"active_count": server.database.count_active_jobs()})
 
     @app.get("/api/jobs/{job_id}/inputs")
     def job_inputs(job_id: str):
@@ -764,7 +802,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         job = server.database.get_job_inputs(job_id)
         if job is None:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
-        return job
+        return JSONResponse(job)
 
     @app.get("/api/jobs/{job_id}")
     def job_details(job_id: str):
@@ -773,7 +811,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         job = server.database.get_job(job_id)
         if job is None:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
-        return job
+        return JSONResponse(job)
 
     @app.patch("/api/jobs/{job_id}/protection")
     def update_job_protection(job_id: str, payload: JobProtectionInput):
@@ -781,7 +819,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         if not server.database.set_job_deletion_protection(job_id, payload.deletion_protected):
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
-        return {"job_id": job_id, "deletion_protected": payload.deletion_protected}
+        return JSONResponse({"job_id": job_id, "deletion_protected": payload.deletion_protected})
 
     @app.post("/api/requests/{request_id}/cancel")
     async def cancel_request(request_id: str):
@@ -807,10 +845,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
         if not requested_count:
             raise HTTPException(409, "취소할 수 있는 요청이 없습니다.")
-        active_requests = await asyncio.to_thread(server.database.list_active_requests)
+        active_requests = await asyncio.to_thread(server.database.list_active_requests, job_id=job_id)
         for request in active_requests:
-            if request["job_id"] == job_id:
-                server.cancellation_retry_after.pop(request["request_id"], None)
+            server.cancellation_retry_after.pop(request["request_id"], None)
         server.cancellation_wakeup.set()
         LOGGER.info("작업 취소 접수: job_id=%s requested_count=%s", job_id, requested_count)
         return {"status": "cancelling", "requested_count": requested_count}
@@ -865,7 +902,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if not deleted:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
         LOGGER.info("작업 이력 삭제: job_id=%s delete_outputs=%s deleted_files=%s missing_files=%s", job_id, delete_outputs, deleted_files, missing_files)
-        return {"deleted": True, "deleted_files": deleted_files, "missing_files": missing_files}
+        return JSONResponse({"deleted": True, "deleted_files": deleted_files, "missing_files": missing_files})
 
     @app.get("/api/outputs")
     def outputs(
@@ -939,11 +976,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     file["dimensions_source"] = "settings"
             file["width"] = dimensions[0] if dimensions else None
             file["height"] = dimensions[1] if dimensions else None
-        return {
+        return JSONResponse({
             "files": page_files,
             "page": page, "page_size": page_size, "total": total,
             "total_pages": max(1, (total + page_size - 1) // page_size),
-        }
+        })
 
     @app.get("/api/outputs/preview/{relative_path:path}")
     def output_preview(relative_path: str, request: Request):
@@ -981,7 +1018,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return Response(content=output_buffer.getvalue(), media_type="image/webp", headers=cache_headers)
 
     @app.get("/media/{relative_path:path}")
-    async def media(relative_path: str):
+    def media(relative_path: str):
         """인증된 브라우저에 관리 폴더 안의 생성물을 제공합니다."""
 
         try:
@@ -993,7 +1030,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return FileResponse(file_path)
 
     @app.post("/api/outputs/move")
-    async def move_output(payload: MoveInput):
+    def move_output(payload: MoveInput):
         """결과물을 관리 폴더 안의 다른 폴더로 이동합니다."""
 
         try:
@@ -1012,7 +1049,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except OSError as exception:
             raise HTTPException(409, f"파일을 이동할 수 없습니다: {exception}") from exception
         LOGGER.info("결과물 이동: source=%s destination=%s", payload.source, destination_path)
-        return {"path": destination_path.relative_to(server.config.managed_output_directory).as_posix()}
+        return JSONResponse({"path": destination_path.relative_to(server.config.managed_output_directory).as_posix()})
 
     return app
 
@@ -1112,7 +1149,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                 else:
                     request_settings = detail["settings"]
                     upload_id = detail["upload_id"]
-                    upload_path = next(server.upload_directory.glob(f"{upload_id}.*"))
+                    upload_path = await asyncio.to_thread(find_uploaded_image, server.upload_directory, upload_id)
                     uploaded_name = f"{request_id}_{upload_path.name}"
                     uploaded_reference = await server.comfy.upload_image(upload_path, uploaded_name)
                     request_workflow, metadata_workflow = await asyncio.to_thread(
@@ -1158,11 +1195,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                     await asyncio.to_thread(server.database.update_request, request_id, "failed", str(exception))
                 LOGGER.error("요청 제출 실패: request_id=%s error_type=%s", request_id, type(exception).__name__)
     finally:
-        for request in requests:
-            upload_id = request["detail"].get("upload_id")
-            if upload_id:
-                for upload_path in server.upload_directory.glob(f"{upload_id}.*"):
-                    upload_path.unlink(missing_ok=True)
+        await asyncio.to_thread(clear_batch_uploads, server.upload_directory, requests)
 
 
 async def _refresh_requests(server: HomeServer) -> None:

@@ -154,6 +154,36 @@ def create_processing_test_app(tmp_path: Path, comfy_client: FakeComfyClient):
     return app
 
 
+def test_selected_tag_snapshot_uses_one_join_and_preserves_selection_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """체크한 항목과 그룹을 한 번만 조회하며 미체크 후보와 선택 순서를 혼동하지 않습니다."""
+
+    database = Database(tmp_path / "home_server.sqlite3")
+    database.save_tag_group("group", "현재 그룹", "TAG", True)
+    for tag_id in ("first", "second", "unchecked"):
+        database.save_tag_entry(tag_id, {"group_id": "group", "name": tag_id, "content": tag_id, "weight": 1})
+    executed_statements = []
+    original_connect = database._connect
+
+    def traced_connection():
+        """조회 SQL 수를 확인할 Connection을 엽니다."""
+
+        connection = original_connect()
+        connection.set_trace_callback(executed_statements.append)
+        return connection
+
+    monkeypatch.setattr(database, "_connect", traced_connection)
+    definitions = selected_tag_definitions(database, ["second", "first"], "[TAG]")
+    assert [definition["tag_id"] for definition in definitions] == ["second", "first"]
+    assert all(definition["tag_key"] == "TAG" and definition["group_name"] == "현재 그룹" for definition in definitions)
+    assert len([statement for statement in executed_statements if statement.startswith("SELECT")]) == 1
+    executed_statements.clear()
+    assert selected_tag_definitions(database, [], "literal prompt") == []
+    assert not any(statement.startswith("SELECT") for statement in executed_statements)
+    with pytest.raises(ValueError, match="최대 200"):
+        selected_tag_definitions(database, [f"tag-{tag_index}" for tag_index in range(201)], "[TAG]")
+    assert executed_statements == []
+
+
 def test_hundred_request_cancellation_stops_submission_and_catches_late_prompt(tmp_path: Path) -> None:
     """100개 작업 취소는 전송 응답을 기다리지 않고 접수하며 뒤늦은 한 요청도 취소합니다."""
 

@@ -330,6 +330,10 @@ def test_active_monitor_does_not_hide_older_requests_above_a_thousand(tmp_path: 
         database.add_job(f"job-{job_index}", "anima", "", requests)
     assert len(database.list_active_requests()) == 1100
     assert len(database.list_active_requests(limit=10)) == 10
+    assert len(database.list_active_requests(job_id="job-5")) == 100
+    assert {request["job_id"] for request in database.list_active_requests(job_id="job-5", limit=10)} == {"job-5"}
+    assert len(database.list_active_requests(job_id="job-5", limit=10)) == 10
+    assert database.list_active_requests(job_id="missing") == []
 
 
 def test_cancellation_survives_late_acceptance_and_queue_updates(tmp_path: Path) -> None:

@@ -363,6 +363,26 @@ class Database:
             row = connection.execute("SELECT * FROM tag_entries WHERE tag_id = ?", (tag_id,)).fetchone()
         return self._tag_entry_from_row(row) if row else None
 
+    def get_selected_tag_definitions(self, selected_tag_ids: list[str]) -> list[dict[str, Any]]:
+        """선택한 항목과 그룹 참조를 한 SQL Snapshot에서 함께 읽습니다."""
+
+        if not selected_tag_ids:
+            return []
+        placeholders = ",".join("?" for _ in selected_tag_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT tag_entries.*, tag_groups.tag_key, tag_groups.name AS group_name "
+                "FROM tag_entries JOIN tag_groups USING (group_id) "
+                f"WHERE tag_entries.tag_id IN ({placeholders})", tuple(selected_tag_ids),
+            ).fetchall()
+        definitions = []
+        for row in rows:
+            definition = self._tag_entry_from_row(row)
+            definition["tag_key"] = row["tag_key"]
+            definition["group_name"] = row["group_name"]
+            definitions.append(definition)
+        return definitions
+
     def save_tag_entry(self, tag_id: str, values: dict[str, Any]) -> dict[str, Any]:
         """태그 항목의 안정적인 ID를 유지하며 본문과 선택 속성을 저장합니다."""
 
@@ -710,17 +730,23 @@ class Database:
         request["inputs"] = json.loads(row["input_json"])
         return request
 
-    def list_active_requests(self, limit: int | None = None) -> list[dict[str, Any]]:
-        """감시에 필요한 식별자와 상태만 읽고 detail JSON을 파싱하지 않습니다."""
+    def list_active_requests(self, limit: int | None = None, job_id: str = "") -> list[dict[str, Any]]:
+        """감시·취소에 필요한 작은 상태만 읽고 선택 작업으로 범위를 제한할 수 있습니다."""
 
         with self._connect() as connection:
+            filter_clause = " AND job_requests.job_id = ?" if job_id else ""
             limit_clause = " LIMIT ?" if limit is not None else ""
+            query_values = []
+            if job_id:
+                query_values.append(job_id)
+            if limit is not None:
+                query_values.append(limit)
             rows = connection.execute(
                 "SELECT request_id, job_id, prompt_id, status, updated_at, jobs.workflow "
                 "FROM job_requests JOIN jobs USING (job_id) "
                 "WHERE status IN ('submitting', 'pending', 'running', 'cancelling') "
-                "ORDER BY job_requests.created_at DESC" + limit_clause,
-                (limit,) if limit is not None else (),
+                + filter_clause + " ORDER BY job_requests.created_at DESC" + limit_clause,
+                tuple(query_values),
             ).fetchall()
         return [dict(row) for row in rows]
 

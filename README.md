@@ -89,6 +89,7 @@ MiniMax 입력 이미지는 비워 두므로 다시 선택해야 합니다. 원�
 
 - Prompt, LoRA 조합, 작업 기록 SQLite, 임시 upload: 프로젝트의 `runtime/`
 - 앱 로그: `runtime/logs/home_server.log` (5 MB마다 회전, 이전 로그 5개 보관). 콘솔에도 출력합니다.
+- DB·파일 처리와 큰 응답의 최종 JSON 직렬화는 Worker Thread에서 수행하고, 로그 출력은 별도 Queue Listener Thread에서 처리합니다. [Event Loop 처리·동시 요청 검증](docs/event_loop_processing.md)을 참고하세요.
 - Workflow 원본: 프로젝트의 `data/workflows/`
 - 생성물: `config.toml`의 `comfy.output_directory` 아래 `comfy.managed_output_folder`
 

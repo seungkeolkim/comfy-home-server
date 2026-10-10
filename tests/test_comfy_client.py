@@ -2,8 +2,12 @@
 
 import asyncio
 import json
+import threading
+import time
+from pathlib import Path
 
 import httpx
+import pytest
 
 from home_server.comfy_client import ComfyClient
 
@@ -97,3 +101,108 @@ def test_older_comfy_server_falls_back_to_supported_queue_and_single_cancel() ->
 
     asyncio.run(verify_fallback())
     assert request_paths == ["/api/jobs", "/queue", "/api/jobs", "/queue", "/api/jobs/legacy/cancel"]
+
+
+@pytest.mark.parametrize("conversion", ["request_json", "history_json", "queue_json", "image_read"])
+def test_slow_comfy_json_or_file_conversion_runs_outside_event_loop(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, conversion: str,
+) -> None:
+    """Workflow 직렬화·History 해석·Queue 구성·파일 읽기가 비동기 통신을 막지 않습니다."""
+
+    from home_server.comfy_client import encode_json_payload
+
+    conversion_started = threading.Event()
+    release_conversion = threading.Event()
+    conversion_on_event_loop = []
+    captured_requests = []
+    image_path = tmp_path / "image.png"
+    image_path.write_bytes(b"test-image-bytes")
+
+    def block_conversion() -> None:
+        """변환 실행 Thread를 확인하고 긴 동기 처리를 재현합니다."""
+
+        try:
+            asyncio.get_running_loop()
+            conversion_on_event_loop.append(True)
+        except RuntimeError:
+            conversion_on_event_loop.append(False)
+        conversion_started.set()
+        release_conversion.wait(3)
+
+    def blocked_encode(payload) -> bytes:
+        """ComfyUI로 전송할 Workflow의 JSON 변환을 멈춥니다."""
+
+        block_conversion()
+        return encode_json_payload(payload)
+
+    class BlockingJsonResponse(httpx.Response):
+        """History·Queue 응답의 JSON 해석 지연을 재현합니다."""
+
+        def json(self, **keyword_arguments):
+            """응답 JSON을 해석하는 Thread에서 지연을 발생시킵니다."""
+
+            block_conversion()
+            return super().json(**keyword_arguments)
+
+    original_read_bytes = Path.read_bytes
+
+    def blocked_image_read(selected_path: Path) -> bytes:
+        """MiniMax 입력 파일 읽기를 멈춥니다."""
+
+        block_conversion()
+        return original_read_bytes(selected_path)
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        """인코딩된 JSON·이미지 계약을 확인하고 응답을 제공합니다."""
+
+        captured_requests.append(request)
+        if conversion == "request_json":
+            assert request.headers["content-type"] == "application/json"
+            assert json.loads(request.content) == {"prompt": "한국어 Prompt", "seed": 7}
+            return httpx.Response(200, json={"accepted": True})
+        if conversion == "history_json":
+            return BlockingJsonResponse(200, json={"prompt-id": {"outputs": {}}})
+        if conversion == "queue_json":
+            return BlockingJsonResponse(200, json={"jobs": [{"id": "running", "status": "in_progress"}]})
+        assert b"test-image-bytes" in request.content
+        return httpx.Response(200, json={"name": "image.png", "subfolder": "from_home_server"})
+
+    if conversion == "request_json":
+        monkeypatch.setattr("home_server.comfy_client.encode_json_payload", blocked_encode)
+    if conversion == "image_read":
+        monkeypatch.setattr(Path, "read_bytes", blocked_image_read)
+
+    async def verify_conversion() -> None:
+        """변환이 막힌 동안 Event Loop가 계속 실행되고 HTTP 처리 결과도 유지되는지 확인합니다."""
+
+        client = ComfyClient("http://comfy.test")
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(base_url=client.endpoint, transport=httpx.MockTransport(handle_request))
+        if conversion == "request_json":
+            operation = client.request_json("POST", "/prompt", json={"prompt": "한국어 Prompt", "seed": 7})
+        elif conversion == "history_json":
+            operation = client.history("prompt-id")
+        elif conversion == "queue_json":
+            operation = client.queue()
+        else:
+            operation = client.upload_image(image_path, "image.png")
+        started = time.monotonic()
+        conversion_task = asyncio.create_task(operation)
+        try:
+            assert await asyncio.to_thread(conversion_started.wait, 2)
+            assert time.monotonic() - started < 1
+            assert not conversion_task.done()
+            assert conversion_on_event_loop == [False]
+        finally:
+            release_conversion.set()
+            result = await conversion_task
+            await client.close()
+        expected_results = {
+            "request_json": {"accepted": True}, "history_json": {"prompt-id": {"outputs": {}}},
+            "queue_json": {"queue_running": [[0, "running"]], "queue_pending": []},
+            "image_read": "from_home_server/image.png",
+        }
+        assert result == expected_results[conversion]
+
+    asyncio.run(verify_conversion())
+    assert len(captured_requests) == 1
