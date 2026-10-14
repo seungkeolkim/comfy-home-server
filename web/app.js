@@ -1669,7 +1669,7 @@ async function loadOutputs() {
             const jobButton = file.job_id
               ? `<button class="button job-link" data-output-job="${escapeHtml(file.job_id)}" aria-label="작업 ${escapeHtml(file.job_id)} 보기">작업</button>`
               : "";
-            return `<article class="output-card"><div class="output-preview">${media}</div><div class="output-info"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.path)} · ${(file.size / 1024 / 1024).toFixed(1)} MB · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(file.path)}">이동</button>${jobButton}</div></div></article>`;
+            return `<article class="output-card"><div class="output-preview">${media}</div><div class="output-info"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(file.path)}">이동</button>${jobButton}</div></div></article>`;
           })
           .join("")
       : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;

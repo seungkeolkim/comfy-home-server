@@ -11,7 +11,6 @@ import shutil
 import sqlite3
 import time
 import uuid
-from functools import lru_cache
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Literal
@@ -24,8 +23,9 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from .comfy_client import ComfyClient
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
+from .image_dimension_cache import ImageDimensionCache
 from .logging_setup import configure_application_logging, shutdown_application_logging
-from .output_listing import iterate_output_directory_entries
+from .output_listing import iterate_output_directory_entries, output_filename_metadata
 from .output_timing import OutputTimingRecorder, measure_output_step
 from .tag_builder import MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt, resolve_anima_prompts, validate_tag_selection
 from .thumbnail_cache import PREVIEW_IMAGE_EXTENSIONS, PREVIEW_SIZE, ThumbnailCache, ThumbnailTooLargeError
@@ -38,6 +38,7 @@ MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 LOGGER = logging.getLogger(__name__)
 CANCEL_CONFIRMATION_SECONDS = 15
 MISSING_REQUEST_GRACE_SECONDS = 30
+IMAGE_DIMENSION_CACHE = ImageDimensionCache()
 
 
 def image_dimensions(image_path: Path) -> tuple[int, int] | None:
@@ -53,11 +54,10 @@ def image_dimensions(image_path: Path) -> tuple[int, int] | None:
         return None
 
 
-@lru_cache(maxsize=2048)
-def cached_image_dimensions(image_path: Path, modified_at_ns: int, file_size: int) -> tuple[int, int] | None:
-    """현재 파일 속성이 같은 이미지의 크기를 재사용하고 변경되면 다시 읽습니다."""
+def cached_image_dimensions(image_path: Path) -> tuple[int, int] | None:
+    """stat 없이 실제 이미지 크기를 재사용하고 같은 경로는 60초 후 다시 읽습니다."""
 
-    return image_dimensions(image_path)
+    return IMAGE_DIMENSION_CACHE.get_dimensions(image_path, image_dimensions)
 
 
 def settings_dimensions(settings: dict[str, Any]) -> tuple[int, int] | None:
@@ -926,7 +926,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         job_id: str = "",
         request_id: str = "",
     ):
-        """관리 output의 현재 파일을 정렬해 페이지 단위로 반환합니다."""
+        """관리 output의 현재 파일을 Saver 파일명 시간과 seed로 정렬해 반환합니다."""
 
         output_timing = request.state.output_timing
         handler_started_at = time.perf_counter()
@@ -985,23 +985,28 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     matches_selection = selected_output_paths is None or relative_path in selected_output_paths
                 if not matches_prefix or not matches_selection:
                     continue
-                with measure_output_step(output_timing, "file_stat", relative_path):
-                    file_stat = output_path.stat()
+                with measure_output_step(output_timing, "filename_metadata", relative_path):
+                    generated_at, generation_seed = output_filename_metadata(output_path)
             except OSError:
                 # Explorer에서 스캔 도중 파일이 이동되거나 삭제될 수 있습니다.
                 skipped_paths += 1
                 continue
             found_files.append({
                 "path": relative_path,
-                "name": output_path.name, "size": file_stat.st_size,
-                "modified_at": file_stat.st_mtime,
-                "modified_at_ns": file_stat.st_mtime_ns,
+                "name": output_path.name, "generated_at": generated_at, "seed": generation_seed,
                 "kind": "video" if output_path.suffix.lower() in {".mp4", ".webm", ".mkv", ".mov"} else "image",
             })
         output_timing.record("directory_scan", scan_started_at, emit=True)
         output_timing.progress(scanned=scanned_paths, matched=len(found_files), skipped=skipped_paths)
         with measure_output_step(output_timing, "sort_and_paginate", emit=True):
-            found_files.sort(key=lambda item: (item["modified_at"], item["path"]), reverse=True)
+            found_files.sort(
+                key=lambda item: (
+                    item["generated_at"] if item["generated_at"] is not None else 0,
+                    item["seed"] if item["seed"] is not None else -1,
+                    item["path"],
+                ),
+                reverse=True,
+            )
             total = len(found_files)
             first_index = (page - 1) * page_size
             page_files = found_files[first_index:first_index + page_size]
@@ -1014,9 +1019,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             output_request = requests_by_output_path.get(file["path"], {})
             file["job_id"] = output_request.get("job_id")
             file_path = server.config.managed_output_directory / file["path"]
-            modified_at_ns = file.pop("modified_at_ns")
             with measure_output_step(output_timing, "image_dimensions", file["path"], emit=True):
-                dimensions = cached_image_dimensions(file_path, modified_at_ns, file["size"]) if file["kind"] == "image" else None
+                dimensions = cached_image_dimensions(file_path) if file["kind"] == "image" else None
             file["dimensions_source"] = "file" if dimensions else None
             if dimensions is None:
                 dimensions = settings_dimensions(output_request.get("settings", {}))
@@ -1106,6 +1110,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except OSError as exception:
             raise HTTPException(409, f"파일을 이동할 수 없습니다: {exception}") from exception
         LOGGER.info("결과물 이동: source=%s destination=%s", payload.source, destination_path)
+        IMAGE_DIMENSION_CACHE.invalidate(source_path)
+        IMAGE_DIMENSION_CACHE.invalidate(destination_path)
         return JSONResponse({"path": destination_path.relative_to(server.config.managed_output_directory).as_posix()})
 
     return app

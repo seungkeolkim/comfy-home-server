@@ -85,6 +85,8 @@ MiniMax 입력 이미지는 비워 두므로 다시 선택해야 합니다. 원�
 
 결과물 목록은 24건씩 페이지 이동합니다. 이미지는 최대 384px, quality 75의 WebP 썸네일로 변환하고 압축된 bytes만 메모리 LRU Cache에 보관합니다. 기본 최대 개수는 10,000개이며 원본·Bitmap·썸네일 파일은 저장하지 않습니다. 같은 이미지의 동시 조회는 변환 결과를 공유하고, 서로 다른 이미지의 변환은 동시에 최대 두 건만 수행합니다. 영상은 목록에서 파일 정보만 표시하고 `열기`를 누를 때 원본을 불러옵니다. 결과물 탭 진입 또는 수동 새로고침 때 파일 목록을 다시 읽으며, 새로고침하면 첫 페이지로 돌아갑니다.
 
+목록 정렬은 Saver 파일명의 `yyMMdd_HHmmss_seed`에서 읽은 시각 → 숫자 seed → 전체 경로 내림차순입니다. Seed는 같은 초의 순서를 일정하게 만드는 기준이며 더 정밀한 생성 시각을 뜻하지 않습니다. 규칙 밖 파일은 목록 끝에 경로순으로 표시합니다. 목록 조회에서는 파일별 `stat()`과 파일 크기 표시를 제거했습니다. 해상도는 실제 이미지 header에서 읽고 최대 2,048개를 60초 TTL로 재사용하므로 같은 경로의 덮어쓰기는 해상도 표시에 최대 60초 늦게 반영될 수 있습니다. 앱에서 이동한 경로의 해상도 Cache는 즉시 무효화합니다. 썸네일·원본 전송의 파일 속성 확인은 유지합니다.
+
 `config.toml`의 `[outputs]`에서 Cache 개수와 기동 시 백그라운드 채우기를 설정합니다. 설정 변경 후 서버를 재기동하세요.
 
 ```toml
@@ -104,6 +106,8 @@ thumbnail_cache_warmup_enabled = false
 - 생성물: `config.toml`의 `comfy.output_directory` 아래 `comfy.managed_output_folder`
 
 결과물 목록·썸네일 조회는 `OUTPUT_TIMING` 로그로 상세 시간을 기록합니다. 응답의 `X-Output-Timing-Id`와 로그의 `id`로 같은 요청을 연결합니다. `event=step`은 개별 단계, `event=summary`는 호출 수·누적 시간·최대 시간·가장 느린 경로, `event=complete`는 HTTP 응답 준비까지의 전체 시간입니다. 파일 탐색은 250개마다 진행량을 기록하며, DB 연결·SQL 실행·결과 읽기·JSON 해석과 썸네일 Cache hit·miss·대기도 구분합니다. `directory_scan`, `output_request_mapping`, `page_enrichment`, `handler_total`, `http_dispatch`는 하위 단계를 포함하므로 모든 `total_ms`를 더하면 중복 계산됩니다. 로그 파일 쓰기는 기존 Queue Listener가 처리하며 비밀번호·Session token·Prompt 본문은 기록하지 않습니다.
+
+결과물 조회의 병목 진단과 `is_file`, `resolve`, `walk` 비교 결과는 [성능 실험 기록](docs/performance_investigation_2026-10-14.md)에 정리했습니다.
 
 작업 계층 DB 전환은 시작할 때 한 번 수행합니다. 기존 요청 단위 작업 기록은 초기화되지만 Prompt preset·버전과 LoRA 기본값·조합 preset, 생성물 파일은 유지됩니다.
 

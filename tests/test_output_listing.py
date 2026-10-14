@@ -1,12 +1,100 @@
 """DirEntry 탐색의 중첩 폴더와 Symlink 경계 동작을 검증합니다."""
 
+import os
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from home_server.output_listing import iterate_output_directory_entries
+from home_server.output_listing import iterate_output_directory_entries, output_filename_metadata
 from test_application import FakeComfyClient, create_processing_test_app
+
+
+@pytest.mark.parametrize("filename", [
+    "261006_153012_123456.png",
+    "261006_153012_123456_1.png",
+    "261006_153012_123456_00001_audio.webm",
+])
+def test_output_filename_metadata_reads_saver_timestamp_and_seed(filename: str) -> None:
+    """이미지 중복 suffix와 영상 counter가 있어도 실제 timestamp와 seed를 읽습니다."""
+
+    generated_at, generation_seed = output_filename_metadata(Path(filename))
+    assert generated_at == datetime(2026, 10, 6, 15, 30, 12).timestamp()
+    assert generation_seed == 123456
+
+
+@pytest.mark.parametrize("filename", ["image.png", "261332_153012_1.png", "261006_256099_1.png"])
+def test_output_filename_metadata_keeps_unknown_names_without_stat(filename: str) -> None:
+    """규칙 밖 파일과 잘못된 날짜는 삭제하거나 stat하지 않고 미상으로 표시합니다."""
+
+    assert output_filename_metadata(Path(filename)) == (None, None)
+
+
+def test_output_listing_sorts_by_filename_without_path_stat(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """수정 시각과 무관하게 파일명으로 정렬하고 크기 metadata 및 stat 호출을 제거합니다."""
+
+    application = create_processing_test_app(tmp_path, FakeComfyClient())
+    managed_directory = application.state.home_server.config.managed_output_directory
+    output_names = [
+        "261015_010001_3.png", "261015_010001_20.png", "261015_010002_1.png", "unknown.png",
+    ]
+    for output_index, output_name in enumerate(output_names):
+        output_path = managed_directory / output_name
+        output_path.write_bytes(b"listed image")
+        os.utime(output_path, (output_index + 1, output_index + 1))
+
+    def reject_path_stat(*arguments, **keyword_arguments):
+        """목록 요청에서 Path.stat을 사용하면 즉시 실패합니다."""
+
+        raise AssertionError("output listing must not call Path.stat")
+
+    def known_image_dimensions(image_path: Path) -> tuple[int, int]:
+        """이 테스트에서는 이미지 읽기를 정렬 검증과 분리합니다."""
+
+        return 32, 48
+
+    monkeypatch.setattr("home_server.application.cached_image_dimensions", known_image_dimensions)
+    with TestClient(application) as client:
+        client.post("/api/login", json={"password": "test"})
+        with monkeypatch.context() as request_patch:
+            request_patch.setattr(Path, "stat", reject_path_stat)
+            response = client.get("/api/outputs")
+        assert response.status_code == 200
+        output_files = response.json()["files"]
+        assert [output_file["name"] for output_file in output_files] == [
+            "261015_010002_1.png", "261015_010001_20.png", "261015_010001_3.png", "unknown.png",
+        ]
+        assert all("size" not in output_file and "modified_at" not in output_file for output_file in output_files)
+        assert output_files[-1]["generated_at"] is None
+        assert output_files[-1]["width"] == 32
+
+
+def test_dimension_cache_limit_and_explicit_invalidation(tmp_path: Path) -> None:
+    """해상도 Cache가 최대 항목 수와 이동에 필요한 경로별 무효화를 지킵니다."""
+
+    from home_server.image_dimension_cache import ImageDimensionCache
+
+    dimension_cache = ImageDimensionCache(maximum_entries=2)
+    dimension_reads = []
+
+    def read_test_dimensions(image_path: Path) -> tuple[int, int]:
+        """실제 파일 대신 어떤 경로를 다시 읽었는지 기록합니다."""
+
+        dimension_reads.append(image_path)
+        return 32, 48
+
+    first_path = tmp_path / "first.png"
+    second_path = tmp_path / "second.png"
+    third_path = tmp_path / "third.png"
+    dimension_cache.get_dimensions(first_path, read_test_dimensions)
+    dimension_cache.get_dimensions(second_path, read_test_dimensions)
+    dimension_cache.get_dimensions(first_path, read_test_dimensions)
+    dimension_cache.get_dimensions(third_path, read_test_dimensions)
+    assert list(dimension_cache.cached_dimensions) == [first_path, third_path]
+    dimension_cache.invalidate(first_path)
+    dimension_cache.get_dimensions(first_path, read_test_dimensions)
+    assert dimension_reads == [first_path, second_path, third_path, first_path]
 
 
 def test_output_entries_include_nested_files_and_directories(tmp_path: Path) -> None:
