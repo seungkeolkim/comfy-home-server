@@ -5,6 +5,7 @@ from __future__ import annotations
 import heapq
 import logging
 import threading
+import time
 from collections import OrderedDict
 from concurrent.futures import Future, TimeoutError
 from io import BytesIO
@@ -12,6 +13,8 @@ from pathlib import Path
 from typing import Iterator
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+
+from .output_timing import OutputTimingRecorder, measure_output_step
 
 
 PREVIEW_IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif"}
@@ -62,13 +65,16 @@ class ThumbnailCache:
 
     def get_or_create(
         self, image_path: Path, modified_at_ns: int, file_size: int, *, background: bool = False,
+        output_timing: OutputTimingRecorder | None = None,
     ) -> bytes:
         """현재 파일 버전의 bytes를 재사용하고 같은 버전의 생성은 한 번만 수행합니다."""
 
         thumbnail_key = (image_path, modified_at_ns, file_size)
-        with self._cache_lock:
+        with measure_output_step(output_timing, "thumbnail_cache_lock_lookup", emit=True), self._cache_lock:
             cached_thumbnail = self._cached_thumbnails.get(thumbnail_key)
             if cached_thumbnail is not None:
+                if output_timing is not None:
+                    LOGGER.info("OUTPUT_TIMING id=%s event=thumbnail_cache state=hit", output_timing.identifier)
                 if not background:
                     self._cached_thumbnails.move_to_end(thumbnail_key)
                 return cached_thumbnail
@@ -78,26 +84,39 @@ class ThumbnailCache:
                 pending_thumbnail = Future()
                 self._in_progress[thumbnail_key] = pending_thumbnail
 
+        if output_timing is not None:
+            LOGGER.info(
+                "OUTPUT_TIMING id=%s event=thumbnail_cache state=%s",
+                output_timing.identifier, "miss" if owns_generation else "waiting",
+            )
         if not owns_generation:
+            pending_started_at = time.perf_counter()
             while True:
                 if background and self._warmup_stop.is_set():
                     raise ThumbnailWarmupStopped()
                 try:
-                    return pending_thumbnail.result(timeout=0.1)
+                    thumbnail_bytes = pending_thumbnail.result(timeout=0.1)
+                    if output_timing is not None:
+                        output_timing.record("thumbnail_pending_wait", pending_started_at, emit=True)
+                    return thumbnail_bytes
                 except TimeoutError:
                     if pending_thumbnail.done():
                         return pending_thumbnail.result()
                     continue
 
         acquired_slot = False
+        generation_slot_started_at = time.perf_counter()
         try:
             while not acquired_slot:
                 if background and self._warmup_stop.is_set():
                     raise ThumbnailWarmupStopped()
                 acquired_slot = self._generation_slots.acquire(timeout=0.1)
+            if output_timing is not None:
+                output_timing.record("thumbnail_generation_slot", generation_slot_started_at, emit=True)
             if background and self._warmup_stop.is_set():
                 raise ThumbnailWarmupStopped()
-            thumbnail_bytes = create_thumbnail_bytes(image_path)
+            with measure_output_step(output_timing, "thumbnail_generation", emit=True):
+                thumbnail_bytes = create_thumbnail_bytes(image_path)
             with self._cache_lock:
                 # 백그라운드 채우기로 사용자가 최근 조회한 썸네일을 밀어내지 않습니다.
                 if not background or len(self._cached_thumbnails) < self.maximum_entries:

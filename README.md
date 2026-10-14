@@ -103,6 +103,8 @@ thumbnail_cache_warmup_enabled = false
 - Workflow 원본: 프로젝트의 `data/workflows/`
 - 생성물: `config.toml`의 `comfy.output_directory` 아래 `comfy.managed_output_folder`
 
+결과물 목록·썸네일 조회는 `OUTPUT_TIMING` 로그로 상세 시간을 기록합니다. 응답의 `X-Output-Timing-Id`와 로그의 `id`로 같은 요청을 연결합니다. `event=step`은 개별 단계, `event=summary`는 호출 수·누적 시간·최대 시간·가장 느린 경로, `event=complete`는 HTTP 응답 준비까지의 전체 시간입니다. 파일 탐색은 250개마다 진행량을 기록하며, DB 연결·SQL 실행·결과 읽기·JSON 해석과 썸네일 Cache hit·miss·대기도 구분합니다. `directory_scan`, `output_request_mapping`, `page_enrichment`, `handler_total`, `http_dispatch`는 하위 단계를 포함하므로 모든 `total_ms`를 더하면 중복 계산됩니다. 로그 파일 쓰기는 기존 Queue Listener가 처리하며 비밀번호·Session token·Prompt 본문은 기록하지 않습니다.
+
 작업 계층 DB 전환은 시작할 때 한 번 수행합니다. 기존 요청 단위 작업 기록은 초기화되지만 Prompt preset·버전과 LoRA 기본값·조합 preset, 생성물 파일은 유지됩니다.
 
 참조 태그의 그룹 전환은 DB schema version 4에서 5로 자동 migration합니다. 변경 전에 SQLite backup API로 일관된 DB 복사본을 `runtime/backups/`에 저장하고 무결성을 확인합니다. 그룹 안의 기존 항목에서 공통 참조 태그를 옮기며 항목 ID·내용·weight와 기존 설정·작업 이력은 보존합니다. 비어 있는 기존 그룹은 참조 태그를 추론할 수 없어 비워 두므로 그룹 편집에서 설정해 주세요. 한 그룹에 서로 다른 참조 태그가 있으면 임의로 선택하지 않고 migration을 중단합니다.

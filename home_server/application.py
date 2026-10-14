@@ -25,6 +25,8 @@ from .comfy_client import ComfyClient
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
 from .logging_setup import configure_application_logging, shutdown_application_logging
+from .output_listing import iterate_output_directory_entries
+from .output_timing import OutputTimingRecorder, measure_output_step
 from .tag_builder import MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt, resolve_anima_prompts, validate_tag_selection
 from .thumbnail_cache import PREVIEW_IMAGE_EXTENSIONS, PREVIEW_SIZE, ThumbnailCache, ThumbnailTooLargeError
 from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
@@ -425,11 +427,21 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             origin = request.headers.get("origin")
             if origin and origin != f"{request.url.scheme}://{request.headers.get('host', '')}":
                 return JSONResponse({"detail": "허용되지 않은 요청 출처입니다."}, status_code=403)
+        output_timing = None
+        if request_path == "/api/outputs" or request_path.startswith("/api/outputs/preview/"):
+            output_timing = OutputTimingRecorder(request_path)
+            request.state.output_timing = output_timing
         try:
-            response = await call_next(request)
+            with measure_output_step(output_timing, "http_dispatch", emit=True):
+                response = await call_next(request)
         except Exception:
+            if output_timing is not None:
+                output_timing.finish(500)
             LOGGER.exception("HTTP 요청 처리 실패: %s %s", request.method, request.url.path)
             raise
+        if output_timing is not None:
+            response.headers["X-Output-Timing-Id"] = output_timing.identifier
+            output_timing.finish(response.status_code)
         if response.status_code >= 500:
             LOGGER.error("HTTP 요청 실패: %s %s status=%s", request.method, request.url.path, response.status_code)
         return response
@@ -907,6 +919,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/outputs")
     def outputs(
+        request: Request,
         page: int = Query(default=1, ge=1),
         page_size: int = Query(default=24, ge=1, le=100),
         prefix: str = "",
@@ -915,42 +928,68 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     ):
         """관리 output의 현재 파일을 정렬해 페이지 단위로 반환합니다."""
 
+        output_timing = request.state.output_timing
+        handler_started_at = time.perf_counter()
+        output_timing.record("worker_dispatch", output_timing.started_at, emit=True)
+        LOGGER.info(
+            "OUTPUT_TIMING id=%s event=parameters page=%s page_size=%s job_id=%s request_id=%s",
+            output_timing.identifier, page, page_size, job_id or "-", request_id or "-",
+        )
         normalized_prefix = prefix.replace("\\", "/")
         selected_output_paths = None
         if job_id and request_id:
             raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
         if job_id:
-            job = server.database.get_job(job_id)
+            with measure_output_step(output_timing, "filter_job_lookup", emit=True):
+                job = server.database.get_job(job_id, output_timing=output_timing)
             if job is None:
                 raise HTTPException(404, "작업을 찾을 수 없습니다.")
-            selected_output_paths = set()
-            for request in job["requests"]:
-                selected_output_paths.update(request["result"].get("output_paths", []))
+            with measure_output_step(output_timing, "filter_output_paths", emit=True):
+                selected_output_paths = set()
+                for job_request in job["requests"]:
+                    selected_output_paths.update(job_request["result"].get("output_paths", []))
         elif request_id:
-            request = server.database.get_request(request_id)
-            if request is None:
+            with measure_output_step(output_timing, "filter_request_lookup", emit=True):
+                selected_request = server.database.get_request(request_id)
+            if selected_request is None:
                 raise HTTPException(404, "요청을 찾을 수 없습니다.")
-            selected_output_paths = set(request["result"].get("output_paths", []))
+            selected_output_paths = set(selected_request["result"].get("output_paths", []))
         if normalized_prefix:
             try:
                 server.managed_path(normalized_prefix)
             except ValueError as exception:
                 raise HTTPException(422, str(exception)) from exception
         found_files = []
-        for output_path in server.config.managed_output_directory.rglob("*"):
+        scan_started_at = time.perf_counter()
+        scanned_paths = 0
+        skipped_paths = 0
+        output_entries = iterate_output_directory_entries(server.config.managed_output_directory)
+        while True:
+            with measure_output_step(output_timing, "directory_iteration"):
+                output_entry = next(output_entries, None)
+            if output_entry is None:
+                break
+            output_path = Path(output_entry.path)
+            scanned_paths += 1
+            if scanned_paths % 250 == 0:
+                output_timing.progress(scanned=scanned_paths - 1, matched=len(found_files), skipped=skipped_paths)
+            measured_path = str(output_path)
             try:
-                if not output_path.is_file() or output_path.suffix.lower() not in MEDIA_EXTENSIONS:
+                with measure_output_step(output_timing, "file_type_check", measured_path):
+                    is_media_file = output_entry.is_file(follow_symlinks=False) and output_path.suffix.lower() in MEDIA_EXTENSIONS
+                if not is_media_file:
                     continue
-                if server.config.managed_output_directory not in output_path.resolve().parents:
+                with measure_output_step(output_timing, "path_filter", measured_path):
+                    relative_path = output_path.relative_to(server.config.managed_output_directory).as_posix()
+                    matches_prefix = not normalized_prefix or relative_path.startswith(normalized_prefix)
+                    matches_selection = selected_output_paths is None or relative_path in selected_output_paths
+                if not matches_prefix or not matches_selection:
                     continue
-                relative_path = output_path.relative_to(server.config.managed_output_directory).as_posix()
-                if normalized_prefix and not relative_path.startswith(normalized_prefix):
-                    continue
-                if selected_output_paths is not None and relative_path not in selected_output_paths:
-                    continue
-                file_stat = output_path.stat()
+                with measure_output_step(output_timing, "file_stat", relative_path):
+                    file_stat = output_path.stat()
             except OSError:
                 # Explorer에서 스캔 도중 파일이 이동되거나 삭제될 수 있습니다.
+                skipped_paths += 1
                 continue
             found_files.append({
                 "path": relative_path,
@@ -959,17 +998,25 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "modified_at_ns": file_stat.st_mtime_ns,
                 "kind": "video" if output_path.suffix.lower() in {".mp4", ".webm", ".mkv", ".mov"} else "image",
             })
-        found_files.sort(key=lambda item: (item["modified_at"], item["path"]), reverse=True)
-        total = len(found_files)
-        first_index = (page - 1) * page_size
-        page_files = found_files[first_index:first_index + page_size]
-        requests_by_output_path = server.database.find_output_requests([file["path"] for file in page_files])
+        output_timing.record("directory_scan", scan_started_at, emit=True)
+        output_timing.progress(scanned=scanned_paths, matched=len(found_files), skipped=skipped_paths)
+        with measure_output_step(output_timing, "sort_and_paginate", emit=True):
+            found_files.sort(key=lambda item: (item["modified_at"], item["path"]), reverse=True)
+            total = len(found_files)
+            first_index = (page - 1) * page_size
+            page_files = found_files[first_index:first_index + page_size]
+        with measure_output_step(output_timing, "output_request_mapping", emit=True):
+            requests_by_output_path = server.database.find_output_requests(
+                [file["path"] for file in page_files], output_timing=output_timing,
+            )
+        enrichment_started_at = time.perf_counter()
         for file in page_files:
             output_request = requests_by_output_path.get(file["path"], {})
             file["job_id"] = output_request.get("job_id")
             file_path = server.config.managed_output_directory / file["path"]
             modified_at_ns = file.pop("modified_at_ns")
-            dimensions = cached_image_dimensions(file_path, modified_at_ns, file["size"]) if file["kind"] == "image" else None
+            with measure_output_step(output_timing, "image_dimensions", file["path"], emit=True):
+                dimensions = cached_image_dimensions(file_path, modified_at_ns, file["size"]) if file["kind"] == "image" else None
             file["dimensions_source"] = "file" if dimensions else None
             if dimensions is None:
                 dimensions = settings_dimensions(output_request.get("settings", {}))
@@ -977,32 +1024,46 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     file["dimensions_source"] = "settings"
             file["width"] = dimensions[0] if dimensions else None
             file["height"] = dimensions[1] if dimensions else None
-        return JSONResponse({
-            "files": page_files,
-            "page": page, "page_size": page_size, "total": total,
-            "total_pages": max(1, (total + page_size - 1) // page_size),
-        })
+        output_timing.record("page_enrichment", enrichment_started_at, emit=True)
+        with measure_output_step(output_timing, "json_response", emit=True):
+            response = JSONResponse({
+                "files": page_files,
+                "page": page, "page_size": page_size, "total": total,
+                "total_pages": max(1, (total + page_size - 1) // page_size),
+            })
+        output_timing.record("handler_total", handler_started_at, emit=True)
+        return response
 
     @app.get("/api/outputs/preview/{relative_path:path}")
     def output_preview(relative_path: str, request: Request):
         """현재 파일 버전의 압축된 WebP 썸네일을 LRU Cache에서 제공합니다."""
 
+        output_timing = request.state.output_timing
+        output_timing.record("worker_dispatch", output_timing.started_at, emit=True)
         try:
-            file_path = server.managed_path(relative_path, must_exist=True)
+            with measure_output_step(output_timing, "preview_path_resolve", relative_path, emit=True):
+                file_path = server.managed_path(relative_path, must_exist=True)
         except (ValueError, FileNotFoundError) as exception:
             raise HTTPException(404, str(exception)) from exception
-        if not file_path.is_file() or file_path.suffix.lower() not in PREVIEW_IMAGE_EXTENSIONS:
+        with measure_output_step(output_timing, "preview_file_type_check", relative_path, emit=True):
+            is_preview_image = file_path.is_file() and file_path.suffix.lower() in PREVIEW_IMAGE_EXTENSIONS
+        if not is_preview_image:
             raise HTTPException(404, "미리보기를 지원하지 않는 결과물입니다.")
         try:
-            file_stat = file_path.stat()
+            with measure_output_step(output_timing, "preview_file_stat", relative_path, emit=True):
+                file_stat = file_path.stat()
         except OSError as exception:
             raise HTTPException(404, "결과물을 찾을 수 없습니다.") from exception
         etag = f'W/"{file_stat.st_mtime_ns:x}-{file_stat.st_size:x}-{PREVIEW_SIZE:x}"'
         cache_headers = {"Cache-Control": "private, max-age=0, must-revalidate", "ETag": etag}
         if request.headers.get("if-none-match") == etag:
+            LOGGER.info("OUTPUT_TIMING id=%s event=thumbnail_cache state=not_modified", output_timing.identifier)
             return Response(status_code=304, headers=cache_headers)
         try:
-            thumbnail_bytes = server.thumbnail_cache.get_or_create(file_path, file_stat.st_mtime_ns, file_stat.st_size)
+            with measure_output_step(output_timing, "thumbnail_cache_get", relative_path, emit=True):
+                thumbnail_bytes = server.thumbnail_cache.get_or_create(
+                    file_path, file_stat.st_mtime_ns, file_stat.st_size, output_timing=output_timing,
+                )
         except ThumbnailTooLargeError as exception:
             raise HTTPException(413, str(exception)) from exception
         except FileNotFoundError as exception:
@@ -1010,7 +1071,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exception:
             LOGGER.warning("결과물 미리보기 생성 실패: path=%s error_type=%s", relative_path, type(exception).__name__)
             raise HTTPException(422, "결과물 미리보기를 만들 수 없습니다.") from exception
-        return Response(content=thumbnail_bytes, media_type="image/webp", headers=cache_headers)
+        with measure_output_step(output_timing, "preview_response", relative_path, emit=True):
+            return Response(content=thumbnail_bytes, media_type="image/webp", headers=cache_headers)
 
     @app.get("/media/{relative_path:path}")
     def media(relative_path: str):
