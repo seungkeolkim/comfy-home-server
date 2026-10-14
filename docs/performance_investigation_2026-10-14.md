@@ -6,6 +6,7 @@
 - 비교 baseline commit: `d7fd8fb Improve output listing performance and add stage timing logs`
 - `os.scandir()`의 `DirEntry` 정보를 재사용하고, 목록의 파일별 `Path.resolve()`는 제거한 상태입니다.
 - 현재는 파일명 metadata로 목록의 `Path.stat()`을 대체한 버전을 적용했습니다. 파일 크기 표시도 제거했으며 구현과 실험 기록을 사용자 요청으로 함께 commit했습니다. 결과는 아래 6번에 기록했습니다.
+- 후속 사용자 요청으로 해상도 Cache의 시간 만료를 제거하고 최대 항목 수를 30,000개로 늘렸습니다. LRU와 앱의 파일 이동 시 무효화는 유지합니다. 아래 6번의 측정 당시에는 최대 2,048개와 60초 TTL이 있었으며 추가 변경은 7~8번에 기록했습니다.
 - 작업별 조회도 전체 폴더를 탐색한 뒤 DB에 기록된 output path로 필터링합니다. 작업 path만 직접 조회하는 방식은 아직 구현하지 않았습니다.
 - `os.walk()` 전환 실험은 전체 조회가 느려져 사용자 요청으로 원복했습니다. 미커밋 변경이었으므로 해당 코드·테스트 3개 파일을 `d7fd8fb` 상태로 복원했고 commit history는 변경하지 않았습니다.
 - DB 조회 최적화와 썸네일·원본 전송의 `stat()`은 이번 변경 범위 밖입니다.
@@ -187,6 +188,18 @@ HTTP 밖에서 같은 탐색·필터와 구현별 정렬만 수행했습니다. 
 검증: 관련 테스트 총 90 passed, 1 skipped(Windows Symlink 권한), JavaScript syntax check, `git diff --check`, 실제 HTTP 200과 결과 수 일치. `Path.stat()`을 호출하면 실패시키는 목록 regression test, timestamp·seed 및 counter parsing, TTL 갱신과 Cache 개수 제한도 검증했습니다.
 
 결과: **구현 적용, 사용자 요청으로 commit**. 측정 원문은 [파일명 metadata 비교 JSON](performance/output_filename_metadata_2026-10-15.json)에 보관했습니다. 현재 큰 공통 비용은 DB mapping이며, 작업별 조회의 FS 개선폭은 전체 조회보다 작습니다.
+
+## 7. 해상도 Cache TTL 제거
+
+사용자는 파일명을 재사용해 덮어쓸 일이 거의 없으므로 60초 TTL을 매우 길게 늘리거나 제거하도록 요청했습니다. 시간 만료 자체를 제거하고 경로별 해상도만 최대 2,048개 LRU로 보관하도록 단순화했습니다. Cache miss일 때 실제 이미지 header를 읽고, hit에서는 clock이나 filesystem metadata를 확인하지 않습니다.
+
+같은 경로의 덮어쓰기는 자동으로 감지하지 않으며 해당 항목의 LRU 퇴출·명시적 무효화·서버 재시작 후 다시 읽습니다. 앱에서 파일을 이동할 때의 경로별 무효화는 유지했습니다. Thumbnail Cache의 수정 시각·크기 key 및 파일 접근 확인은 이번 변경 대상이 아닙니다.
+
+6번의 측정값과 원시 JSON은 당시 60초 TTL 버전의 기록으로 보존했습니다. 이번 요청에서는 성능 재측정을 하지 않았으며 관련 regression test로 Cache 재사용·명시적 무효화·LRU 개수 제한을 확인했습니다. 결과는 10 passed, 1 skipped(Windows Symlink 권한)입니다.
+
+## 8. 해상도 Cache 최대 항목 수 확대
+
+사용자 요청으로 최대 항목 수를 2,048개에서 30,000개로 늘렸습니다. TTL 없이 경로별 해상도를 재사용하고, 개수 초과 시 LRU 퇴출 및 앱의 파일 이동 시 무효화하는 동작은 유지합니다. 기존 성능 측정은 당시의 최대 항목 수 기준 기록으로 보존합니다.
 
 ## 남은 논의와 실험 기준
 

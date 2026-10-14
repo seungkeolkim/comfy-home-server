@@ -323,8 +323,8 @@ def test_summary_details_and_restoration_endpoints_keep_original_candidates(tmp_
         assert all("detail" not in request and request["result"] == {} for request in details["requests"])
 
 
-def test_slow_image_metadata_does_not_block_session_and_refreshes_after_ttl(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """파일 읽기 중에도 Session을 처리하고 같은 경로의 해상도를 TTL 후 갱신합니다."""
+def test_slow_image_metadata_does_not_block_session_and_reuses_dimensions_until_invalidated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """파일 읽기 중에도 Session을 처리하고 같은 경로는 명시적 무효화까지 재사용합니다."""
 
     from home_server.application import image_dimensions
     from home_server.image_dimension_cache import ImageDimensionCache
@@ -344,14 +344,7 @@ def test_slow_image_metadata_does_not_block_session_and_refreshes_after_ttl(tmp_
         release_metadata.wait(3)
         return image_dimensions(selected_path)
 
-    elapsed_seconds = [0.0]
-
-    def current_cache_time() -> float:
-        """실제 대기 없이 해상도 Cache의 만료 시점을 제어합니다."""
-
-        return elapsed_seconds[0]
-
-    dimension_cache = ImageDimensionCache(monotonic_time=current_cache_time)
+    dimension_cache = ImageDimensionCache()
     monkeypatch.setattr("home_server.application.IMAGE_DIMENSION_CACHE", dimension_cache)
     monkeypatch.setattr("home_server.application.image_dimensions", blocked_image_dimensions)
     with TestClient(app) as client:
@@ -371,7 +364,8 @@ def test_slow_image_metadata_does_not_block_session_and_refreshes_after_ttl(tmp_
         assert len(dimension_reads) == 1
         Image.new("RGB", (64, 80)).save(image_path)
         assert client.get("/api/outputs").json()["files"][0]["width"] == 32
-        elapsed_seconds[0] = 61
+        assert len(dimension_reads) == 1
+        dimension_cache.invalidate(image_path)
         assert client.get("/api/outputs").json()["files"][0]["width"] == 64
         assert len(dimension_reads) == 2
 

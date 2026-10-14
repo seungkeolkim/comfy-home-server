@@ -55,7 +55,7 @@ def image_dimensions(image_path: Path) -> tuple[int, int] | None:
 
 
 def cached_image_dimensions(image_path: Path) -> tuple[int, int] | None:
-    """stat 없이 실제 이미지 크기를 재사용하고 같은 경로는 60초 후 다시 읽습니다."""
+    """stat 없이 실제 이미지 크기를 시간 만료 없는 경로별 LRU Cache로 재사용합니다."""
 
     return IMAGE_DIMENSION_CACHE.get_dimensions(image_path, image_dimensions)
 
