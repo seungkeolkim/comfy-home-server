@@ -92,7 +92,7 @@
         5
       ],
       "model": [
-        "5",
+        "462",
         0
       ],
       "positive": [
@@ -180,7 +180,7 @@
         0
       ],
       "clip": [
-        "5",
+        "462",
         1
       ],
       "vae": [
@@ -262,7 +262,7 @@
     "inputs": {
       "strength": 1,
       "model": [
-        "5",
+        "462",
         0
       ]
     },
@@ -442,7 +442,7 @@
         0
       ],
       "clip": [
-        "5",
+        "462",
         1
       ]
     },
@@ -458,7 +458,7 @@
         0
       ],
       "clip": [
-        "5",
+        "462",
         1
       ]
     },
@@ -555,6 +555,22 @@
     "class_type": "Image Saver Metadata",
     "_meta": {
       "title": "Image Saver Metadata"
+    }
+  },
+  "462": {
+    "inputs": {
+      "model": [
+        "5",
+        0
+      ],
+      "clip": [
+        "5",
+        1
+      ]
+    },
+    "class_type": "CLIPNegPip",
+    "_meta": {
+      "title": "CLIP NegPip"
     }
   }
 }

@@ -92,6 +92,51 @@ def test_anima_embedded_workflow_preserves_restorable_lora_widgets(selected_lora
     assert ui_workflow == original_ui_workflow
 
 
+@pytest.mark.parametrize("selected_loras", [
+    [],
+    [{"name": "example.safetensors", "strength": 0.7, "clip_strength": 0.5}],
+], ids=["no-loras", "active-lora"])
+def test_anima_negpip_routes_model_and_clip_in_execution_and_embedded_workflow(selected_loras: list[dict]) -> None:
+    """CFG 1의 음수 Prompt 가중치와 LoRA가 실행·복원 양쪽에서 NegPiP를 거치는지 확인합니다."""
+
+    api_workflow, ui_workflow = load_workflows(WORKFLOW_DIRECTORY, "anima")
+    positive_prompt = "portrait, (blurry:-1), (bad anatomy:-1)"
+    request_workflow, metadata_workflow = prepare_anima(
+        api_workflow, ui_workflow, positive_prompt, "low quality", {"cfg": 1}, selected_loras, OUTPUT_STEM,
+    )
+    negpip_node_identifier = next(
+        node_identifier for node_identifier, node in request_workflow.items() if node["class_type"] == "CLIPNegPip"
+    )
+    assert request_workflow[negpip_node_identifier]["inputs"] == {"model": ["5", 0], "clip": ["5", 1]}
+    assert request_workflow["6"]["inputs"]["model"] == [negpip_node_identifier, 0]
+    assert request_workflow["28"]["inputs"]["model"] == [negpip_node_identifier, 0]
+    for node_identifier in ("53", "54", "19"):
+        assert request_workflow[node_identifier]["inputs"]["clip"] == [negpip_node_identifier, 1]
+    assert request_workflow["24"]["inputs"]["cfg"] == 1
+    assert request_workflow["3"]["inputs"]["populated_text"] == positive_prompt
+    assert request_workflow["4"]["inputs"]["populated_text"] == "low quality"
+
+    metadata_nodes = {node["id"]: node for node in metadata_workflow["nodes"]}
+    negpip_node = metadata_nodes[int(negpip_node_identifier)]
+    assert negpip_node["mode"] == 0
+    negpip_links = [link for link in metadata_workflow["links"] if link[1] == negpip_node["id"] or link[3] == negpip_node["id"]]
+    assert {(link[3], link[4]) for link in negpip_links if link[1] == negpip_node["id"]} == {
+        (49, 0), (53, 0), (54, 0), (19, 1), (22, 3),
+    }
+    for link_identifier, source_identifier, source_slot, target_identifier, target_slot, connection_type in negpip_links:
+        source_output = metadata_nodes[source_identifier]["outputs"][source_slot]
+        target_input = metadata_nodes[target_identifier]["inputs"][target_slot]
+        assert link_identifier in source_output["links"]
+        assert target_input["link"] == link_identifier
+        assert source_output["type"] == target_input["type"] == connection_type
+    for source_slot in (0, 1):
+        incoming_link = next(link for link in negpip_links if link[3] == negpip_node["id"] and link[4] == source_slot)
+        assert incoming_link[1:3] == [5, source_slot]
+        assert metadata_nodes[5]["outputs"][source_slot]["links"] == [incoming_link[0]]
+    assert metadata_nodes[43]["inputs"][3]["link"] == 91
+    assert metadata_nodes[3]["widgets_values_named"]["populated_text"] == positive_prompt
+
+
 def test_anima_templates_have_no_saved_lora_or_trigger_word_state() -> None:
     """두 기본 Workflow는 빈 LoRA·trigger 목록과 살아 있는 UI 연결로 시작합니다."""
 

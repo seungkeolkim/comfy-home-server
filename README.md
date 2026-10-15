@@ -49,6 +49,10 @@ Anima의 Workflow 옵션에서는 비율을 먼저 고른 뒤 해상도를 선�
 
 Anima Prompt와 Negative Prompt에는 `[SCENE]`처럼 대문자 태그 참조를 텍스트로 직접 적습니다. 참조 태그는 개별 항목이 아닌 그룹에서 설정하며 여러 그룹이 같은 참조 태그를 가질 수 있습니다. 생성 화면은 두 Prompt의 참조 태그를 가진 그룹을 모두 찾고 각 그룹의 하위 항목을 전부 표시합니다. `[SCENE]` 항목을 선택하면 그 본문에 적힌 `[CHR]` 등의 종속 참조를 가진 그룹도 나타납니다. 그룹마다 기본 펼침·접힘 상태를 지정하며 접힌 그룹도 열어서 선택할 수 있습니다. 각 참조 위치에서는 같은 참조 태그의 여러 그룹에서 체크된 항목을 하나의 후보 집합으로 묶고, 항목 하나를 기존 weight에 따라 선택합니다. 참조는 여러 단계를 거칠 수 있고 같은 태그가 두 번 나오면 각각 독립적으로 선택하므로 같은 항목이 반복될 수 있습니다. Positive와 Negative에 같은 참조를 적어도 각각 독립적으로 추첨합니다. 제출 전에 두 Prompt의 누락된 선택지와 참조 cycle을 검사하고, 모든 태그와 wildcard를 확정한 두 Prompt를 ComfyUI에 전달합니다. 미리보기와 작업 세부에는 확정된 Negative Prompt와 별도의 태그 선택 경로도 표시합니다. 요청 횟수만큼 독립적으로 추첨하므로 가능한 모든 조합을 한 번씩 생성하는 방식은 아닙니다.
 
+Anima의 API·UI Workflow에는 ComfyUI-ppm의 `CLIP NegPip` (`CLIPNegPip`)가 LoRA Loader 뒤에 연결되어 있습니다. MODEL 출력은 sampler와 Detailer 경로로, CLIP 출력은 Positive·Negative 인코더와 Detailer 경로로 전달됩니다. [ComfyUI-ppm](https://github.com/pamparamm/ComfyUI-ppm#clipnegpip)의 Anima 지원 버전이 필요하며, 현재 로컬의 1.1.10에서 지원을 확인했습니다. 새로 생성한 이미지의 삽입 Workflow에도 이 연결이 포함됩니다.
+
+CFG `1`에서 개념을 억제하려면 **Positive Prompt**에 `portrait, (blurry:-1), (bad anatomy:-1)`처럼 음수 가중치를 적습니다. NegPiP가 해당 token의 attention value 부호를 뒤집는 방식이며, 일반적인 Negative Prompt의 CFG 연산과는 다릅니다. 별도 Negative Prompt 입력은 그대로 유지하며 Positive로 자동 이동하거나 가중치를 변환하지 않습니다. 따라서 CFG `1`에서 별도 Negative Prompt의 내용이 반영되도록 만드는 기능은 아닙니다. 가중치에 따른 실제 효과는 모델·Prompt에 따라 달라집니다.
+
 생성 화면과 태그 관리 화면의 그룹은 한국어 이름순으로, 그룹 안의 태그 항목은 화면 이름순으로 표시합니다. 숫자가 포함된 이름은 자연스러운 숫자 순서로 정렬합니다.
 
 생성 화면의 각 그룹에는 현재 표시된 태그 항목을 한 번에 선택하거나 해제하는 버튼이 있습니다. 아직 Prompt 참조에서 필요하지 않아 숨겨진 항목은 일괄선택에 포함되지 않습니다.
