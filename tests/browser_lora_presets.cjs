@@ -435,7 +435,7 @@ async function main() {
     assert.equal(await page.locator(".job-original-prompt").textContent(), "입력 Prompt portrait");
     assert.equal(await page.locator(".job-original-negative-prompt").count(), 0);
     assert.match(await page.locator(".job-card > div:first-child p").first().textContent(),
-      /2026-10-07 · 16:9 · 1280 × 720 · 완료 1\/2장 · LoRA Portrait variant/);
+      /2026-10-07 · 16:9 · 1280 × 720 · CFG 1 · Steps 12 · 완료 1\/2장 · LoRA Portrait variant/);
     assert.equal(await page.locator(".job-card .status-badge").first().textContent(), "대기");
     await page.locator(".job-requests summary").click();
     await page.locator(".job-request").first().waitFor();

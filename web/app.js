@@ -34,6 +34,11 @@ const applicationState = {
   editingTagEntryId: null,
   currentView: "generate",
   viewScrollPositions: new Map(),
+  navigationEntryId: null,
+  navigationEntrySequence: 0,
+  navigationRevision: 0,
+  pendingNavigationScroll: null,
+  navigationScrollFrame: null,
   outputFilter: null,
   outputsPage: 1,
   outputsLoadRevision: 0,
@@ -196,11 +201,74 @@ function scheduleJobsPolling() {
   }, applicationState.currentView === "jobs" ? 1000 : 5000);
 }
 
-/** 탭별 스크롤을 복원하고 내용을 새로 구성하는 이동만 상단에서 시작합니다. */
-function switchView(viewName, { resetScroll = false } = {}) {
-  if (applicationState.currentView === viewName && !resetScroll) return;
-  applicationState.viewScrollPositions.set(applicationState.currentView, window.scrollY);
-  if (resetScroll) applicationState.viewScrollPositions.set(viewName, 0);
+/** 현재 화면의 이동 조건과 스크롤만 기록하며 입력값이나 목록 데이터는 복사하지 않습니다. */
+function captureNavigationState() {
+  const viewName = applicationState.currentView;
+  const openJobIds = [];
+  if (viewName === "jobs") {
+    for (const details of element("jobs-list").querySelectorAll("details[open]")) {
+      openJobIds.push(details.dataset.jobDetails);
+    }
+  }
+  return {
+    version: 1,
+    entryId: applicationState.navigationEntryId,
+    viewName,
+    pageNumber: viewName === "jobs" ? applicationState.jobsPage : applicationState.outputsPage,
+    jobFilterId: viewName === "jobs" ? applicationState.jobFilterId : null,
+    outputFilter: viewName === "outputs" ? applicationState.outputFilter : null,
+    scrollPosition: window.scrollY,
+    openJobIds,
+  };
+}
+
+/** 이 앱이 저장한 유효한 History 항목인지 확인합니다. */
+function isNavigationStateValid(navigationState) {
+  const viewNames = ["generate", "jobs", "outputs", "prompts", "tags", "lora-presets"];
+  if (!navigationState || navigationState.version !== 1 ||
+      typeof navigationState.entryId !== "string" || !viewNames.includes(navigationState.viewName)) return false;
+  if (!Number.isSafeInteger(navigationState.pageNumber) || navigationState.pageNumber < 1 ||
+      !Number.isFinite(navigationState.scrollPosition) || navigationState.scrollPosition < 0) return false;
+  if (navigationState.jobFilterId !== null && typeof navigationState.jobFilterId !== "string") return false;
+  const outputFilter = navigationState.outputFilter;
+  if (outputFilter !== null && (!outputFilter || !["job", "request"].includes(outputFilter.type) ||
+      typeof outputFilter.id !== "string")) return false;
+  return Array.isArray(navigationState.openJobIds) &&
+    navigationState.openJobIds.every(jobIdentifier => typeof jobIdentifier === "string");
+}
+
+/** 같은 화면의 중복 History를 막기 위해 탭과 조회 조건을 비교합니다. */
+function navigationRoutesMatch(previousState, nextState) {
+  if (previousState.viewName !== nextState.viewName) return false;
+  if (nextState.viewName === "jobs") {
+    return previousState.pageNumber === nextState.pageNumber && previousState.jobFilterId === nextState.jobFilterId;
+  }
+  if (nextState.viewName === "outputs") {
+    return previousState.pageNumber === nextState.pageNumber &&
+      previousState.outputFilter?.type === nextState.outputFilter?.type &&
+      previousState.outputFilter?.id === nextState.outputFilter?.id;
+  }
+  return true;
+}
+
+/** 현재 항목만 갱신하여 스크롤이나 Polling이 새 History를 만들지 않게 합니다. */
+function saveCurrentNavigationEntry() {
+  if (applicationState.pendingNavigationScroll ||
+      window.history.state?.homeServerNavigation?.entryId !== applicationState.navigationEntryId) return;
+  window.history.replaceState({ homeServerNavigation: captureNavigationState() }, "");
+}
+
+/** 조회 조건과 탭 표시를 바꾸며 생성 입력이나 변경 요청은 실행하지 않습니다. */
+function displayNavigationState(navigationState) {
+  const viewName = navigationState.viewName;
+  if (viewName === "jobs") {
+    applicationState.jobsPage = navigationState.pageNumber;
+    applicationState.jobFilterId = navigationState.jobFilterId;
+  }
+  if (viewName === "outputs") {
+    applicationState.outputsPage = navigationState.pageNumber;
+    applicationState.outputFilter = navigationState.outputFilter;
+  }
   applicationState.currentView = viewName;
   document
     .querySelectorAll(".view")
@@ -221,13 +289,96 @@ function switchView(viewName, { resetScroll = false } = {}) {
     "lora-presets": "LoRA 조합",
   };
   element("page-title").textContent = titles[viewName];
-  window.scrollTo({
-    top: applicationState.viewScrollPositions.get(viewName) || 0,
-    behavior: "instant",
-  });
-  if (viewName === "outputs") loadOutputs();
-  if (viewName === "jobs") loadJobs();
+}
+
+/** 목록과 펼친 요청을 다시 조회한 후 해당 이동의 스크롤만 복원합니다. */
+async function loadNavigationState(navigationState, restoreOpenJobs) {
+  const navigationRevision = ++applicationState.navigationRevision;
+  const pendingScroll = { position: navigationState.scrollPosition };
+  applicationState.pendingNavigationScroll = pendingScroll;
+  applicationState.outputsLoadRevision += 1;
+  applicationState.jobsLoadRevision += 1;
+  displayNavigationState(navigationState);
+  window.scrollTo({ top: navigationState.scrollPosition, behavior: "instant" });
   scheduleJobsPolling();
+  try {
+    if (navigationState.viewName === "jobs") {
+      await loadJobs();
+      if (navigationRevision !== applicationState.navigationRevision) return;
+      if (restoreOpenJobs) {
+        const openJobIds = new Set(navigationState.openJobIds);
+        for (const details of element("jobs-list").querySelectorAll(".job-requests")) {
+          details.open = openJobIds.has(details.dataset.jobDetails);
+        }
+        await Promise.allSettled(navigationState.openJobIds.map(jobIdentifier => loadJobDetails(jobIdentifier)));
+      }
+    }
+    if (navigationState.viewName === "outputs") await loadOutputs();
+  } finally {
+    if (applicationState.pendingNavigationScroll === pendingScroll) {
+      applicationState.pendingNavigationScroll = null;
+      window.scrollTo({ top: pendingScroll.position, behavior: "instant" });
+      saveCurrentNavigationEntry();
+    }
+  }
+}
+
+/** 탭·페이지·필터 이동을 기록하고 일반 탭 이동은 마지막 위치를 유지합니다. */
+function switchView(viewName, { resetScroll = false, pageNumber, jobFilterId, outputFilter } = {}) {
+  const previousState = captureNavigationState();
+  const nextState = {
+    ...previousState,
+    viewName,
+    pageNumber: pageNumber ?? (viewName === "jobs" ? applicationState.jobsPage : applicationState.outputsPage),
+    jobFilterId: viewName === "jobs" ? (jobFilterId === undefined ? applicationState.jobFilterId : jobFilterId) : null,
+    outputFilter: viewName === "outputs" ? (outputFilter === undefined ? applicationState.outputFilter : outputFilter) : null,
+    scrollPosition: resetScroll ? 0 : (applicationState.viewScrollPositions.get(viewName) || 0),
+    openJobIds: [],
+  };
+  const sameRoute = navigationRoutesMatch(previousState, nextState);
+  if (sameRoute && !resetScroll) return;
+  saveCurrentNavigationEntry();
+  applicationState.viewScrollPositions.set(previousState.viewName, window.scrollY);
+  applicationState.navigationEntrySequence += 1;
+  nextState.entryId = `${Date.now()}-${applicationState.navigationEntrySequence}`;
+  applicationState.navigationEntryId = nextState.entryId;
+  if (sameRoute) window.history.replaceState({ homeServerNavigation: nextState }, "");
+  else window.history.pushState({ homeServerNavigation: nextState }, "");
+  loadNavigationState(nextState, false).catch(error => showNotice(error.message, true));
+}
+
+/** 사용자 스크롤·입력 이후에는 늦은 응답으로 화면 위치를 되돌리지 않습니다. */
+function cancelNavigationScrollRestoration() {
+  applicationState.pendingNavigationScroll = null;
+}
+
+/** 기본 화면을 History에 등록하고 브라우저의 앞으로가기·뒤로가기를 연결합니다. */
+function initializeNavigationHistory() {
+  window.history.scrollRestoration = "manual";
+  applicationState.navigationEntryId = `${Date.now()}-initial`;
+  window.history.replaceState({ homeServerNavigation: captureNavigationState() }, "");
+  window.addEventListener("popstate", (event) => {
+    const navigationState = event.state?.homeServerNavigation;
+    if (!isNavigationStateValid(navigationState)) return;
+    applicationState.viewScrollPositions.set(applicationState.currentView, window.scrollY);
+    applicationState.navigationEntryId = navigationState.entryId;
+    loadNavigationState(navigationState, true).catch(error => showNotice(error.message, true));
+  });
+  window.addEventListener("scroll", () => {
+    if (applicationState.navigationScrollFrame !== null) return;
+    applicationState.navigationScrollFrame = window.requestAnimationFrame(() => {
+      applicationState.navigationScrollFrame = null;
+      saveCurrentNavigationEntry();
+    });
+  }, { passive: true });
+  for (const eventName of ["wheel", "touchstart", "pointerdown"]) {
+    window.addEventListener(eventName, cancelNavigationScrollRestoration, { passive: true });
+  }
+  window.addEventListener("keydown", (event) => {
+    if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " ", "Tab"].includes(event.key)) {
+      cancelNavigationScrollRestoration();
+    }
+  });
 }
 
 /** Workflow를 바꿀 때 기존 모델의 Prompt와 LoRA 선택을 초기화합니다. */
@@ -1449,11 +1600,13 @@ async function loadJobDetails(jobIdentifier) {
   }
   const signature = jobDetailsSignature(job);
   const cachedDetails = applicationState.jobDetails.get(jobIdentifier);
-  if (cachedDetails?.loading || cachedDetails?.signature === signature) return;
+  if (cachedDetails?.loading) return cachedDetails.loadPromise.catch(() => {});
+  if (cachedDetails?.signature === signature) return;
   const details = { job: cachedDetails?.job, signature, loading: true, error: null };
   applicationState.jobDetails.set(jobIdentifier, details);
   try {
-    details.job = await apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}`);
+    details.loadPromise = apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}`);
+    details.job = await details.loadPromise;
   } catch (error) {
     details.error = error.message;
   } finally {
@@ -1498,10 +1651,11 @@ async function loadJobs({ refreshAfterCurrentRequest = true } = {}) {
 async function refreshJobPages() {
   applicationState.jobsLoading = true;
   if (!applicationState.jobsLoadedOnce) renderJobsList();
+  let loadRevision = applicationState.jobsLoadRevision;
   try {
     do {
       applicationState.jobsReloadRequested = false;
-      const loadRevision = ++applicationState.jobsLoadRevision;
+      loadRevision = ++applicationState.jobsLoadRevision;
       const selectionMode = applicationState.jobSelectionMode;
       const jobsPage = applicationState.jobsPage;
       const jobFilterId = applicationState.jobFilterId;
@@ -1548,15 +1702,20 @@ async function refreshJobPages() {
       }
     } while (applicationState.jobsReloadRequested && !applicationState.deletingSelectedJobs && !applicationState.selectingEveryJob);
   } catch (error) {
-    applicationState.jobsLoadError = error.message;
-    if (applicationState.currentView === "jobs") showNotice(error.message, true);
-    if (!applicationState.visibleJobs.length) renderJobsList();
+    if (loadRevision === applicationState.jobsLoadRevision) {
+      applicationState.jobsLoadError = error.message;
+      if (applicationState.currentView === "jobs") showNotice(error.message, true);
+      if (!applicationState.visibleJobs.length) renderJobsList();
+    }
   } finally {
     applicationState.jobsLoading = false;
     applicationState.jobsLoadPromise = null;
     element("jobs-loading-status").textContent = applicationState.jobsLoadError
       ? "조회에 실패했습니다. 자동 재시도 중이며 마지막 목록을 유지합니다." : "";
     if (!applicationState.jobsLoadedOnce) renderJobsList();
+  }
+  if (applicationState.jobsReloadRequested && !applicationState.deletingSelectedJobs && !applicationState.selectingEveryJob) {
+    return loadJobs();
   }
 }
 
@@ -1686,7 +1845,7 @@ async function loadOutputs() {
     renderOutputsPagination(response.page, response.total_pages);
     applicationState.outputsRenderSignature = renderSignature;
   } catch (error) {
-    showNotice(error.message, true);
+    if (loadRevision === applicationState.outputsLoadRevision) showNotice(error.message, true);
   }
 }
 
@@ -1719,6 +1878,7 @@ function runAction(action) {
 /** 사용자 조작과 메뉴 이동을 연결합니다. */
 function bindEvents() {
   element("jobs-list").addEventListener("toggle", (event) => {
+    saveCurrentNavigationEntry();
     if (event.target.matches(".job-requests") && event.target.open) {
       const cachedDetails = applicationState.jobDetails.get(event.target.dataset.jobDetails);
       if (cachedDetails?.error) cachedDetails.signature = null;
@@ -1989,49 +2149,41 @@ function bindEvents() {
     if (deleteOutputsButton)
       runAction(() => deleteJobHistory(deleteOutputsButton.dataset.deleteJobOutputs, true));
     if (jobResultButton || requestResultButton) {
-      applicationState.outputFilter = jobResultButton
+      const outputFilter = jobResultButton
         ? { type: "job", id: jobResultButton.dataset.showJobResults }
         : { type: "request", id: requestResultButton.dataset.showRequestResults };
-      applicationState.outputsPage = 1;
-      switchView("outputs", { resetScroll: true });
+      switchView("outputs", { resetScroll: true, pageNumber: 1, outputFilter });
     }
   });
   element("jobs-pagination").addEventListener("click", (event) => {
     const pageButton = event.target.closest("[data-jobs-page]");
     if (!pageButton || pageButton.disabled || jobSelectionIsBusy()) return;
-    applicationState.jobsPage = Number(pageButton.dataset.jobsPage);
-    runAction(loadJobs);
+    switchView("jobs", { resetScroll: true, pageNumber: Number(pageButton.dataset.jobsPage) });
   });
   element("clear-jobs-filter").addEventListener("click", () => {
     if (jobSelectionIsBusy()) return;
-    applicationState.jobFilterId = null;
-    applicationState.jobsPage = 1;
-    runAction(loadJobs);
+    switchView("jobs", { resetScroll: true, pageNumber: 1, jobFilterId: null });
   });
   element("refresh-outputs-button").addEventListener("click", () => {
     applicationState.outputsPage = 1;
+    saveCurrentNavigationEntry();
     runAction(async () => {
       await apiRequest("/api/outputs/sync", { method: "POST" });
       await loadOutputs();
     });
   });
   element("clear-output-filter").addEventListener("click", () => {
-    applicationState.outputFilter = null;
-    applicationState.outputsPage = 1;
-    runAction(loadOutputs);
+    switchView("outputs", { resetScroll: true, pageNumber: 1, outputFilter: null });
   });
   element("outputs-pagination").addEventListener("click", (event) => {
     const pageButton = event.target.closest("[data-outputs-page]");
     if (!pageButton || pageButton.disabled) return;
-    applicationState.outputsPage = Number(pageButton.dataset.outputsPage);
-    runAction(loadOutputs);
+    switchView("outputs", { resetScroll: true, pageNumber: Number(pageButton.dataset.outputsPage) });
   });
   element("outputs-grid").addEventListener("click", (event) => {
     const jobButton = event.target.closest("[data-output-job]");
     if (jobButton) {
-      applicationState.jobFilterId = jobButton.dataset.outputJob;
-      applicationState.jobsPage = 1;
-      switchView("jobs", { resetScroll: true });
+      switchView("jobs", { resetScroll: true, pageNumber: 1, jobFilterId: jobButton.dataset.outputJob });
       return;
     }
     const button = event.target.closest("[data-move-output]");
@@ -2110,6 +2262,7 @@ function bindLoraPresetEvents() {
 /** 첫 화면을 준비하고 기존 session을 확인합니다. */
 async function initializeApplication() {
   bindEvents();
+  initializeNavigationHistory();
   updateAnimaResolutionOptions();
   try {
     const session = await apiRequest("/api/session");
