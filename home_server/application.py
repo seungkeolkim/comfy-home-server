@@ -25,14 +25,14 @@ from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
 from .image_dimension_cache import ImageDimensionCache
 from .logging_setup import configure_application_logging, shutdown_application_logging
-from .output_listing import iterate_output_directory_entries, output_filename_metadata
+from .output_catalog import OutputCatalog
+from .output_listing import MEDIA_EXTENSIONS
 from .output_timing import OutputTimingRecorder, measure_output_step
 from .tag_builder import MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt, resolve_anima_prompts, validate_tag_selection
 from .thumbnail_cache import PREVIEW_IMAGE_EXTENSIONS, PREVIEW_SIZE, ThumbnailCache, ThumbnailTooLargeError
 from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
 
 
-MEDIA_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mkv", ".mov"}
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
 LOGGER = logging.getLogger(__name__)
@@ -58,17 +58,6 @@ def cached_image_dimensions(image_path: Path) -> tuple[int, int] | None:
     """stat 없이 실제 이미지 크기를 시간 만료 없는 경로별 LRU Cache로 재사용합니다."""
 
     return IMAGE_DIMENSION_CACHE.get_dimensions(image_path, image_dimensions)
-
-
-def settings_dimensions(settings: dict[str, Any]) -> tuple[int, int] | None:
-    """저장된 요청 설정에서 양수 해상도를 읽습니다."""
-
-    try:
-        width = int(settings["width"])
-        height = int(settings["height"])
-    except (KeyError, TypeError, ValueError):
-        return None
-    return (width, height) if width > 0 and height > 0 else None
 
 
 def selected_tag_definitions(
@@ -280,6 +269,8 @@ class HomeServer:
             if stale_upload.is_file() and time.time() - stale_upload.stat().st_mtime > 24 * 3600:
                 stale_upload.unlink()
         self.database = Database(config.runtime_directory / "home_server.sqlite3")
+        self.output_catalog = OutputCatalog(self.database.database_path)
+        self.output_catalog.synchronize(config.managed_output_directory)
         self.comfy = ComfyClient(config.comfy_endpoint)
         self.sessions: dict[str, float] = {}
         self.login_failures: dict[str, list[float]] = {}
@@ -428,7 +419,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if origin and origin != f"{request.url.scheme}://{request.headers.get('host', '')}":
                 return JSONResponse({"detail": "허용되지 않은 요청 출처입니다."}, status_code=403)
         output_timing = None
-        if request_path == "/api/outputs" or request_path.startswith("/api/outputs/preview/"):
+        if request_path == "/api/outputs" or request_path.startswith("/api/outputs/"):
             output_timing = OutputTimingRecorder(request_path)
             request.state.output_timing = output_timing
         try:
@@ -879,10 +870,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         deleted_files = 0
         missing_files = 0
 
-        def delete_recorded_outputs() -> None:
+        def delete_recorded_outputs() -> list[str]:
             """DB 잠금으로 삭제 보호 변경을 막은 동안 원래 위치의 결과물만 삭제합니다."""
 
             nonlocal deleted_files, missing_files
+            removed_paths = []
             output_paths = {
                 path
                 for request in job["requests"]
@@ -900,14 +892,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     continue
                 if not output_path.is_file():
                     missing_files += 1
+                    removed_paths.append(relative_path)
                     LOGGER.info("원래 위치에 결과물 없음: job_id=%s path=%s", job_id, relative_path)
                     continue
                 try:
                     output_path.unlink()
+                    removed_paths.append(relative_path)
                 except OSError as exception:
                     raise HTTPException(409, f"결과물을 삭제할 수 없습니다: {relative_path}") from exception
                 deleted_files += 1
-
+            return removed_paths
         try:
             deleted = server.database.delete_job(job_id, before_deletion=delete_recorded_outputs if delete_outputs else None)
         except ValueError as exception:
@@ -926,7 +920,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         job_id: str = "",
         request_id: str = "",
     ):
-        """관리 output의 현재 파일을 Saver 파일명 시간과 seed로 정렬해 반환합니다."""
+        """결과물 index에서 요청 해상도와 정렬된 페이지를 조회합니다."""
 
         output_timing = request.state.output_timing
         handler_started_at = time.perf_counter()
@@ -936,107 +930,42 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             output_timing.identifier, page, page_size, job_id or "-", request_id or "-",
         )
         normalized_prefix = prefix.replace("\\", "/")
-        selected_output_paths = None
         if job_id and request_id:
             raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
-        if job_id:
-            with measure_output_step(output_timing, "filter_job_lookup", emit=True):
-                job = server.database.get_job(job_id, output_timing=output_timing)
-            if job is None:
-                raise HTTPException(404, "작업을 찾을 수 없습니다.")
-            with measure_output_step(output_timing, "filter_output_paths", emit=True):
-                selected_output_paths = set()
-                for job_request in job["requests"]:
-                    selected_output_paths.update(job_request["result"].get("output_paths", []))
-        elif request_id:
-            with measure_output_step(output_timing, "filter_request_lookup", emit=True):
-                selected_request = server.database.get_request(request_id)
-            if selected_request is None:
-                raise HTTPException(404, "요청을 찾을 수 없습니다.")
-            selected_output_paths = set(selected_request["result"].get("output_paths", []))
         if normalized_prefix:
             try:
                 server.managed_path(normalized_prefix)
             except ValueError as exception:
                 raise HTTPException(422, str(exception)) from exception
-        found_files = []
-        scan_started_at = time.perf_counter()
-        scanned_paths = 0
-        skipped_paths = 0
-        output_entries = iterate_output_directory_entries(server.config.managed_output_directory)
-        while True:
-            with measure_output_step(output_timing, "directory_iteration"):
-                output_entry = next(output_entries, None)
-            if output_entry is None:
-                break
-            output_path = Path(output_entry.path)
-            scanned_paths += 1
-            if scanned_paths % 250 == 0:
-                output_timing.progress(scanned=scanned_paths - 1, matched=len(found_files), skipped=skipped_paths)
-            measured_path = str(output_path)
-            try:
-                with measure_output_step(output_timing, "file_type_check", measured_path):
-                    is_media_file = output_entry.is_file(follow_symlinks=False) and output_path.suffix.lower() in MEDIA_EXTENSIONS
-                if not is_media_file:
+        try:
+            with measure_output_step(output_timing, "catalog_listing", emit=True):
+                listing = server.output_catalog.list_files(
+                    page, page_size, normalized_prefix, job_id, request_id, output_timing,
+                )
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        with measure_output_step(output_timing, "page_enrichment", emit=True):
+            for output_file in listing["files"]:
+                if output_file["dimensions_source"] is not None or output_file["kind"] != "image":
                     continue
-                with measure_output_step(output_timing, "path_filter", measured_path):
-                    relative_path = output_path.relative_to(server.config.managed_output_directory).as_posix()
-                    matches_prefix = not normalized_prefix or relative_path.startswith(normalized_prefix)
-                    matches_selection = selected_output_paths is None or relative_path in selected_output_paths
-                if not matches_prefix or not matches_selection:
-                    continue
-                with measure_output_step(output_timing, "filename_metadata", relative_path):
-                    generated_at, generation_seed = output_filename_metadata(output_path)
-            except OSError:
-                # Explorer에서 스캔 도중 파일이 이동되거나 삭제될 수 있습니다.
-                skipped_paths += 1
-                continue
-            found_files.append({
-                "path": relative_path,
-                "name": output_path.name, "generated_at": generated_at, "seed": generation_seed,
-                "kind": "video" if output_path.suffix.lower() in {".mp4", ".webm", ".mkv", ".mov"} else "image",
-            })
-        output_timing.record("directory_scan", scan_started_at, emit=True)
-        output_timing.progress(scanned=scanned_paths, matched=len(found_files), skipped=skipped_paths)
-        with measure_output_step(output_timing, "sort_and_paginate", emit=True):
-            found_files.sort(
-                key=lambda item: (
-                    item["generated_at"] if item["generated_at"] is not None else 0,
-                    item["seed"] if item["seed"] is not None else -1,
-                    item["path"],
-                ),
-                reverse=True,
-            )
-            total = len(found_files)
-            first_index = (page - 1) * page_size
-            page_files = found_files[first_index:first_index + page_size]
-        with measure_output_step(output_timing, "output_request_mapping", emit=True):
-            requests_by_output_path = server.database.find_output_requests(
-                [file["path"] for file in page_files], output_timing=output_timing,
-            )
-        enrichment_started_at = time.perf_counter()
-        for file in page_files:
-            output_request = requests_by_output_path.get(file["path"], {})
-            file["job_id"] = output_request.get("job_id")
-            file_path = server.config.managed_output_directory / file["path"]
-            with measure_output_step(output_timing, "image_dimensions", file["path"], emit=True):
-                dimensions = cached_image_dimensions(file_path) if file["kind"] == "image" else None
-            file["dimensions_source"] = "file" if dimensions else None
-            if dimensions is None:
-                dimensions = settings_dimensions(output_request.get("settings", {}))
+                file_path = server.config.managed_output_directory / output_file["path"]
+                with measure_output_step(output_timing, "image_dimensions_fallback", output_file["path"], emit=True):
+                    dimensions = cached_image_dimensions(file_path)
                 if dimensions:
-                    file["dimensions_source"] = "settings"
-            file["width"] = dimensions[0] if dimensions else None
-            file["height"] = dimensions[1] if dimensions else None
-        output_timing.record("page_enrichment", enrichment_started_at, emit=True)
+                    output_file["width"], output_file["height"] = dimensions
+                    output_file["dimensions_source"] = "file"
         with measure_output_step(output_timing, "json_response", emit=True):
-            response = JSONResponse({
-                "files": page_files,
-                "page": page, "page_size": page_size, "total": total,
-                "total_pages": max(1, (total + page_size - 1) // page_size),
-            })
+            response = JSONResponse(listing)
         output_timing.record("handler_total", handler_started_at, emit=True)
         return response
+
+    @app.post("/api/outputs/sync")
+    def synchronize_outputs(request: Request):
+        """수동 새로고침에서 현재 파일 목록만 대조하고 실제 크기·해상도는 수집하지 않습니다."""
+
+        output_timing = getattr(request.state, "output_timing", None)
+        with measure_output_step(output_timing, "catalog_sync", emit=True):
+            return server.output_catalog.synchronize(server.config.managed_output_directory)
 
     @app.get("/api/outputs/preview/{relative_path:path}")
     def output_preview(relative_path: str, request: Request):
@@ -1109,6 +1038,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             shutil.move(str(source_path), str(destination_path))
         except OSError as exception:
             raise HTTPException(409, f"파일을 이동할 수 없습니다: {exception}") from exception
+        try:
+            server.output_catalog.move_file(
+                source_path.relative_to(server.config.managed_output_directory).as_posix(),
+                destination_path.relative_to(server.config.managed_output_directory).as_posix(),
+            )
+        except sqlite3.Error as exception:
+            shutil.move(str(destination_path), str(source_path))
+            raise HTTPException(409, "결과물 경로를 DB에 반영하지 못했습니다.") from exception
         LOGGER.info("결과물 이동: source=%s destination=%s", payload.source, destination_path)
         IMAGE_DIMENSION_CACHE.invalidate(source_path)
         IMAGE_DIMENSION_CACHE.invalidate(destination_path)

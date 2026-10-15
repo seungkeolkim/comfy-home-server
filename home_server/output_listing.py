@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Iterator
 
 
+MEDIA_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mkv", ".mov"}
 OUTPUT_FILENAME_PATTERN = re.compile(
     r"(?P<date>\d{6})_(?P<time>\d{6})_(?P<seed>\d+)(?:_[A-Za-z0-9-]+)*"
 )

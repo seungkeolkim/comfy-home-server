@@ -349,6 +349,7 @@ def test_slow_image_metadata_does_not_block_session_and_reuses_dimensions_until_
     monkeypatch.setattr("home_server.application.image_dimensions", blocked_image_dimensions)
     with TestClient(app) as client:
         client.post("/api/login", json={"password": "test"})
+        client.post("/api/outputs/sync")
         with ThreadPoolExecutor(max_workers=1) as executor:
             output_future = executor.submit(client.get, "/api/outputs")
             assert metadata_started.wait(2)
@@ -433,6 +434,7 @@ def test_login_batch_and_output_folder_boundary(tmp_path: Path) -> None:
         image_path = managed_directory / "anima" / "sample.png"
         image_path.parent.mkdir(parents=True)
         image_path.write_bytes(b"example")
+        assert client.post("/api/outputs/sync").status_code == 200
         assert client.get("/api/outputs").json()["total"] == 1
         assert client.get("/media/../secret.png").status_code != 200
         moved = client.post("/api/outputs/move", json={"source": "anima/sample.png", "destination_folder": "sorted"})
@@ -866,10 +868,12 @@ def test_saver_history_outputs_keep_native_names(tmp_path: Path, workflow: str) 
         assert outputs["files"][0]["dimensions_source"] == "settings"
         grouped_outputs = client.get("/api/outputs", params={"job_id": completed_job["job_id"]}).json()
         assert [result["path"] for result in grouped_outputs["files"]] == [f"{workflow}/{filename}"]
+        assert client.post("/api/outputs/sync").status_code == 200
         all_outputs = client.get("/api/outputs").json()["files"]
         assert next(file for file in all_outputs if file["name"] == "unrelated.png")["job_id"] is None
         assert original_file.read_bytes() == b"result"
         original_file.unlink()
+        assert client.post("/api/outputs/sync").status_code == 200
         assert client.get("/api/outputs", params={"request_id": request_id}).json()["total"] == 0
 
 

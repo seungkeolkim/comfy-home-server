@@ -57,6 +57,7 @@ def test_output_listing_sorts_by_filename_without_path_stat(tmp_path: Path, monk
     monkeypatch.setattr("home_server.application.cached_image_dimensions", known_image_dimensions)
     with TestClient(application) as client:
         client.post("/api/login", json={"password": "test"})
+        assert client.post("/api/outputs/sync").status_code == 200
         with monkeypatch.context() as request_patch:
             request_patch.setattr(Path, "stat", reject_path_stat)
             response = client.get("/api/outputs")
@@ -136,6 +137,7 @@ def test_output_listing_excludes_file_and_directory_symlinks(tmp_path: Path) -> 
 
     with TestClient(application) as client:
         assert client.post("/api/login", json={"password": "test"}).status_code == 200
+        assert client.post("/api/outputs/sync").status_code == 200
         response = client.get("/api/outputs")
         assert response.status_code == 200
         assert {output_file["path"] for output_file in response.json()["files"]} == {

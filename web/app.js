@@ -2003,7 +2003,10 @@ function bindEvents() {
   });
   element("refresh-outputs-button").addEventListener("click", () => {
     applicationState.outputsPage = 1;
-    runAction(loadOutputs);
+    runAction(async () => {
+      await apiRequest("/api/outputs/sync", { method: "POST" });
+      await loadOutputs();
+    });
   });
   element("clear-output-filter").addEventListener("click", () => {
     applicationState.outputFilter = null;
