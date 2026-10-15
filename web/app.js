@@ -764,14 +764,18 @@ function renderGenerateTagGroups() {
   container.innerHTML = missingMarkup + relevantGroups.map((group) => {
     const entries = sortedTagEntriesInGroup(group.group_id);
     const selectedCount = entries.filter((entry) => applicationState.selectedTagIds.has(entry.tag_id)).length;
+    const selectionRequired = missingKeys.includes(group.tag_key);
+    let selectionStateClass = "";
+    if (selectionRequired) selectionStateClass = " tag-selection-required";
+    else if (selectedCount > 0) selectionStateClass = " tag-selection-active";
     const openAttribute = applicationState.expandedTagGroupIds?.has(group.group_id) ? " open" : "";
     const entryMarkup = entries.map((entry) => `
       <label class="tag-choice">
         <input type="checkbox" data-select-tag="${escapeHtml(entry.tag_id)}" ${applicationState.selectedTagIds.has(entry.tag_id) ? "checked" : ""}>
         <span><strong>${escapeHtml(entry.name)}</strong><small>weight ${escapeHtml(entry.weight)}</small></span>
       </label>`).join("");
-    return `<details class="tag-group" data-tag-group-open="${escapeHtml(group.group_id)}"${openAttribute}>
-      <summary>${escapeHtml(group.name)} [${escapeHtml(group.tag_key)}] <span>${selectedCount}개 선택 · ${entries.length}개 항목</span></summary>
+    return `<details class="tag-group${selectionStateClass}" data-tag-group-open="${escapeHtml(group.group_id)}"${openAttribute}>
+      <summary>${escapeHtml(group.name)} [${escapeHtml(group.tag_key)}] <span>${selectionRequired ? "선택 필요 · " : ""}${selectedCount}개 선택 · ${entries.length}개 항목</span></summary>
       <div class="tag-group-options">
         <div class="inline-actions">
           <button class="button subtle small" type="button" data-select-visible-tag-group="${escapeHtml(group.group_id)}">전체 선택</button>

@@ -382,6 +382,30 @@ input[type="file"] {
   font-size: 12px;
   font-weight: 400;
 }
+.tag-group.tag-selection-active {
+  border-color: #4a9edb;
+  background: #152b43;
+}
+.tag-group.tag-selection-active summary {
+  color: #b5e0ff;
+  background: #1d4263;
+}
+.tag-group.tag-selection-active summary span {
+  color: #93d1ff;
+  font-weight: 650;
+}
+.tag-group.tag-selection-required {
+  border-color: #b98634;
+  background: #2b2318;
+}
+.tag-group.tag-selection-required summary {
+  color: #ffcf80;
+  background: #392d1c;
+}
+.tag-group.tag-selection-required summary span {
+  color: #ffcf80;
+  font-weight: 650;
+}
 .tag-group-options {
   display: grid;
   gap: 7px;
