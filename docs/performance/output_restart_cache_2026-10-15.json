@@ -1,0 +1,4992 @@
+{
+  "baseline_commit": "d7fd8fb",
+  "local_measurement_dates": [
+    "2026-10-14",
+    "2026-10-15"
+  ],
+  "method": "Independent server restart per scope, initial page and 24 thumbnails, wait 10 seconds, then 3 repeated page requests and 24 thumbnail requests",
+  "all_outputs": {
+    "scope": "all",
+    "client": "httpx inside the server container",
+    "warmup": "enabled, unchanged",
+    "waited_seconds_after_first_page_and_thumbnails": 10.000110196997412,
+    "first_listing": {
+      "phase": "first_after_restart",
+      "utc_time": "2026-10-14T23:59:25.662715+09:00",
+      "http_ms": 2383.9744969736785,
+      "identifier": "69f09a18b03744e3b134e08fe09506f1",
+      "total_files": 2004,
+      "returned_files": 24,
+      "stages": {
+        "worker_dispatch": {
+          "calls": 1,
+          "total_ms": 2.699
+        },
+        "directory_iteration": {
+          "calls": 2008,
+          "total_ms": 16.303
+        },
+        "file_type_check": {
+          "calls": 2007,
+          "total_ms": 2.618
+        },
+        "path_filter": {
+          "calls": 2004,
+          "total_ms": 34.93
+        },
+        "file_stat": {
+          "calls": 2004,
+          "total_ms": 1084.095
+        },
+        "directory_scan": {
+          "calls": 1,
+          "total_ms": 1200.073
+        },
+        "sort_and_paginate": {
+          "calls": 1,
+          "total_ms": 0.497
+        },
+        "mapping_db_connect": {
+          "calls": 1,
+          "total_ms": 1.777
+        },
+        "mapping_sql_execute": {
+          "calls": 1,
+          "total_ms": 466.302
+        },
+        "mapping_sql_fetch": {
+          "calls": 1,
+          "total_ms": 0.513
+        },
+        "mapping_json_decode": {
+          "calls": 1,
+          "total_ms": 0.209
+        },
+        "output_request_mapping": {
+          "calls": 1,
+          "total_ms": 469.075
+        },
+        "image_dimensions": {
+          "calls": 24,
+          "total_ms": 665.625
+        },
+        "page_enrichment": {
+          "calls": 1,
+          "total_ms": 667.614
+        },
+        "json_response": {
+          "calls": 1,
+          "total_ms": 0.083
+        },
+        "handler_total": {
+          "calls": 1,
+          "total_ms": 2337.652
+        },
+        "http_dispatch": {
+          "calls": 1,
+          "total_ms": 2341.229
+        }
+      },
+      "thumbnail_cache_state": null
+    },
+    "first_thumbnails": [
+      {
+        "path": "anima/261013_034831_668433672.png",
+        "http_ms": 136.92520395852625,
+        "identifier": "e20e637248114eaea835a80a3239dc1e",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 1.681
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.577
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.776
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.641
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.017
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.004
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 88.696
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 88.897
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 94.207
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034820_1445197175.png",
+        "http_ms": 98.24822098016739,
+        "identifier": "4b1350609a8b4958af2afc1bd4e40c42",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.529
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.879
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.545
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.561
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.015
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.004
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 49.1
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 49.303
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 53.487
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034809_1253810587.png",
+        "http_ms": 98.52699795737863,
+        "identifier": "4c7a6e8bd18c4e1bad538c1d696e6493",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.755
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.093
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.629
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.912
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.002
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 49.032
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 49.181
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.01
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 54.182
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034759_547336730.png",
+        "http_ms": 102.89209999609739,
+        "identifier": "22ae5ad5ca5f4b88a870bc3053bbb3be",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.596
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.034
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.879
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.84
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.002
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 49.693
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 49.87
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 54.917
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/newnew/261013_034748_2069339288.png",
+        "http_ms": 101.56847396865487,
+        "identifier": "d9f0bad59dbf40f7b8f9a7128da2c6db",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 2.113
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.789
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.909
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.997
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 52.184
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 52.342
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.01
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 59.747
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034748_2069339288.png",
+        "http_ms": 98.2700630556792,
+        "identifier": "fa4f91f617bf475a96528007c315aae6",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.539
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.143
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.903
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.867
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.002
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 49.517
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 49.663
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.008
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 54.683
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034737_905847391.png",
+        "http_ms": 98.5919339582324,
+        "identifier": "1592d90b4ad244ffa35e102aab157134",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.598
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.08
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.695
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.731
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.002
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 48.328
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 48.546
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 53.459
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/newnew/261013_034726_1606324602.png",
+        "http_ms": 102.01707202941179,
+        "identifier": "4fb2fa258d8c4bfe9034b75beac6dc7f",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.613
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.823
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 1.153
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 1.016
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 50.244
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 50.405
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.009
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 56.672
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034726_1606324602.png",
+        "http_ms": 98.64975803066045,
+        "identifier": "3bd659492c324296ad02fcbe4657c661",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.655
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.69
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.854
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.88
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 51.342
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 51.54
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 56.283
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/newnew/261013_034715_2059063213.png",
+        "http_ms": 106.55866307206452,
+        "identifier": "4920e22d848d4205b577173fa7486060",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.775
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 3.452
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 1.328
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 1.034
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.015
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 53.706
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 53.863
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 61.074
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034715_2059063213.png",
+        "http_ms": 101.95454896893352,
+        "identifier": "a319d9811b4d47208b4dc50e72a78b68",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.659
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.175
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.73
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.716
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 50.393
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 50.602
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.495
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034704_1535614088.png",
+        "http_ms": 102.35870396718383,
+        "identifier": "72df0ca8d65e460b8c4a966f9886c965",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.643
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.862
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.737
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.593
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.015
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 51.305
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 51.459
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.01
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.885
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034653_524405500.png",
+        "http_ms": 107.05006599891931,
+        "identifier": "3f3f515515b44c5a8951116db6496250",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.622
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.874
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.704
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.711
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 54.052
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 54.251
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 58.977
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034643_1895374977.png",
+        "http_ms": 105.37348804064095,
+        "identifier": "ee3226d398154ac9af627e50908f8bd7",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.7
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.066
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.882
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.898
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.017
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 52.76
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 52.955
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 58.118
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034632_967641501.png",
+        "http_ms": 101.38807201292366,
+        "identifier": "102a12ea986b4e5d806b6c1d80e89ad0",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.522
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.907
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 1.556
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.993
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 48.407
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 48.563
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.01
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 54.179
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034621_38725766.png",
+        "http_ms": 98.33995799999684,
+        "identifier": "2b1b4db731c74d2fa5def55e21991cc2",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.657
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.73
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.561
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.851
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.016
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 50.779
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 50.962
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.467
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034610_245985226.png",
+        "http_ms": 94.84507294837385,
+        "identifier": "4c0d7de31fc14327850964b2f2ddbfa0",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.533
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.152
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 1.062
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.925
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.015
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 46.17
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 46.323
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.009
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 51.62
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034559_933205815.png",
+        "http_ms": 102.1673430223018,
+        "identifier": "62582d3700744b1098bd789ba3d9a9b8",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.696
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.946
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.655
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.876
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 52.856
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 53.076
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 57.973
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034548_1379725221.png",
+        "http_ms": 98.38004398625344,
+        "identifier": "9db19612e7434560939112386e379086",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.602
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.567
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.694
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.717
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 49.876
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 50.048
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 54.286
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034537_1309629852.png",
+        "http_ms": 101.96942009497434,
+        "identifier": "21c536fab2684c119c9eb9396fd7427b",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.624
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.888
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.634
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.849
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 50.913
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 51.07
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.009
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.78
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034527_1960641866.png",
+        "http_ms": 98.314800998196,
+        "identifier": "9a7b0283ad7345f98a21cdb6d6a3e799",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.69
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.758
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.585
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.911
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.021
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 50.673
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 50.842
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.497
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034516_1245997902.png",
+        "http_ms": 101.9453969784081,
+        "identifier": "912ebc11cbfb496389da1e5e54927438",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.607
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.844
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.668
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.687
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.002
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 48.042
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 48.204
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.01
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 52.788
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034505_453580681.png",
+        "http_ms": 101.47795605007559,
+        "identifier": "58499f2b5d9e435290da58db897ecb52",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.639
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.68
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.615
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.516
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.017
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 53.107
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 53.298
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 57.451
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034454_165868209.png",
+        "http_ms": 102.48966701328754,
+        "identifier": "7e8f20cf58a8466dbfabe376ac51a360",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.581
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.681
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.589
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.556
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 50.449
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 50.6
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.009
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 54.665
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      }
+    ],
+    "repeated_listings": [
+      {
+        "phase": "repeat_1",
+        "utc_time": "2026-10-14T23:59:40.015913+09:00",
+        "http_ms": 1648.5777159687132,
+        "identifier": "c43d8c3f8ac9454f8cf329b205c9d3e3",
+        "total_files": 2004,
+        "returned_files": 24,
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.702
+          },
+          "directory_iteration": {
+            "calls": 2008,
+            "total_ms": 13.765
+          },
+          "file_type_check": {
+            "calls": 2007,
+            "total_ms": 2.581
+          },
+          "path_filter": {
+            "calls": 2004,
+            "total_ms": 49.296
+          },
+          "file_stat": {
+            "calls": 2004,
+            "total_ms": 1065.665
+          },
+          "directory_scan": {
+            "calls": 1,
+            "total_ms": 1191.768
+          },
+          "sort_and_paginate": {
+            "calls": 1,
+            "total_ms": 0.328
+          },
+          "mapping_db_connect": {
+            "calls": 1,
+            "total_ms": 1.66
+          },
+          "mapping_sql_execute": {
+            "calls": 1,
+            "total_ms": 449.681
+          },
+          "mapping_sql_fetch": {
+            "calls": 1,
+            "total_ms": 0.501
+          },
+          "mapping_json_decode": {
+            "calls": 1,
+            "total_ms": 0.204
+          },
+          "output_request_mapping": {
+            "calls": 1,
+            "total_ms": 452.302
+          },
+          "image_dimensions": {
+            "calls": 24,
+            "total_ms": 0.145
+          },
+          "page_enrichment": {
+            "calls": 1,
+            "total_ms": 0.391
+          },
+          "json_response": {
+            "calls": 1,
+            "total_ms": 0.066
+          },
+          "handler_total": {
+            "calls": 1,
+            "total_ms": 1645.056
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 1646.345
+          }
+        },
+        "thumbnail_cache_state": null
+      },
+      {
+        "phase": "repeat_2",
+        "utc_time": "2026-10-14T23:59:43.173444+09:00",
+        "http_ms": 1689.7375950356945,
+        "identifier": "19a4311c1de54ac4b36dc86c2dd9e2be",
+        "total_files": 2004,
+        "returned_files": 24,
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.754
+          },
+          "directory_iteration": {
+            "calls": 2008,
+            "total_ms": 15.226
+          },
+          "file_type_check": {
+            "calls": 2007,
+            "total_ms": 2.655
+          },
+          "path_filter": {
+            "calls": 2004,
+            "total_ms": 39.224
+          },
+          "file_stat": {
+            "calls": 2004,
+            "total_ms": 1074.201
+          },
+          "directory_scan": {
+            "calls": 1,
+            "total_ms": 1192.405
+          },
+          "sort_and_paginate": {
+            "calls": 1,
+            "total_ms": 0.443
+          },
+          "mapping_db_connect": {
+            "calls": 1,
+            "total_ms": 1.619
+          },
+          "mapping_sql_execute": {
+            "calls": 1,
+            "total_ms": 449.722
+          },
+          "mapping_sql_fetch": {
+            "calls": 1,
+            "total_ms": 0.419
+          },
+          "mapping_json_decode": {
+            "calls": 1,
+            "total_ms": 0.193
+          },
+          "output_request_mapping": {
+            "calls": 1,
+            "total_ms": 452.211
+          },
+          "image_dimensions": {
+            "calls": 24,
+            "total_ms": 0.143
+          },
+          "page_enrichment": {
+            "calls": 1,
+            "total_ms": 0.386
+          },
+          "json_response": {
+            "calls": 1,
+            "total_ms": 0.066
+          },
+          "handler_total": {
+            "calls": 1,
+            "total_ms": 1645.745
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 1647.128
+          }
+        },
+        "thumbnail_cache_state": null
+      },
+      {
+        "phase": "repeat_3",
+        "utc_time": "2026-10-14T23:59:44.861493+09:00",
+        "http_ms": 1677.5365389185026,
+        "identifier": "8741653ae14e476ea4e7bdb3f30c80d3",
+        "total_files": 2004,
+        "returned_files": 24,
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.625
+          },
+          "directory_iteration": {
+            "calls": 2008,
+            "total_ms": 15.216
+          },
+          "file_type_check": {
+            "calls": 2007,
+            "total_ms": 2.697
+          },
+          "path_filter": {
+            "calls": 2004,
+            "total_ms": 32.917
+          },
+          "file_stat": {
+            "calls": 2004,
+            "total_ms": 1064.3
+          },
+          "directory_scan": {
+            "calls": 1,
+            "total_ms": 1180.963
+          },
+          "sort_and_paginate": {
+            "calls": 1,
+            "total_ms": 0.449
+          },
+          "mapping_db_connect": {
+            "calls": 1,
+            "total_ms": 1.574
+          },
+          "mapping_sql_execute": {
+            "calls": 1,
+            "total_ms": 446.956
+          },
+          "mapping_sql_fetch": {
+            "calls": 1,
+            "total_ms": 0.348
+          },
+          "mapping_json_decode": {
+            "calls": 1,
+            "total_ms": 0.19
+          },
+          "output_request_mapping": {
+            "calls": 1,
+            "total_ms": 449.332
+          },
+          "image_dimensions": {
+            "calls": 24,
+            "total_ms": 0.146
+          },
+          "page_enrichment": {
+            "calls": 1,
+            "total_ms": 0.402
+          },
+          "json_response": {
+            "calls": 1,
+            "total_ms": 0.063
+          },
+          "handler_total": {
+            "calls": 1,
+            "total_ms": 1631.448
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 1632.798
+          }
+        },
+        "thumbnail_cache_state": null
+      }
+    ],
+    "repeated_thumbnails": [
+      {
+        "path": "anima/261013_034831_668433672.png",
+        "http_ms": 49.54462789464742,
+        "identifier": "59f5f42c09e4435a9f87c17dce17c2df",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.701
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.651
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.994
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.562
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.029
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.044
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.501
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034820_1445197175.png",
+        "http_ms": 49.54113403800875,
+        "identifier": "72aaf84d5a754dfc89b838e4bde7cd14",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.589
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.685
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.969
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.912
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.037
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.057
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.737
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034809_1253810587.png",
+        "http_ms": 45.522590982727706,
+        "identifier": "c62f0e58d4c842cea2585abc493ef0f0",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.599
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.55
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.548
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.605
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.056
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 3.811
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034759_547336730.png",
+        "http_ms": 47.135219909250736,
+        "identifier": "f667fd1e6e5a4ef88ab9eaf0c0c292bb",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.501
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.543
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.921
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.97
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.056
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.812
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/newnew/261013_034748_2069339288.png",
+        "http_ms": 50.13275006785989,
+        "identifier": "e58c73048d414f889bc41a353499607f",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.65
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 3.202
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.592
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.62
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.039
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.06
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.632
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034748_2069339288.png",
+        "http_ms": 49.42756402306259,
+        "identifier": "f9210fa944f541e1bf48ff41e9e413eb",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.673
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.694
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.955
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 1.028
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.04
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.062
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.956
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034737_905847391.png",
+        "http_ms": 49.71298493910581,
+        "identifier": "d8b8a9d260d94b2a8c82171487f60bf2",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.646
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.762
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.901
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.992
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.037
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.057
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 4.915
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/newnew/261013_034726_1606324602.png",
+        "http_ms": 50.491102039813995,
+        "identifier": "3f46ab4dda094c328f2dc6edc4ebfd47",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.509
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 4.57
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 1.338
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 1.243
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.035
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.055
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 8.188
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034726_1606324602.png",
+        "http_ms": 53.81031602155417,
+        "identifier": "5ae19ce009874b4cafd8e9de90004b1e",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.651
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.6
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.966
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.971
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.04
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.059
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.008
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.842
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/newnew/261013_034715_2059063213.png",
+        "http_ms": 50.50352809485048,
+        "identifier": "89e8e254cb474520b0457450b21c3330",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.679
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 3.038
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 1.472
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 1.095
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.055
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 6.905
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034715_2059063213.png",
+        "http_ms": 54.48131205048412,
+        "identifier": "0dab43d24edc48a4aecf2ed5a3c14915",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.616
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.805
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.911
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.898
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.035
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.084
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.009
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.752
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034704_1535614088.png",
+        "http_ms": 49.934361944906414,
+        "identifier": "4d1e465f7ca24821b01749d3fa6588ef",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.595
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.518
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.557
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.535
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.048
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.067
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 3.762
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034653_524405500.png",
+        "http_ms": 51.06507695745677,
+        "identifier": "e2e1bd29453a4433bbd90f1ed9b6bbfb",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.725
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.838
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.912
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.903
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.041
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.06
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.917
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034643_1895374977.png",
+        "http_ms": 50.525265047326684,
+        "identifier": "0120f2e032674c1abcaf67a6b1df6697",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.643
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.638
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.907
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.897
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.04
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.061
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.009
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.77
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034632_967641501.png",
+        "http_ms": 49.99567102640867,
+        "identifier": "0f2cd49d2c53472abb4411f445b0b16f",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.515
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.729
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.93
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.959
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.035
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.054
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.736
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034621_38725766.png",
+        "http_ms": 50.57193792890757,
+        "identifier": "e6b52073a3424c278b00f54319b3b821",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.531
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.549
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.968
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.96
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.034
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.053
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.491
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034610_245985226.png",
+        "http_ms": 46.32578103337437,
+        "identifier": "f061144f87d346608f571044d9932dea",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.505
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.805
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.646
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.649
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.049
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.07
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 4.133
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034559_933205815.png",
+        "http_ms": 49.90472598001361,
+        "identifier": "e62318b2429445adaecf47f6db0cafc1",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.621
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.732
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.929
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.932
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.038
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.064
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.008
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.739
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034548_1379725221.png",
+        "http_ms": 53.16330201458186,
+        "identifier": "35c0e8643977462081cabab316232053",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.596
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.691
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.533
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.638
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.055
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 4.032
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034537_1309629852.png",
+        "http_ms": 50.4479689989239,
+        "identifier": "6ae493ba6c0e47f59d2125d97110acac",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.543
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.671
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.892
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.878
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.035
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.054
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.504
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034527_1960641866.png",
+        "http_ms": 50.362994079478085,
+        "identifier": "3bef30d886314f5abdc78d7af9f603a4",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.468
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.798
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.922
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.936
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.035
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.054
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.686
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034516_1245997902.png",
+        "http_ms": 50.81038596108556,
+        "identifier": "4e4e03f8a03048cfbdb5751c86bf1cde",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.435
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.668
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.946
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.885
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.034
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.053
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.45
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034505_453580681.png",
+        "http_ms": 50.11032510083169,
+        "identifier": "cd3ac9e460d341478f815e2d84a97fa9",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 1.738
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.627
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.931
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.912
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.056
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 6.681
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034454_165868209.png",
+        "http_ms": 46.152409981004894,
+        "identifier": "d6ba3270945742f3a84475503a33e345",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.505
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.69
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.572
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.558
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.035
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.054
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 3.932
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      }
+    ],
+    "limitations": [
+      "OS and Docker filesystem caches were not cleared",
+      "automatic thumbnail warmup runs concurrently"
+    ]
+  },
+  "job_outputs": {
+    "scope": "job_70",
+    "client": "httpx inside the server container",
+    "warmup": "enabled, unchanged",
+    "waited_seconds_after_first_page_and_thumbnails": 10.00015005201567,
+    "first_listing": {
+      "phase": "first_after_restart",
+      "utc_time": "2026-10-15T00:00:03.529414+09:00",
+      "http_ms": 1371.9129770761356,
+      "identifier": "cfbd00392c8f40a09c144f66bb9d05c2",
+      "total_files": 70,
+      "returned_files": 24,
+      "stages": {
+        "worker_dispatch": {
+          "calls": 1,
+          "total_ms": 2.627
+        },
+        "filter_db_connect": {
+          "calls": 1,
+          "total_ms": 1.595
+        },
+        "filter_job_sql": {
+          "calls": 1,
+          "total_ms": 3.724
+        },
+        "filter_requests_sql": {
+          "calls": 1,
+          "total_ms": 24.909
+        },
+        "filter_job_json_decode": {
+          "calls": 1,
+          "total_ms": 1.062
+        },
+        "filter_job_lookup": {
+          "calls": 1,
+          "total_ms": 31.525
+        },
+        "filter_output_paths": {
+          "calls": 1,
+          "total_ms": 0.016
+        },
+        "directory_iteration": {
+          "calls": 2008,
+          "total_ms": 47.646
+        },
+        "file_type_check": {
+          "calls": 2007,
+          "total_ms": 4.036
+        },
+        "path_filter": {
+          "calls": 2004,
+          "total_ms": 30.315
+        },
+        "file_stat": {
+          "calls": 70,
+          "total_ms": 36.493
+        },
+        "directory_scan": {
+          "calls": 1,
+          "total_ms": 160.034
+        },
+        "sort_and_paginate": {
+          "calls": 1,
+          "total_ms": 0.014
+        },
+        "mapping_db_connect": {
+          "calls": 1,
+          "total_ms": 1.662
+        },
+        "mapping_sql_execute": {
+          "calls": 1,
+          "total_ms": 474.148
+        },
+        "mapping_sql_fetch": {
+          "calls": 1,
+          "total_ms": 0.488
+        },
+        "mapping_json_decode": {
+          "calls": 1,
+          "total_ms": 0.242
+        },
+        "output_request_mapping": {
+          "calls": 1,
+          "total_ms": 476.808
+        },
+        "image_dimensions": {
+          "calls": 24,
+          "total_ms": 654.349
+        },
+        "page_enrichment": {
+          "calls": 1,
+          "total_ms": 656.271
+        },
+        "json_response": {
+          "calls": 1,
+          "total_ms": 0.073
+        },
+        "handler_total": {
+          "calls": 1,
+          "total_ms": 1325.04
+        },
+        "http_dispatch": {
+          "calls": 1,
+          "total_ms": 1328.301
+        }
+      },
+      "thumbnail_cache_state": null
+    },
+    "first_thumbnails": [
+      {
+        "path": "anima/261013_034831_668433672.png",
+        "http_ms": 123.98768693674356,
+        "identifier": "33c91f8e3f4f41faa6acffeded70dba9",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 1.59
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.618
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.795
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.7
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.018
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.004
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 69.473
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 69.662
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 75.143
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034820_1445197175.png",
+        "http_ms": 101.10588697716594,
+        "identifier": "b104c6b5140a482b920fc8ac0fdd4be1",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.861
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.907
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.734
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.728
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.02
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.004
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 49.349
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 49.537
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 54.282
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034809_1253810587.png",
+        "http_ms": 97.67441498115659,
+        "identifier": "93ae3223f53045abb2dba7e823330764",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.567
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.926
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.742
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.661
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 51.326
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 51.484
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.96
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034759_547336730.png",
+        "http_ms": 96.9187580049038,
+        "identifier": "809005070b594a2bb23cb130d4a7575c",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 1.071
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.936
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.676
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.971
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.016
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 49.615
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 49.842
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.015
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.107
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034748_2069339288.png",
+        "http_ms": 101.57360602170229,
+        "identifier": "5297cd8eba544e95a9b540721f66b10f",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.708
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.643
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.727
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.55
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 50.24
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 50.398
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 54.614
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034737_905847391.png",
+        "http_ms": 100.31891893595457,
+        "identifier": "623ae666c0924473b25583af9af0a154",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.654
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.917
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.884
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.896
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.017
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 49.783
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 49.993
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.003
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034726_1606324602.png",
+        "http_ms": 97.20682597253472,
+        "identifier": "91b7d89814fe4bc9a31fec1b0f495f22",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.869
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.979
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.735
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.956
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.018
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 49.414
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 49.592
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 54.641
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034715_2059063213.png",
+        "http_ms": 101.42131696920842,
+        "identifier": "7c8aefa3e2f44958af6d9d3b8e572425",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.73
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.609
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.881
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.877
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 52.741
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 52.904
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 57.597
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034704_1535614088.png",
+        "http_ms": 101.65219206828624,
+        "identifier": "865c468120b5454bb5f3961351ff5bf4",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.577
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.974
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.537
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.719
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.002
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 50.8
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 51.029
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.015
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 57.174
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034653_524405500.png",
+        "http_ms": 101.23592603486031,
+        "identifier": "257f539689704eeab5db699c04d6b48c",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.637
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.401
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.734
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.746
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.015
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 51.934
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 52.126
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.024
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 57.271
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034643_1895374977.png",
+        "http_ms": 101.52407293207943,
+        "identifier": "86bac39670344533bceea4d07c8687b2",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.704
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.631
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.842
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.892
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.004
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 51.986
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 52.182
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 56.965
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034632_967641501.png",
+        "http_ms": 97.30082203168422,
+        "identifier": "0f94b32617a94280bf7970aa43344c61",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.651
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.952
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.626
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.586
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.016
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 48.869
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 49.064
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 53.512
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034621_38725766.png",
+        "http_ms": 97.53113705664873,
+        "identifier": "c34e4234f6d14fe2a6ecf6f0115c8de2",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.608
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.6
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.802
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.838
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.019
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 51.095
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 51.259
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.01
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.716
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034610_245985226.png",
+        "http_ms": 96.85155400075018,
+        "identifier": "de09fcfe95f54161a5dfaffd0ed89d2d",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.671
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.888
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.608
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.761
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.017
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.004
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 47.177
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 47.356
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 51.937
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034559_933205815.png",
+        "http_ms": 97.37487602978945,
+        "identifier": "dc4a7b24d0cd41ffa17f2bdcbfe7d734",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.764
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.21
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.641
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.923
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.017
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 50.063
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 50.241
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.01
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.392
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034548_1379725221.png",
+        "http_ms": 105.14323797542602,
+        "identifier": "b3437bce441844828c88303804196d5c",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.668
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.739
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.694
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.701
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.015
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.004
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 50.886
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 51.135
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.016
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.623
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034537_1309629852.png",
+        "http_ms": 97.09867998026311,
+        "identifier": "b12cb917996d4725af13b7592a0dbf92",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.636
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.69
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.648
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.674
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.015
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 50.781
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 50.962
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.01
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.115
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034527_1960641866.png",
+        "http_ms": 100.7923879660666,
+        "identifier": "6a227c17c6dd49279b0f708bdaf588a4",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.624
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.787
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.835
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.608
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 51.002
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 51.214
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.015
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 55.786
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034516_1245997902.png",
+        "http_ms": 95.87756497785449,
+        "identifier": "a45a965f52534990812ed9ed0c0613f9",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.632
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.65
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.798
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.577
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.016
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 48.222
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 48.385
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.011
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 52.643
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034505_453580681.png",
+        "http_ms": 105.53252906538546,
+        "identifier": "46e6dd92d38747e19f03613703cab45e",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.765
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.937
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.696
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.694
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 51.685
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 51.898
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 56.741
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034454_165868209.png",
+        "http_ms": 100.04317702259868,
+        "identifier": "8fc3705cd91042ebab62c68a69b59c37",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.74
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.661
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.613
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.57
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.017
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 52.443
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 52.641
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 56.838
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034443_1461033252.png",
+        "http_ms": 101.66781500447541,
+        "identifier": "08802ef1742b42a486a1559fadc09548",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.709
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.615
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.67
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.605
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.016
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 53.989
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 54.252
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.013
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 58.67
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034433_1497329921.png",
+        "http_ms": 107.42429702077061,
+        "identifier": "1226314e26214ab1bda0d45174015f58",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.551
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.902
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.947
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.887
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.016
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 54.222
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 54.421
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 59.411
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      },
+      {
+        "path": "anima/261013_034422_565944064.png",
+        "http_ms": 100.65412404946983,
+        "identifier": "c62db0d48dda4eca99bcff521636d4ca",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.615
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.923
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.723
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.835
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.021
+          },
+          "thumbnail_generation_slot": {
+            "calls": 1,
+            "total_ms": 0.003
+          },
+          "thumbnail_generation": {
+            "calls": 1,
+            "total_ms": 49.342
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 49.534
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 54.217
+          }
+        },
+        "thumbnail_cache_state": "miss"
+      }
+    ],
+    "repeated_listings": [
+      {
+        "phase": "repeat_1",
+        "utc_time": "2026-10-15T00:00:16.893172+09:00",
+        "http_ms": 657.1514130337164,
+        "identifier": "65a5afc4692b45349c67990e51e89d25",
+        "total_files": 70,
+        "returned_files": 24,
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.723
+          },
+          "filter_db_connect": {
+            "calls": 1,
+            "total_ms": 1.696
+          },
+          "filter_job_sql": {
+            "calls": 1,
+            "total_ms": 4.007
+          },
+          "filter_requests_sql": {
+            "calls": 1,
+            "total_ms": 26.798
+          },
+          "filter_job_json_decode": {
+            "calls": 1,
+            "total_ms": 11.81
+          },
+          "filter_job_lookup": {
+            "calls": 1,
+            "total_ms": 44.579
+          },
+          "filter_output_paths": {
+            "calls": 1,
+            "total_ms": 0.019
+          },
+          "directory_iteration": {
+            "calls": 2008,
+            "total_ms": 43.127
+          },
+          "file_type_check": {
+            "calls": 2007,
+            "total_ms": 3.736
+          },
+          "path_filter": {
+            "calls": 2004,
+            "total_ms": 27.717
+          },
+          "file_stat": {
+            "calls": 70,
+            "total_ms": 38.827
+          },
+          "directory_scan": {
+            "calls": 1,
+            "total_ms": 152.154
+          },
+          "sort_and_paginate": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "mapping_db_connect": {
+            "calls": 1,
+            "total_ms": 1.556
+          },
+          "mapping_sql_execute": {
+            "calls": 1,
+            "total_ms": 453.527
+          },
+          "mapping_sql_fetch": {
+            "calls": 1,
+            "total_ms": 0.419
+          },
+          "mapping_json_decode": {
+            "calls": 1,
+            "total_ms": 0.241
+          },
+          "output_request_mapping": {
+            "calls": 1,
+            "total_ms": 456.027
+          },
+          "image_dimensions": {
+            "calls": 24,
+            "total_ms": 0.162
+          },
+          "page_enrichment": {
+            "calls": 1,
+            "total_ms": 0.425
+          },
+          "json_response": {
+            "calls": 1,
+            "total_ms": 0.065
+          },
+          "handler_total": {
+            "calls": 1,
+            "total_ms": 653.54
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 654.938
+          }
+        },
+        "thumbnail_cache_state": null
+      },
+      {
+        "phase": "repeat_2",
+        "utc_time": "2026-10-15T00:00:19.072225+09:00",
+        "http_ms": 693.5124919982627,
+        "identifier": "448868d6b4e9412cb3f35e6931e01680",
+        "total_files": 70,
+        "returned_files": 24,
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.612
+          },
+          "filter_db_connect": {
+            "calls": 1,
+            "total_ms": 1.655
+          },
+          "filter_job_sql": {
+            "calls": 1,
+            "total_ms": 3.552
+          },
+          "filter_requests_sql": {
+            "calls": 1,
+            "total_ms": 24.778
+          },
+          "filter_job_json_decode": {
+            "calls": 1,
+            "total_ms": 4.812
+          },
+          "filter_job_lookup": {
+            "calls": 1,
+            "total_ms": 35.05
+          },
+          "filter_output_paths": {
+            "calls": 1,
+            "total_ms": 0.02
+          },
+          "directory_iteration": {
+            "calls": 2008,
+            "total_ms": 45.317
+          },
+          "file_type_check": {
+            "calls": 2007,
+            "total_ms": 3.975
+          },
+          "path_filter": {
+            "calls": 2004,
+            "total_ms": 28.798
+          },
+          "file_stat": {
+            "calls": 70,
+            "total_ms": 37.221
+          },
+          "directory_scan": {
+            "calls": 1,
+            "total_ms": 155.698
+          },
+          "sort_and_paginate": {
+            "calls": 1,
+            "total_ms": 0.02
+          },
+          "mapping_db_connect": {
+            "calls": 1,
+            "total_ms": 1.524
+          },
+          "mapping_sql_execute": {
+            "calls": 1,
+            "total_ms": 451.249
+          },
+          "mapping_sql_fetch": {
+            "calls": 1,
+            "total_ms": 0.403
+          },
+          "mapping_json_decode": {
+            "calls": 1,
+            "total_ms": 0.222
+          },
+          "output_request_mapping": {
+            "calls": 1,
+            "total_ms": 453.687
+          },
+          "image_dimensions": {
+            "calls": 24,
+            "total_ms": 0.15
+          },
+          "page_enrichment": {
+            "calls": 1,
+            "total_ms": 0.398
+          },
+          "json_response": {
+            "calls": 1,
+            "total_ms": 0.064
+          },
+          "handler_total": {
+            "calls": 1,
+            "total_ms": 645.187
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 646.444
+          }
+        },
+        "thumbnail_cache_state": null
+      },
+      {
+        "phase": "repeat_3",
+        "utc_time": "2026-10-15T00:00:19.756209+09:00",
+        "http_ms": 672.8174659656361,
+        "identifier": "937d0dd4c20543baa5c3f6c50ea7a0fe",
+        "total_files": 70,
+        "returned_files": 24,
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.684
+          },
+          "filter_db_connect": {
+            "calls": 1,
+            "total_ms": 1.511
+          },
+          "filter_job_sql": {
+            "calls": 1,
+            "total_ms": 3.503
+          },
+          "filter_requests_sql": {
+            "calls": 1,
+            "total_ms": 22.709
+          },
+          "filter_job_json_decode": {
+            "calls": 1,
+            "total_ms": 0.995
+          },
+          "filter_job_lookup": {
+            "calls": 1,
+            "total_ms": 28.945
+          },
+          "filter_output_paths": {
+            "calls": 1,
+            "total_ms": 0.019
+          },
+          "directory_iteration": {
+            "calls": 2008,
+            "total_ms": 38.716
+          },
+          "file_type_check": {
+            "calls": 2007,
+            "total_ms": 3.378
+          },
+          "path_filter": {
+            "calls": 2004,
+            "total_ms": 25.83
+          },
+          "file_stat": {
+            "calls": 70,
+            "total_ms": 38.881
+          },
+          "directory_scan": {
+            "calls": 1,
+            "total_ms": 142.625
+          },
+          "sort_and_paginate": {
+            "calls": 1,
+            "total_ms": 0.015
+          },
+          "mapping_db_connect": {
+            "calls": 1,
+            "total_ms": 1.424
+          },
+          "mapping_sql_execute": {
+            "calls": 1,
+            "total_ms": 450.12
+          },
+          "mapping_sql_fetch": {
+            "calls": 1,
+            "total_ms": 0.464
+          },
+          "mapping_json_decode": {
+            "calls": 1,
+            "total_ms": 0.218
+          },
+          "output_request_mapping": {
+            "calls": 1,
+            "total_ms": 452.512
+          },
+          "image_dimensions": {
+            "calls": 24,
+            "total_ms": 3.81
+          },
+          "page_enrichment": {
+            "calls": 1,
+            "total_ms": 4.107
+          },
+          "json_response": {
+            "calls": 1,
+            "total_ms": 0.072
+          },
+          "handler_total": {
+            "calls": 1,
+            "total_ms": 628.528
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 629.711
+          }
+        },
+        "thumbnail_cache_state": null
+      }
+    ],
+    "repeated_thumbnails": [
+      {
+        "path": "anima/261013_034831_668433672.png",
+        "http_ms": 48.869590973481536,
+        "identifier": "4057fe4d84bb4ff0ba1dd3ba6f4ae3a4",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.559
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.531
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.572
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.615
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.04
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.059
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 3.935
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034820_1445197175.png",
+        "http_ms": 49.13178796414286,
+        "identifier": "34e2f6e9117f47238fd2489e1b300349",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.728
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.597
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.991
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.897
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.038
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.058
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.639
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034809_1253810587.png",
+        "http_ms": 45.01610901206732,
+        "identifier": "43fc5ba30c9847df9868e5683c6e09f8",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.478
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.519
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.654
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.537
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.035
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.054
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 3.686
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034759_547336730.png",
+        "http_ms": 57.883942034095526,
+        "identifier": "28320327e8ef470da31749c9aba9cbc6",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.606
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.713
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.982
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.935
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.037
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.058
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.806
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034748_2069339288.png",
+        "http_ms": 49.369883025065064,
+        "identifier": "e6961ee558e147dda15768236be7209f",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.827
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 3.866
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.911
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.887
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.056
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 6.954
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034737_905847391.png",
+        "http_ms": 49.483089009299874,
+        "identifier": "beaa164dcdef4f8eb19dd933f72aac5b",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.494
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 3.079
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.571
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.693
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.035
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.054
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.355
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034726_1606324602.png",
+        "http_ms": 51.438156981021166,
+        "identifier": "a4315f6e48d24bdb8524e20756b99d85",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.707
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.94
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 1.056
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 1.184
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.051
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.078
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.012
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 6.56
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034715_2059063213.png",
+        "http_ms": 48.39140200056136,
+        "identifier": "7b77f4b52a714730b1592b17ddfeb688",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.643
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.743
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.547
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.583
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.038
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.058
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 4.099
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034704_1535614088.png",
+        "http_ms": 53.542255074717104,
+        "identifier": "01a02494dada41b3af75a9f0f8b0f1f9",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.525
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.731
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.867
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.897
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.056
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.513
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034653_524405500.png",
+        "http_ms": 49.12315797992051,
+        "identifier": "27d9bc869999405998a569b894c1c915",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.511
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.538
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.894
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.949
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.035
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.055
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.41
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034643_1895374977.png",
+        "http_ms": 48.254378023557365,
+        "identifier": "e523f5422a324eb891f2273efbb12fd1",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.564
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.809
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 1.018
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.667
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.067
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.095
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.014
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.705
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034632_967641501.png",
+        "http_ms": 48.85158594697714,
+        "identifier": "531589db468249c9bcf103ddecc34d98",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.56
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 3.424
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.972
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.97
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.055
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 6.432
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034621_38725766.png",
+        "http_ms": 49.3207749677822,
+        "identifier": "5ea75406f2ee4913a6f9536494c7406b",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.506
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.928
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.69
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.562
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.055
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.289
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034610_245985226.png",
+        "http_ms": 49.14808401372284,
+        "identifier": "405c5d0c90ef4a14ae836017c747d48d",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.472
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.553
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.911
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.938
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.056
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.406
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034559_933205815.png",
+        "http_ms": 48.15727402456105,
+        "identifier": "bc4e298fe3a541c4a018f2668ac7234a",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.542
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.622
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.726
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.557
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.038
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.058
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 4.075
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034548_1379725221.png",
+        "http_ms": 48.70604700408876,
+        "identifier": "0eca7b63013a4dcab0f66f0a6ea164a9",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.538
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.574
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.95
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.939
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.038
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.057
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.518
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034537_1309629852.png",
+        "http_ms": 48.68122492916882,
+        "identifier": "2067b26c2b60497a80b3725faee79071",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.47
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.423
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.575
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.738
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.055
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 3.718
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034527_1960641866.png",
+        "http_ms": 48.42562403064221,
+        "identifier": "00f586bff9b248f6b9e13f577b1607cf",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.504
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.522
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.937
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.856
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.037
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.056
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.332
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034516_1245997902.png",
+        "http_ms": 48.247109982185066,
+        "identifier": "6982b9eb6cef4a01b3236fd7d2fda8c5",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.673
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.651
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.933
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.925
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.039
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.06
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.008
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.696
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034505_453580681.png",
+        "http_ms": 49.19722198974341,
+        "identifier": "d5470536d8e648e28aab9d345b8a37b7",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.543
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.484
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.56
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.625
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.043
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.063
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 4.841
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034454_165868209.png",
+        "http_ms": 48.87945798691362,
+        "identifier": "60bdbe0d6b44484d8eb6e280bd5ef09e",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.504
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.868
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 1.026
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.946
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.037
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.056
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.865
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034443_1461033252.png",
+        "http_ms": 48.033495084382594,
+        "identifier": "ca22ec4062cf4ba985b365da07e1b075",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.546
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.862
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.544
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.747
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.037
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.056
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 4.346
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034433_1497329921.png",
+        "http_ms": 49.09079091157764,
+        "identifier": "e3bf1c1ca09d48479a8ae4fb21ea34ac",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.525
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 2.534
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.937
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.904
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.036
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.055
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.006
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 5.382
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      },
+      {
+        "path": "anima/261013_034422_565944064.png",
+        "http_ms": 49.020926002413034,
+        "identifier": "a0047c7342ed472490fe5db7516259e2",
+        "stages": {
+          "worker_dispatch": {
+            "calls": 1,
+            "total_ms": 0.654
+          },
+          "preview_path_resolve": {
+            "calls": 1,
+            "total_ms": 1.618
+          },
+          "preview_file_type_check": {
+            "calls": 1,
+            "total_ms": 0.678
+          },
+          "preview_file_stat": {
+            "calls": 1,
+            "total_ms": 0.541
+          },
+          "thumbnail_cache_lock_lookup": {
+            "calls": 1,
+            "total_ms": 0.044
+          },
+          "thumbnail_cache_get": {
+            "calls": 1,
+            "total_ms": 0.065
+          },
+          "preview_response": {
+            "calls": 1,
+            "total_ms": 0.007
+          },
+          "http_dispatch": {
+            "calls": 1,
+            "total_ms": 4.132
+          }
+        },
+        "thumbnail_cache_state": "hit"
+      }
+    ],
+    "limitations": [
+      "OS and Docker filesystem caches were not cleared",
+      "automatic thumbnail warmup runs concurrently"
+    ]
+  }
+}

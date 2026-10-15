@@ -9,6 +9,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .output_timing import OutputTimingRecorder, measure_output_step
+from .output_catalog import OutputCatalog
+
 
 def current_timestamp() -> str:
     """UTC ISO 형식의 현재 시간을 반환합니다."""
@@ -30,9 +33,11 @@ class Database:
                 self._backup_before_group_tag_migration(connection)
             elif schema_version in {5, 6, 7, 8}:
                 self._backup_before_schema_change(connection, "job_request_storage")
+            elif schema_version == 9:
+                self._backup_before_schema_change(connection, "output_catalog")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -115,7 +120,7 @@ class Database:
                     result_json TEXT NOT NULL
                 )"""
             )
-            if schema_version != 9:
+            if schema_version < 9:
                 self._migrate_job_request_storage(connection)
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS tag_groups (
@@ -140,7 +145,10 @@ class Database:
             )
             connection.execute("CREATE INDEX IF NOT EXISTS tag_entries_group ON tag_entries(group_id, created_at)")
             connection.execute("CREATE INDEX IF NOT EXISTS tag_groups_key ON tag_groups(tag_key)")
-            connection.execute("PRAGMA user_version = 9")
+            OutputCatalog.prepare_schema(connection)
+            if schema_version < 10:
+                OutputCatalog.backfill_from_requests(connection)
+            connection.execute("PRAGMA user_version = 10")
 
     def _separate_request_detail(
         self, detail: dict[str, Any],
@@ -669,49 +677,63 @@ class Database:
             )
         return result.rowcount > 0
 
-    def find_output_requests(self, output_paths: list[str]) -> dict[str, dict[str, Any]]:
+    def find_output_requests(
+        self, output_paths: list[str], *, output_timing: OutputTimingRecorder | None = None,
+    ) -> dict[str, dict[str, Any]]:
         """현재 페이지 결과물의 원래 생성 경로를 작업과 요청 설정에 연결합니다."""
 
         if not output_paths:
             return {}
         placeholders = ",".join("?" for _ in output_paths)
-        with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT job_requests.job_id, job_inputs.input_json, request_results.result_json, "
-                "output_path.value AS output_path FROM job_requests JOIN job_inputs USING (job_id) "
-                "JOIN request_results USING (request_id) "
-                "JOIN json_each(request_results.result_json, '$.output_paths') AS output_path "
-                f"WHERE output_path.value IN ({placeholders}) "
-                "ORDER BY job_requests.updated_at DESC",
-                tuple(output_paths),
-            ).fetchall()
+        with measure_output_step(output_timing, "mapping_db_connect", emit=True):
+            connection = self._connect()
+        with connection:
+            with measure_output_step(output_timing, "mapping_sql_execute", emit=True):
+                output_cursor = connection.execute(
+                    "SELECT job_requests.job_id, job_inputs.input_json, request_results.result_json, "
+                    "output_path.value AS output_path FROM job_requests JOIN job_inputs USING (job_id) "
+                    "JOIN request_results USING (request_id) "
+                    "JOIN json_each(request_results.result_json, '$.output_paths') AS output_path "
+                    f"WHERE output_path.value IN ({placeholders}) "
+                    "ORDER BY job_requests.updated_at DESC",
+                    tuple(output_paths),
+                )
+            with measure_output_step(output_timing, "mapping_sql_fetch", emit=True):
+                rows = output_cursor.fetchall()
         requests_by_output_path = {}
-        for row in rows:
-            if row["output_path"] in requests_by_output_path:
-                continue
-            resolved_result = json.loads(row["result_json"])
-            settings = resolved_result.get("settings") or json.loads(row["input_json"]).get("settings", {})
-            requests_by_output_path[row["output_path"]] = {
-                "job_id": row["job_id"], "settings": settings,
-            }
+        with measure_output_step(output_timing, "mapping_json_decode", emit=True):
+            for row in rows:
+                if row["output_path"] in requests_by_output_path:
+                    continue
+                resolved_result = json.loads(row["result_json"])
+                settings = resolved_result.get("settings") or json.loads(row["input_json"]).get("settings", {})
+                requests_by_output_path[row["output_path"]] = {
+                    "job_id": row["job_id"], "settings": settings,
+                }
         return requests_by_output_path
 
-    def get_job(self, job_id: str) -> dict[str, Any] | None:
+    def get_job(self, job_id: str, *, output_timing: OutputTimingRecorder | None = None) -> dict[str, Any] | None:
         """작업의 작은 공통 입력과 하위 요청 확정 결과만 조회합니다."""
 
-        with self._connect() as connection:
-            job_row = connection.execute(
-                "SELECT jobs.*, job_inputs.input_json FROM jobs JOIN job_inputs USING (job_id) WHERE job_id = ?",
-                (job_id,),
-            ).fetchone()
+        with measure_output_step(output_timing, "filter_db_connect", emit=True):
+            connection = self._connect()
+        with connection:
+            with measure_output_step(output_timing, "filter_job_sql", emit=True):
+                job_row = connection.execute(
+                    "SELECT jobs.*, job_inputs.input_json FROM jobs JOIN job_inputs USING (job_id) WHERE job_id = ?",
+                    (job_id,),
+                ).fetchone()
             if job_row is None:
                 return None
-            request_rows = connection.execute(
-                "SELECT job_requests.*, jobs.workflow, request_results.upload_id, request_results.result_json "
-                "FROM job_requests JOIN jobs USING (job_id) JOIN request_results USING (request_id) "
-                "WHERE job_requests.job_id = ? ORDER BY request_index", (job_id,)
-            ).fetchall()
-        return self._job_from_row(job_row, [self._request_from_row(row) for row in request_rows])
+            with measure_output_step(output_timing, "filter_requests_sql", emit=True):
+                request_rows = connection.execute(
+                    "SELECT job_requests.*, jobs.workflow, request_results.upload_id, request_results.result_json "
+                    "FROM job_requests JOIN jobs USING (job_id) JOIN request_results USING (request_id) "
+                    "WHERE job_requests.job_id = ? ORDER BY request_index", (job_id,)
+                ).fetchall()
+        with measure_output_step(output_timing, "filter_job_json_decode", emit=True):
+            requests = [self._request_from_row(row) for row in request_rows]
+            return self._job_from_row(job_row, requests)
 
     def get_request(self, request_id: str) -> dict[str, Any] | None:
         """한 요청의 확정 결과와 작은 작업 공통 입력을 JOIN해서 조회합니다."""
@@ -825,6 +847,7 @@ class Database:
                             "WHERE request_id = ?",
                             (json.dumps(update["output_paths"], ensure_ascii=False), update["request_id"]),
                         )
+                        OutputCatalog.register_request_outputs(connection, update["request_id"])
                 else:
                     allowed_states = "('pending', 'running')" if update["status"] == "stopped" else "('pending', 'running', 'cancelling')"
                     change_result = connection.execute(
@@ -866,7 +889,7 @@ class Database:
                 (status, current_timestamp(), request_id),
             )
 
-    def delete_job(self, job_id: str, before_deletion: Callable[[], None] | None = None) -> bool:
+    def delete_job(self, job_id: str, before_deletion: Callable[[], list[str] | None] | None = None) -> bool:
         """보호·활성 상태를 잠금 안에서 검사한 뒤 파일 처리와 이력 삭제를 수행합니다."""
 
         with self._connect() as connection:
@@ -884,7 +907,12 @@ class Database:
             if active_count:
                 raise ValueError("진행 중인 작업은 삭제할 수 없습니다.")
             if before_deletion is not None:
-                before_deletion()
+                removed_paths = before_deletion()
+                if removed_paths:
+                    connection.executemany(
+                        "UPDATE output_files SET is_available=0 WHERE relative_path=?",
+                        [(relative_path,) for relative_path in removed_paths],
+                    )
             connection.execute("DELETE FROM job_requests WHERE job_id = ?", (job_id,))
             connection.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
         return True
@@ -904,6 +932,7 @@ class Database:
             )
             connection.execute("UPDATE request_results SET result_json = ? WHERE request_id = ?",
                                (json.dumps(resolved_result, ensure_ascii=False), request_id))
+            OutputCatalog.register_request_outputs(connection, request_id, resolved_result)
 
     def set_request_accepted(self, request_id: str, prompt_id: str, resolved: dict[str, Any]) -> None:
         """ComfyUI 접수 ID와 확정 Prompt를 개별 요청에 기록합니다."""

@@ -14,6 +14,7 @@ const batchSubmissions = [];
 const savedJobs = [];
 const jobQueries = [];
 const outputQueries = [];
+const outputSynchronizationRequests = [];
 const mockOutputFiles = [];
 const previewRequests = [];
 const tagPreviewRequests = [];
@@ -115,6 +116,10 @@ async function handleBrowserRequest(route) {
         negative_selected_path: negativeHasAction ? previewPath : [],
       }],
     };
+  }
+  else if (requestPath === "/api/outputs/sync" && method === "POST") {
+    outputSynchronizationRequests.push(requestPath);
+    response = { available: mockOutputFiles.length, added: 0, availability_changes: 0 };
   }
   else if (requestPath === "/api/outputs") {
     outputQueries.push(requestUrl.search);
@@ -492,8 +497,8 @@ async function main() {
       const isVideo = outputNumber === 0;
       const filename = `result-${String(outputNumber).padStart(2, "0")}.${isVideo ? "webm" : "png"}`;
       mockOutputFiles.push({
-        path: `anima/${filename}`, name: filename, size: 2048,
-        modified_at: 100 - outputNumber, kind: isVideo ? "video" : "image",
+        path: `anima/${filename}`, name: filename, generated_at: 100 - outputNumber,
+        seed: outputNumber, kind: isVideo ? "video" : "image",
         job_id: isVideo ? "old-job-8" : null,
         width: isVideo ? 720 : 1024, height: isVideo ? 1280 : 1536,
         dimensions_source: isVideo ? "settings" : "file",
@@ -508,9 +513,10 @@ async function main() {
     assert.equal(await page.locator(".output-card img").count(), 23);
     assert.equal(await page.locator('.output-card img[src^="/api/outputs/preview/"]').count(), 23);
     assert.match(await page.locator(".output-card").first().locator("small").textContent(),
-      /0\.0 MB · 9:16 · 720 × 1280 \(설정\)/);
+      /9:16 · 720 × 1280 \(설정\)/);
     assert.match(await page.locator(".output-card").nth(1).locator("small").textContent(),
-      /0\.0 MB · 2:3 · 1024 × 1536/);
+      /2:3 · 1024 × 1536/);
+    assert.equal(outputSynchronizationRequests.length, 1);
     assert.equal(await page.locator(".output-card [data-output-job]").count(), 1);
     assert.notEqual(await page.locator(".output-card [data-output-job]").evaluate(button =>
       getComputedStyle(button).backgroundColor), await page.locator(".output-card [data-move-output]").first().evaluate(button =>
@@ -527,8 +533,10 @@ async function main() {
     await page.locator('#outputs-pagination [data-outputs-page="2"]').first().click();
     await page.waitForFunction(() => document.querySelectorAll(".output-card").length === 2);
     assert.ok(outputQueries.some(query => new URLSearchParams(query).get("page") === "2"));
+    assert.equal(outputSynchronizationRequests.length, 1);
     await page.locator("#refresh-outputs-button").click();
     await page.waitForFunction(() => document.querySelectorAll(".output-card").length === 24);
+    assert.equal(outputSynchronizationRequests.length, 2);
     assert.ok(previewRequests.length > 0);
     const tagPage = await browser.newPage({ viewport: { width: 1280, height: 950 } });
     const tagPageErrors = [];

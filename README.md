@@ -85,6 +85,8 @@ MiniMax 입력 이미지는 비워 두므로 다시 선택해야 합니다. 원�
 
 결과물 목록은 24건씩 페이지 이동합니다. 이미지는 최대 384px, quality 75의 WebP 썸네일로 변환하고 압축된 bytes만 메모리 LRU Cache에 보관합니다. 기본 최대 개수는 10,000개이며 원본·Bitmap·썸네일 파일은 저장하지 않습니다. 같은 이미지의 동시 조회는 변환 결과를 공유하고, 서로 다른 이미지의 변환은 동시에 최대 두 건만 수행합니다. 영상은 목록에서 파일 정보만 표시하고 `열기`를 누를 때 원본을 불러옵니다. 결과물 탭 진입 또는 수동 새로고침 때 파일 목록을 다시 읽으며, 새로고침하면 첫 페이지로 돌아갑니다.
 
+목록 정렬은 Saver 파일명의 `yyMMdd_HHmmss_seed`에서 읽은 시각 → 숫자 seed → 전체 경로 내림차순입니다. Seed는 같은 초의 순서를 일정하게 만드는 기준이며 더 정밀한 생성 시각을 뜻하지 않습니다. 규칙 밖 파일은 목록 끝에 경로순으로 표시합니다. 목록 조회에서는 파일별 `stat()`과 파일 크기 표시를 제거했습니다. 해상도는 실제 이미지 header에서 읽고 최대 30,000개를 시간 만료 없는 LRU Cache로 재사용합니다. 같은 경로에 덮어쓴 파일의 해상도는 해당 항목이 Cache에서 퇴출되거나 서버를 재시작할 때 다시 읽습니다. 앱에서 이동한 경로의 해상도 Cache는 즉시 무효화합니다. 썸네일·원본 전송의 파일 속성 확인은 유지합니다.
+
 `config.toml`의 `[outputs]`에서 Cache 개수와 기동 시 백그라운드 채우기를 설정합니다. 설정 변경 후 서버를 재기동하세요.
 
 ```toml
@@ -103,6 +105,10 @@ thumbnail_cache_warmup_enabled = false
 - Workflow 원본: 프로젝트의 `data/workflows/`
 - 생성물: `config.toml`의 `comfy.output_directory` 아래 `comfy.managed_output_folder`
 
+결과물 목록·썸네일 조회는 `OUTPUT_TIMING` 로그로 상세 시간을 기록합니다. 응답의 `X-Output-Timing-Id`와 로그의 `id`로 같은 요청을 연결합니다. `event=step`은 개별 단계, `event=summary`는 호출 수·누적 시간·최대 시간·가장 느린 경로, `event=complete`는 HTTP 응답 준비까지의 전체 시간입니다. 목록은 `catalog_filter_validation`·`catalog_count`·`catalog_page_query`, 요청 해상도가 없는 이미지의 읽기는 `image_dimensions_fallback`, 수동 파일 대조는 `catalog_sync`로 구분합니다. 썸네일은 파일 접근과 Cache hit·miss·대기를 구분합니다. `catalog_listing`, `page_enrichment`, `handler_total`, `http_dispatch`는 하위 단계를 포함하므로 모든 `total_ms`를 더하면 중복 계산됩니다. 로그 파일 쓰기는 기존 Queue Listener가 처리하며 비밀번호·Session token·Prompt 본문은 기록하지 않습니다.
+
+결과물 조회의 병목 진단과 `is_file`, `resolve`, `walk` 비교 결과는 [성능 실험 기록](docs/performance_investigation_2026-10-14.md)에 정리했습니다.
+
 작업 계층 DB 전환은 시작할 때 한 번 수행합니다. 기존 요청 단위 작업 기록은 초기화되지만 Prompt preset·버전과 LoRA 기본값·조합 preset, 생성물 파일은 유지됩니다.
 
 참조 태그의 그룹 전환은 DB schema version 4에서 5로 자동 migration합니다. 변경 전에 SQLite backup API로 일관된 DB 복사본을 `runtime/backups/`에 저장하고 무결성을 확인합니다. 그룹 안의 기존 항목에서 공통 참조 태그를 옮기며 항목 ID·내용·weight와 기존 설정·작업 이력은 보존합니다. 비어 있는 기존 그룹은 참조 태그를 추론할 수 없어 비워 두므로 그룹 편집에서 설정해 주세요. 한 그룹에 서로 다른 참조 태그가 있으면 임의로 선택하지 않고 migration을 중단합니다.
@@ -111,7 +117,9 @@ DB schema version 6에서는 기존 작업과 설정을 유지하면서 작업�
 
 DB schema version 9에서는 작업 공통 입력·체크한 태그 후보를 `job_inputs`에 작업당 한 번 저장하고, 개별 확정 Prompt·선택 경로·Seed·결과물 경로는 `request_results`에 요청당 한 번 저장합니다. 이전 모든 요청을 자동 Migration한 뒤 기존 Snapshot 테이블·column을 제거하며, 이후 조회는 새 구조만 사용합니다. Migration 전 백업을 `runtime/backups/`에 보관합니다. 하위 상세에서는 후보 데이터를 읽지 않고, 생성 탭 복원에서만 작업 공통 후보를 가져옵니다. [구조·Migration 검증](docs/job_request_storage_split.md)에 설명했습니다.
 
-생성물은 `{workflow}/{YYMMDD_HHmmss}_{seed}.{확장자}`를 기본으로 저장합니다. 예: `anima/261006_153012_123456789.png`. Anima는 `%time_%seed`, MiniMax는 `%date:yyMMdd_HHmmss%_%seed%` 예약어를 사용하며, MiniMax Saver에도 sampling과 동일한 seed 출력을 연결합니다. 시각은 ComfyUI Saver 실행 시점의 로컬 시간이고, 영상은 encoding 시작 직전입니다. Saver가 붙이는 counter나 `_audio` 접미사는 그대로 유지하며 앱에서 파일명을 후처리하지 않습니다. 작업의 결과 보기는 ComfyUI history의 실제 출력 파일명을 사용합니다. 기존 결과물도 계속 조회할 수 있으며, 목록은 앱이 열릴 때와 새로고침할 때 실제 폴더를 다시 읽습니다. 앱이 미완료 요청을 재시작 후 자동 재제출하지 않습니다.
+DB schema version 10은 기존 JSON을 그대로 유지하고 `output_files`에 결과물 경로·작업/요청 연결·파일명 시각/Seed·요청 너비/높이를 추가 백필합니다. 결과물 목록과 작업의 결과 보기는 DB index에서 정렬·pagination을 처리하며, 요청 해상도가 있으면 이미지 header를 읽지 않습니다. 종횡비는 저장된 너비/높이로 계산하며 `(설정)` 표시로 실제 최종 해상도와 구분합니다. 실제 파일 크기·최종 해상도의 DB 저장은 후속 검토입니다. [구현·백필 및 2차 검토](docs/output_metadata_improvement_plan.md)를 참고하세요.
+
+생성물은 `{workflow}/{YYMMDD_HHmmss}_{seed}.{확장자}`를 기본으로 저장합니다. 예: `anima/261006_153012_123456789.png`. Anima는 `%time_%seed`, MiniMax는 `%date:yyMMdd_HHmmss%_%seed%` 예약어를 사용하며, MiniMax Saver에도 sampling과 동일한 seed 출력을 연결합니다. 시각은 ComfyUI Saver 실행 시점의 로컬 시간이고, 영상은 encoding 시작 직전입니다. Saver가 붙이는 counter나 `_audio` 접미사는 그대로 유지하며 앱에서 파일명을 후처리하지 않습니다. 작업의 결과 보기는 ComfyUI history의 실제 출력 파일명을 사용합니다. 생성 완료와 앱의 파일 이동·삭제는 DB 목록에 즉시 반영됩니다. 외부에서 추가·이동·삭제한 파일은 서버 시작 또는 결과물 화면의 새로고침 버튼으로 실제 폴더를 대조해 반영합니다. 앱이 미완료 요청을 재시작 후 자동 재제출하지 않습니다.
 
 ## 외부 접속
 
