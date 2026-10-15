@@ -1349,7 +1349,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
   const originalPrompt = typeof originalBody.prompt === "string" ? originalBody.prompt : "기록 없음";
   const originalNegative = typeof originalBody.negative === "string" ? originalBody.negative : "";
   const loraSummary = jobLoraSummary(summaryDetail);
-  const requestSettings = summaryDetail.resolved?.settings || summaryDetail.settings || {};
+  const requestSettings = { ...summaryDetail.settings, ...summaryDetail.resolved?.settings };
   const dimensions = formatDimensions(requestSettings.width, requestSettings.height);
   const completedCount = job.status_counts.completed || 0;
   const failedCount = job.status_counts.failed || 0;
@@ -1381,7 +1381,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
         ${selectionCheckbox}
         <div>
         <h3>${escapeHtml(job.workflow)} · 작업 ${escapeHtml(job.job_id)}</h3>
-        <p>${escapeHtml(job.created_at)} · ${dimensions.ratio} · ${dimensions.resolution} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
+        <p>${escapeHtml(job.created_at)} · ${dimensions.ratio} · ${dimensions.resolution} · CFG ${escapeHtml(requestSettings.cfg ?? "—")} · Steps ${escapeHtml(requestSettings.steps ?? "—")} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
         ${job.description ? `<p class="job-description">${escapeHtml(job.description)}</p>` : ""}
         </div>
       </div>
