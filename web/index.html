@@ -139,6 +139,10 @@
               </div>
               <p class="hint">Prompt·Negative Prompt의 [TAG]와 선택한 항목의 하위 [TAG]를 가진 모든 그룹과 하위 항목을 표시합니다. 같은 참조 태그의 그룹에서 선택한 항목은 함께 추첨됩니다.</p>
               <p id="tag-selection-status" class="hint"></p>
+              <div class="inline-actions">
+                <button id="expand-generate-tag-groups-button" class="button tag-expand small" type="button" aria-controls="generate-tag-groups">태그 전부 펼치기</button>
+                <button id="collapse-generate-tag-groups-button" class="button subtle small" type="button" aria-controls="generate-tag-groups">태그 전부 접기</button>
+              </div>
               <div id="generate-tag-groups" class="stack"></div>
             </div>
             <div class="panel stack">
@@ -411,7 +415,7 @@
               <label for="tag-group-key">참조 태그</label>
               <input id="tag-group-key" maxlength="64" required placeholder="CHR" pattern="[A-Z][A-Z0-9_]*" />
               <p class="hint">그룹의 모든 항목에 적용됩니다. 여러 그룹에서 같은 참조 태그를 사용할 수 있습니다.</p>
-              <label class="tag-inline-check"><input id="tag-group-default-expanded" type="checkbox" checked /> 생성·태그 관리 화면에서 기본으로 펼치기</label>
+              <label class="tag-inline-check"><input id="tag-group-default-expanded" type="checkbox" checked /> 생성 화면에서 기본으로 펼치기</label>
               <button class="button primary" type="submit">그룹 저장</button>
             </form>
             <div id="tag-group-list" class="preset-list"></div>
@@ -434,6 +438,10 @@
               <input id="tag-entry-weight" type="number" min="0.01" step="any" value="1" required />
               <button class="button primary" type="submit">항목 저장</button>
             </form>
+            <div class="inline-actions">
+              <button id="expand-managed-tag-groups-button" class="button tag-expand small" type="button" aria-controls="tag-entry-list">태그 전부 펼치기</button>
+              <button id="collapse-managed-tag-groups-button" class="button subtle small" type="button" aria-controls="tag-entry-list">태그 전부 접기</button>
+            </div>
             <div id="tag-entry-list" class="preset-list"></div>
           </div>
         </section>

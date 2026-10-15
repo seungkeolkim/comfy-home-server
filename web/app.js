@@ -681,14 +681,11 @@ async function loadTags() {
         catalog.groups.filter((group) => group.default_expanded).map((group) => group.group_id),
       );
     if (applicationState.expandedTagManagerGroupIds === null)
-      applicationState.expandedTagManagerGroupIds = new Set(
-        catalog.groups.filter((group) => group.default_expanded).map((group) => group.group_id),
-      );
+      applicationState.expandedTagManagerGroupIds = new Set();
     const existingGroupIds = new Set(catalog.groups.map((group) => group.group_id));
     for (const group of catalog.groups) {
       if (!applicationState.knownTagGroupIds?.has(group.group_id) && group.default_expanded) {
         applicationState.expandedTagGroupIds.add(group.group_id);
-        applicationState.expandedTagManagerGroupIds.add(group.group_id);
       }
     }
     applicationState.knownTagGroupIds = existingGroupIds;
@@ -785,6 +782,18 @@ function renderGenerateTagGroups() {
       </div>
     </details>`;
   }).join("");
+}
+
+/** 지정한 목록에 표시된 태그 그룹을 함께 펼치거나 접고 화면별 상태를 유지합니다. */
+function setTagGroupsExpanded(containerIdentifier, expandedGroupIdentifiers, shouldExpand) {
+  if (!expandedGroupIdentifiers) return;
+  const visibleGroups = element(containerIdentifier).querySelectorAll("details.tag-group");
+  for (const group of visibleGroups) {
+    const groupIdentifier = group.dataset.tagGroupOpen || group.dataset.manageTagGroupOpen;
+    if (shouldExpand) expandedGroupIdentifiers.add(groupIdentifier);
+    else expandedGroupIdentifiers.delete(groupIdentifier);
+    group.open = shouldExpand;
+  }
 }
 
 /** 그룹 및 태그 항목의 저장 목록과 편집 대상 선택 버튼을 표시합니다. */
@@ -2015,6 +2024,14 @@ function bindEvents() {
   });
   element("generate-anima-prompt").addEventListener("input", renderGenerateTagGroups);
   element("generate-negative").addEventListener("input", renderGenerateTagGroups);
+  element("expand-generate-tag-groups-button").addEventListener("click", () =>
+    setTagGroupsExpanded("generate-tag-groups", applicationState.expandedTagGroupIds, true));
+  element("collapse-generate-tag-groups-button").addEventListener("click", () =>
+    setTagGroupsExpanded("generate-tag-groups", applicationState.expandedTagGroupIds, false));
+  element("expand-managed-tag-groups-button").addEventListener("click", () =>
+    setTagGroupsExpanded("tag-entry-list", applicationState.expandedTagManagerGroupIds, true));
+  element("collapse-managed-tag-groups-button").addEventListener("click", () =>
+    setTagGroupsExpanded("tag-entry-list", applicationState.expandedTagManagerGroupIds, false));
   element("generate-tag-groups").addEventListener("change", (event) => {
     const tagId = event.target.dataset.selectTag;
     if (!tagId) return;

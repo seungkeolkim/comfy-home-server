@@ -558,14 +558,14 @@ async function main() {
     await tagPage.locator("#tag-entry-name").fill("몬스터 공격");
     await tagPage.locator("#tag-entry-content").fill("[CHR], attacking monster");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
-    await tagPage.locator('[data-edit-tag-entry="tag-entry-1"]').waitFor();
+    await tagPage.locator('[data-edit-tag-entry="tag-entry-1"]').waitFor({ state: "attached" });
     await tagPage.locator("#tag-entry-group").selectOption("tag-group-2");
     await tagPage.locator("#tag-entry-name").fill("1인 a");
     await tagPage.locator("#tag-entry-content").fill("character A");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
     await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').waitFor({ state: "attached" });
     assert.equal(await tagPage.locator('[data-manage-tag-group-open]').count(), 2);
-    assert.equal(await tagPage.locator('[data-manage-tag-group-open="tag-group-1"]').evaluate(group => group.open), true);
+    assert.equal(await tagPage.locator('[data-manage-tag-group-open="tag-group-1"]').evaluate(group => group.open), false);
     assert.equal(await tagPage.locator('[data-manage-tag-group-open="tag-group-2"]').evaluate(group => group.open), false);
     assert.match(await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').textContent(), /1개 항목/);
     assert.equal(await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').isVisible(), false);
@@ -638,12 +638,12 @@ async function main() {
     await tagPage.locator("#tag-entry-name").fill("걷기");
     await tagPage.locator("#tag-entry-content").fill("walking");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
-    await tagPage.locator('[data-edit-tag-entry="tag-entry-3"]').waitFor();
+    await tagPage.locator('[data-edit-tag-entry="tag-entry-3"]').waitFor({ state: "attached" });
     await tagPage.locator("#tag-entry-group").selectOption("tag-group-3");
     await tagPage.locator("#tag-entry-name").fill("새 장면");
     await tagPage.locator("#tag-entry-content").fill("new action");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
-    await tagPage.locator('[data-edit-tag-entry="tag-entry-4"]').waitFor();
+    await tagPage.locator('[data-edit-tag-entry="tag-entry-4"]').waitFor({ state: "attached" });
     assert.deepEqual(await tagPage.locator("[data-manage-tag-group-open]").evaluateAll(
       groups => groups.map(group => group.dataset.manageTagGroupOpen),
     ), ["tag-group-3", "tag-group-1", "tag-group-2"]);

@@ -321,6 +321,11 @@ input[type="file"] {
   color: #ffced4;
   border-color: #76404d;
 }
+.button.tag-expand {
+  background: #1d4263;
+  color: #b5e0ff;
+  border-color: #4a9edb;
+}
 .button.job-restore {
   background: #273f69;
   color: #d5e8ff;
