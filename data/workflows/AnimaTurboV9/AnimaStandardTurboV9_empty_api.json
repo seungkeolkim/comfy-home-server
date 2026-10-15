@@ -47,64 +47,9 @@
         "version": 1,
         "textWidgetName": "text"
       },
-      "text": "<lora:83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained:0.75><lora:ZWX35T0XHS8F2YDKJ620G66Z70:0.45:0.45> <lora:tawawa_jitome-chan:0.65:0.65> <lora:haruxxxsanekaki-AnimaB_V10-V1-FFTD-000020:0.70> <lora:zhibuji_loom_v1:0.78> <lora:Flat painting style:0.70> <lora:83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained:0.75> <lora:ZWX35T0XHS8F2YDKJ620G66Z70:0.45> <lora:83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained:0.75> <lora:ZWX35T0XHS8F2YDKJ620G66Z70:0.45>",
+      "text": "",
       "loras": {
-        "__value__": [
-          {
-            "name": "83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained",
-            "strength": 0.75,
-            "active": true,
-            "expanded": false,
-            "clipStrength": 0.75,
-            "selected": false,
-            "locked": false
-          },
-          {
-            "name": "ZWX35T0XHS8F2YDKJ620G66Z70",
-            "strength": 0.45,
-            "active": true,
-            "expanded": false,
-            "clipStrength": 0.45,
-            "selected": false,
-            "locked": false
-          },
-          {
-            "name": "tawawa_jitome-chan",
-            "strength": 0.65,
-            "active": false,
-            "expanded": false,
-            "clipStrength": 0.65,
-            "selected": false,
-            "locked": false
-          },
-          {
-            "name": "haruxxxsanekaki-AnimaB_V10-V1-FFTD-000020",
-            "strength": 0.7,
-            "active": false,
-            "expanded": false,
-            "clipStrength": 0.7,
-            "selected": false,
-            "locked": false
-          },
-          {
-            "name": "zhibuji_loom_v1",
-            "strength": 0.78,
-            "active": false,
-            "expanded": false,
-            "clipStrength": 0.78,
-            "selected": false,
-            "locked": false
-          },
-          {
-            "name": "Flat painting style",
-            "strength": 0.7,
-            "active": true,
-            "expanded": false,
-            "clipStrength": 0.7,
-            "selected": false,
-            "locked": false
-          }
-        ]
+        "__value__": []
       },
       "model": [
         "1",
@@ -421,56 +366,11 @@
     "inputs": {
       "group_mode": true,
       "default_active": false,
-      "allow_strength_adjustment": {
+      "allow_strength_adjustment": false,
+      "toggle_trigger_words": {
         "__value__": []
       },
-      "toggle_trigger_words": {
-        "__value__": [
-          {
-            "text": "@ohyg3",
-            "active": false,
-            "highlighted": false,
-            "strength": null,
-            "items": [
-              {
-                "text": "@ohyg3",
-                "active": true,
-                "highlighted": false,
-                "strength": null
-              }
-            ]
-          },
-          {
-            "text": "aosiai123",
-            "active": false,
-            "highlighted": false,
-            "strength": null,
-            "items": [
-              {
-                "text": "aosiai123",
-                "active": true,
-                "highlighted": false,
-                "strength": null
-              }
-            ]
-          },
-          {
-            "text": "Flat painting style",
-            "active": false,
-            "highlighted": false,
-            "strength": null,
-            "items": [
-              {
-                "text": "Flat painting style",
-                "active": true,
-                "highlighted": false,
-                "strength": null
-              }
-            ]
-          }
-        ]
-      },
-      "orinalMessage": "@ohyg3,, aosiai123,, Flat painting style",
+      "orinalMessage": "",
       "trigger_words": [
         "5",
         2

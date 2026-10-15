@@ -92,47 +92,82 @@ def test_anima_embedded_workflow_preserves_restorable_lora_widgets(selected_lora
     assert ui_workflow == original_ui_workflow
 
 
-@pytest.mark.parametrize("empty_trigger_words", [False, True], ids=["existing-groups", "empty-list"])
-def test_anima_trigger_words_are_disabled_without_adding_entries(empty_trigger_words: bool) -> None:
-    """실행과 UI Metadata에서 자동 trigger word 유입을 끊고 기존 항목만 모두 끕니다."""
+def test_anima_templates_have_no_saved_lora_or_trigger_word_state() -> None:
+    """두 기본 Workflow는 빈 LoRA·trigger 목록과 살아 있는 UI 연결로 시작합니다."""
 
     api_workflow, ui_workflow = load_workflows(WORKFLOW_DIRECTORY, "anima")
-    if empty_trigger_words:
-        api_workflow["43"]["inputs"]["toggle_trigger_words"] = {"__value__": []}
+    assert api_workflow["5"]["inputs"]["text"] == ""
+    assert api_workflow["5"]["inputs"]["loras"] == {"__value__": []}
+    assert api_workflow["43"]["inputs"]["toggle_trigger_words"] == {"__value__": []}
+    assert api_workflow["43"]["inputs"]["orinalMessage"] == ""
+    assert api_workflow["43"]["inputs"]["default_active"] is False
+    assert api_workflow["43"]["inputs"]["allow_strength_adjustment"] is False
+    assert api_workflow["43"]["inputs"]["trigger_words"] == ["5", 2]
+    for node in ui_workflow["nodes"]:
+        if str(node["id"]) == "5":
+            expected_values = {"text": "", "loras": []}
+        elif str(node["id"]) == "43":
+            expected_values = {
+                "toggle_trigger_words": [], "orinalMessage": "",
+                "default_active": False, "allow_strength_adjustment": False,
+            }
+        else:
+            continue
+        widget_names = list(node["widgets_values_named"])
+        for widget_name, expected_value in expected_values.items():
+            assert node["widgets_values_named"][widget_name] == expected_value
+            assert node["widgets_values"][widget_names.index(widget_name)] == expected_value
+
+
+@pytest.mark.parametrize("empty_trigger_words", [False, True], ids=["stale-groups", "empty-list"])
+def test_anima_trigger_words_are_disabled_without_adding_entries(empty_trigger_words: bool) -> None:
+    """찌꺼기는 비우고 실행 시 자동 삽입을 막으면서 복원 후 UI의 목록 갱신 연결은 유지합니다."""
+
+    api_workflow, ui_workflow = load_workflows(WORKFLOW_DIRECTORY, "anima")
+    trigger_entries = [] if empty_trigger_words else [
+        {"text": "stale trigger", "active": True, "items": [{"text": "stale child", "active": True}]},
+    ]
+    api_workflow["43"]["inputs"].update({
+        "toggle_trigger_words": {"__value__": trigger_entries},
+        "orinalMessage": "stale trigger", "default_active": True,
+    })
+    template_trigger_node = next(node for node in ui_workflow["nodes"] if str(node["id"]) == "43")
+    for widget_name, widget_value in (
+        ("toggle_trigger_words", trigger_entries), ("orinalMessage", "stale trigger"), ("default_active", True),
+    ):
+        widget_index = list(template_trigger_node["widgets_values_named"]).index(widget_name)
+        template_trigger_node["widgets_values_named"][widget_name] = widget_value
+        template_trigger_node["widgets_values"][widget_index] = widget_value
     original_api_workflow = copy.deepcopy(api_workflow)
     original_ui_workflow = copy.deepcopy(ui_workflow)
-    expected_entries = copy.deepcopy(api_workflow["43"]["inputs"]["toggle_trigger_words"]["__value__"])
-    pending_entries = list(expected_entries)
-    while pending_entries:
-        trigger_entry = pending_entries.pop()
-        trigger_entry["active"] = False
-        pending_entries.extend(trigger_entry.get("items", []))
-
     request_workflow, metadata_workflow = prepare_anima(
         api_workflow, ui_workflow, "user prompt", "user negative", {},
         [{"name": "example.safetensors", "strength": 0.7}], OUTPUT_STEM,
     )
     trigger_inputs = request_workflow["43"]["inputs"]
     assert trigger_inputs["default_active"] is False
+    assert trigger_inputs["allow_strength_adjustment"] is False
     assert trigger_inputs["trigger_words"] == ""
     assert trigger_inputs["orinalMessage"] == ""
-    assert trigger_inputs["toggle_trigger_words"] == {"__value__": expected_entries}
+    assert trigger_inputs["toggle_trigger_words"] == {"__value__": []}
     trigger_node = next(node for node in metadata_workflow["nodes"] if str(node["id"]) == "43")
     named_values = trigger_node["widgets_values_named"]
     assert named_values["default_active"] is False
     assert named_values["orinalMessage"] == ""
-    assert named_values["toggle_trigger_words"] == expected_entries
+    assert named_values["allow_strength_adjustment"] is False
+    assert named_values["toggle_trigger_words"] == []
     widget_names = list(named_values)
-    assert trigger_node["widgets_values"][widget_names.index("toggle_trigger_words")] == expected_entries
+    assert trigger_node["widgets_values"][widget_names.index("toggle_trigger_words")] == []
     assert trigger_node["widgets_values"][widget_names.index("default_active")] is False
     trigger_input = next(node_input for node_input in trigger_node["inputs"] if node_input["name"] == "trigger_words")
-    assert trigger_input["link"] is None
-    assert not any(link[3] == 43 and link[4] == trigger_node["inputs"].index(trigger_input) for link in metadata_workflow["links"])
+    assert trigger_input["link"] is not None
+    assert any(link[0] == trigger_input["link"] and link[1:4] == [5, 2, 43] for link in metadata_workflow["links"])
+    assert metadata_workflow["links"] == ui_workflow["links"]
     lora_node = next(node for node in metadata_workflow["nodes"] if str(node["id"]) == "5")
     original_lora_node = next(node for node in ui_workflow["nodes"] if str(node["id"]) == "5")
     assert lora_node["outputs"][0]["links"] == original_lora_node["outputs"][0]["links"]
     assert lora_node["outputs"][1]["links"] == original_lora_node["outputs"][1]["links"]
-    assert lora_node["outputs"][2]["links"] == []
+    assert lora_node["outputs"][2]["links"] == original_lora_node["outputs"][2]["links"]
     assert trigger_node["outputs"] == next(node for node in ui_workflow["nodes"] if str(node["id"]) == "43")["outputs"]
     assert request_workflow["3"]["inputs"]["populated_text"] == "user prompt"
     assert request_workflow["4"]["inputs"]["populated_text"] == "user negative"

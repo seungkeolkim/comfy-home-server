@@ -67,7 +67,7 @@ Anima Prompt preset 버전에는 Prompt 본문과 Negative Prompt만 저장합�
 
 Anima 생성 이미지에 삽입하는 UI Workflow에는 실제 요청에 선택한 LoRA 목록과 활성 상태·Model/CLIP 강도를 기록합니다. ComfyUI에서 이미지를 불러오면 LoRA Manager에 같은 구성이 복원되며, Model/CLIP 강도가 다르면 분리해서 표시합니다. CLIP 강도 `0`도 유지하며 LoRA를 선택하지 않은 요청은 빈 목록으로 기록합니다. 실행 API의 `loras.__value__` 형식과 UI Workflow의 배열 형식은 각각 구분해 저장합니다.
 
-Anima의 trigger word는 기존 그룹과 하위 항목을 모두 비활성화하고 기본 활성 상태도 끕니다. LoRA에서 TriggerWord Toggle로 들어오는 자동 연결은 실행 요청과 삽입 UI Workflow에서 해제하며, trigger word를 새로 추가하거나 Prompt에 자동으로 붙이지 않습니다. LoRA 자체의 적용과 Model/CLIP 강도는 유지합니다.
+Anima의 두 기본 Workflow 파일은 LoRA 목록·LoRA 텍스트·trigger word 목록을 비워 둡니다. 앱의 생성 요청에서도 trigger word 상태를 비우고 입력을 빈 문자열로 고정해 Prompt에 자동으로 붙이지 않습니다. 이미지에 삽입하는 UI Workflow는 LoRA와 TriggerWord Toggle의 연결을 유지하므로 ComfyUI에서 복원 후 LoRA를 추가·제거하거나 활성 상태를 바꾸면 목록이 해당 LoRA에 맞춰 갱신됩니다. TriggerWord Toggle의 기본 활성 상태는 꺼져 있어 새 trigger word 그룹은 비활성 상태로 표시됩니다. LoRA 자체의 적용과 Model/CLIP 강도는 유지합니다.
 
 결과물 목록의 `작업` 버튼은 원래 생성 경로와 이력이 일치하는 파일에만 표시합니다. 누르면 작업 탭에서 해당 작업 한 건만 보여주며, `전체 작업 보기`로 필터를 해제할 수 있습니다. 이력이 삭제되거나 파일이 원래 위치에서 이동된 경우에는 버튼을 표시하지 않습니다.
 
