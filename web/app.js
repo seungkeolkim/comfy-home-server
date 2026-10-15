@@ -33,9 +33,11 @@ const applicationState = {
   editingTagGroupId: null,
   editingTagEntryId: null,
   currentView: "generate",
+  viewScrollPositions: new Map(),
   outputFilter: null,
   outputsPage: 1,
   outputsLoadRevision: 0,
+  outputsRenderSignature: null,
   jobsPage: 1,
   jobFilterId: null,
   jobsLoadRevision: 0,
@@ -194,8 +196,11 @@ function scheduleJobsPolling() {
   }, applicationState.currentView === "jobs" ? 1000 : 5000);
 }
 
-/** 현재 화면을 바꿉니다. */
-function switchView(viewName) {
+/** 탭별 스크롤을 복원하고 내용을 새로 구성하는 이동만 상단에서 시작합니다. */
+function switchView(viewName, { resetScroll = false } = {}) {
+  if (applicationState.currentView === viewName && !resetScroll) return;
+  applicationState.viewScrollPositions.set(applicationState.currentView, window.scrollY);
+  if (resetScroll) applicationState.viewScrollPositions.set(viewName, 0);
   applicationState.currentView = viewName;
   document
     .querySelectorAll(".view")
@@ -216,7 +221,10 @@ function switchView(viewName) {
     "lora-presets": "LoRA 조합",
   };
   element("page-title").textContent = titles[viewName];
-  window.scrollTo({ top: 0, behavior: "smooth" });
+  window.scrollTo({
+    top: applicationState.viewScrollPositions.get(viewName) || 0,
+    behavior: "instant",
+  });
   if (viewName === "outputs") loadOutputs();
   if (viewName === "jobs") loadJobs();
   scheduleJobsPolling();
@@ -1322,7 +1330,7 @@ async function restoreJobGeneration(jobIdentifier) {
     element("selected-images").textContent = "선택한 이미지가 없습니다.";
     element("preview-results").innerHTML = "";
     element("preview-results").classList.add("hidden");
-    switchView("generate");
+    switchView("generate", { resetScroll: true });
     showNotice(job.workflow === "minimax_h3"
       ? "작업의 입력값을 복원했습니다. MiniMax 입력 이미지를 다시 선택해 주세요."
       : "작업의 입력값을 복원했습니다.");
@@ -1648,6 +1656,8 @@ async function loadOutputs() {
       applicationState.outputsPage = response.total_pages;
       return loadOutputs();
     }
+    const renderSignature = JSON.stringify([response, query.toString()]);
+    if (renderSignature === applicationState.outputsRenderSignature) return;
     const visibleFiles = response.files;
     element("output-count").textContent = outputFilter
       ? `${outputFilter.type === "job" ? "이 작업" : "이 요청"}의 결과 ${response.total}개`
@@ -1674,6 +1684,7 @@ async function loadOutputs() {
           .join("")
       : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;
     renderOutputsPagination(response.page, response.total_pages);
+    applicationState.outputsRenderSignature = renderSignature;
   } catch (error) {
     showNotice(error.message, true);
   }
@@ -1742,10 +1753,6 @@ function bindEvents() {
     .querySelectorAll("[data-view]")
     .forEach((button) =>
       button.addEventListener("click", () => {
-        if (button.dataset.view === "jobs") {
-          applicationState.jobFilterId = null;
-          applicationState.jobsPage = 1;
-        }
         switchView(button.dataset.view);
       }),
     );
@@ -1827,7 +1834,7 @@ function bindEvents() {
     element("preset-workflow").value = element("generate-workflow").value;
     fillPromptFields(applicationState.currentBody);
     updatePresetWorkflowOptions();
-    switchView("prompts");
+    switchView("prompts", { resetScroll: true });
   });
   element("save-current-preset-button").addEventListener("click", () => {
     applicationState.currentPresetId = null;
@@ -1837,7 +1844,7 @@ function bindEvents() {
     element("preset-workflow").value = element("generate-workflow").value;
     fillPromptFields(applicationState.currentBody);
     updatePresetWorkflowOptions();
-    switchView("prompts");
+    switchView("prompts", { resetScroll: true });
   });
   element("preset-workflow").addEventListener("change", () => {
     applicationState.currentPresetId = null;
@@ -1986,7 +1993,7 @@ function bindEvents() {
         ? { type: "job", id: jobResultButton.dataset.showJobResults }
         : { type: "request", id: requestResultButton.dataset.showRequestResults };
       applicationState.outputsPage = 1;
-      switchView("outputs");
+      switchView("outputs", { resetScroll: true });
     }
   });
   element("jobs-pagination").addEventListener("click", (event) => {
@@ -2024,7 +2031,7 @@ function bindEvents() {
     if (jobButton) {
       applicationState.jobFilterId = jobButton.dataset.outputJob;
       applicationState.jobsPage = 1;
-      switchView("jobs");
+      switchView("jobs", { resetScroll: true });
       return;
     }
     const button = event.target.closest("[data-move-output]");
@@ -2044,7 +2051,7 @@ function bindLoraPresetEvents() {
     else resetLoraPresetEditor(element("generate-workflow").value);
     applicationState.loraEditorEntries = normalizeLoraEntries(applicationState.selectedLoras, element("generate-workflow").value);
     renderLoraPresetEditor();
-    switchView("lora-presets");
+    switchView("lora-presets", { resetScroll: true });
   });
   element("save-generation-lora-preset-button").addEventListener("click", () => {
     const preset = applicationState.loraPresets.find((item) => item.preset_id === applicationState.currentLoraPresetId);
@@ -2081,7 +2088,7 @@ function bindLoraPresetEvents() {
   element("update-lora-preset-button").addEventListener("click", () => runAction(() => saveLoraPresetEditor(true)));
   element("use-lora-preset-editor-button").addEventListener("click", () => {
     applyLoraCombination(element("lora-preset-workflow").value, applicationState.loraEditorEntries, applicationState.loraEditorPresetId);
-    switchView("generate");
+    switchView("generate", { resetScroll: true });
   });
   element("lora-preset-list").addEventListener("click", (event) => {
     const editButton = event.target.closest("[data-edit-lora-preset]");
@@ -2094,7 +2101,7 @@ function bindLoraPresetEvents() {
       const preset = applicationState.loraPresets.find((item) => item.preset_id === useButton.dataset.useLoraPreset);
       if (!preset) return;
       applyLoraCombination(preset.workflow, preset.loras, preset.preset_id);
-      switchView("generate");
+      switchView("generate", { resetScroll: true });
     }
     if (deleteButton) runAction(() => deleteLoraPreset(deleteButton.dataset.deleteLoraPreset));
   });
