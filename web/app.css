@@ -20,7 +20,8 @@ textarea {
 button {
   cursor: pointer;
 }
-button:disabled {
+button:disabled,
+a[aria-disabled="true"] {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -77,6 +78,7 @@ button:disabled {
   gap: 7px;
 }
 .nav-button {
+  text-decoration: none;
   border: 0;
   background: transparent;
   color: #97a3bb;
@@ -223,7 +225,7 @@ button:disabled {
   margin: 0;
   letter-spacing: -0.03em;
 }
-.panel-heading button {
+.panel-heading .button {
   margin-left: auto;
 }
 .step {
@@ -295,6 +297,8 @@ input[type="file"] {
   flex-wrap: wrap;
 }
 .button {
+  display: inline-block;
+  text-decoration: none;
   border: 1px solid #3c4a61;
   background: #263247;
   color: #e9eef7;
@@ -885,7 +889,8 @@ input[type="file"] {
     border-top: 1px solid #303a4b;
     padding: 7px 6px max(7px, env(safe-area-inset-bottom));
   }
-  .mobile-nav button {
+  .mobile-nav a {
+    text-decoration: none;
     border: 0;
     background: transparent;
     color: #8794ab;
@@ -894,10 +899,10 @@ input[type="file"] {
     justify-items: center;
     line-height: 1.2;
   }
-  .mobile-nav button span {
+  .mobile-nav a span {
     font-size: 10px;
   }
-  .mobile-nav button.active {
+  .mobile-nav a.active {
     color: #8cdec7;
   }
   .outputs-grid {

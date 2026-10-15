@@ -10,6 +10,7 @@ const ANIMA_RESOLUTIONS = {
   "9:16": [[576, 1024], [720, 1280], [864, 1536]],
 };
 const TAG_NAME_COLLATOR = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
+const NAVIGATION_VIEW_NAMES = ["generate", "jobs", "outputs", "prompts", "tags", "lora-presets"];
 
 const applicationState = {
   presets: [],
@@ -174,8 +175,10 @@ async function showApplication() {
     loadLoras(),
     loadLoraPresets(),
     loadJobs(),
+    applicationState.currentView === "outputs" ? loadOutputs() : Promise.resolve(),
     loadStatus(),
   ]);
+  saveCurrentNavigationEntry();
   if (!applicationState.pollingTimer) {
     scheduleJobsPolling();
   }
@@ -224,9 +227,8 @@ function captureNavigationState() {
 
 /** 이 앱이 저장한 유효한 History 항목인지 확인합니다. */
 function isNavigationStateValid(navigationState) {
-  const viewNames = ["generate", "jobs", "outputs", "prompts", "tags", "lora-presets"];
   if (!navigationState || navigationState.version !== 1 ||
-      typeof navigationState.entryId !== "string" || !viewNames.includes(navigationState.viewName)) return false;
+      typeof navigationState.entryId !== "string" || !NAVIGATION_VIEW_NAMES.includes(navigationState.viewName)) return false;
   if (!Number.isSafeInteger(navigationState.pageNumber) || navigationState.pageNumber < 1 ||
       !Number.isFinite(navigationState.scrollPosition) || navigationState.scrollPosition < 0) return false;
   if (navigationState.jobFilterId !== null && typeof navigationState.jobFilterId !== "string") return false;
@@ -235,6 +237,72 @@ function isNavigationStateValid(navigationState) {
       typeof outputFilter.id !== "string")) return false;
   return Array.isArray(navigationState.openJobIds) &&
     navigationState.openJobIds.every(jobIdentifier => typeof jobIdentifier === "string");
+}
+
+/** 새 브라우저 탭에서도 열 수 있도록 조회 조건을 URL로 만듭니다. */
+function navigationUrl(navigationState) {
+  const query = new URLSearchParams({ view: navigationState.viewName });
+  if (["jobs", "outputs"].includes(navigationState.viewName)) {
+    query.set("page", String(navigationState.pageNumber));
+  }
+  if (navigationState.viewName === "jobs" && navigationState.jobFilterId) {
+    query.set("job_id", navigationState.jobFilterId);
+  }
+  if (navigationState.viewName === "outputs" && navigationState.outputFilter) {
+    const outputFilter = navigationState.outputFilter;
+    query.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
+  }
+  return `${window.location.pathname}?${query}`;
+}
+
+/** URL에서 조회 조건만 읽고 잘못된 화면이나 페이지는 기본값으로 보정합니다. */
+function navigationStateFromUrl(url) {
+  const query = new URL(url, window.location.href).searchParams;
+  const requestedView = query.get("view");
+  const viewName = NAVIGATION_VIEW_NAMES.includes(requestedView) ? requestedView : "generate";
+  const requestedPage = Number(query.get("page"));
+  const pageNumber = Number.isSafeInteger(requestedPage) && requestedPage > 0 ? requestedPage : 1;
+  const jobIdentifier = query.get("job_id") || null;
+  const requestIdentifier = query.get("request_id") || null;
+  let outputFilter = null;
+  if (viewName === "outputs") {
+    if (jobIdentifier) outputFilter = { type: "job", id: jobIdentifier };
+    else if (requestIdentifier) outputFilter = { type: "request", id: requestIdentifier };
+  }
+  return { viewName, pageNumber, jobFilterId: viewName === "jobs" ? jobIdentifier : null, outputFilter };
+}
+
+/** 탭 링크의 새 탭 목적지를 해당 탭의 마지막 페이지와 필터로 갱신합니다. */
+function updateNavigationLinks() {
+  for (const navigationLink of document.querySelectorAll("a[data-view]")) {
+    const viewName = navigationLink.dataset.view;
+    navigationLink.href = navigationUrl({
+      viewName,
+      pageNumber: viewName === "jobs" ? applicationState.jobsPage : applicationState.outputsPage,
+      jobFilterId: applicationState.jobFilterId,
+      outputFilter: applicationState.outputFilter,
+    });
+  }
+}
+
+/** 일반 클릭은 앱 안에서 이동하고 가운데 버튼·수정키 클릭은 브라우저에 맡깁니다. */
+function handleNavigationLinkClick(event) {
+  const navigationLink = event.target.closest("a[data-navigation]");
+  if (!navigationLink) return;
+  if (navigationLink.getAttribute("aria-disabled") === "true" ||
+      (navigationLink.hasAttribute("data-jobs-page") && jobSelectionIsBusy())) {
+    event.preventDefault();
+    return;
+  }
+  if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  const tabView = navigationLink.dataset.view || navigationLink.dataset.navigationTab;
+  if (tabView) {
+    switchView(tabView);
+    return;
+  }
+  const navigationState = navigationStateFromUrl(navigationLink.href);
+  switchView(navigationState.viewName, { ...navigationState, resetScroll: true });
 }
 
 /** 같은 화면의 중복 History를 막기 위해 탭과 조회 조건을 비교합니다. */
@@ -255,7 +323,9 @@ function navigationRoutesMatch(previousState, nextState) {
 function saveCurrentNavigationEntry() {
   if (applicationState.pendingNavigationScroll ||
       window.history.state?.homeServerNavigation?.entryId !== applicationState.navigationEntryId) return;
-  window.history.replaceState({ homeServerNavigation: captureNavigationState() }, "");
+  const navigationState = captureNavigationState();
+  window.history.replaceState({ homeServerNavigation: navigationState }, "", navigationUrl(navigationState));
+  updateNavigationLinks();
 }
 
 /** 조회 조건과 탭 표시를 바꾸며 생성 입력이나 변경 요청은 실행하지 않습니다. */
@@ -289,6 +359,7 @@ function displayNavigationState(navigationState) {
     "lora-presets": "LoRA 조합",
   };
   element("page-title").textContent = titles[viewName];
+  updateNavigationLinks();
 }
 
 /** 목록과 펼친 요청을 다시 조회한 후 해당 이동의 스크롤만 복원합니다. */
@@ -342,8 +413,8 @@ function switchView(viewName, { resetScroll = false, pageNumber, jobFilterId, ou
   applicationState.navigationEntrySequence += 1;
   nextState.entryId = `${Date.now()}-${applicationState.navigationEntrySequence}`;
   applicationState.navigationEntryId = nextState.entryId;
-  if (sameRoute) window.history.replaceState({ homeServerNavigation: nextState }, "");
-  else window.history.pushState({ homeServerNavigation: nextState }, "");
+  if (sameRoute) window.history.replaceState({ homeServerNavigation: nextState }, "", navigationUrl(nextState));
+  else window.history.pushState({ homeServerNavigation: nextState }, "", navigationUrl(nextState));
   loadNavigationState(nextState, false).catch(error => showNotice(error.message, true));
 }
 
@@ -356,7 +427,10 @@ function cancelNavigationScrollRestoration() {
 function initializeNavigationHistory() {
   window.history.scrollRestoration = "manual";
   applicationState.navigationEntryId = `${Date.now()}-initial`;
-  window.history.replaceState({ homeServerNavigation: captureNavigationState() }, "");
+  const initialState = { ...captureNavigationState(), ...navigationStateFromUrl(window.location.href), scrollPosition: 0 };
+  displayNavigationState(initialState);
+  window.history.replaceState({ homeServerNavigation: initialState }, "", navigationUrl(initialState));
+  window.scrollTo({ top: 0, behavior: "instant" });
   window.addEventListener("popstate", (event) => {
     const navigationState = event.state?.homeServerNavigation;
     if (!isNavigationStateValid(navigationState)) return;
@@ -1252,7 +1326,7 @@ function requestCardMarkup(request, statusNames, commonInputs) {
       ${request.error_message ? `<div class="job-detail"><strong>오류</strong> ${escapeHtml(request.error_message)}</div>` : ""}
       <div class="job-actions inline-actions">
         ${["submitting", "pending", "running"].includes(request.status) ? `<button class="button subtle small" data-cancel-request="${escapeHtml(request.request_id)}">요청 취소</button>` : ""}
-        <button class="button subtle small" data-show-request-results="${escapeHtml(request.request_id)}">요청 결과 보기</button>
+        <a class="button subtle small" data-navigation data-show-request-results="${escapeHtml(request.request_id)}" href="${escapeHtml(navigationUrl({ viewName: "outputs", pageNumber: 1, outputFilter: { type: "request", id: request.request_id } }))}">요청 결과 보기</a>
       </div>
     </div>`;
 }
@@ -1296,7 +1370,10 @@ function updateJobSelectionControls() {
   element("selected-job-count").textContent = deletingJobs ? "삭제 중…" : `${selectedCount}개 선택`;
   element("delete-selected-job-history").disabled = selectionIsBusy || selectedCount === 0;
   element("delete-selected-job-outputs").disabled = selectionIsBusy || selectedCount === 0;
-  element("clear-jobs-filter").disabled = selectionIsBusy;
+  const clearJobsFilterLink = element("clear-jobs-filter");
+  clearJobsFilterLink.setAttribute("aria-disabled", String(selectionIsBusy));
+  if (selectionIsBusy) clearJobsFilterLink.removeAttribute("href");
+  else clearJobsFilterLink.href = navigationUrl({ viewName: "jobs", pageNumber: 1 });
   element("jobs-pagination").toggleAttribute("inert", selectionIsBusy);
 }
 
@@ -1541,7 +1618,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
       <div class="job-detail job-original-prompt"><strong>입력 Prompt</strong> ${escapeHtml(originalPrompt)}</div>
       ${originalNegative ? `<div class="job-detail job-original-negative-prompt"><strong>입력 Negative Prompt</strong> ${escapeHtml(originalNegative)}</div>` : ""}
       <div class="job-actions inline-actions">
-        <button class="button subtle small" data-show-job-results="${escapeHtml(job.job_id)}">작업 결과 보기</button>
+        <a class="button subtle small" data-navigation data-show-job-results="${escapeHtml(job.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "outputs", pageNumber: 1, outputFilter: { type: "job", id: job.job_id } }))}">작업 결과 보기</a>
         <button class="button ${job.deletion_protected ? "job-protected" : "subtle"} small" data-toggle-job-protection="${escapeHtml(job.job_id)}" aria-pressed="${Boolean(job.deletion_protected)}" ${jobSelectionIsBusy() ? "disabled" : ""}>${job.deletion_protected ? "보호 해제" : "삭제 보호"}</button>
         ${canCancel ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.job_id)}" ${cancellationIsBusy ? "disabled" : ""}>${cancellationIsBusy ? "취소 처리 중" : job.cancellation_requested ? "취소 재시도" : "작업 취소"}</button>` : ""}
         ${canDelete && !applicationState.jobSelectionMode ? `<button class="button subtle small" data-delete-job="${escapeHtml(job.job_id)}">이력만 삭제</button><button class="button danger small" data-delete-job-outputs="${escapeHtml(job.job_id)}">이력·결과물 삭제</button>` : ""}
@@ -1615,7 +1692,21 @@ async function loadJobDetails(jobIdentifier) {
   }
 }
 
-/** 현재 페이지와 인접한 페이지로 이동할 버튼을 표시합니다. */
+/** 유효한 페이지는 링크로, 범위를 벗어난 이전·다음은 비활성 버튼으로 만듭니다. */
+function paginationLinkMarkup(viewName, pageNumber, label, { current = false, disabled = false } = {}) {
+  const pageAttribute = `data-${viewName}-page="${pageNumber}"`;
+  const classAttribute = 'class="button subtle small"';
+  if (disabled) return `<button ${classAttribute} ${pageAttribute} disabled>${escapeHtml(label)}</button>`;
+  const currentAttribute = current ? ' aria-current="page"' : "";
+  const destination = {
+    viewName, pageNumber,
+    jobFilterId: applicationState.jobFilterId,
+    outputFilter: applicationState.outputFilter,
+  };
+  return `<a ${classAttribute} ${pageAttribute}${currentAttribute} data-navigation href="${escapeHtml(navigationUrl(destination))}">${escapeHtml(label)}</a>`;
+}
+
+/** 현재 페이지와 인접한 페이지로 이동할 링크를 표시합니다. */
 function renderJobsPagination(page, totalPages) {
   const pagination = element("jobs-pagination");
   pagination.classList.toggle("hidden", totalPages <= 1);
@@ -1627,13 +1718,12 @@ function renderJobsPagination(page, totalPages) {
   const firstPage = Math.max(1, page - 2);
   const lastPage = Math.min(totalPages, page + 2);
   for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
-    const currentAttribute = pageNumber === page ? ' aria-current="page"' : "";
-    pageButtons.push(`<button class="button subtle small" data-jobs-page="${pageNumber}"${currentAttribute}>${pageNumber}</button>`);
+    pageButtons.push(paginationLinkMarkup("jobs", pageNumber, pageNumber, { current: pageNumber === page }));
   }
   pagination.innerHTML = `
-    <button class="button subtle small" data-jobs-page="${page - 1}" ${page === 1 ? "disabled" : ""}>이전</button>
+    ${paginationLinkMarkup("jobs", page - 1, "이전", { disabled: page === 1 })}
     ${pageButtons.join("")}
-    <button class="button subtle small" data-jobs-page="${page + 1}" ${page === totalPages ? "disabled" : ""}>다음</button>`;
+    ${paginationLinkMarkup("jobs", page + 1, "다음", { disabled: page === totalPages })}`;
 }
 
 /** 앱이 제출한 상위 작업과 하위 요청의 최신 상태를 표시합니다. */
@@ -1779,7 +1869,7 @@ async function deleteJobHistory(jobId, deleteOutputs) {
   await loadJobs();
 }
 
-/** 현재 결과물 페이지로 이동할 버튼을 표시합니다. */
+/** 현재 결과물 페이지로 이동할 링크를 표시합니다. */
 function renderOutputsPagination(page, totalPages) {
   const pagination = element("outputs-pagination");
   pagination.classList.toggle("hidden", totalPages <= 1);
@@ -1791,13 +1881,12 @@ function renderOutputsPagination(page, totalPages) {
   const firstPage = Math.max(1, page - 2);
   const lastPage = Math.min(totalPages, page + 2);
   for (let pageNumber = firstPage; pageNumber <= lastPage; pageNumber += 1) {
-    const currentAttribute = pageNumber === page ? ' aria-current="page"' : "";
-    pageButtons.push(`<button class="button subtle small" data-outputs-page="${pageNumber}"${currentAttribute}>${pageNumber}</button>`);
+    pageButtons.push(paginationLinkMarkup("outputs", pageNumber, pageNumber, { current: pageNumber === page }));
   }
   pagination.innerHTML = `
-    <button class="button subtle small" data-outputs-page="${page - 1}" ${page === 1 ? "disabled" : ""}>이전</button>
+    ${paginationLinkMarkup("outputs", page - 1, "이전", { disabled: page === 1 })}
     ${pageButtons.join("")}
-    <button class="button subtle small" data-outputs-page="${page + 1}" ${page === totalPages ? "disabled" : ""}>다음</button>`;
+    ${paginationLinkMarkup("outputs", page + 1, "다음", { disabled: page === totalPages })}`;
 }
 
 /** 관리 폴더의 현재 결과물을 페이지 단위로 표시합니다. */
@@ -1836,7 +1925,7 @@ async function loadOutputs() {
                 ? `<span class="output-video-placeholder">영상 · 열기로 재생</span>`
                 : `<img src="/api/outputs/preview/${file.path.split("/").map(encodeURIComponent).join("/")}" alt="${escapeHtml(file.name)}" loading="lazy">`;
             const jobButton = file.job_id
-              ? `<button class="button job-link" data-output-job="${escapeHtml(file.job_id)}" aria-label="작업 ${escapeHtml(file.job_id)} 보기">작업</button>`
+              ? `<a class="button job-link" data-navigation data-output-job="${escapeHtml(file.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "jobs", pageNumber: 1, jobFilterId: file.job_id }))}" aria-label="작업 ${escapeHtml(file.job_id)} 보기">작업</a>`
               : "";
             return `<article class="output-card"><div class="output-preview">${media}</div><div class="output-info"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(file.path)}">이동</button>${jobButton}</div></div></article>`;
           })
@@ -1877,6 +1966,7 @@ function runAction(action) {
 
 /** 사용자 조작과 메뉴 이동을 연결합니다. */
 function bindEvents() {
+  document.addEventListener("click", handleNavigationLinkClick);
   element("jobs-list").addEventListener("toggle", (event) => {
     saveCurrentNavigationEntry();
     if (event.target.matches(".job-requests") && event.target.open) {
@@ -1909,13 +1999,6 @@ function bindEvents() {
       showLogin();
     }),
   );
-  document
-    .querySelectorAll("[data-view]")
-    .forEach((button) =>
-      button.addEventListener("click", () => {
-        switchView(button.dataset.view);
-      }),
-    );
   element("refresh-button").addEventListener("click", () =>
     runAction(async () => {
       await Promise.all([loadStatus(), loadJobs(), loadOutputs(), loadLoras(), loadLoraPresets(), loadTags()]);
@@ -1926,7 +2009,6 @@ function bindEvents() {
     resetGenerationWorkflow(element("generate-workflow").value);
     runAction(loadLoras);
   });
-  element("manage-tags-button").addEventListener("click", () => switchView("tags"));
   element("generate-anima-prompt").addEventListener("input", renderGenerateTagGroups);
   element("generate-negative").addEventListener("input", renderGenerateTagGroups);
   element("generate-tag-groups").addEventListener("change", (event) => {
@@ -2119,8 +2201,6 @@ function bindEvents() {
     const cancelJobButton = event.target.closest("[data-cancel-job]");
     const deleteJobButton = event.target.closest("[data-delete-job]");
     const deleteOutputsButton = event.target.closest("[data-delete-job-outputs]");
-    const jobResultButton = event.target.closest("[data-show-job-results]");
-    const requestResultButton = event.target.closest("[data-show-request-results]");
     if (cancelButton)
       runAction(async () => {
         await apiRequest(`/api/requests/${cancelButton.dataset.cancelRequest}/cancel`, {
@@ -2148,21 +2228,6 @@ function bindEvents() {
       runAction(() => deleteJobHistory(deleteJobButton.dataset.deleteJob, false));
     if (deleteOutputsButton)
       runAction(() => deleteJobHistory(deleteOutputsButton.dataset.deleteJobOutputs, true));
-    if (jobResultButton || requestResultButton) {
-      const outputFilter = jobResultButton
-        ? { type: "job", id: jobResultButton.dataset.showJobResults }
-        : { type: "request", id: requestResultButton.dataset.showRequestResults };
-      switchView("outputs", { resetScroll: true, pageNumber: 1, outputFilter });
-    }
-  });
-  element("jobs-pagination").addEventListener("click", (event) => {
-    const pageButton = event.target.closest("[data-jobs-page]");
-    if (!pageButton || pageButton.disabled || jobSelectionIsBusy()) return;
-    switchView("jobs", { resetScroll: true, pageNumber: Number(pageButton.dataset.jobsPage) });
-  });
-  element("clear-jobs-filter").addEventListener("click", () => {
-    if (jobSelectionIsBusy()) return;
-    switchView("jobs", { resetScroll: true, pageNumber: 1, jobFilterId: null });
   });
   element("refresh-outputs-button").addEventListener("click", () => {
     applicationState.outputsPage = 1;
@@ -2172,20 +2237,7 @@ function bindEvents() {
       await loadOutputs();
     });
   });
-  element("clear-output-filter").addEventListener("click", () => {
-    switchView("outputs", { resetScroll: true, pageNumber: 1, outputFilter: null });
-  });
-  element("outputs-pagination").addEventListener("click", (event) => {
-    const pageButton = event.target.closest("[data-outputs-page]");
-    if (!pageButton || pageButton.disabled) return;
-    switchView("outputs", { resetScroll: true, pageNumber: Number(pageButton.dataset.outputsPage) });
-  });
   element("outputs-grid").addEventListener("click", (event) => {
-    const jobButton = event.target.closest("[data-output-job]");
-    if (jobButton) {
-      switchView("jobs", { resetScroll: true, pageNumber: 1, jobFilterId: jobButton.dataset.outputJob });
-      return;
-    }
     const button = event.target.closest("[data-move-output]");
     if (button) runAction(() => moveOutput(button.dataset.moveOutput));
   });

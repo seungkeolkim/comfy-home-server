@@ -1,6 +1,7 @@
 /** Mock API와 Edge에서 일반 탭 이동의 페이지·필터·스크롤 보존을 검증합니다. */
 const assert = require("node:assert/strict");
 const filesystem = require("node:fs");
+const http = require("node:http");
 const path = require("node:path");
 const { chromium } = require("playwright");
 
@@ -42,7 +43,11 @@ function createNavigationRequestHandler(fixtures) {
       return;
     }
     let response;
-    if (requestPath === "/api/session") response = { authenticated: true };
+    if (requestPath === "/api/session") response = { authenticated: fixtures.authenticated !== false };
+    else if (requestPath === "/api/login") {
+      fixtures.authenticated = true;
+      response = { authenticated: true };
+    }
     else if (requestPath === "/api/status") response = { comfy_connected: true, output_directory: "test-output" };
     else if (requestPath === "/api/jobs/activity") response = { active_count: 0 };
     else if (requestPath === "/api/presets" || requestPath === "/api/loras/presets") response = [];
@@ -358,7 +363,126 @@ async function verifyBrowserHistory(browser, viewport) {
   }
 }
 
-/** Desktop과 mobile에서 탭 상태 보존 및 Browser History 계약을 확인합니다. */
+/** 실제 가운데 버튼 또는 Ctrl+클릭으로 새 탭을 열고 원래 화면의 History를 확인합니다. */
+async function openNavigationInNewTab(browserPage, navigationLocator, clickOptions = { button: "middle" }) {
+  const originalEntry = await currentNavigationEntry(browserPage);
+  const [destinationPage] = await Promise.all([
+    browserPage.context().waitForEvent("page"),
+    navigationLocator.click(clickOptions),
+  ]);
+  await destinationPage.waitForLoadState("domcontentloaded");
+  await destinationPage.locator("#application").waitFor({ state: "visible" });
+  assert.equal(await currentNavigationEntry(browserPage), originalEntry);
+  return destinationPage;
+}
+
+/** 브라우저가 직접 여는 새 탭의 최초 요청도 처리하도록 로컬 Mock HTTP 서버를 엽니다. */
+async function startNavigationFixtureServer(fixtures) {
+  const handleRequest = createNavigationRequestHandler(fixtures);
+  const server = http.createServer((request, response) => {
+    handleRequest({
+      request: () => ({
+        url: () => `http://${request.headers.host}${request.url}`,
+        method: () => request.method,
+      }),
+      fulfill: async ({ status = 200, contentType = "text/plain", body = "" }) => {
+        response.writeHead(status, { "Content-Type": contentType });
+        response.end(body);
+      },
+    }).catch(error => {
+      response.writeHead(500);
+      response.end(error.message);
+    });
+  });
+  await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
+  return server;
+}
+
+/** 새 탭의 페이지·작업/요청 필터, URL 재진입, 로그인과 변경 동작 격리를 검증합니다. */
+async function verifyNewTabNavigation(browser, viewport) {
+  const fixtures = createNavigationFixtures();
+  const fixtureServer = await startNavigationFixtureServer(fixtures);
+  const baseUrl = `http://127.0.0.1:${fixtureServer.address().port}`;
+  const browserContext = await browser.newContext({ viewport });
+  const pageErrors = [];
+  browserContext.on("page", openedPage => openedPage.on("pageerror", error => pageErrors.push(error.message)));
+  try {
+    const originalPage = await browserContext.newPage();
+    await originalPage.goto(`${baseUrl}/`);
+    await originalPage.locator("#application").waitFor({ state: "visible" });
+    await originalPage.locator("#generate-anima-prompt").fill("original tab input");
+    const jobsPage = await openNavigationInNewTab(originalPage, originalPage.locator('[data-view="jobs"]:visible'));
+    await jobsPage.locator('[data-show-job-results="navigation-job-1"]').waitFor();
+    assert.equal(await originalPage.locator("#view-generate").isVisible(), true);
+    assert.equal(await originalPage.locator("#generate-anima-prompt").inputValue(), "original tab input");
+    const secondJobsPage = await openNavigationInNewTab(jobsPage, jobsPage.locator('[data-jobs-page="2"]').first());
+    await secondJobsPage.locator('[data-show-job-results="navigation-job-14"]').waitFor();
+    assert.equal(new URL(secondJobsPage.url()).searchParams.get("page"), "2");
+    assert.equal(await jobsPage.locator('[data-jobs-page="1"][aria-current="page"]').count(), 1);
+
+    const jobOutputsPage = await openNavigationInNewTab(secondJobsPage,
+      secondJobsPage.locator('[data-show-job-results="navigation-job-14"]'));
+    await jobOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 작업의 결과 2개");
+    assert.equal(new URL(jobOutputsPage.url()).searchParams.get("job_id"), "navigation-job-14");
+    const linkedJobPage = await openNavigationInNewTab(jobOutputsPage,
+      jobOutputsPage.locator('[data-output-job="navigation-job-14"]').first());
+    await linkedJobPage.waitForFunction(() => !applicationState.jobsLoading);
+    assert.equal(await linkedJobPage.locator(".job-card").count(), 1);
+    assert.match(await linkedJobPage.locator("#jobs-filter-label").textContent(), /navigation-job-14/);
+    const allJobsPage = await openNavigationInNewTab(linkedJobPage, linkedJobPage.locator("#clear-jobs-filter"));
+    await allJobsPage.locator('[data-show-job-results="navigation-job-1"]').waitFor();
+    assert.equal(new URL(allJobsPage.url()).searchParams.has("job_id"), false);
+
+    await secondJobsPage.locator('[data-job-details="navigation-job-14"] > summary').click();
+    const requestOutputsPage = await openNavigationInNewTab(secondJobsPage,
+      secondJobsPage.locator('[data-show-request-results="navigation-job-14-request"]'));
+    await requestOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 요청의 결과 2개");
+    assert.equal(new URL(requestOutputsPage.url()).searchParams.get("request_id"), "navigation-job-14-request");
+    await requestOutputsPage.reload();
+    await requestOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 요청의 결과 2개");
+
+    const allOutputsPage = await openNavigationInNewTab(jobOutputsPage, jobOutputsPage.locator("#clear-output-filter"));
+    await allOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "60개 파일");
+    const secondOutputsPage = await openNavigationInNewTab(allOutputsPage,
+      allOutputsPage.locator('[data-outputs-page="2"]').first());
+    await secondOutputsPage.locator('[data-outputs-page="2"][aria-current="page"]').waitFor();
+    assert.equal(new URL(secondOutputsPage.url()).searchParams.get("page"), "2");
+    await clickNavigationTab(secondOutputsPage, "generate");
+    const rememberedOutputsPage = await openNavigationInNewTab(secondOutputsPage,
+      secondOutputsPage.locator('[data-view="outputs"]:visible'));
+    await rememberedOutputsPage.locator('[data-outputs-page="2"][aria-current="page"]').waitFor();
+    const tagsPage = await openNavigationInNewTab(originalPage, originalPage.locator('[data-view="tags"]:visible'),
+      { modifiers: ["Control"] });
+    assert.equal(await tagsPage.locator("#view-tags").isVisible(), true);
+
+    const copiedUrlPage = await browserContext.newPage();
+    await copiedUrlPage.goto(secondJobsPage.url());
+    await copiedUrlPage.locator('[data-jobs-page="2"][aria-current="page"]').waitFor();
+    await copiedUrlPage.goto(`${baseUrl}/?view=unknown&page=-5&job_id=ignored`);
+    await copiedUrlPage.locator("#application").waitFor({ state: "visible" });
+    assert.equal(await copiedUrlPage.locator("#view-generate").isVisible(), true);
+    assert.equal(await copiedUrlPage.locator('[data-restore-job]').first().evaluate(button => button.tagName), "BUTTON");
+    assert.deepEqual(fixtures.mutations, []);
+    assert.equal(fixtures.inputRequests, 0);
+
+    const loginPage = await browserContext.newPage();
+    fixtures.authenticated = false;
+    const outputQueriesBeforeLogin = fixtures.queries.filter(query => query.path === "/api/outputs").length;
+    await loginPage.goto(jobOutputsPage.url());
+    await loginPage.locator("#login-screen").waitFor({ state: "visible" });
+    assert.equal(fixtures.queries.filter(query => query.path === "/api/outputs").length, outputQueriesBeforeLogin);
+    await loginPage.locator("#login-password").fill("test-password");
+    await loginPage.locator('#login-form button[type="submit"]').click();
+    await loginPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 작업의 결과 2개");
+    assert.deepEqual(fixtures.mutations, ["/api/login"]);
+    assert.deepEqual(pageErrors, []);
+  } finally {
+    await browserContext.close();
+    await new Promise(resolve => fixtureServer.close(resolve));
+  }
+}
+
+/** Desktop과 mobile에서 탭 상태·History·가운데 버튼 새 탭 열기를 확인합니다. */
 async function main() {
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "msedge", headless: true });
   try {
@@ -366,7 +490,9 @@ async function main() {
     await verifyNavigation(browser, { width: 390, height: 844 });
     await verifyBrowserHistory(browser, { width: 1280, height: 950 });
     await verifyBrowserHistory(browser, { width: 390, height: 844 });
-    console.log("Passed: desktop/mobile tab state, browser back/forward, pagination, filters, scroll, stale responses, input/action safety.");
+    await verifyNewTabNavigation(browser, { width: 1280, height: 950 });
+    await verifyNewTabNavigation(browser, { width: 390, height: 844 });
+    console.log("Passed: desktop/mobile tab state, history, middle/Ctrl new tabs, deep links, pagination/filters, login, action safety.");
   } finally {
     await browser.close();
   }
