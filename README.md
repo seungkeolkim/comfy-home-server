@@ -65,6 +65,10 @@ Anima Prompt preset 버전에는 Prompt 본문과 Negative Prompt만 저장합�
 
 작업 요약에는 제출 시간·요청 설정의 비율·해상도·CFG·Steps·완료 장수·LoRA 조합을 순서대로 표시합니다. 원본 그대로 사용한 조합은 제출 당시 preset명, 직접 구성하거나 preset을 수정한 조합은 `custom`, LoRA를 사용하지 않은 작업은 `lora없음`으로 표시합니다. 기존 이력에서 preset 출처가 저장되지 않은 LoRA 조합도 `custom`으로 표시합니다. 하위 요청에는 확정 Prompt와 실제 LoRA 파일별 STR을 표시합니다. Preset명은 표시용으로만 추가 저장하며, 생성은 기존처럼 작업에 저장된 LoRA 파일 목록과 강도를 사용하므로 이후 preset 수정·삭제의 영향을 받지 않습니다. 설정이 없는 이전 이력은 비율·해상도·CFG·Steps의 해당 값을 `—`로 표시합니다.
 
+Anima 생성 이미지에 삽입하는 UI Workflow에는 실제 요청에 선택한 LoRA 목록과 활성 상태·Model/CLIP 강도를 기록합니다. ComfyUI에서 이미지를 불러오면 LoRA Manager에 같은 구성이 복원되며, Model/CLIP 강도가 다르면 분리해서 표시합니다. CLIP 강도 `0`도 유지하며 LoRA를 선택하지 않은 요청은 빈 목록으로 기록합니다. 실행 API의 `loras.__value__` 형식과 UI Workflow의 배열 형식은 각각 구분해 저장합니다.
+
+Anima의 trigger word는 기존 그룹과 하위 항목을 모두 비활성화하고 기본 활성 상태도 끕니다. LoRA에서 TriggerWord Toggle로 들어오는 자동 연결은 실행 요청과 삽입 UI Workflow에서 해제하며, trigger word를 새로 추가하거나 Prompt에 자동으로 붙이지 않습니다. LoRA 자체의 적용과 Model/CLIP 강도는 유지합니다.
+
 결과물 목록의 `작업` 버튼은 원래 생성 경로와 이력이 일치하는 파일에만 표시합니다. 누르면 작업 탭에서 해당 작업 한 건만 보여주며, `전체 작업 보기`로 필터를 해제할 수 있습니다. 이력이 삭제되거나 파일이 원래 위치에서 이동된 경우에는 버튼을 표시하지 않습니다.
 
 작업 카드에는 제출 시 입력한 원본 `입력 Prompt`와 내용이 있는 경우 `입력 Negative Prompt`를 펼치지 않고 표시합니다. `[TAG]` 참조와 줄바꿈을 포함한 원문을 그대로 보여 주며, 원본이 저장되지 않은 이전 이력은 `기록 없음`으로 표시합니다. 하위 요청을 펼치면 기존처럼 각 요청에서 태그와 wildcard를 치환한 확정 Prompt·Negative Prompt와 태그 선택 경로를 확인할 수 있습니다.

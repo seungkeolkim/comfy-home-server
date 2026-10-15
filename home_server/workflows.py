@@ -92,6 +92,51 @@ def validate_output_stem(output_stem: str) -> str:
     return normalized
 
 
+def disable_anima_trigger_words(request_workflow: dict[str, Any], metadata_workflow: dict[str, Any]) -> None:
+    """기존 trigger word를 모두 끄고 LoRA의 trigger word가 자동 유입되지 않게 합니다."""
+
+    trigger_inputs = request_workflow["43"]["inputs"]
+    trigger_entries = trigger_inputs.get("toggle_trigger_words", [])
+    if isinstance(trigger_entries, dict):
+        trigger_entries = trigger_entries.get("__value__", [])
+    trigger_entries = copy.deepcopy(trigger_entries)
+    pending_entries = list(trigger_entries)
+    while pending_entries:
+        trigger_entry = pending_entries.pop()
+        trigger_entry["active"] = False
+        child_entries = trigger_entry.get("items", [])
+        pending_entries.extend(child_entries)
+
+    trigger_inputs["default_active"] = False
+    trigger_inputs["toggle_trigger_words"] = {"__value__": trigger_entries}
+    trigger_inputs["orinalMessage"] = ""
+    # 연결된 trigger_words는 Toggle 상태보다 우선하므로 빈 문자열로 고정합니다.
+    trigger_inputs["trigger_words"] = ""
+    update_ui_widget(metadata_workflow, "43", "default_active", False)
+    update_ui_widget(metadata_workflow, "43", "toggle_trigger_words", copy.deepcopy(trigger_entries))
+    update_ui_widget(metadata_workflow, "43", "orinalMessage", "")
+
+    disconnected_links = set()
+    for node in metadata_workflow["nodes"]:
+        if str(node["id"]) != "43":
+            continue
+        for node_input in node.get("inputs", []):
+            if node_input["name"] == "trigger_words" and node_input.get("link") is not None:
+                disconnected_links.add(node_input["link"])
+                node_input["link"] = None
+
+    metadata_workflow["links"] = [
+        link for link in metadata_workflow.get("links", []) if link[0] not in disconnected_links
+    ]
+    for node in metadata_workflow["nodes"]:
+        for node_output in node.get("outputs", []):
+            if isinstance(node_output.get("links"), list):
+                node_output["links"] = [
+                    link_identifier for link_identifier in node_output["links"]
+                    if link_identifier not in disconnected_links
+                ]
+
+
 def prepare_anima(
     api_workflow: dict[str, Any],
     ui_workflow: dict[str, Any],
@@ -138,17 +183,25 @@ def prepare_anima(
     lora_entries = []
     for selected_lora in selected_loras:
         model_strength = float(selected_lora.get("strength", 1))
+        clip_strength = float(selected_lora.get("clip_strength", model_strength))
         lora_entries.append({
             "name": str(selected_lora["name"]), "strength": model_strength,
-            "clipStrength": float(selected_lora.get("clip_strength", model_strength)),
-            "active": True, "expanded": False, "selected": False, "locked": False,
+            "clipStrength": clip_strength,
+            "active": True, "expanded": clip_strength != model_strength, "selected": False, "locked": False,
         })
     request_workflow["5"]["inputs"]["loras"] = {"__value__": lora_entries}
     request_workflow["5"]["inputs"]["text"] = " ".join(
         f"<lora:{entry['name']}:{entry['strength']}:{entry['clipStrength']}>" for entry in lora_entries
     )
-    update_ui_widget(metadata_workflow, "5", "loras", {"__value__": lora_entries})
+    metadata_lora_entries = copy.deepcopy(lora_entries)
+    for metadata_lora in metadata_lora_entries:
+        # LoRA Manager가 숫자 0을 Model 강도로 대체하므로 UI 값만 문자열로 보존합니다.
+        if metadata_lora["clipStrength"] == 0 and metadata_lora["strength"] != 0:
+            metadata_lora["clipStrength"] = "0"
+    # UI Workflow는 API의 __value__ wrapper 대신 LoRA 항목 배열을 복원합니다.
+    update_ui_widget(metadata_workflow, "5", "loras", metadata_lora_entries)
     update_ui_widget(metadata_workflow, "5", "text", request_workflow["5"]["inputs"]["text"])
+    disable_anima_trigger_words(request_workflow, metadata_workflow)
 
     save_inputs = request_workflow["13"]["inputs"]
     save_inputs["path"] = output_directory
