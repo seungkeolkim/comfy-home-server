@@ -35,9 +35,11 @@ class Database:
                 self._backup_before_schema_change(connection, "job_request_storage")
             elif schema_version == 9:
                 self._backup_before_schema_change(connection, "output_catalog")
+            elif schema_version == 10:
+                self._backup_before_schema_change(connection, "output_deletion")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -148,7 +150,7 @@ class Database:
             OutputCatalog.prepare_schema(connection)
             if schema_version < 10:
                 OutputCatalog.backfill_from_requests(connection)
-            connection.execute("PRAGMA user_version = 10")
+            connection.execute("PRAGMA user_version = 11")
 
     def _separate_request_detail(
         self, detail: dict[str, Any],
@@ -910,7 +912,7 @@ class Database:
                 removed_paths = before_deletion()
                 if removed_paths:
                     connection.executemany(
-                        "UPDATE output_files SET is_available=0 WHERE relative_path=?",
+                        "UPDATE output_files SET is_available=0,is_deleted=1 WHERE relative_path=?",
                         [(relative_path,) for relative_path in removed_paths],
                     )
             connection.execute("DELETE FROM job_requests WHERE job_id = ?", (job_id,))

@@ -6,6 +6,7 @@ import json
 import logging
 import sqlite3
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
@@ -81,8 +82,19 @@ class OutputCatalog:
                 seed TEXT,
                 requested_width INTEGER,
                 requested_height INTEGER,
-                is_available INTEGER NOT NULL DEFAULT 1
+                is_available INTEGER NOT NULL DEFAULT 1,
+                is_deleted INTEGER NOT NULL DEFAULT 0 CHECK (is_deleted IN (0, 1))
             )"""
+        )
+        output_columns = {column[1] for column in connection.execute("PRAGMA table_info(output_files)")}
+        if "is_deleted" not in output_columns:
+            connection.execute(
+                "ALTER TABLE output_files ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0 "
+                "CHECK (is_deleted IN (0, 1))"
+            )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS output_files_deleted_original "
+            "ON output_files (request_id, original_relative_path) WHERE is_deleted=1"
         )
         # Seed는 unsigned 64-bit도 보존하도록 decimal 문자열과 길이로 정렬합니다.
         for index_name, filter_column in (
@@ -113,7 +125,7 @@ class OutputCatalog:
             "ON CONFLICT(relative_path) DO UPDATE SET original_relative_path=excluded.original_relative_path,"
             "request_id=excluded.request_id,job_id=excluded.job_id,generated_at=excluded.generated_at,"
             "seed=excluded.seed,requested_width=excluded.requested_width,"
-            "requested_height=excluded.requested_height,is_available=1",
+            "requested_height=excluded.requested_height,is_available=1 WHERE output_files.is_deleted=0",
             (
                 relative_path, relative_path, request_id, job_id, generated_at,
                 str(generation_seed) if generation_seed is not None else None, width, height,
@@ -142,6 +154,12 @@ class OutputCatalog:
         for output_path in resolved_result.get("output_paths", []):
             relative_path = normalized_output_path(output_path)
             if relative_path is not None:
+                deleted_original = connection.execute(
+                    "SELECT 1 FROM output_files WHERE request_id=? AND original_relative_path=? AND is_deleted=1",
+                    (request_id, relative_path),
+                ).fetchone()
+                if deleted_original is not None:
+                    continue
                 OutputCatalog._store_output(
                     connection, relative_path, request_id, request_row["job_id"], width, height,
                 )
@@ -176,13 +194,17 @@ class OutputCatalog:
         scan_elapsed_ms = (time.perf_counter() - scan_started_at) * 1000
         synchronization_started_at = time.perf_counter()
         with self._connect() as connection:
-            recorded_rows = connection.execute("SELECT relative_path,is_available FROM output_files").fetchall()
+            connection.execute("BEGIN IMMEDIATE")
+            recorded_rows = connection.execute("SELECT relative_path,is_available,is_deleted FROM output_files").fetchall()
             known_paths = set()
+            deleted_paths = set()
             availability_updates = []
             for recorded_row in recorded_rows:
                 relative_path = recorded_row["relative_path"]
                 known_paths.add(relative_path)
-                is_available = int(relative_path in physical_paths)
+                if recorded_row["is_deleted"]:
+                    deleted_paths.add(relative_path)
+                is_available = int(relative_path in physical_paths and not recorded_row["is_deleted"])
                 if is_available != recorded_row["is_available"]:
                     availability_updates.append((is_available, relative_path))
             connection.executemany(
@@ -192,14 +214,14 @@ class OutputCatalog:
             for relative_path in sorted(new_paths):
                 self._store_output(connection, relative_path)
         synchronization_result = {
-            "available": len(physical_paths),
+            "available": len(physical_paths - deleted_paths),
             "added": len(new_paths),
             "availability_changes": len(availability_updates),
         }
         LOGGER.info(
             "OUTPUT_CATALOG event=sync available=%s added=%s availability_changes=%s "
             "scan_ms=%.3f database_ms=%.3f",
-            len(physical_paths), len(new_paths), len(availability_updates), scan_elapsed_ms,
+            synchronization_result["available"], len(new_paths), len(availability_updates), scan_elapsed_ms,
             (time.perf_counter() - synchronization_started_at) * 1000,
         )
         return synchronization_result
@@ -215,7 +237,7 @@ class OutputCatalog:
     ) -> dict[str, Any]:
         """JSON을 읽지 않고 index에서 필터·정렬·pagination 및 요청 해상도를 조회합니다."""
 
-        conditions = ["is_available = 1"]
+        conditions = ["is_available = 1", "is_deleted = 0"]
         query_values = []
         if job_id:
             conditions.append("job_id = ?")
@@ -240,7 +262,7 @@ class OutputCatalog:
                 ).fetchone()[0]
             with measure_output_step(output_timing, "catalog_page_query", emit=True):
                 page_rows = connection.execute(
-                    "SELECT relative_path,generated_at,seed,job_id,requested_width,requested_height "
+                    "SELECT output_id,relative_path,generated_at,seed,job_id,requested_width,requested_height "
                     f"FROM output_files WHERE {filter_clause} ORDER BY {OUTPUT_SORT_ORDER} LIMIT ? OFFSET ?",
                     (*query_values, page_size, (page - 1) * page_size),
                 ).fetchall()
@@ -251,6 +273,7 @@ class OutputCatalog:
             is_video = output_path.suffix.lower() in {".mp4", ".webm", ".mkv", ".mov"}
             generation_seed = int(page_row["seed"]) if page_row["seed"] is not None else None
             page_files.append({
+                "output_id": page_row["output_id"],
                 "path": page_row["relative_path"],
                 "name": output_path.name,
                 "generated_at": page_row["generated_at"],
@@ -266,13 +289,49 @@ class OutputCatalog:
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }
 
-    def move_file(self, source_relative_path: str, destination_relative_path: str) -> None:
+    def is_deleted(self, relative_path: str) -> bool:
+        """삭제 표시된 경로인지 확인하여 원본과 썸네일 접근을 차단합니다."""
+
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT 1 FROM output_files WHERE relative_path=? AND is_deleted=1", (relative_path,),
+            ).fetchone() is not None
+
+    def delete_file(self, output_id: int, remove_image: Callable[[str], bool]) -> dict[str, Any]:
+        """삭제 보호·이동과 경합하지 않도록 잠근 뒤 파일을 지우고 삭제 표시를 보존합니다."""
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            output_row = connection.execute(
+                "SELECT output_files.relative_path,output_files.is_deleted,jobs.deletion_protected "
+                "FROM output_files LEFT JOIN jobs USING(job_id) WHERE output_id=?", (output_id,),
+            ).fetchone()
+            if output_row is None:
+                raise LookupError("결과물을 찾을 수 없습니다.")
+            if output_row["is_deleted"]:
+                return {"deleted": True, "path": output_row["relative_path"], "deleted_files": 0}
+            if output_row["deletion_protected"]:
+                raise ValueError("삭제 보호된 작업입니다. 보호를 해제한 뒤 삭제해 주세요.")
+            # DB 변경 실패를 파일 삭제보다 먼저 확인하고, 파일 삭제 실패 시 transaction을 되돌립니다.
+            connection.execute(
+                "UPDATE output_files SET is_deleted=1,is_available=0 WHERE output_id=?", (output_id,),
+            )
+            removed_image = remove_image(output_row["relative_path"])
+        return {"deleted": True, "path": output_row["relative_path"], "deleted_files": int(removed_image)}
+
+    def move_file(
+        self, source_relative_path: str, destination_relative_path: str,
+        move_physical_file: Callable[[], None] | None = None,
+    ) -> None:
         """현재 경로만 변경하고 원래 생성 경로·요청 metadata·작업 연결은 보존합니다."""
 
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             source_row = connection.execute(
-                "SELECT output_id FROM output_files WHERE relative_path=?", (source_relative_path,),
+                "SELECT output_id,is_deleted FROM output_files WHERE relative_path=?", (source_relative_path,),
             ).fetchone()
+            if source_row is not None and source_row["is_deleted"]:
+                raise ValueError("삭제된 결과물은 이동할 수 없습니다.")
             if source_row is None:
                 self._store_output(connection, source_relative_path)
             connection.execute("DELETE FROM output_files WHERE relative_path=?", (destination_relative_path,))
@@ -280,3 +339,5 @@ class OutputCatalog:
                 "UPDATE output_files SET relative_path=?,is_available=1 WHERE relative_path=?",
                 (destination_relative_path, source_relative_path),
             )
+            if move_physical_file is not None:
+                move_physical_file()

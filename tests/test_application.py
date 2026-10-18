@@ -460,7 +460,7 @@ def test_output_pagination_and_transient_preview(tmp_path: Path) -> None:
     original_path = image_directory / "large.png"
     Image.new("RGB", (1600, 1200), (31, 64, 96)).save(original_path)
     Image.new("RGB", (100, 100), (50, 60, 70)).save(image_directory / "animation.gif")
-    for image_number in range(25):
+    for image_number in range(65):
         (image_directory / f"small-{image_number:02d}.png").write_bytes(b"listed file")
     (image_directory / "movie.webm").write_bytes(b"listed video")
     config = AppConfig(
@@ -475,10 +475,10 @@ def test_output_pagination_and_transient_preview(tmp_path: Path) -> None:
         assert client.post("/api/login", json={"password": "test"}).status_code == 200
         first_page = client.get("/api/outputs").json()
         second_page = client.get("/api/outputs", params={"page": 2}).json()
-        assert first_page["total"] == 28
-        assert first_page["page_size"] == 24
+        assert first_page["total"] == 68
+        assert first_page["page_size"] == 64
         assert first_page["total_pages"] == 2
-        assert len(first_page["files"]) == 24
+        assert len(first_page["files"]) == 64
         assert len(second_page["files"]) == 4
         assert {file["path"] for file in first_page["files"]}.isdisjoint(
             file["path"] for file in second_page["files"]
@@ -515,7 +515,7 @@ def test_output_pagination_and_transient_preview(tmp_path: Path) -> None:
         assert client.get("/media/anima/large.png").content == original_path.read_bytes()
         assert sorted(path.name for path in image_directory.iterdir()) == [
             "animation.gif", "large.png", "movie.webm",
-            *(f"small-{image_number:02d}.png" for image_number in range(25)),
+            *(f"small-{image_number:02d}.png" for image_number in range(65)),
         ]
 
 

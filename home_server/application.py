@@ -915,7 +915,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def outputs(
         request: Request,
         page: int = Query(default=1, ge=1),
-        page_size: int = Query(default=24, ge=1, le=100),
+        page_size: int = Query(default=64, ge=1, le=100),
         prefix: str = "",
         job_id: str = "",
         request_id: str = "",
@@ -975,9 +975,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         output_timing.record("worker_dispatch", output_timing.started_at, emit=True)
         try:
             with measure_output_step(output_timing, "preview_path_resolve", relative_path, emit=True):
-                file_path = server.managed_path(relative_path, must_exist=True)
+                file_path = server.managed_path(relative_path)
         except (ValueError, FileNotFoundError) as exception:
             raise HTTPException(404, str(exception)) from exception
+        if server.output_catalog.is_deleted(file_path.relative_to(server.config.managed_output_directory).as_posix()):
+            raise HTTPException(404, "삭제된 결과물입니다.")
         with measure_output_step(output_timing, "preview_file_type_check", relative_path, emit=True):
             is_preview_image = file_path.is_file() and file_path.suffix.lower() in PREVIEW_IMAGE_EXTENSIONS
         if not is_preview_image:
@@ -1012,12 +1014,53 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """인증된 브라우저에 관리 폴더 안의 생성물을 제공합니다."""
 
         try:
-            file_path = server.managed_path(relative_path, must_exist=True)
+            file_path = server.managed_path(relative_path)
         except (ValueError, FileNotFoundError) as exception:
             raise HTTPException(404, str(exception)) from exception
+        if server.output_catalog.is_deleted(file_path.relative_to(server.config.managed_output_directory).as_posix()):
+            raise HTTPException(404, "삭제된 결과물입니다.")
         if not file_path.is_file() or file_path.suffix.lower() not in MEDIA_EXTENSIONS:
             raise HTTPException(404, "지원하지 않는 결과물입니다.")
         return FileResponse(file_path)
+
+    @app.delete("/api/outputs/{output_id}")
+    def delete_output(output_id: int):
+        """단일 이미지의 현재 파일을 지우고 작업 이력과 삭제된 catalog 행은 보존합니다."""
+
+        def remove_output_image(relative_path: str) -> bool:
+            """관리 폴더의 실제 이미지 파일만 삭제하며 이미 없으면 삭제 표시만 남깁니다."""
+
+            try:
+                image_path = server.managed_path(relative_path)
+            except ValueError as exception:
+                raise HTTPException(422, str(exception)) from exception
+            if image_path != server.config.managed_output_directory / relative_path:
+                raise HTTPException(422, "symlink 경로의 결과물은 삭제할 수 없습니다.")
+            if image_path.suffix.lower() not in PREVIEW_IMAGE_EXTENSIONS:
+                raise HTTPException(422, "이미지 결과물만 삭제할 수 있습니다.")
+            try:
+                image_path.unlink()
+            except FileNotFoundError:
+                return False
+            except OSError as exception:
+                raise HTTPException(409, "이미지 파일을 삭제할 수 없습니다.") from exception
+            return True
+
+        try:
+            deletion_result = server.output_catalog.delete_file(output_id, remove_output_image)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except ValueError as exception:
+            raise HTTPException(409, str(exception)) from exception
+        except sqlite3.Error as exception:
+            LOGGER.exception("결과물 삭제 DB 오류: output_id=%s", output_id)
+            raise HTTPException(409, "결과물 삭제 상태를 DB에 반영하지 못했습니다.") from exception
+        image_path = server.config.managed_output_directory / deletion_result["path"]
+        IMAGE_DIMENSION_CACHE.invalidate(image_path)
+        server.thumbnail_cache.invalidate(image_path)
+        LOGGER.info("결과물 삭제: output_id=%s path=%s deleted_files=%s", output_id,
+                    deletion_result["path"], deletion_result["deleted_files"])
+        return JSONResponse(deletion_result)
 
     @app.post("/api/outputs/move")
     def move_output(payload: MoveInput):
@@ -1033,19 +1076,30 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         destination_path = destination_directory / source_path.name
         if destination_path.exists():
             raise HTTPException(409, "목적지에 같은 이름의 파일이 있습니다.")
-        try:
+        file_was_moved = False
+
+        def move_physical_output() -> None:
+            """삭제 transaction과 경합하지 않는 동안 실제 파일을 이동합니다."""
+
+            nonlocal file_was_moved
+            if destination_path.exists():
+                raise HTTPException(409, "목적지에 같은 이름의 파일이 있습니다.")
             destination_directory.mkdir(parents=True, exist_ok=True)
             shutil.move(str(source_path), str(destination_path))
-        except OSError as exception:
-            raise HTTPException(409, f"파일을 이동할 수 없습니다: {exception}") from exception
+            file_was_moved = True
+
         try:
             server.output_catalog.move_file(
                 source_path.relative_to(server.config.managed_output_directory).as_posix(),
                 destination_path.relative_to(server.config.managed_output_directory).as_posix(),
+                move_physical_output,
             )
         except sqlite3.Error as exception:
-            shutil.move(str(destination_path), str(source_path))
+            if file_was_moved:
+                shutil.move(str(destination_path), str(source_path))
             raise HTTPException(409, "결과물 경로를 DB에 반영하지 못했습니다.") from exception
+        except (OSError, ValueError) as exception:
+            raise HTTPException(409, f"파일을 이동할 수 없습니다: {exception}") from exception
         LOGGER.info("결과물 이동: source=%s destination=%s", payload.source, destination_path)
         IMAGE_DIMENSION_CACHE.invalidate(source_path)
         IMAGE_DIMENSION_CACHE.invalidate(destination_path)

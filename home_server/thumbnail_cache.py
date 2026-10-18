@@ -136,6 +136,17 @@ class ThumbnailCache:
             with self._cache_lock:
                 self._in_progress.pop(thumbnail_key, None)
 
+    def invalidate(self, image_path: Path) -> None:
+        """삭제한 이미지의 모든 파일 버전에서 압축된 썸네일을 제거합니다."""
+
+        with self._cache_lock:
+            matching_keys = []
+            for thumbnail_key in self._cached_thumbnails:
+                if thumbnail_key[0] == image_path:
+                    matching_keys.append(thumbnail_key)
+            for thumbnail_key in matching_keys:
+                del self._cached_thumbnails[thumbnail_key]
+
     def start_warmup(self, managed_output_directory: Path) -> None:
         """서비스 기동을 기다리게 하지 않고 별도 Thread에서 한 번 Cache를 채웁니다."""
 

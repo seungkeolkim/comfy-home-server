@@ -133,6 +133,10 @@ DB schema version 9에서는 작업 공통 입력·체크한 태그 후보를 `j
 
 DB schema version 10은 기존 JSON을 그대로 유지하고 `output_files`에 결과물 경로·작업/요청 연결·파일명 시각/Seed·요청 너비/높이를 추가 백필합니다. 결과물 목록과 작업의 결과 보기는 DB index에서 정렬·pagination을 처리하며, 요청 해상도가 있으면 이미지 header를 읽지 않습니다. 종횡비는 저장된 너비/높이로 계산하며 `(설정)` 표시로 실제 최종 해상도와 구분합니다. 실제 파일 크기·최종 해상도의 DB 저장은 후속 검토입니다. [구현·백필 및 2차 검토](docs/output_metadata_improvement_plan.md)를 참고하세요.
 
+DB schema version 11은 `output_files.is_deleted`를 추가합니다. 기존 DB는 Migration 전 `runtime/backups/`에 백업하며, 기존 작업·요청 JSON과 파일 경로·가용 상태를 보존합니다. 결과물 탭은 한 페이지에 이미지·영상을 합쳐 최대 64개를 표시합니다. 이미지 카드에서 **삭제**를 누르고 확인하면 현재 위치의 이미지 파일을 영구 삭제합니다. 이동한 이미지도 삭제할 수 있으며, 작업 이력은 유지됩니다. 삭제 보호된 작업의 이미지는 보호 해제 후 삭제할 수 있습니다. 영상의 단건 삭제는 제공하지 않습니다.
+
+삭제한 이미지의 DB 행은 `is_deleted=1`, `is_available=0`으로 남기고 전체·작업·요청 결과 목록에서 제외합니다. 원본·썸네일 URL도 404를 반환합니다. 이미 파일이 없어도 삭제 상태를 기록하며, 삭제 실패 시 DB 변경을 되돌립니다. 수동 동기화·서버 재시작·같은 요청의 완료 재반영으로 삭제 표시를 해제하지 않으며, 외부에서 같은 경로에 파일을 다시 놓아도 자동으로 노출하지 않습니다. FS에서만 사라진 기존 파일은 `is_available=0` 상태로 구분하여 유지합니다.
+
 생성물은 `{workflow}/{YYMMDD_HHmmss}_{seed}.{확장자}`를 기본으로 저장합니다. 예: `anima/261006_153012_123456789.png`. Anima는 `%time_%seed`, MiniMax는 `%date:yyMMdd_HHmmss%_%seed%` 예약어를 사용하며, MiniMax Saver에도 sampling과 동일한 seed 출력을 연결합니다. 시각은 ComfyUI Saver 실행 시점의 로컬 시간이고, 영상은 encoding 시작 직전입니다. Saver가 붙이는 counter나 `_audio` 접미사는 그대로 유지하며 앱에서 파일명을 후처리하지 않습니다. 작업의 결과 보기는 ComfyUI history의 실제 출력 파일명을 사용합니다. 생성 완료와 앱의 파일 이동·삭제는 DB 목록에 즉시 반영됩니다. 외부에서 추가·이동·삭제한 파일은 서버 시작 또는 결과물 화면의 새로고침 버튼으로 실제 폴더를 대조해 반영합니다. 앱이 미완료 요청을 재시작 후 자동 재제출하지 않습니다.
 
 ## 외부 접속
@@ -148,6 +152,7 @@ npm install --prefix runtime/browser-check --no-package-lock --no-audit --no-fun
 $env:NODE_PATH = (Resolve-Path runtime/browser-check/node_modules).Path
 node tests/browser_lora_presets.cjs
 node tests/browser_job_deletion.cjs
+node tests/browser_output_deletion.cjs
 node tests/browser_job_restoration.cjs
 node tests/browser_job_performance.cjs
 node tests/browser_tab_navigation.cjs

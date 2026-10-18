@@ -1908,7 +1908,7 @@ async function loadOutputs() {
   const loadRevision = ++applicationState.outputsLoadRevision;
   try {
     const outputFilter = applicationState.outputFilter;
-    const query = new URLSearchParams({ page: String(applicationState.outputsPage), page_size: "24" });
+    const query = new URLSearchParams({ page: String(applicationState.outputsPage), page_size: "64" });
     if (outputFilter)
       query.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
     const response = await apiRequest(`/api/outputs?${query}`);
@@ -1940,7 +1940,10 @@ async function loadOutputs() {
             const jobButton = file.job_id
               ? `<a class="button job-link" data-navigation data-output-job="${escapeHtml(file.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "jobs", pageNumber: 1, jobFilterId: file.job_id }))}" aria-label="작업 ${escapeHtml(file.job_id)} 보기">작업</a>`
               : "";
-            return `<article class="output-card"><div class="output-preview">${media}</div><div class="output-info"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(file.path)}">이동</button>${jobButton}</div></div></article>`;
+            const deleteButton = file.kind === "image"
+              ? `<button class="button danger" data-delete-output="${file.output_id}" data-output-path="${escapeHtml(file.path)}">삭제</button>`
+              : "";
+            return `<article class="output-card"><div class="output-preview">${media}</div><div class="output-info"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(file.path)}">이동</button>${deleteButton}${jobButton}</div></div></article>`;
           })
           .join("")
       : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;
@@ -1968,6 +1971,20 @@ async function moveOutput(sourcePath) {
   showNotice("파일을 이동했습니다.");
   applicationState.outputsPage = 1;
   await loadOutputs();
+}
+
+/** 확인한 이미지 한 장을 삭제하고 현재 필터와 페이지의 결과물을 다시 표시합니다. */
+async function deleteOutput(deleteButton) {
+  const outputPath = deleteButton.dataset.outputPath;
+  if (!window.confirm(`이미지 파일을 영구 삭제하시겠습니까?\n${outputPath}\n작업 이력은 유지되며 파일은 복구할 수 없습니다.`)) return;
+  deleteButton.disabled = true;
+  try {
+    await apiRequest(`/api/outputs/${encodeURIComponent(deleteButton.dataset.deleteOutput)}`, { method: "DELETE" });
+    showNotice("이미지를 삭제했습니다.");
+    await loadOutputs();
+  } finally {
+    deleteButton.disabled = false;
+  }
 }
 
 /** 비동기 UI 동작에서 발생한 오류를 알림으로 표시합니다. */
@@ -2261,6 +2278,8 @@ function bindEvents() {
   element("outputs-grid").addEventListener("click", (event) => {
     const button = event.target.closest("[data-move-output]");
     if (button) runAction(() => moveOutput(button.dataset.moveOutput));
+    const deleteButton = event.target.closest("[data-delete-output]");
+    if (deleteButton) runAction(() => deleteOutput(deleteButton));
   });
   bindLoraPresetEvents();
 }
