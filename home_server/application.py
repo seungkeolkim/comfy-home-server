@@ -959,6 +959,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         output_timing.record("handler_total", handler_started_at, emit=True)
         return response
 
+    @app.get("/api/outputs/deletion-candidates")
+    def output_deletion_candidates(job_id: str = "", request_id: str = ""):
+        """현재 작업·요청 필터에서 보호되지 않은 이미지의 전체 선택용 ID를 반환합니다."""
+
+        if job_id and request_id:
+            raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
+        try:
+            output_ids = server.output_catalog.list_deletable_output_ids(job_id, request_id)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        return JSONResponse({"output_ids": output_ids})
+
     @app.post("/api/outputs/sync")
     def synchronize_outputs(request: Request):
         """수동 새로고침에서 현재 파일 목록만 대조하고 실제 크기·해상도는 수집하지 않습니다."""

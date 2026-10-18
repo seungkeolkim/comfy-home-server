@@ -134,6 +134,7 @@ def test_catalog_queries_use_indexes_without_json_or_filesystem(tmp_path: Path, 
             assert listing["total"] == 3
             assert [output_file["seed"] for output_file in listing["files"]] == [18446744073709551615, 20]
             assert catalog.list_files(2, 2, **filters)["files"][0]["seed"] == 3
+            assert len(catalog.list_deletable_output_ids(**filters)) == 3
 
     with sqlite3.connect(database.database_path) as connection:
         for filter_sql, query_parameters, expected_index in (

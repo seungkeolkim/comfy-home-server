@@ -8,6 +8,8 @@ from typing import Iterator
 
 
 MEDIA_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".mp4", ".webm", ".mkv", ".mov"}
+VIDEO_OUTPUT_EXTENSIONS = {".mp4", ".webm", ".mkv", ".mov"}
+IMAGE_OUTPUT_EXTENSIONS = MEDIA_EXTENSIONS - VIDEO_OUTPUT_EXTENSIONS
 OUTPUT_FILENAME_PATTERN = re.compile(
     r"(?P<date>\d{6})_(?P<time>\d{6})_(?P<seed>\d+)(?:_[A-Za-z0-9-]+)*"
 )

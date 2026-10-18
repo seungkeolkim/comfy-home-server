@@ -347,6 +347,16 @@
               폴더 새로고침
             </button>
           </div>
+          <div class="outputs-selection-toolbar">
+            <button id="toggle-output-selection" class="button subtle small" type="button" aria-expanded="false" aria-controls="output-selection-actions">다중 삭제</button>
+            <div id="output-selection-actions" class="inline-actions hidden">
+              <button id="select-all-outputs" class="button subtle small" type="button">현재 페이지 선택</button>
+              <button id="select-every-output" class="button subtle small" type="button">결과물 전체 선택</button>
+              <span id="selected-output-count" class="hint" role="status">0개 선택</span>
+              <button id="delete-selected-outputs" class="button danger small" type="button" disabled>선택된 이미지 삭제</button>
+              <span class="hint">현재 필터 안에서 페이지를 이동해도 선택이 유지됩니다. 영상·삭제 보호 이미지는 제외됩니다.</span>
+            </div>
+          </div>
           <div id="outputs-grid" class="outputs-grid"></div>
           <nav id="outputs-pagination" class="outputs-pagination hidden" aria-label="결과물 페이지"></nav>
         </section>

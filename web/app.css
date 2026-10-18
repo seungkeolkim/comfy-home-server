@@ -597,19 +597,23 @@ input[type="file"] {
   font-size: 14px;
 }
 .jobs-selection-toolbar,
+.outputs-selection-toolbar,
 .job-selection-heading {
   display: flex;
   align-items: flex-start;
   gap: 12px;
 }
-.jobs-selection-toolbar {
+.jobs-selection-toolbar,
+.outputs-selection-toolbar {
   flex-wrap: wrap;
   margin-bottom: 15px;
 }
-.jobs-selection-toolbar > button {
+.jobs-selection-toolbar > button,
+.outputs-selection-toolbar > button {
   flex-shrink: 0;
 }
-.jobs-selection-toolbar .inline-actions {
+.jobs-selection-toolbar .inline-actions,
+.outputs-selection-toolbar .inline-actions {
   flex: 1;
 }
 .job-selection-heading {
@@ -621,7 +625,8 @@ input[type="file"] {
 .job-selection-heading h3 {
   overflow-wrap: anywhere;
 }
-.job-selection-checkbox {
+.job-selection-checkbox,
+.output-selection-checkbox {
   flex-shrink: 0;
   width: 20px;
   height: 20px;
@@ -629,7 +634,8 @@ input[type="file"] {
   accent-color: #85d9c2;
   cursor: pointer;
 }
-.job-selection-checkbox:disabled {
+.job-selection-checkbox:disabled,
+.output-selection-checkbox:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
@@ -746,6 +752,7 @@ input[type="file"] {
   overflow: hidden;
 }
 .output-preview {
+  position: relative;
   height: 190px;
   background: #0b101b;
   display: flex;
@@ -764,6 +771,25 @@ input[type="file"] {
 }
 .output-info {
   padding: 13px;
+}
+.output-selection-control {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 6px;
+  background: #161d2c;
+  font-size: 12px;
+}
+.output-card.output-selected {
+  border-color: #85d9c2;
+}
+.output-protection-label {
+  color: #e5bf79;
+  font-size: 11px;
 }
 .output-info strong {
   display: block;

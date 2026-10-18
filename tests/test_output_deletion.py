@@ -171,10 +171,13 @@ def test_failed_image_deletion_preserves_file_and_catalog(
                 )
         assert client.delete(f"/api/outputs/{output_id}").status_code == 409
         assert image_path.is_file()
-        assert client.get("/api/outputs").json()["total"] == 1
+        listing = client.get("/api/outputs").json()
+        assert listing["total"] == 1
+        assert listing["files"][0]["deletion_protected"] is (failure_mode == "protected")
         assert not server.output_catalog.is_deleted("image.png")
         if failure_mode == "protected":
             server.database.set_job_deletion_protection("catalog-job", False)
+            assert client.get("/api/outputs").json()["files"][0]["deletion_protected"] is False
             assert client.delete(f"/api/outputs/{output_id}").status_code == 200
 
 
@@ -260,3 +263,60 @@ def test_synchronization_does_not_restore_image_deleted_during_scan(
     assert catalog.list_files(1, 24)["total"] == 0
     with sqlite3.connect(database.database_path) as connection:
         assert connection.execute("SELECT is_deleted,is_available FROM output_files").fetchone() == (1, 0)
+
+
+def test_output_deletion_candidates_span_pages_and_respect_filters_and_protection(tmp_path: Path) -> None:
+    """전체 선택은 현재 필터의 모든 이미지 중 삭제·누락·영상·보호된 파일을 제외합니다."""
+
+    application = create_processing_test_app(tmp_path, FakeComfyClient())
+    server = application.state.home_server
+    request_id = add_catalog_test_request(server.database)
+    protected_request_id = add_catalog_test_request(server.database, "protected-job")
+    image_paths = [f"anima/image-{image_number:03d}.png" for image_number in range(65)]
+    for relative_path in [*image_paths, "anima/movie.mp4", "protected.png"]:
+        physical_path = server.config.managed_output_directory / relative_path
+        physical_path.parent.mkdir(parents=True, exist_ok=True)
+        physical_path.write_bytes(b"catalog dimensions avoid image header reads")
+    Image.new("RGB", (32, 48)).save(server.config.managed_output_directory / "external.png")
+    server.database.complete_request(request_id, [*image_paths, "anima/movie.mp4", "anima/missing.png"])
+    server.database.complete_request(protected_request_id, ["protected.png"])
+    server.database.set_job_deletion_protection("protected-job", True)
+    original_history = read_history_json(server.database.database_path)
+    candidate_endpoint = "/api/outputs/deletion-candidates"
+
+    with TestClient(application) as client:
+        assert client.get(candidate_endpoint).status_code == 401
+        client.post("/api/login", json={"password": "test"})
+        assert client.post("/api/outputs/sync").status_code == 200
+        first_page = client.get("/api/outputs").json()
+        second_page = client.get("/api/outputs", params={"page": 2}).json()
+        listed_files = first_page["files"] + second_page["files"]
+        path_to_identifier = {output_file["path"]: output_file["output_id"] for output_file in listed_files}
+        expected_image_ids = {path_to_identifier[relative_path] for relative_path in image_paths}
+        assert len(first_page["files"]) == 64
+        assert len(expected_image_ids) == 65
+        assert set(client.get(candidate_endpoint).json()["output_ids"]) == expected_image_ids | {path_to_identifier["external.png"]}
+        assert client.get(candidate_endpoint, params={"job_id": "protected-job"}).json() == {"output_ids": []}
+        for query_parameters in ({"job_id": "catalog-job"}, {"request_id": request_id}):
+            assert set(client.get(candidate_endpoint, params=query_parameters).json()["output_ids"]) == expected_image_ids
+        protected_output = client.get("/api/outputs", params={"request_id": protected_request_id}).json()["files"][0]
+        assert protected_output["deletion_protected"] is True
+
+        deleted_output_id = path_to_identifier[image_paths[0]]
+        assert client.delete(f"/api/outputs/{deleted_output_id}").status_code == 200
+        expected_image_ids.remove(deleted_output_id)
+        assert set(client.get(candidate_endpoint, params={"job_id": "catalog-job"}).json()["output_ids"]) == expected_image_ids
+
+        # 전체 선택 이후 보호가 설정되어도 기존 단건 API가 삭제 직전에 다시 검사합니다.
+        server.database.set_job_deletion_protection("catalog-job", True)
+        assert client.get(candidate_endpoint, params={"job_id": "catalog-job"}).json() == {"output_ids": []}
+        remaining_identifier = next(iter(expected_image_ids))
+        assert client.delete(f"/api/outputs/{remaining_identifier}").status_code == 409
+        protected_listing = client.get("/api/outputs", params={"job_id": "catalog-job"}).json()
+        assert all(output_file["deletion_protected"] for output_file in protected_listing["files"])
+        server.database.set_job_deletion_protection("catalog-job", False)
+        assert set(client.get(candidate_endpoint, params={"request_id": request_id}).json()["output_ids"]) == expected_image_ids
+        assert client.get(candidate_endpoint, params={"job_id": "missing"}).status_code == 404
+        assert client.get(candidate_endpoint, params={"request_id": "missing"}).status_code == 404
+        assert client.get(candidate_endpoint, params={"job_id": "catalog-job", "request_id": request_id}).status_code == 422
+        assert read_history_json(server.database.database_path) == original_history

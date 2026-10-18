@@ -11,7 +11,10 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from .output_listing import MEDIA_EXTENSIONS, iterate_output_directory_entries, output_filename_metadata
+from .output_listing import (
+    IMAGE_OUTPUT_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_OUTPUT_EXTENSIONS,
+    iterate_output_directory_entries, output_filename_metadata,
+)
 from .output_timing import OutputTimingRecorder, measure_output_step
 
 
@@ -262,7 +265,9 @@ class OutputCatalog:
                 ).fetchone()[0]
             with measure_output_step(output_timing, "catalog_page_query", emit=True):
                 page_rows = connection.execute(
-                    "SELECT output_id,relative_path,generated_at,seed,job_id,requested_width,requested_height "
+                    "SELECT output_id,relative_path,generated_at,seed,job_id,requested_width,requested_height,"
+                    "COALESCE((SELECT deletion_protected FROM jobs WHERE jobs.job_id=output_files.job_id),0) "
+                    "AS deletion_protected "
                     f"FROM output_files WHERE {filter_clause} ORDER BY {OUTPUT_SORT_ORDER} LIMIT ? OFFSET ?",
                     (*query_values, page_size, (page - 1) * page_size),
                 ).fetchall()
@@ -270,7 +275,7 @@ class OutputCatalog:
         for page_row in page_rows:
             output_path = Path(page_row["relative_path"])
             width, height = page_row["requested_width"], page_row["requested_height"]
-            is_video = output_path.suffix.lower() in {".mp4", ".webm", ".mkv", ".mov"}
+            is_video = output_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS
             generation_seed = int(page_row["seed"]) if page_row["seed"] is not None else None
             page_files.append({
                 "output_id": page_row["output_id"],
@@ -280,6 +285,7 @@ class OutputCatalog:
                 "seed": generation_seed,
                 "kind": "video" if is_video else "image",
                 "job_id": page_row["job_id"],
+                "deletion_protected": bool(page_row["deletion_protected"]),
                 "width": width,
                 "height": height,
                 "dimensions_source": "settings" if width and height else None,
@@ -288,6 +294,35 @@ class OutputCatalog:
             "files": page_files, "page": page, "page_size": page_size, "total": total,
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }
+
+    def list_deletable_output_ids(self, job_id: str = "", request_id: str = "") -> list[int]:
+        """현재 필터의 모든 페이지에서 삭제 가능하고 보호되지 않은 이미지 ID만 조회합니다."""
+
+        conditions = [
+            "is_available=1", "is_deleted=0",
+            "NOT EXISTS (SELECT 1 FROM jobs WHERE jobs.job_id=output_files.job_id AND deletion_protected=1)",
+        ]
+        query_values = []
+        if job_id:
+            conditions.append("job_id=?")
+            query_values.append(job_id)
+        if request_id:
+            conditions.append("request_id=?")
+            query_values.append(request_id)
+        with self._connect() as connection:
+            if job_id and connection.execute("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)).fetchone() is None:
+                raise LookupError("작업을 찾을 수 없습니다.")
+            if request_id and connection.execute("SELECT 1 FROM job_requests WHERE request_id=?", (request_id,)).fetchone() is None:
+                raise LookupError("요청을 찾을 수 없습니다.")
+            candidate_rows = connection.execute(
+                "SELECT output_id,relative_path FROM output_files WHERE " + " AND ".join(conditions),
+                query_values,
+            ).fetchall()
+        output_ids = []
+        for candidate_row in candidate_rows:
+            if Path(candidate_row["relative_path"]).suffix.lower() in IMAGE_OUTPUT_EXTENSIONS:
+                output_ids.append(candidate_row["output_id"])
+        return output_ids
 
     def is_deleted(self, relative_path: str) -> bool:
         """삭제 표시된 경로인지 확인하여 원본과 썸네일 접근을 차단합니다."""
