@@ -80,6 +80,20 @@ const applicationState = {
   pollingTimer: null,
 };
 
+const outputFolderPickerState = {
+  resolveSelection: null,
+  path: "",
+  parentPath: null,
+  directories: [],
+  loading: false,
+  creating: false,
+  loaded: false,
+  error: "",
+  loadRevision: 0,
+  sessionRevision: 0,
+  openingElement: null,
+};
+
 /** 식별자로 HTML 요소를 가져옵니다. */
 function element(identifier) {
   return document.getElementById(identifier);
@@ -171,6 +185,7 @@ function showNotice(message, isError = false) {
 
 /** 로그인 화면만 표시합니다. */
 function showLogin() {
+  finishOutputFolderSelection(null, true);
   window.clearTimeout(applicationState.pollingTimer);
   applicationState.pollingTimer = null;
   element("application").classList.add("hidden");
@@ -1368,7 +1383,7 @@ function canDeleteJobHistory(job) {
 
 /** 선택·삭제·보호 설정을 변경 중인지 확인합니다. */
 function jobSelectionIsBusy() {
-  return applicationState.deletingSelectedJobs || applicationState.selectingEveryJob ||
+  return outputFolderPickerState.resolveSelection !== null || applicationState.deletingSelectedJobs || applicationState.selectingEveryJob ||
     applicationState.updatingJobProtectionId !== null || applicationState.movingJobId !== null;
 }
 
@@ -1980,7 +1995,7 @@ function canDeleteOutput(outputFile) {
 
 /** 결과물 선택·삭제·이동 중 다른 조작을 잠글지 확인합니다. */
 function outputSelectionIsBusy() {
-  return applicationState.selectingEveryOutput || applicationState.deletingSelectedOutputs ||
+  return outputFolderPickerState.resolveSelection !== null || applicationState.selectingEveryOutput || applicationState.deletingSelectedOutputs ||
     applicationState.deletingOutputId !== null || applicationState.movingOutputPath !== null ||
     applicationState.movingSelectedOutputs || applicationState.movingJobId !== null;
 }
@@ -2135,6 +2150,152 @@ async function deleteSelectedOutputs() {
     deletionFailures.length > 0);
 }
 
+/** 탐색기의 경로·하위 폴더·진행 상태를 표시하고 조작 가능 범위를 갱신합니다. */
+function renderOutputFolderPicker() {
+  const pickerState = outputFolderPickerState;
+  const directoryIsBusy = pickerState.loading || pickerState.creating;
+  const breadcrumbParts = [{ name: "결과물", path: "" }];
+  let breadcrumbPath = "";
+  for (const directoryName of pickerState.path.split("/").filter(Boolean)) {
+    breadcrumbPath = breadcrumbPath ? `${breadcrumbPath}/${directoryName}` : directoryName;
+    breadcrumbParts.push({ name: directoryName, path: breadcrumbPath });
+  }
+  element("folder-picker-breadcrumb").innerHTML = breadcrumbParts.map((directory, directoryIndex) =>
+    `${directoryIndex ? '<span aria-hidden="true">/</span>' : ""}<button type="button" class="button subtle small" data-folder-path="${escapeHtml(directory.path)}" ${directoryIsBusy ? "disabled" : ""} ${directory.path === pickerState.path ? 'aria-current="location"' : ""}>${escapeHtml(directory.name)}</button>`,
+  ).join("");
+  element("folder-picker-parent").disabled = directoryIsBusy || pickerState.parentPath === null;
+  element("folder-picker-directories").innerHTML = pickerState.directories.map(directory =>
+    `<li><button type="button" class="button subtle" data-folder-path="${escapeHtml(directory.path)}" ${directoryIsBusy ? "disabled" : ""}>▸ ${escapeHtml(directory.name)}</button></li>`,
+  ).join("");
+  const status = pickerState.loading ? "폴더를 불러오는 중…" : pickerState.creating ? "폴더를 만드는 중…"
+    : pickerState.error || (pickerState.directories.length ? "하위 폴더를 열거나 현재 폴더를 선택해 주세요." : "하위 폴더가 없습니다.");
+  element("folder-picker-status").textContent = status;
+  element("folder-picker-retry").classList.toggle("hidden", directoryIsBusy || pickerState.loaded || !pickerState.error);
+  element("folder-picker-name").disabled = directoryIsBusy || !pickerState.loaded;
+  element("folder-picker-create").disabled = directoryIsBusy || !pickerState.loaded;
+  element("folder-picker-confirm").disabled = directoryIsBusy || !pickerState.loaded;
+  element("folder-picker-cancel").disabled = pickerState.creating;
+}
+
+/** 직하위 폴더만 요청하고 닫힌 창이나 이전 요청의 응답은 무시합니다. */
+async function loadOutputFolder(directoryPath) {
+  const pickerState = outputFolderPickerState;
+  if (!pickerState.resolveSelection) return;
+  const loadRevision = ++pickerState.loadRevision;
+  pickerState.path = directoryPath;
+  pickerState.parentPath = directoryPath ? directoryPath.split("/").slice(0, -1).join("/") : null;
+  pickerState.directories = [];
+  pickerState.loaded = false;
+  pickerState.loading = true;
+  pickerState.error = "";
+  renderOutputFolderPicker();
+  try {
+    const directoryListing = await apiRequest(`/api/outputs/directories?${new URLSearchParams({ path: directoryPath })}`);
+    if (loadRevision !== pickerState.loadRevision || !pickerState.resolveSelection) return;
+    pickerState.path = directoryListing.path;
+    pickerState.parentPath = directoryListing.parent_path;
+    pickerState.directories = directoryListing.directories;
+    pickerState.loaded = true;
+  } catch (error) {
+    if (loadRevision !== pickerState.loadRevision || !pickerState.resolveSelection) return;
+    pickerState.error = error.message;
+  } finally {
+    if (loadRevision === pickerState.loadRevision && pickerState.resolveSelection) {
+      pickerState.loading = false;
+      renderOutputFolderPicker();
+      if (!element("output-folder-picker").contains(document.activeElement)) element("folder-picker-cancel").focus();
+    }
+  }
+}
+
+/** 이동 목적지를 공용 Modal로 선택하며 취소는 null, 루트 선택은 빈 문자열로 반환합니다. */
+function chooseOutputFolder(description) {
+  if (outputFolderPickerState.resolveSelection) return Promise.resolve(null);
+  outputFolderPickerState.sessionRevision += 1;
+  outputFolderPickerState.openingElement = document.activeElement;
+  outputFolderPickerState.creating = false;
+  element("folder-picker-description").textContent = description;
+  element("folder-picker-name").value = "";
+  const selectionPromise = new Promise(resolve => { outputFolderPickerState.resolveSelection = resolve; });
+  element("output-folder-picker").showModal();
+  loadOutputFolder("");
+  element("folder-picker-cancel").focus();
+  return selectionPromise;
+}
+
+/** 선택을 한 번만 완료하고 진행 중인 폴더 조회 응답을 무효화합니다. */
+function finishOutputFolderSelection(directoryPath, forceClose = false) {
+  const pickerState = outputFolderPickerState;
+  if (!pickerState.resolveSelection || (pickerState.creating && !forceClose)) return;
+  if (directoryPath !== null && (pickerState.loading || !pickerState.loaded)) return;
+  const resolveSelection = pickerState.resolveSelection;
+  pickerState.resolveSelection = null;
+  pickerState.sessionRevision += 1;
+  pickerState.loadRevision += 1;
+  element("output-folder-picker").close();
+  // 조회 응답이 Modal 뒤에서 카드를 다시 그렸어도 취소 후 버튼이 잠긴 채 남지 않게 합니다.
+  renderJobsList();
+  renderOutputsList();
+  let openingElement = pickerState.openingElement;
+  if (openingElement?.id) openingElement = element(openingElement.id);
+  else {
+    for (const movementButton of document.querySelectorAll("[data-move-output], [data-move-job-outputs]")) {
+      if ((openingElement?.dataset.moveOutput && movementButton.dataset.moveOutput === openingElement.dataset.moveOutput) ||
+          (openingElement?.dataset.moveJobOutputs && movementButton.dataset.moveJobOutputs === openingElement.dataset.moveJobOutputs)) {
+        openingElement = movementButton;
+        break;
+      }
+    }
+  }
+  if (openingElement?.isConnected && !openingElement.disabled) openingElement.focus({ preventScroll: true });
+  resolveSelection(directoryPath);
+}
+
+/** 현재 위치에 폴더 하나를 만들고 명시적인 이동 확정 전에 새 폴더를 엽니다. */
+async function createOutputPickerDirectory(event) {
+  event.preventDefault();
+  const pickerState = outputFolderPickerState;
+  if (!pickerState.resolveSelection || !pickerState.loaded || pickerState.loading || pickerState.creating) return;
+  const loadRevision = pickerState.loadRevision;
+  const sessionRevision = pickerState.sessionRevision;
+  pickerState.creating = true;
+  pickerState.error = "";
+  renderOutputFolderPicker();
+  try {
+    const createdDirectory = await apiRequest("/api/outputs/directories", {
+      method: "POST", body: JSON.stringify({ parent_path: pickerState.path, name: element("folder-picker-name").value }),
+    });
+    if (loadRevision !== pickerState.loadRevision || !pickerState.resolveSelection) return;
+    element("folder-picker-name").value = "";
+    pickerState.creating = false;
+    await loadOutputFolder(createdDirectory.path);
+  } catch (error) {
+    if (loadRevision !== pickerState.loadRevision || !pickerState.resolveSelection) return;
+    pickerState.error = error.message;
+  } finally {
+    if (pickerState.resolveSelection && sessionRevision === pickerState.sessionRevision) {
+      pickerState.creating = false;
+      renderOutputFolderPicker();
+    }
+  }
+}
+
+/** 공용 탐색기의 키보드 취소·폴더 이동·새 폴더 생성 이벤트를 연결합니다. */
+function bindOutputFolderPickerEvents() {
+  const folderPicker = element("output-folder-picker");
+  folderPicker.addEventListener("cancel", event => { event.preventDefault(); finishOutputFolderSelection(null); });
+  folderPicker.addEventListener("close", () => { if (!folderPicker.open) finishOutputFolderSelection(null, true); });
+  folderPicker.addEventListener("click", event => {
+    const directoryButton = event.target.closest("[data-folder-path]");
+    if (directoryButton && !directoryButton.disabled) loadOutputFolder(directoryButton.dataset.folderPath);
+  });
+  element("folder-picker-parent").addEventListener("click", () => loadOutputFolder(outputFolderPickerState.parentPath));
+  element("folder-picker-retry").addEventListener("click", () => loadOutputFolder(outputFolderPickerState.path));
+  element("folder-picker-create-form").addEventListener("submit", createOutputPickerDirectory);
+  element("folder-picker-cancel").addEventListener("click", () => finishOutputFolderSelection(null));
+  element("folder-picker-confirm").addEventListener("click", () => finishOutputFolderSelection(outputFolderPickerState.path));
+}
+
 /** 이동 결과의 성공·이미 같은 폴더·실패 건수를 사용자에게 알립니다. */
 function showOutputMoveSummary(movement) {
   const failureCount = movement.failures.length;
@@ -2149,11 +2310,8 @@ async function moveSelectedOutputs() {
   if (!applicationState.outputSelectionMode || outputSelectionIsBusy()) return;
   const selectedOutputIds = [...applicationState.selectedOutputIds];
   if (selectedOutputIds.length === 0) return;
-  const destinationFolder = window.prompt(
-    `선택한 결과물 ${selectedOutputIds.length}개를 이동할 폴더를 from_home_server 기준 상대 경로로 입력하세요.`,
-    "sorted",
-  );
-  if (!destinationFolder) return;
+  const destinationFolder = await chooseOutputFolder(`선택한 결과물 ${selectedOutputIds.length}개를 이동할 위치를 선택해 주세요.`);
+  if (destinationFolder === null) return;
   applicationState.movingSelectedOutputs = true;
   applicationState.outputsLoadRevision += 1;
   renderOutputsList();
@@ -2177,11 +2335,8 @@ async function moveSelectedOutputs() {
 /** 생성이 끝난 작업에 연결된 결과물 전체를 현재 위치에서 한 폴더로 이동합니다. */
 async function moveJobOutputs(jobIdentifier) {
   if (jobSelectionIsBusy() || outputSelectionIsBusy()) return;
-  const destinationFolder = window.prompt(
-    `작업 ${jobIdentifier}의 결과물 전체를 이동할 폴더를 from_home_server 기준 상대 경로로 입력하세요.`,
-    "sorted",
-  );
-  if (!destinationFolder) return;
+  const destinationFolder = await chooseOutputFolder(`작업 ${jobIdentifier}의 결과물 전체를 이동할 위치를 선택해 주세요.`);
+  if (destinationFolder === null) return;
   applicationState.movingJobId = jobIdentifier;
   applicationState.jobsLoadRevision += 1;
   applicationState.outputsLoadRevision += 1;
@@ -2203,11 +2358,8 @@ async function moveJobOutputs(jobIdentifier) {
 /** 관리 output 안에서 결과물을 다른 폴더로 이동합니다. */
 async function moveOutput(sourcePath) {
   if (outputSelectionIsBusy()) return;
-  const destinationFolder = window.prompt(
-    "이동할 폴더를 from_home_server 기준 상대 경로로 입력하세요.",
-    "sorted",
-  );
-  if (!destinationFolder) return;
+  const destinationFolder = await chooseOutputFolder(`${sourcePath} 파일을 이동할 위치를 선택해 주세요.`);
+  if (destinationFolder === null) return;
   applicationState.movingOutputPath = sourcePath;
   applicationState.outputsLoadRevision += 1;
   renderOutputsList();
@@ -2638,6 +2790,7 @@ function bindLoraPresetEvents() {
 
 /** 첫 화면을 준비하고 기존 session을 확인합니다. */
 async function initializeApplication() {
+  bindOutputFolderPickerEvents();
   bindEvents();
   initializeNavigationHistory();
   updateAnimaResolutionOptions();

@@ -26,6 +26,7 @@ from .database import Database
 from .image_dimension_cache import ImageDimensionCache
 from .logging_setup import configure_application_logging, shutdown_application_logging
 from .output_catalog import OutputCatalog
+from .output_directories import create_output_directory, list_output_directories, resolve_output_directory
 from .output_listing import MEDIA_EXTENSIONS
 from .output_timing import OutputTimingRecorder, measure_output_step
 from .tag_builder import MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt, resolve_anima_prompts, validate_tag_selection
@@ -190,7 +191,14 @@ class MoveInput(BaseModel):
 class MoveDestinationInput(BaseModel):
     """여러 결과물을 이동할 관리 폴더 안의 목적지를 검증합니다."""
 
-    destination_folder: str = Field(min_length=1)
+    destination_folder: str
+
+
+class DirectoryCreationInput(BaseModel):
+    """결과물 루트 기준 부모 경로와 새 폴더 이름 하나를 전달받습니다."""
+
+    parent_path: str
+    name: str = Field(min_length=1, max_length=255)
 
 
 class BulkMoveInput(MoveDestinationInput):
@@ -347,9 +355,11 @@ def move_managed_output(
 
     try:
         source_path = server.managed_path(source_relative_path, must_exist=True)
-        destination_directory = server.managed_path(destination_folder)
+        destination_directory = resolve_output_directory(server.config.managed_output_directory, destination_folder, must_exist=False)
     except (ValueError, FileNotFoundError) as exception:
         raise HTTPException(422, str(exception)) from exception
+    except OSError as exception:
+        raise HTTPException(409, "결과물 또는 목적지 폴더에 접근할 수 없습니다.") from exception
     normalized_source = source_relative_path.replace("\\", "/")
     if source_path != server.config.managed_output_directory / normalized_source:
         raise HTTPException(422, "symlink 경로의 결과물은 이동할 수 없습니다.")
@@ -364,6 +374,7 @@ def move_managed_output(
         """DB 잠금 안에서 목적지 충돌을 다시 확인하고 실제 파일을 이동합니다."""
 
         nonlocal file_was_moved
+        resolve_output_directory(server.config.managed_output_directory, destination_folder, must_exist=False)
         if destination_path.exists():
             raise HTTPException(409, "목적지에 같은 이름의 파일이 있습니다.")
         destination_directory.mkdir(parents=True, exist_ok=True)
@@ -393,9 +404,11 @@ def move_recorded_outputs(server: HomeServer, output_ids: list[int], destination
     """결과물별로 현재 경로에서 이동하고 충돌·누락 등 일부 실패를 성공한 이동과 구분합니다."""
 
     try:
-        server.managed_path(destination_folder)
+        resolve_output_directory(server.config.managed_output_directory, destination_folder, must_exist=False)
     except ValueError as exception:
         raise HTTPException(422, str(exception)) from exception
+    except OSError as exception:
+        raise HTTPException(409, "목적지 폴더에 접근할 수 없습니다.") from exception
     moved_output_ids = []
     skipped_output_ids = []
     failures = []
@@ -1096,6 +1109,34 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
         return JSONResponse(candidates)
+
+    @app.get("/api/outputs/directories")
+    def output_directories(path: str = ""):
+        """인증된 사용자에게 결과물 루트 안의 직하위 폴더만 반환합니다."""
+
+        try:
+            return list_output_directories(server.config.managed_output_directory, path)
+        except FileNotFoundError as exception:
+            raise HTTPException(404, "폴더를 찾을 수 없습니다.") from exception
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except OSError as exception:
+            raise HTTPException(403, "폴더 목록을 읽을 수 없습니다. 서버의 접근 권한을 확인해 주세요.") from exception
+
+    @app.post("/api/outputs/directories", status_code=201)
+    def create_output_subdirectory(payload: DirectoryCreationInput):
+        """현재 폴더 안에 새 폴더 하나를 만들며 catalog와 생성 이력은 변경하지 않습니다."""
+
+        try:
+            return create_output_directory(server.config.managed_output_directory, payload.parent_path, payload.name)
+        except FileNotFoundError as exception:
+            raise HTTPException(404, "부모 폴더를 찾을 수 없습니다.") from exception
+        except FileExistsError as exception:
+            raise HTTPException(409, "같은 이름의 폴더 또는 파일이 이미 있습니다.") from exception
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except OSError as exception:
+            raise HTTPException(403, "폴더를 만들 수 없습니다. 서버의 접근 권한을 확인해 주세요.") from exception
 
     @app.post("/api/outputs/sync")
     def synchronize_outputs(request: Request):

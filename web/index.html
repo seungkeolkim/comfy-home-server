@@ -501,5 +501,26 @@
         ><a data-navigation data-view="lora-presets" href="?view=lora-presets">◇<span>LoRA 조합</span></a>
       </nav>
     </div>
+    <dialog id="output-folder-picker" class="folder-picker" aria-labelledby="folder-picker-title" aria-describedby="folder-picker-description">
+      <h2 id="folder-picker-title">이동할 폴더 선택</h2>
+      <p id="folder-picker-description" class="hint"></p>
+      <nav id="folder-picker-breadcrumb" class="folder-breadcrumb" aria-label="현재 폴더 경로"></nav>
+      <button id="folder-picker-parent" class="button subtle" type="button">상위 폴더</button>
+      <p id="folder-picker-status" class="hint" role="status"></p>
+      <button id="folder-picker-retry" class="button subtle hidden" type="button">다시 불러오기</button>
+      <ul id="folder-picker-directories" class="folder-directory-list" aria-label="하위 폴더"></ul>
+      <form id="folder-picker-create-form" class="folder-create-form">
+        <label for="folder-picker-name">새 폴더 이름</label>
+        <div class="folder-create-controls">
+          <input id="folder-picker-name" required maxlength="255" autocomplete="off" placeholder="예: 즐겨찾기" />
+          <button id="folder-picker-create" class="button subtle" type="submit">새 폴더 만들기</button>
+        </div>
+      </form>
+      <p class="hint">새 폴더를 만들면 그 폴더가 열립니다. 이동을 취소해도 만든 폴더는 남습니다.</p>
+      <div class="folder-picker-actions">
+        <button id="folder-picker-cancel" class="button subtle" type="button">취소</button>
+        <button id="folder-picker-confirm" class="button primary" type="button">이 폴더로 이동</button>
+      </div>
+    </dialog>
   </body>
 </html>

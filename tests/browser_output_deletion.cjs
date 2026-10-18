@@ -20,6 +20,8 @@ function createOutputFixtures() {
   return {
     outputs, jobs: [], deletionRequests: [], outputQueries: [], candidateQueries: [], rejectDeletion: false,
     failedOutputIds: new Set(), deletionGate: null, movementRequests: [], failedMoveIds: new Set(), movementGate: null,
+    directories: new Set(["", "sorted", "archive"]), directoryRequests: [], creationRequests: [],
+    rejectDirectoryListing: false, rejectDirectoryCreation: false, directoryGate: null,
   };
 }
 
@@ -44,7 +46,7 @@ function moveFixtureOutputs(fixtures, outputIdentifiers, destinationFolder) {
       failures.push({ output_id: outputIdentifier, detail: "목적지에 같은 이름의 파일이 있습니다." });
       continue;
     }
-    const destinationPath = `${destinationFolder}/${output.name}`;
+    const destinationPath = destinationFolder ? `${destinationFolder}/${output.name}` : output.name;
     if (output.path === destinationPath) skippedOutputIds.push(outputIdentifier);
     else {
       output.path = destinationPath;
@@ -88,6 +90,41 @@ function createOutputRequestHandler(fixtures) {
     else if (requestPath === "/api/loras") response = { files: [], profiles: [] };
     else if (requestPath === "/api/tags") response = { groups: [], entries: [] };
     else if (requestPath === "/api/outputs/sync") response = {};
+    else if (requestPath === "/api/outputs/directories") {
+      if (request.method() === "POST") {
+        const payload = request.postDataJSON();
+        fixtures.creationRequests.push(payload);
+        const directoryPath = payload.parent_path ? `${payload.parent_path}/${payload.name}` : payload.name;
+        if (fixtures.rejectDirectoryCreation || fixtures.directories.has(directoryPath)) {
+          responseStatus = 409;
+          response = { detail: "같은 이름의 폴더 또는 파일이 이미 있습니다." };
+        } else {
+          fixtures.directories.add(directoryPath);
+          responseStatus = 201;
+          response = { name: payload.name, path: directoryPath };
+        }
+      } else {
+        const directoryPath = requestUrl.searchParams.get("path") || "";
+        fixtures.directoryRequests.push(directoryPath);
+        if (fixtures.directoryGate) {
+          const directoryGate = fixtures.directoryGate;
+          fixtures.directoryGate = null;
+          directoryGate.markStarted();
+          await directoryGate.promise;
+        }
+        if (fixtures.rejectDirectoryListing) {
+          responseStatus = 403;
+          response = { detail: "폴더 목록을 읽을 수 없습니다." };
+        } else {
+          response = {
+            path: directoryPath, parent_path: directoryPath ? directoryPath.split("/").slice(0, -1).join("/") : null,
+            directories: [...fixtures.directories].filter(candidate => candidate && candidate !== directoryPath &&
+              candidate.split("/").slice(0, -1).join("/") === directoryPath)
+              .map(candidate => ({ name: candidate.split("/").at(-1), path: candidate })),
+          };
+        }
+      }
+    }
     else if (requestPath === "/api/outputs/selection-candidates") {
       fixtures.candidateQueries.push(Object.fromEntries(requestUrl.searchParams));
       const matchingFiles = matchingOutputs(fixtures, requestUrl);
@@ -99,9 +136,10 @@ function createOutputRequestHandler(fixtures) {
     }
     else if (requestPath === "/api/outputs/move-batch" || requestPath.endsWith("/outputs/move")) {
       const payload = request.postDataJSON();
-      const jobIdentifier = requestPath === "/api/outputs/move-batch" ? null : requestPath.split("/").at(-3);
+      const jobIdentifier = requestPath.startsWith("/api/jobs/") ? requestPath.split("/").at(-3) : null;
       const outputIdentifiers = jobIdentifier
-        ? fixtures.outputs.filter(output => output.job_id === jobIdentifier).map(output => output.output_id) : payload.output_ids;
+        ? fixtures.outputs.filter(output => output.job_id === jobIdentifier).map(output => output.output_id)
+        : requestPath === "/api/outputs/move" ? [fixtures.outputs.find(output => output.path === payload.source).output_id] : payload.output_ids;
       fixtures.movementRequests.push({ path: requestPath, ...payload });
       if (fixtures.movementGate) {
         const movementGate = fixtures.movementGate;
@@ -110,6 +148,9 @@ function createOutputRequestHandler(fixtures) {
         await movementGate.promise;
       }
       response = moveFixtureOutputs(fixtures, outputIdentifiers, payload.destination_folder);
+      if (requestPath === "/api/outputs/move") {
+        response = { path: fixtures.outputs.find(output => output.output_id === outputIdentifiers[0]).path, moved: response.moved_count > 0 };
+      }
     }
     else if (requestPath === "/api/outputs/deletion-candidates") {
       fixtures.candidateQueries.push(Object.fromEntries(requestUrl.searchParams));
@@ -324,16 +365,19 @@ async function verifyOutputDeletion(browser, viewport) {
   }
 }
 
-/** 폴더 입력창에서 취소하거나 지정한 목적지를 입력합니다. */
-async function answerMovementPrompt(browserPage, buttonSelector, destinationFolder) {
-  const dialogPromise = browserPage.waitForEvent("dialog");
-  const clickPromise = browserPage.locator(buttonSelector).click();
-  const dialog = await dialogPromise;
-  assert.equal(dialog.type(), "prompt");
-  assert.match(dialog.message(), /from_home_server/);
-  if (destinationFolder === null) await dialog.dismiss();
-  else await dialog.accept(destinationFolder);
-  await clickPromise;
+/** 서버 폴더 탐색기에서 목적지를 고르거나 취소합니다. */
+async function chooseMovementDestination(browserPage, buttonSelector, destinationFolder) {
+  await browserPage.locator(buttonSelector).click();
+  await browserPage.locator("#output-folder-picker[open]").waitFor();
+  if (destinationFolder === null) await browserPage.locator("#folder-picker-cancel").click();
+  else {
+    let directoryPath = "";
+    for (const directoryName of destinationFolder.split("/").filter(Boolean)) {
+      directoryPath = directoryPath ? `${directoryPath}/${directoryName}` : directoryName;
+      await browserPage.locator(`#folder-picker-directories [data-folder-path="${directoryPath}"]`).click();
+    }
+    await browserPage.locator("#folder-picker-confirm").click();
+  }
 }
 
 /** 작업 카드와 결과물 다중 선택에서 보호·영상·부분 실패를 포함한 이동을 확인합니다. */
@@ -367,7 +411,7 @@ async function verifyOutputMovement(browser, viewport) {
     await browserPage.locator('[data-outputs-page="2"]').first().click();
     await browserPage.locator('[data-select-output="65"]').check();
     await waitForSelectedOutputs(browserPage, 4);
-    await answerMovementPrompt(browserPage, "#move-selected-outputs", null);
+    await chooseMovementDestination(browserPage, "#move-selected-outputs", null);
     assert.equal(fixtures.movementRequests.length, 0);
     await waitForSelectedOutputs(browserPage, 4);
 
@@ -376,7 +420,7 @@ async function verifyOutputMovement(browser, viewport) {
     const movementStarted = new Promise(resolve => { markStarted = resolve; });
     fixtures.movementGate = { markStarted, promise: new Promise(resolve => { releaseMovement = resolve; }) };
     fixtures.failedMoveIds.add(65);
-    await answerMovementPrompt(browserPage, "#move-selected-outputs", "archive");
+    await chooseMovementDestination(browserPage, "#move-selected-outputs", "archive");
     await movementStarted;
     assert.equal(await browserPage.locator("#refresh-outputs-button").isDisabled(), true);
     assert.equal(await browserPage.locator("#move-selected-outputs").isDisabled(), true);
@@ -390,7 +434,7 @@ async function verifyOutputMovement(browser, viewport) {
     assert.equal(await browserPage.locator('[data-select-output="65"]').isChecked(), true);
     assert.equal(new URL(browserPage.url()).searchParams.get("request_id"), "image-job-request");
     fixtures.failedMoveIds.clear();
-    await answerMovementPrompt(browserPage, "#move-selected-outputs", "archive");
+    await chooseMovementDestination(browserPage, "#move-selected-outputs", "archive");
     await waitForSelectedOutputs(browserPage, 0);
     assert.equal(fixtures.outputs.find(output => output.output_id === 65).path, "archive/이미지 65.png");
 
@@ -400,15 +444,15 @@ async function verifyOutputMovement(browser, viewport) {
     assert.equal(await browserPage.locator(jobMoveSelector).isDisabled(), false);
     assert.equal(await browserPage.locator('[data-move-job-outputs="running-job"]').isDisabled(), true);
     const movementCountBeforeCancel = fixtures.movementRequests.length;
-    await answerMovementPrompt(browserPage, jobMoveSelector, null);
+    await chooseMovementDestination(browserPage, jobMoveSelector, null);
     assert.equal(fixtures.movementRequests.length, movementCountBeforeCancel);
     fixtures.failedMoveIds.add(4);
-    await answerMovementPrompt(browserPage, jobMoveSelector, "archive");
+    await chooseMovementDestination(browserPage, jobMoveSelector, "archive");
     await browserPage.waitForFunction(() => document.getElementById("notice").textContent.includes("같은 폴더 4개"));
     assert.match(await browserPage.locator("#notice").textContent(), /이동 실패 1개/);
     await browserPage.waitForFunction(() => !document.querySelector('[data-move-job-outputs="image-job"]').disabled);
     fixtures.failedMoveIds.clear();
-    await answerMovementPrompt(browserPage, jobMoveSelector, "archive");
+    await chooseMovementDestination(browserPage, jobMoveSelector, "archive");
     await browserPage.waitForFunction(() => document.getElementById("notice").textContent.includes("결과물 1개를 이동"));
     assert.ok(fixtures.outputs.every(output => output.path.startsWith("archive/")));
     await browserPage.waitForFunction(() => !document.querySelector('[data-move-job-outputs="image-job"]').disabled);
@@ -427,6 +471,125 @@ async function verifyOutputMovement(browser, viewport) {
   }
 }
 
+/** 새 폴더가 열릴 때까지 기다리며 생성 자체가 파일 이동을 하지 않는지 확인합니다. */
+async function createPickerFolder(browserPage, fixtures, directoryName, expectedPath) {
+  const movementCount = fixtures.movementRequests.length;
+  await browserPage.locator("#folder-picker-name").fill(directoryName);
+  await browserPage.locator("#folder-picker-create").click();
+  await browserPage.waitForFunction(directoryPath => {
+    const currentFolder = document.querySelector('#folder-picker-breadcrumb [aria-current="location"]');
+    return currentFolder?.dataset.folderPath === directoryPath && !document.getElementById("folder-picker-confirm").disabled;
+  }, expectedPath);
+  assert.equal(fixtures.movementRequests.length, movementCount);
+}
+
+/** 공용 Modal의 생성·취소·경로 이동·에러 복구·늦은 응답을 Desktop과 Mobile에서 검증합니다. */
+async function verifyOutputFolderPicker(browser, viewport) {
+  const browserPage = await browser.newPage({ viewport });
+  const fixtures = createOutputFixtures();
+  const longDirectoryName = `${"긴 폴더 이름 ".repeat(12)}끝`;
+  fixtures.directories.add(longDirectoryName);
+  fixtures.jobs.push({
+    job_id: "image-job", workflow: "anima", description: "폴더 선택 검증", created_at: "2026-10-19",
+    status: "completed", status_counts: { completed: 1 }, request_count: 1, deletion_protected: false,
+    inputs: { body: { prompt: "picker fixture" }, settings: { width: 768, height: 512 }, loras: [] }, requests: [],
+  });
+  const pageErrors = [];
+  browserPage.on("pageerror", error => pageErrors.push(error.message));
+  await browserPage.route("**/*", createOutputRequestHandler(fixtures));
+  try {
+    await browserPage.goto("http://output-deletion.test/?view=outputs&page=1");
+    const sourceSelector = '[data-move-output="sorted/이미지 2.png"]';
+    await browserPage.locator(sourceSelector).click();
+    await browserPage.waitForFunction(() => !document.getElementById("folder-picker-confirm").disabled);
+    assert.equal(await browserPage.locator("#folder-picker-parent").isDisabled(), true);
+    assert.equal(await browserPage.locator('#folder-picker-breadcrumb [aria-current="location"]').textContent(), "결과물");
+    assert.equal(await browserPage.locator("#output-folder-picker").evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth), true);
+    assert.equal(await browserPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    const screenshotDirectory = path.join(projectDirectory, "runtime", "browser-check");
+    filesystem.mkdirSync(screenshotDirectory, { recursive: true });
+    await browserPage.screenshot({ path: path.join(screenshotDirectory, `output-folder-picker-${viewport.width}.png`) });
+
+    await browserPage.locator("#folder-picker-name").fill("archive");
+    await browserPage.locator("#folder-picker-create").click();
+    await browserPage.waitForFunction(() => document.getElementById("folder-picker-status").textContent.includes("이미 있습니다"));
+    assert.equal(await browserPage.locator("#folder-picker-confirm").isDisabled(), false);
+    await browserPage.locator('#folder-picker-directories [data-folder-path="sorted"]').click();
+    await browserPage.waitForFunction(() => document.getElementById("folder-picker-status").textContent === "하위 폴더가 없습니다.");
+    await createPickerFolder(browserPage, fixtures, "사진 & 자료", "sorted/사진 & 자료");
+    await browserPage.locator("#folder-picker-parent").click();
+    await browserPage.locator('#folder-picker-directories [data-folder-path="sorted/사진 & 자료"]').waitFor();
+    await browserPage.locator('#folder-picker-breadcrumb [data-folder-path=""]').click();
+    await browserPage.waitForFunction(() => document.getElementById("folder-picker-parent").disabled);
+    await browserPage.locator("#folder-picker-cancel").click();
+    assert.equal(fixtures.movementRequests.length, 0);
+    assert.equal(fixtures.directories.has("sorted/사진 & 자료"), true);
+
+    await chooseMovementDestination(browserPage, sourceSelector, "sorted/사진 & 자료");
+    await browserPage.locator('[data-move-output="sorted/사진 & 자료/이미지 2.png"]').waitFor();
+    await chooseMovementDestination(browserPage, '[data-move-output="sorted/사진 & 자료/이미지 2.png"]', "");
+    await browserPage.locator('[data-move-output="이미지 2.png"]').waitFor();
+    assert.equal(fixtures.movementRequests.at(-1).destination_folder, "");
+    await chooseMovementDestination(browserPage, '[data-move-output="이미지 2.png"]', "");
+    await browserPage.waitForFunction(() => document.getElementById("notice").textContent.includes("이미 같은 폴더"));
+    await browserPage.waitForFunction(() => !document.querySelector('[data-move-output="이미지 2.png"]').disabled);
+
+    fixtures.rejectDirectoryListing = true;
+    await browserPage.locator('[data-move-output="이미지 2.png"]').click();
+    await browserPage.locator("#folder-picker-retry:visible").waitFor();
+    assert.equal(await browserPage.locator("#folder-picker-confirm").isDisabled(), true);
+    fixtures.rejectDirectoryListing = false;
+    await browserPage.locator("#folder-picker-retry").click();
+    await browserPage.waitForFunction(() => !document.getElementById("folder-picker-confirm").disabled);
+    let markStarted;
+    let releaseDirectoryListing;
+    const directoryStarted = new Promise(resolve => { markStarted = resolve; });
+    fixtures.directoryGate = { markStarted, promise: new Promise(resolve => { releaseDirectoryListing = resolve; }) };
+    await browserPage.locator('#folder-picker-directories [data-folder-path="archive"]').click();
+    await directoryStarted;
+    assert.equal(await browserPage.locator("#folder-picker-confirm").isDisabled(), true);
+    await browserPage.locator("#folder-picker-cancel").click();
+    await browserPage.locator('[data-move-output="이미지 2.png"]').click();
+    await browserPage.waitForFunction(() => !document.getElementById("folder-picker-confirm").disabled);
+    const staleResponse = browserPage.waitForResponse(response => response.url().includes("directories?path=archive"));
+    releaseDirectoryListing();
+    await staleResponse;
+    assert.equal(await browserPage.locator('#folder-picker-breadcrumb [aria-current="location"]').getAttribute("data-folder-path"), "");
+    await browserPage.keyboard.press("Escape");
+    await browserPage.locator("#output-folder-picker").waitFor({ state: "hidden" });
+
+    await browserPage.locator("#toggle-output-selection").click();
+    await browserPage.locator('[data-select-output="3"]').check();
+    await browserPage.locator('[data-select-output="4"]').check();
+    await browserPage.locator("#move-selected-outputs").click();
+    await browserPage.waitForFunction(() => !document.getElementById("folder-picker-create").disabled);
+    await createPickerFolder(browserPage, fixtures, "일괄 이동", "일괄 이동");
+    await browserPage.locator("#folder-picker-confirm").click();
+    await waitForSelectedOutputs(browserPage, 0);
+    assert.equal(fixtures.movementRequests.at(-1).destination_folder, "일괄 이동");
+
+    await browserPage.locator('[data-view="jobs"]:visible').click();
+    await browserPage.locator('[data-move-job-outputs="image-job"]').click();
+    await browserPage.waitForFunction(() => !document.getElementById("folder-picker-create").disabled);
+    fixtures.jobs[0].description = "선택창 뒤에서 작업 목록 갱신";
+    await browserPage.evaluate(() => loadJobs());
+    assert.equal(await browserPage.locator('[data-move-job-outputs="image-job"]').isDisabled(), true);
+    await browserPage.locator("#folder-picker-cancel").click();
+    assert.equal(await browserPage.locator('[data-move-job-outputs="image-job"]').isDisabled(), false);
+    assert.equal(await browserPage.evaluate(() => document.activeElement?.dataset.moveJobOutputs), "image-job");
+    await browserPage.locator('[data-move-job-outputs="image-job"]').click();
+    await browserPage.waitForFunction(() => !document.getElementById("folder-picker-create").disabled);
+    await createPickerFolder(browserPage, fixtures, "작업 보관", "작업 보관");
+    await browserPage.locator("#folder-picker-confirm").click();
+    await browserPage.waitForFunction(() => document.getElementById("notice").textContent.includes("결과물 65개를 이동"));
+    assert.ok(fixtures.outputs.every(output => output.path.startsWith("작업 보관/")));
+    assert.equal(fixtures.deletionRequests.length, 0);
+    assert.deepEqual(pageErrors, []);
+  } finally {
+    await browserPage.close();
+  }
+}
+
 /** GPU나 운영 파일을 사용하지 않고 두 화면 크기의 검증을 실행합니다. */
 async function main() {
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "msedge", headless: true });
@@ -437,7 +600,9 @@ async function main() {
     await verifyMultipleOutputDeletion(browser, { width: 390, height: 844 });
     await verifyOutputMovement(browser, { width: 1280, height: 950 });
     await verifyOutputMovement(browser, { width: 390, height: 844 });
-    console.log("Passed: desktop/mobile single/multiple deletion, job/multiple movement, protection, video, all pages, partial failures, retry and filters.");
+    await verifyOutputFolderPicker(browser, { width: 1280, height: 950 });
+    await verifyOutputFolderPicker(browser, { width: 390, height: 844 });
+    console.log("Passed: desktop/mobile deletion, movement, folder picker, folder creation, root destination, cancel, stale response, retry, protection and filters.");
   } finally {
     await browser.close();
   }
