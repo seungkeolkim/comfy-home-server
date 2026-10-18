@@ -298,10 +298,12 @@ class OutputCatalog:
     def list_deletable_output_ids(self, job_id: str = "", request_id: str = "") -> list[int]:
         """현재 필터의 모든 페이지에서 삭제 가능하고 보호되지 않은 이미지 ID만 조회합니다."""
 
-        conditions = [
-            "is_available=1", "is_deleted=0",
-            "NOT EXISTS (SELECT 1 FROM jobs WHERE jobs.job_id=output_files.job_id AND deletion_protected=1)",
-        ]
+        return self.list_selection_candidates(job_id, request_id)["deletable_output_ids"]
+
+    def list_selection_candidates(self, job_id: str = "", request_id: str = "") -> dict[str, list[int]]:
+        """현재 필터의 이동 가능한 전체 결과물과 삭제 가능한 이미지 ID를 구분해 조회합니다."""
+
+        conditions = ["is_available=1", "is_deleted=0"]
         query_values = []
         if job_id:
             conditions.append("job_id=?")
@@ -315,14 +317,51 @@ class OutputCatalog:
             if request_id and connection.execute("SELECT 1 FROM job_requests WHERE request_id=?", (request_id,)).fetchone() is None:
                 raise LookupError("요청을 찾을 수 없습니다.")
             candidate_rows = connection.execute(
-                "SELECT output_id,relative_path FROM output_files WHERE " + " AND ".join(conditions),
+                "SELECT output_id,relative_path,"
+                "COALESCE((SELECT deletion_protected FROM jobs WHERE jobs.job_id=output_files.job_id),0) "
+                "AS deletion_protected FROM output_files WHERE " + " AND ".join(conditions),
                 query_values,
             ).fetchall()
         output_ids = []
+        deletable_output_ids = []
         for candidate_row in candidate_rows:
-            if Path(candidate_row["relative_path"]).suffix.lower() in IMAGE_OUTPUT_EXTENSIONS:
+            output_extension = Path(candidate_row["relative_path"]).suffix.lower()
+            if output_extension in MEDIA_EXTENSIONS:
                 output_ids.append(candidate_row["output_id"])
-        return output_ids
+            if output_extension in IMAGE_OUTPUT_EXTENSIONS and not candidate_row["deletion_protected"]:
+                deletable_output_ids.append(candidate_row["output_id"])
+        return {"output_ids": output_ids, "deletable_output_ids": deletable_output_ids}
+
+    def list_job_output_ids_for_move(self, job_id: str) -> list[int]:
+        """생성이 끝난 작업에서 삭제되지 않고 현재 사용 가능한 결과물 ID를 조회합니다."""
+
+        with self._connect() as connection:
+            if connection.execute("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)).fetchone() is None:
+                raise LookupError("작업을 찾을 수 없습니다.")
+            active_request = connection.execute(
+                "SELECT 1 FROM job_requests WHERE job_id=? "
+                "AND status IN ('submitting','pending','running','cancelling') LIMIT 1", (job_id,),
+            ).fetchone()
+            if active_request is not None:
+                raise ValueError("진행 중인 작업은 생성이 끝난 뒤 결과물을 이동해 주세요.")
+            output_rows = connection.execute(
+                "SELECT output_id FROM output_files WHERE job_id=? AND is_available=1 AND is_deleted=0 "
+                "ORDER BY output_id", (job_id,),
+            ).fetchall()
+        return [output_row["output_id"] for output_row in output_rows]
+
+    def get_output_path_for_move(self, output_id: int) -> str:
+        """이동할 결과물의 현재 경로를 조회하고 삭제된 결과물은 거부합니다."""
+
+        with self._connect() as connection:
+            output_row = connection.execute(
+                "SELECT relative_path,is_deleted FROM output_files WHERE output_id=?", (output_id,),
+            ).fetchone()
+        if output_row is None:
+            raise LookupError("결과물을 찾을 수 없습니다.")
+        if output_row["is_deleted"]:
+            raise ValueError("삭제된 결과물은 이동할 수 없습니다.")
+        return output_row["relative_path"]
 
     def is_deleted(self, relative_path: str) -> bool:
         """삭제 표시된 경로인지 확인하여 원본과 썸네일 접근을 차단합니다."""
@@ -357,6 +396,7 @@ class OutputCatalog:
     def move_file(
         self, source_relative_path: str, destination_relative_path: str,
         move_physical_file: Callable[[], None] | None = None,
+        *, expected_output_id: int | None = None,
     ) -> None:
         """현재 경로만 변경하고 원래 생성 경로·요청 metadata·작업 연결은 보존합니다."""
 
@@ -365,10 +405,14 @@ class OutputCatalog:
             source_row = connection.execute(
                 "SELECT output_id,is_deleted FROM output_files WHERE relative_path=?", (source_relative_path,),
             ).fetchone()
+            if expected_output_id is not None and (source_row is None or source_row["output_id"] != expected_output_id):
+                raise ValueError("결과물 경로가 변경되었습니다. 목록을 새로고침한 뒤 다시 이동해 주세요.")
             if source_row is not None and source_row["is_deleted"]:
                 raise ValueError("삭제된 결과물은 이동할 수 없습니다.")
             if source_row is None:
                 self._store_output(connection, source_relative_path)
+            if source_relative_path == destination_relative_path:
+                return
             connection.execute("DELETE FROM output_files WHERE relative_path=?", (destination_relative_path,))
             connection.execute(
                 "UPDATE output_files SET relative_path=?,is_available=1 WHERE relative_path=?",

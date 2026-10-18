@@ -48,11 +48,14 @@ const applicationState = {
   outputSelectionMode: false,
   outputSelectionScope: null,
   selectedOutputIds: new Set(),
+  selectableOutputIds: new Set(),
   deletableOutputIds: new Set(),
   selectingEveryOutput: false,
   deletingSelectedOutputs: false,
   deletingOutputId: null,
   movingOutputPath: null,
+  movingSelectedOutputs: false,
+  movingJobId: null,
   jobsPage: 1,
   jobFilterId: null,
   jobsLoadRevision: 0,
@@ -1366,7 +1369,7 @@ function canDeleteJobHistory(job) {
 /** 선택·삭제·보호 설정을 변경 중인지 확인합니다. */
 function jobSelectionIsBusy() {
   return applicationState.deletingSelectedJobs || applicationState.selectingEveryJob ||
-    applicationState.updatingJobProtectionId !== null;
+    applicationState.updatingJobProtectionId !== null || applicationState.movingJobId !== null;
 }
 
 /** 선택 모드, 선택 건수와 삭제 처리 상태에 맞춰 일괄 조작 버튼을 갱신합니다. */
@@ -1643,6 +1646,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
       ${originalNegative ? `<div class="job-detail job-original-negative-prompt"><strong>입력 Negative Prompt</strong> ${escapeHtml(originalNegative)}</div>` : ""}
       <div class="job-actions inline-actions">
         <a class="button subtle small" data-navigation data-show-job-results="${escapeHtml(job.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "outputs", pageNumber: 1, outputFilter: { type: "job", id: job.job_id } }))}">작업 결과 보기</a>
+        <button class="button subtle small" data-move-job-outputs="${escapeHtml(job.job_id)}" ${canCancel || jobSelectionIsBusy() || outputSelectionIsBusy() ? "disabled" : ""} ${canCancel ? 'title="생성이 끝난 뒤 결과물을 이동할 수 있습니다."' : ""}>${applicationState.movingJobId === job.job_id ? "결과물 이동 중…" : "결과물 폴더 이동"}</button>
         <button class="button ${job.deletion_protected ? "job-protected" : "subtle"} small" data-toggle-job-protection="${escapeHtml(job.job_id)}" aria-pressed="${Boolean(job.deletion_protected)}" ${jobSelectionIsBusy() ? "disabled" : ""}>${job.deletion_protected ? "보호 해제" : "삭제 보호"}</button>
         ${canCancel ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.job_id)}" ${cancellationIsBusy ? "disabled" : ""}>${cancellationIsBusy ? "취소 처리 중" : job.cancellation_requested ? "취소 재시도" : "작업 취소"}</button>` : ""}
         ${canDelete && !applicationState.jobSelectionMode ? `<button class="button subtle small" data-delete-job="${escapeHtml(job.job_id)}">이력만 삭제</button><button class="button danger small" data-delete-job-outputs="${escapeHtml(job.job_id)}">이력·결과물 삭제</button>` : ""}
@@ -1752,7 +1756,7 @@ function renderJobsPagination(page, totalPages) {
 
 /** 앱이 제출한 상위 작업과 하위 요청의 최신 상태를 표시합니다. */
 async function loadJobs({ refreshAfterCurrentRequest = true } = {}) {
-  if (element("application").classList.contains("hidden") || applicationState.deletingSelectedJobs || applicationState.selectingEveryJob) return;
+  if (element("application").classList.contains("hidden") || applicationState.deletingSelectedJobs || applicationState.selectingEveryJob || applicationState.movingJobId !== null) return;
   if (applicationState.jobsLoadPromise) {
     if (refreshAfterCurrentRequest) applicationState.jobsReloadRequested = true;
     return applicationState.jobsLoadPromise;
@@ -1878,6 +1882,7 @@ async function deleteSelectedJobHistory(deleteOutputs) {
 
 /** 선택한 작업의 이력과 요청한 경우 원래 위치의 결과물을 삭제합니다. */
 async function deleteJobHistory(jobId, deleteOutputs) {
+  if (jobSelectionIsBusy() || outputSelectionIsBusy()) return;
   const confirmation = deleteOutputs
     ? "이 작업의 이력과 원래 생성 위치에 남은 결과물을 영구 삭제하시겠습니까? 이동된 파일은 삭제하지 않습니다."
     : "이 작업의 이력만 삭제하시겠습니까? 결과물 파일은 유지됩니다.";
@@ -1923,6 +1928,7 @@ async function loadOutputs() {
     const selectionScope = JSON.stringify(outputFilter);
     if (applicationState.outputSelectionScope !== selectionScope) {
       applicationState.selectedOutputIds.clear();
+      applicationState.selectableOutputIds.clear();
       applicationState.deletableOutputIds.clear();
       applicationState.outputSelectionScope = selectionScope;
       updateOutputSelectionControls();
@@ -1935,7 +1941,7 @@ async function loadOutputs() {
       candidateQuery.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
     const [response, candidates] = await Promise.all([
       apiRequest(`/api/outputs?${query}`),
-      selectionMode ? apiRequest(`/api/outputs/deletion-candidates?${candidateQuery}`) : Promise.resolve(null),
+      selectionMode ? apiRequest(`/api/outputs/selection-candidates?${candidateQuery}`) : Promise.resolve(null),
     ]);
     if (loadRevision !== applicationState.outputsLoadRevision) return;
     if (applicationState.outputsPage > response.total_pages) {
@@ -1943,9 +1949,10 @@ async function loadOutputs() {
       return loadOutputs();
     }
     applicationState.visibleOutputs = response.files;
-    applicationState.deletableOutputIds = new Set((candidates?.output_ids || []).map(String));
+    applicationState.selectableOutputIds = new Set((candidates?.output_ids || []).map(String));
+    applicationState.deletableOutputIds = new Set((candidates?.deletable_output_ids || []).map(String));
     for (const selectedOutputId of applicationState.selectedOutputIds) {
-      if (!applicationState.deletableOutputIds.has(selectedOutputId)) {
+      if (!applicationState.selectableOutputIds.has(selectedOutputId)) {
         applicationState.selectedOutputIds.delete(selectedOutputId);
       }
     }
@@ -1974,19 +1981,20 @@ function canDeleteOutput(outputFile) {
 /** 결과물 선택·삭제·이동 중 다른 조작을 잠글지 확인합니다. */
 function outputSelectionIsBusy() {
   return applicationState.selectingEveryOutput || applicationState.deletingSelectedOutputs ||
-    applicationState.deletingOutputId !== null || applicationState.movingOutputPath !== null;
+    applicationState.deletingOutputId !== null || applicationState.movingOutputPath !== null ||
+    applicationState.movingSelectedOutputs || applicationState.movingJobId !== null;
 }
 
-/** 현재 페이지와 전체 선택 상태에 맞춰 다중 삭제 조작부를 갱신합니다. */
+/** 현재 페이지와 전체 선택 상태에 맞춰 이동·삭제 조작부를 갱신합니다. */
 function updateOutputSelectionControls() {
   const selectionIsBusy = outputSelectionIsBusy();
-  const selectableOutputs = applicationState.visibleOutputs.filter(canDeleteOutput);
+  const selectableOutputs = applicationState.visibleOutputs;
   const currentPageSelected = selectableOutputs.length > 0 && selectableOutputs.every(outputFile =>
     applicationState.selectedOutputIds.has(String(outputFile.output_id)),
   );
-  const everyOutputSelected = applicationState.deletableOutputIds.size > 0 &&
-    [...applicationState.deletableOutputIds].every(outputIdentifier => applicationState.selectedOutputIds.has(outputIdentifier));
-  element("toggle-output-selection").textContent = applicationState.outputSelectionMode ? "다중 삭제 취소" : "다중 삭제";
+  const everyOutputSelected = applicationState.selectableOutputIds.size > 0 &&
+    [...applicationState.selectableOutputIds].every(outputIdentifier => applicationState.selectedOutputIds.has(outputIdentifier));
+  element("toggle-output-selection").textContent = applicationState.outputSelectionMode ? "다중 선택 취소" : "다중 선택";
   element("toggle-output-selection").setAttribute("aria-expanded", String(applicationState.outputSelectionMode));
   element("toggle-output-selection").disabled = selectionIsBusy;
   element("output-selection-actions").classList.toggle("hidden", !applicationState.outputSelectionMode);
@@ -1994,10 +2002,14 @@ function updateOutputSelectionControls() {
   element("select-all-outputs").disabled = selectionIsBusy || selectableOutputs.length === 0;
   element("select-every-output").textContent = applicationState.selectingEveryOutput
     ? "전체 결과물 조회 중…" : everyOutputSelected ? "전체 선택 해제" : "결과물 전체 선택";
-  element("select-every-output").disabled = selectionIsBusy || applicationState.deletableOutputIds.size === 0;
+  element("select-every-output").disabled = selectionIsBusy || applicationState.selectableOutputIds.size === 0;
   element("selected-output-count").textContent = applicationState.deletingSelectedOutputs
-    ? "삭제 중…" : `${applicationState.selectedOutputIds.size}개 선택`;
-  element("delete-selected-outputs").disabled = selectionIsBusy || applicationState.selectedOutputIds.size === 0;
+    ? "삭제 중…" : applicationState.movingSelectedOutputs ? "이동 중…" : `${applicationState.selectedOutputIds.size}개 선택`;
+  const selectedDeletableOutputs = [...applicationState.selectedOutputIds].filter(outputIdentifier =>
+    applicationState.deletableOutputIds.has(outputIdentifier),
+  );
+  element("delete-selected-outputs").disabled = selectionIsBusy || selectedDeletableOutputs.length === 0;
+  element("move-selected-outputs").disabled = selectionIsBusy || applicationState.selectedOutputIds.size === 0;
   element("refresh-outputs-button").disabled = selectionIsBusy;
   element("outputs-pagination").toggleAttribute("inert", selectionIsBusy);
   const clearOutputFilterLink = element("clear-output-filter");
@@ -2032,7 +2044,7 @@ function renderOutputsList() {
               : "";
             const isSelected = applicationState.selectedOutputIds.has(String(outputFile.output_id));
             const selectionCheckbox = applicationState.outputSelectionMode
-              ? `<label class="output-selection-control"><input class="output-selection-checkbox" type="checkbox" data-select-output="${outputFile.output_id}" aria-label="이미지 ${escapeHtml(outputFile.name)} 선택" ${isSelected ? "checked" : ""} ${selectionIsBusy || !canDeleteOutput(outputFile) ? "disabled" : ""}>선택</label>`
+              ? `<label class="output-selection-control"><input class="output-selection-checkbox" type="checkbox" data-select-output="${outputFile.output_id}" aria-label="결과물 ${escapeHtml(outputFile.name)} 선택" ${isSelected ? "checked" : ""} ${selectionIsBusy ? "disabled" : ""}>선택</label>`
               : "";
             const protectionLabel = outputFile.deletion_protected ? '<span class="output-protection-label">삭제 보호</span>' : "";
             return `<article class="output-card${isSelected ? " output-selected" : ""}"><div class="output-preview">${media}${selectionCheckbox}</div><div class="output-info"><strong>${escapeHtml(outputFile.name)}</strong>${protectionLabel}<small>${escapeHtml(outputFile.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(outputFile.path)}" ${selectionIsBusy ? "disabled" : ""}>이동</button>${deleteButton}${jobButton}</div></div></article>`;
@@ -2042,10 +2054,10 @@ function renderOutputsList() {
   updateOutputSelectionControls();
 }
 
-/** 현재 페이지에서 삭제 가능한 이미지를 모두 선택하거나 해제합니다. */
+/** 현재 페이지의 결과물을 모두 선택하거나 해제합니다. */
 function toggleAllOutputSelections() {
   if (!applicationState.outputSelectionMode || outputSelectionIsBusy()) return;
-  const selectableOutputs = applicationState.visibleOutputs.filter(canDeleteOutput);
+  const selectableOutputs = applicationState.visibleOutputs;
   const currentPageSelected = selectableOutputs.every(outputFile => applicationState.selectedOutputIds.has(String(outputFile.output_id)));
   for (const outputFile of selectableOutputs) {
     const outputIdentifier = String(outputFile.output_id);
@@ -2055,11 +2067,11 @@ function toggleAllOutputSelections() {
   updateOutputSelectionControls();
 }
 
-/** 현재 필터의 모든 페이지에서 삭제 가능한 이미지를 선택하거나 해제합니다. */
+/** 현재 필터의 모든 페이지에서 이동할 결과물을 선택하거나 해제합니다. */
 async function toggleEveryOutputSelection() {
   if (!applicationState.outputSelectionMode || outputSelectionIsBusy()) return;
-  const everyOutputSelected = applicationState.deletableOutputIds.size > 0 &&
-    [...applicationState.deletableOutputIds].every(outputIdentifier => applicationState.selectedOutputIds.has(outputIdentifier));
+  const everyOutputSelected = applicationState.selectableOutputIds.size > 0 &&
+    [...applicationState.selectableOutputIds].every(outputIdentifier => applicationState.selectedOutputIds.has(outputIdentifier));
   if (everyOutputSelected) {
     applicationState.selectedOutputIds.clear();
     updateOutputSelectionControls();
@@ -2075,7 +2087,7 @@ async function toggleEveryOutputSelection() {
       const outputFilter = applicationState.outputFilter;
       query.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
     }
-    const candidates = await apiRequest(`/api/outputs/deletion-candidates?${query}`);
+    const candidates = await apiRequest(`/api/outputs/selection-candidates?${query}`);
     if (selectionScope === JSON.stringify(applicationState.outputFilter)) {
       applicationState.selectedOutputIds = new Set(candidates.output_ids.map(String));
     }
@@ -2089,9 +2101,11 @@ async function toggleEveryOutputSelection() {
 /** 한 번 확인한 이미지들을 개별 API로 삭제하고 실패한 선택만 재시도할 수 있게 남깁니다. */
 async function deleteSelectedOutputs() {
   if (!applicationState.outputSelectionMode || outputSelectionIsBusy()) return;
-  const selectedOutputIds = [...applicationState.selectedOutputIds];
+  const selectedOutputIds = [...applicationState.selectedOutputIds].filter(outputIdentifier =>
+    applicationState.deletableOutputIds.has(outputIdentifier),
+  );
   if (selectedOutputIds.length === 0) return;
-  if (!window.confirm(`선택한 이미지 ${selectedOutputIds.length}개를 영구 삭제하시겠습니까? 작업 이력은 유지되며 파일은 복구할 수 없습니다.`)) return;
+  if (!window.confirm(`선택한 이미지 ${selectedOutputIds.length}개를 영구 삭제하시겠습니까? 영상·삭제 보호 결과물은 제외됩니다. 작업 이력은 유지되며 파일은 복구할 수 없습니다.`)) return;
   applicationState.deletingSelectedOutputs = true;
   applicationState.outputsLoadRevision += 1;
   renderOutputsList();
@@ -2121,6 +2135,71 @@ async function deleteSelectedOutputs() {
     deletionFailures.length > 0);
 }
 
+/** 이동 결과의 성공·이미 같은 폴더·실패 건수를 사용자에게 알립니다. */
+function showOutputMoveSummary(movement) {
+  const failureCount = movement.failures.length;
+  const summary = `결과물 ${movement.moved_count}개를 이동했습니다. 같은 폴더 ${movement.skipped_count}개`;
+  showNotice(failureCount
+    ? `${summary} · 이동 실패 ${failureCount}개 · ${movement.failures[0].detail}` : summary,
+    failureCount > 0);
+}
+
+/** 선택한 결과물의 현재 경로를 서버에서 확인하여 한 목적지 폴더로 이동합니다. */
+async function moveSelectedOutputs() {
+  if (!applicationState.outputSelectionMode || outputSelectionIsBusy()) return;
+  const selectedOutputIds = [...applicationState.selectedOutputIds];
+  if (selectedOutputIds.length === 0) return;
+  const destinationFolder = window.prompt(
+    `선택한 결과물 ${selectedOutputIds.length}개를 이동할 폴더를 from_home_server 기준 상대 경로로 입력하세요.`,
+    "sorted",
+  );
+  if (!destinationFolder) return;
+  applicationState.movingSelectedOutputs = true;
+  applicationState.outputsLoadRevision += 1;
+  renderOutputsList();
+  try {
+    const movement = await apiRequest("/api/outputs/move-batch", {
+      method: "POST",
+      body: JSON.stringify({ output_ids: selectedOutputIds.map(Number), destination_folder: destinationFolder }),
+    });
+    for (const outputIdentifier of [...movement.moved_output_ids, ...movement.skipped_output_ids]) {
+      applicationState.selectedOutputIds.delete(String(outputIdentifier));
+    }
+    showOutputMoveSummary(movement);
+  } finally {
+    applicationState.movingSelectedOutputs = false;
+    applicationState.outputsRenderSignature = null;
+    await loadOutputs();
+    renderOutputsList();
+  }
+}
+
+/** 생성이 끝난 작업에 연결된 결과물 전체를 현재 위치에서 한 폴더로 이동합니다. */
+async function moveJobOutputs(jobIdentifier) {
+  if (jobSelectionIsBusy() || outputSelectionIsBusy()) return;
+  const destinationFolder = window.prompt(
+    `작업 ${jobIdentifier}의 결과물 전체를 이동할 폴더를 from_home_server 기준 상대 경로로 입력하세요.`,
+    "sorted",
+  );
+  if (!destinationFolder) return;
+  applicationState.movingJobId = jobIdentifier;
+  applicationState.jobsLoadRevision += 1;
+  applicationState.outputsLoadRevision += 1;
+  renderJobsList();
+  try {
+    const movement = await apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}/outputs/move`, {
+      method: "POST", body: JSON.stringify({ destination_folder: destinationFolder }),
+    });
+    showOutputMoveSummary(movement);
+  } finally {
+    applicationState.movingJobId = null;
+    applicationState.outputsRenderSignature = null;
+    await loadJobs();
+    renderJobsList();
+    if (applicationState.currentView === "outputs") await loadOutputs();
+  }
+}
+
 /** 관리 output 안에서 결과물을 다른 폴더로 이동합니다. */
 async function moveOutput(sourcePath) {
   if (outputSelectionIsBusy()) return;
@@ -2133,14 +2212,14 @@ async function moveOutput(sourcePath) {
   applicationState.outputsLoadRevision += 1;
   renderOutputsList();
   try {
-    await apiRequest("/api/outputs/move", {
+    const movement = await apiRequest("/api/outputs/move", {
       method: "POST",
       body: JSON.stringify({
         source: sourcePath,
         destination_folder: destinationFolder,
       }),
     });
-    showNotice("파일을 이동했습니다.");
+    showNotice(movement.moved === false ? "이미 같은 폴더에 있는 파일입니다." : "파일을 이동했습니다.");
     applicationState.outputsPage = 1;
   } finally {
     applicationState.movingOutputPath = null;
@@ -2410,6 +2489,9 @@ function bindEvents() {
     updateJobSelectionControls();
   });
   element("jobs-list").addEventListener("click", (event) => {
+    const moveOutputsButton = event.target.closest("[data-move-job-outputs]");
+    if (moveOutputsButton && !moveOutputsButton.disabled)
+      runAction(() => moveJobOutputs(moveOutputsButton.dataset.moveJobOutputs));
     const protectionButton = event.target.closest("[data-toggle-job-protection]");
     if (protectionButton && !protectionButton.disabled)
       runAction(() => toggleJobDeletionProtection(protectionButton.dataset.toggleJobProtection));
@@ -2453,6 +2535,7 @@ function bindEvents() {
     applicationState.outputSelectionMode = !applicationState.outputSelectionMode;
     applicationState.outputsLoadRevision += 1;
     applicationState.selectedOutputIds.clear();
+    applicationState.selectableOutputIds.clear();
     applicationState.deletableOutputIds.clear();
     renderOutputsList();
     runAction(loadOutputs);
@@ -2460,6 +2543,7 @@ function bindEvents() {
   element("select-all-outputs").addEventListener("click", toggleAllOutputSelections);
   element("select-every-output").addEventListener("click", () => runAction(toggleEveryOutputSelection));
   element("delete-selected-outputs").addEventListener("click", () => runAction(deleteSelectedOutputs));
+  element("move-selected-outputs").addEventListener("click", () => runAction(moveSelectedOutputs));
   element("outputs-grid").addEventListener("change", (event) => {
     const selectionCheckbox = event.target.closest("[data-select-output]");
     if (!selectionCheckbox || selectionCheckbox.disabled || outputSelectionIsBusy()) return;

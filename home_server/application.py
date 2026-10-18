@@ -187,6 +187,27 @@ class MoveInput(BaseModel):
     destination_folder: str
 
 
+class MoveDestinationInput(BaseModel):
+    """여러 결과물을 이동할 관리 폴더 안의 목적지를 검증합니다."""
+
+    destination_folder: str = Field(min_length=1)
+
+
+class BulkMoveInput(MoveDestinationInput):
+    """다중 이동할 결과물 ID를 전달받고 비어 있거나 잘못된 ID를 거부합니다."""
+
+    output_ids: list[int] = Field(min_length=1, max_length=10000)
+
+    @field_validator("output_ids")
+    @classmethod
+    def validate_output_ids(cls, output_ids: list[int]) -> list[int]:
+        """양수 ID만 허용하고 중복 선택은 입력 순서를 유지하여 한 번만 이동합니다."""
+
+        if any(output_id <= 0 for output_id in output_ids):
+            raise ValueError("결과물 ID는 양수여야 합니다.")
+        return list(dict.fromkeys(output_ids))
+
+
 class LoraProfileInput(BaseModel):
     """Workflow별 LoRA 기본 강도 설정입니다."""
 
@@ -316,6 +337,87 @@ class HomeServer:
         if must_exist and not candidate.exists():
             raise FileNotFoundError(relative_path)
         return candidate
+
+
+def move_managed_output(
+    server: HomeServer, source_relative_path: str, destination_folder: str,
+    expected_output_id: int | None = None,
+) -> dict[str, Any]:
+    """단건·작업·다중 이동에 공통으로 파일 경계와 충돌을 검사하고 FS·DB 경로를 변경합니다."""
+
+    try:
+        source_path = server.managed_path(source_relative_path, must_exist=True)
+        destination_directory = server.managed_path(destination_folder)
+    except (ValueError, FileNotFoundError) as exception:
+        raise HTTPException(422, str(exception)) from exception
+    normalized_source = source_relative_path.replace("\\", "/")
+    if source_path != server.config.managed_output_directory / normalized_source:
+        raise HTTPException(422, "symlink 경로의 결과물은 이동할 수 없습니다.")
+    if not source_path.is_file() or source_path.suffix.lower() not in MEDIA_EXTENSIONS:
+        raise HTTPException(422, "이동할 결과물 파일이 아닙니다.")
+    destination_path = destination_directory / source_path.name
+    source_relative_path = source_path.relative_to(server.config.managed_output_directory).as_posix()
+    destination_relative_path = destination_path.relative_to(server.config.managed_output_directory).as_posix()
+    file_was_moved = False
+
+    def move_physical_output() -> None:
+        """DB 잠금 안에서 목적지 충돌을 다시 확인하고 실제 파일을 이동합니다."""
+
+        nonlocal file_was_moved
+        if destination_path.exists():
+            raise HTTPException(409, "목적지에 같은 이름의 파일이 있습니다.")
+        destination_directory.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source_path), str(destination_path))
+        file_was_moved = True
+
+    try:
+        server.output_catalog.move_file(
+            source_relative_path, destination_relative_path, move_physical_output,
+            expected_output_id=expected_output_id,
+        )
+    except sqlite3.Error as exception:
+        if file_was_moved:
+            shutil.move(str(destination_path), str(source_path))
+        raise HTTPException(409, "결과물 경로를 DB에 반영하지 못했습니다.") from exception
+    except (OSError, ValueError) as exception:
+        raise HTTPException(409, f"파일을 이동할 수 없습니다: {exception}") from exception
+    if file_was_moved:
+        for changed_path in (source_path, destination_path):
+            IMAGE_DIMENSION_CACHE.invalidate(changed_path)
+            server.thumbnail_cache.invalidate(changed_path)
+    LOGGER.info("결과물 이동: source=%s destination=%s moved=%s", source_relative_path, destination_relative_path, file_was_moved)
+    return {"path": destination_relative_path, "moved": file_was_moved}
+
+
+def move_recorded_outputs(server: HomeServer, output_ids: list[int], destination_folder: str) -> dict[str, Any]:
+    """결과물별로 현재 경로에서 이동하고 충돌·누락 등 일부 실패를 성공한 이동과 구분합니다."""
+
+    try:
+        server.managed_path(destination_folder)
+    except ValueError as exception:
+        raise HTTPException(422, str(exception)) from exception
+    moved_output_ids = []
+    skipped_output_ids = []
+    failures = []
+    for output_id in output_ids:
+        try:
+            source_relative_path = server.output_catalog.get_output_path_for_move(output_id)
+            movement = move_managed_output(server, source_relative_path, destination_folder, output_id)
+            if movement["moved"]:
+                moved_output_ids.append(output_id)
+            else:
+                skipped_output_ids.append(output_id)
+        except (LookupError, ValueError) as exception:
+            failures.append({"output_id": output_id, "detail": str(exception)})
+        except HTTPException as exception:
+            failures.append({"output_id": output_id, "detail": exception.detail})
+        except sqlite3.Error:
+            LOGGER.exception("결과물 이동 DB 조회 실패: output_id=%s", output_id)
+            failures.append({"output_id": output_id, "detail": "결과물의 현재 경로를 DB에서 읽지 못했습니다."})
+    return {
+        "moved_count": len(moved_output_ids), "skipped_count": len(skipped_output_ids),
+        "moved_output_ids": moved_output_ids, "skipped_output_ids": skipped_output_ids, "failures": failures,
+    }
 
 
 def store_batch_requests(
@@ -856,6 +958,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         LOGGER.info("작업 취소 접수: job_id=%s requested_count=%s", job_id, requested_count)
         return {"status": "cancelling", "requested_count": requested_count}
 
+    @app.post("/api/jobs/{job_id}/outputs/move")
+    def move_job_outputs(job_id: str, payload: MoveDestinationInput):
+        """생성이 끝난 작업의 남아 있는 결과물을 현재 경로에서 목적지 폴더로 이동합니다."""
+
+        try:
+            output_ids = server.output_catalog.list_job_output_ids_for_move(job_id)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except ValueError as exception:
+            raise HTTPException(409, str(exception)) from exception
+        return JSONResponse(move_recorded_outputs(server, output_ids, payload.destination_folder))
+
     @app.delete("/api/jobs/{job_id}")
     def delete_job(job_id: str, delete_outputs: bool = False):
         """완료된 작업 이력과 선택한 경우 원래 위치의 결과물을 삭제합니다."""
@@ -971,6 +1085,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(404, str(exception)) from exception
         return JSONResponse({"output_ids": output_ids})
 
+    @app.get("/api/outputs/selection-candidates")
+    def output_selection_candidates(job_id: str = "", request_id: str = ""):
+        """현재 필터의 전체 선택용 ID와 삭제 가능한 ID를 함께 반환합니다."""
+
+        if job_id and request_id:
+            raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
+        try:
+            candidates = server.output_catalog.list_selection_candidates(job_id, request_id)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        return JSONResponse(candidates)
+
     @app.post("/api/outputs/sync")
     def synchronize_outputs(request: Request):
         """수동 새로고침에서 현재 파일 목록만 대조하고 실제 크기·해상도는 수집하지 않습니다."""
@@ -1076,46 +1202,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/outputs/move")
     def move_output(payload: MoveInput):
-        """결과물을 관리 폴더 안의 다른 폴더로 이동합니다."""
+        """결과물 하나를 관리 폴더 안의 다른 폴더로 이동합니다."""
 
-        try:
-            source_path = server.managed_path(payload.source, must_exist=True)
-            destination_directory = server.managed_path(payload.destination_folder)
-        except (ValueError, FileNotFoundError) as exception:
-            raise HTTPException(422, str(exception)) from exception
-        if not source_path.is_file() or source_path.suffix.lower() not in MEDIA_EXTENSIONS:
-            raise HTTPException(422, "이동할 결과물 파일이 아닙니다.")
-        destination_path = destination_directory / source_path.name
-        if destination_path.exists():
-            raise HTTPException(409, "목적지에 같은 이름의 파일이 있습니다.")
-        file_was_moved = False
+        return JSONResponse(move_managed_output(server, payload.source, payload.destination_folder))
 
-        def move_physical_output() -> None:
-            """삭제 transaction과 경합하지 않는 동안 실제 파일을 이동합니다."""
+    @app.post("/api/outputs/move-batch")
+    def move_selected_outputs(payload: BulkMoveInput):
+        """선택한 결과물들을 이동하고 성공·동일 폴더·실패 항목을 구분하여 반환합니다."""
 
-            nonlocal file_was_moved
-            if destination_path.exists():
-                raise HTTPException(409, "목적지에 같은 이름의 파일이 있습니다.")
-            destination_directory.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(source_path), str(destination_path))
-            file_was_moved = True
-
-        try:
-            server.output_catalog.move_file(
-                source_path.relative_to(server.config.managed_output_directory).as_posix(),
-                destination_path.relative_to(server.config.managed_output_directory).as_posix(),
-                move_physical_output,
-            )
-        except sqlite3.Error as exception:
-            if file_was_moved:
-                shutil.move(str(destination_path), str(source_path))
-            raise HTTPException(409, "결과물 경로를 DB에 반영하지 못했습니다.") from exception
-        except (OSError, ValueError) as exception:
-            raise HTTPException(409, f"파일을 이동할 수 없습니다: {exception}") from exception
-        LOGGER.info("결과물 이동: source=%s destination=%s", payload.source, destination_path)
-        IMAGE_DIMENSION_CACHE.invalidate(source_path)
-        IMAGE_DIMENSION_CACHE.invalidate(destination_path)
-        return JSONResponse({"path": destination_path.relative_to(server.config.managed_output_directory).as_posix()})
+        return JSONResponse(move_recorded_outputs(server, payload.output_ids, payload.destination_folder))
 
     return app
 
