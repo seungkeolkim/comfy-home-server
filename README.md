@@ -143,6 +143,8 @@ DB schema version 11은 `output_files.is_deleted`를 추가합니다. 기존 DB�
 
 생성물은 `{workflow}/{YYMMDD_HHmmss}_{seed}.{확장자}`를 기본으로 저장합니다. 예: `anima/261006_153012_123456789.png`. Anima는 `%time_%seed`, MiniMax는 `%date:yyMMdd_HHmmss%_%seed%` 예약어를 사용하며, MiniMax Saver에도 sampling과 동일한 seed 출력을 연결합니다. 시각은 ComfyUI Saver 실행 시점의 로컬 시간이고, 영상은 encoding 시작 직전입니다. Saver가 붙이는 counter나 `_audio` 접미사는 그대로 유지하며 앱에서 파일명을 후처리하지 않습니다. 작업의 결과 보기는 ComfyUI history의 실제 출력 파일명을 사용합니다. 생성 완료와 앱의 파일 이동·삭제는 DB 목록에 즉시 반영됩니다. 외부에서 추가·이동·삭제한 파일은 서버 시작 또는 결과물 화면의 새로고침 버튼으로 실제 폴더를 대조해 반영합니다. 앱이 미완료 요청을 재시작 후 자동 재제출하지 않습니다.
 
+결과물 폴더를 고정 루트로 사용하는 공용 탐색기와 새 폴더 생성은 [결과물 폴더 탐색기 설계](docs/output_folder_picker_design.md)에 정리했습니다. 아직 미구현이며, MiniMax 서버 이미지 선택과 폴더 삭제는 별도 후속 범위입니다.
+
 ## 외부 접속
 
 앱 기본 포트는 8388입니다. 현재 구성은 HTTP와 단일 비밀번호 인증을 사용합니다. HTTP로 외부 접속하면 비밀번호와 전송 내용이 암호화되지 않습니다. 앱 설정과 ComfyUI 8188 서버 설정은 서로 독립적입니다.
