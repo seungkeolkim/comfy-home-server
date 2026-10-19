@@ -124,7 +124,7 @@ async function handleBrowserRequest(route) {
   else if (requestPath === "/api/outputs") {
     outputQueries.push(requestUrl.search);
     const pageNumber = Number(requestUrl.searchParams.get("page") || 1);
-    const pageSize = Number(requestUrl.searchParams.get("page_size") || 24);
+    const pageSize = Number(requestUrl.searchParams.get("page_size") || 64);
     const selectedFiles = requestUrl.searchParams.has("job_id") || requestUrl.searchParams.has("request_id")
       ? [] : mockOutputFiles;
     response = {
@@ -493,7 +493,7 @@ async function main() {
     await page.locator('[data-delete-job-outputs="test-job"]').click();
     await page.locator('[data-delete-job-outputs="test-job"]').waitFor({ state: "detached" });
     assert.equal(savedJobs.some(job => job.job_id === "test-job"), false);
-    for (let outputNumber = 0; outputNumber < 26; outputNumber += 1) {
+    for (let outputNumber = 0; outputNumber < 66; outputNumber += 1) {
       const isVideo = outputNumber === 0;
       const filename = `result-${String(outputNumber).padStart(2, "0")}.${isVideo ? "webm" : "png"}`;
       mockOutputFiles.push({
@@ -508,10 +508,10 @@ async function main() {
     await page.locator('.sidebar [data-view="outputs"]').click();
     await page.locator("#refresh-outputs-button").click();
     await page.locator(".output-card").first().waitFor();
-    assert.equal(await page.locator(".output-card").count(), 24);
+    assert.equal(await page.locator(".output-card").count(), 64);
     assert.equal(await page.locator(".output-video-placeholder").count(), 1);
-    assert.equal(await page.locator(".output-card img").count(), 23);
-    assert.equal(await page.locator('.output-card img[src^="/api/outputs/preview/"]').count(), 23);
+    assert.equal(await page.locator(".output-card img").count(), 63);
+    assert.equal(await page.locator('.output-card img[src^="/api/outputs/preview/"]').count(), 63);
     assert.match(await page.locator(".output-card").first().locator("small").textContent(),
       /9:16 · 720 × 1280 \(설정\)/);
     assert.match(await page.locator(".output-card").nth(1).locator("small").textContent(),
@@ -535,7 +535,7 @@ async function main() {
     assert.ok(outputQueries.some(query => new URLSearchParams(query).get("page") === "2"));
     assert.equal(outputSynchronizationRequests.length, 1);
     await page.locator("#refresh-outputs-button").click();
-    await page.waitForFunction(() => document.querySelectorAll(".output-card").length === 24);
+    await page.waitForFunction(() => document.querySelectorAll(".output-card").length === 64);
     assert.equal(outputSynchronizationRequests.length, 2);
     assert.ok(previewRequests.length > 0);
     const tagPage = await browser.newPage({ viewport: { width: 1280, height: 950 } });

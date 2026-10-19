@@ -25,13 +25,14 @@ from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
 from .image_dimension_cache import ImageDimensionCache
 from .logging_setup import configure_application_logging, shutdown_application_logging
+from .minimax_inputs import inspect_input_images, prepare_input_canvas, remove_input_snapshots, snapshot_input_images
 from .output_catalog import OutputCatalog
 from .output_directories import create_output_directory, list_output_directories, resolve_output_directory
 from .output_listing import MEDIA_EXTENSIONS
 from .output_timing import OutputTimingRecorder, measure_output_step
 from .tag_builder import MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt, resolve_anima_prompts, validate_tag_selection
 from .thumbnail_cache import PREVIEW_IMAGE_EXTENSIONS, PREVIEW_SIZE, ThumbnailCache, ThumbnailTooLargeError
-from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
+from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, minimax_execution_settings, prepare_anima, prepare_minimax
 
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
@@ -127,6 +128,9 @@ class BatchInput(BaseModel):
     lora_preset_id: str | None = Field(default=None, max_length=64)
     lora_preset_name: str | None = Field(default=None, max_length=120)
     upload_ids: list[str] = Field(default_factory=list)
+    output_ids: list[int] = Field(default_factory=list, max_length=100)
+    input_scope: Literal["single", "folder"] | None = None
+    input_directory: str | None = None
 
     @field_validator("description")
     @classmethod
@@ -136,6 +140,12 @@ class BatchInput(BaseModel):
         if "\n" in value or "\r" in value:
             raise ValueError("작업 설명은 한 줄로 입력해 주세요.")
         return value.strip()
+
+
+class InputImageInspection(BaseModel):
+    """실제 해상도를 확인할 서버 이미지 ID를 제한합니다."""
+
+    output_ids: list[int] = Field(min_length=1, max_length=100)
 
 
 class JobProtectionInput(BaseModel):
@@ -445,27 +455,56 @@ def store_batch_requests(
         if not any(server.upload_directory.glob(f"{upload_id}.*")):
             raise HTTPException(422, f"업로드 파일이 없습니다: {upload_id}")
 
-    job_id = uuid.uuid4().hex[:12]
-    request_settings = dict(payload.settings)
-    if payload.workflow == "anima":
-        request_settings.pop("batch_size", None)
-    submitted_requests = []
-    for upload_id in upload_ids:
-        request_id = uuid.uuid4().hex[:12]
-        output_stem = f"{server.config.managed_output_directory.name}/{payload.workflow}/{WORKFLOW_OUTPUT_NAMES[payload.workflow]}"
-        request = {
-            "request_id": request_id, "job_id": job_id, "workflow": payload.workflow,
-            "status": "submitting", "output_stem": output_stem,
-            "detail": {"upload_id": upload_id, "body": payload.body, "selected_tags": selected_tags,
-                       "settings": request_settings, "loras": payload.loras,
-                       "prompt_preset_id": payload.prompt_preset_id,
-                       "lora_preset_id": payload.lora_preset_id if payload.loras else None,
-                       "lora_preset_name": payload.lora_preset_name if payload.loras else None},
-        }
-        submitted_requests.append(request)
-
-    server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests)
-    return job_id, submitted_requests
+    image_snapshots = []
+    try:
+        request_settings = dict(payload.settings)
+        if payload.output_ids:
+            image_snapshots = snapshot_input_images(
+                server.config.managed_output_directory, server.output_catalog, server.upload_directory,
+                payload.output_ids, payload.input_scope, payload.input_directory,
+            )
+            upload_ids = [image_record["upload_id"] for image_record in image_snapshots]
+            reference_image = image_snapshots[0]
+            request_settings.update({
+                "input_scope": payload.input_scope, "input_directory": payload.input_directory,
+                "resolution_reference": {key: reference_image[key] for key in ("output_id", "path", "width", "height")},
+                "resize_policy": "fit_pad",
+            })
+            resolution_mode = request_settings.get("resolution_mode", "automatic")
+            if resolution_mode not in {"automatic", "manual"}:
+                raise ValueError("해상도 설정은 자동 또는 직접 입력이어야 합니다.")
+            request_settings["resolution_mode"] = resolution_mode
+            if resolution_mode == "automatic":
+                request_settings.update({"width": reference_image["width"], "height": reference_image["height"]})
+        if payload.workflow == "anima":
+            request_settings.pop("batch_size", None)
+        else:
+            minimax_execution_settings(request_settings)
+        job_id = uuid.uuid4().hex[:12]
+        submitted_requests = []
+        for image_index, upload_id in enumerate(upload_ids):
+            request_id = uuid.uuid4().hex[:12]
+            output_stem = f"{server.config.managed_output_directory.name}/{payload.workflow}/{WORKFLOW_OUTPUT_NAMES[payload.workflow]}"
+            initial_result = {}
+            if image_snapshots:
+                initial_result["source_image"] = {
+                    key: image_snapshots[image_index][key] for key in ("output_id", "path", "name", "width", "height")
+                }
+            request = {
+                "request_id": request_id, "job_id": job_id, "workflow": payload.workflow,
+                "status": "submitting", "output_stem": output_stem,
+                "detail": {"upload_id": upload_id, "body": payload.body, "selected_tags": selected_tags,
+                           "settings": request_settings, "loras": payload.loras, "resolved": initial_result,
+                           "prompt_preset_id": payload.prompt_preset_id,
+                           "lora_preset_id": payload.lora_preset_id if payload.loras else None,
+                           "lora_preset_name": payload.lora_preset_name if payload.loras else None},
+            }
+            submitted_requests.append(request)
+        server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests)
+        return job_id, submitted_requests
+    except Exception:
+        remove_input_snapshots(image_snapshots)
+        raise
 
 
 def find_uploaded_image(upload_directory: Path, upload_id: str) -> Path:
@@ -845,10 +884,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         if payload.workflow not in {"anima", "minimax_h3"}:
             raise HTTPException(422, "지원하지 않는 workflow입니다.")
-        if payload.workflow == "minimax_h3" and not payload.upload_ids:
+        if payload.workflow == "minimax_h3" and not (payload.upload_ids or payload.output_ids):
             raise HTTPException(422, "MiniMax에는 입력 이미지가 필요합니다.")
-        if payload.workflow == "anima" and payload.upload_ids:
+        if payload.workflow == "anima" and (payload.upload_ids or payload.output_ids):
             raise HTTPException(422, "Anima는 현재 입력 이미지를 사용하지 않습니다.")
+        if payload.upload_ids and payload.output_ids:
+            raise HTTPException(422, "업로드 입력과 서버 이미지 입력은 함께 제출할 수 없습니다.")
         if any(not re.fullmatch(r"[0-9a-f]{32}", upload_id) for upload_id in payload.upload_ids):
             raise HTTPException(422, "업로드 식별자 형식이 올바르지 않습니다.")
         selected_tags: list[dict[str, Any]] = []
@@ -857,6 +898,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 if payload.selected_tag_ids:
                     raise ValueError("MiniMax에는 태그 선택을 사용할 수 없습니다.")
                 plain_prompt(payload.body)
+                minimax_execution_settings(payload.settings)
             else:
                 prompt_text = anima_prompt(payload.body)
                 negative_text = anima_negative_prompt(payload.body)
@@ -873,7 +915,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception as exception:
             raise HTTPException(502, str(exception)) from exception
 
-        job_id, submitted_requests = await asyncio.to_thread(store_batch_requests, server, payload, selected_tags)
+        try:
+            job_id, submitted_requests = await asyncio.to_thread(store_batch_requests, server, payload, selected_tags)
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exception:
+            raise HTTPException(422, "입력 이미지를 읽거나 임시 저장할 수 없습니다. 다시 선택해 주세요.") from exception
         submission_task = asyncio.create_task(_submit_requests(server, submitted_requests))
         server.submission_tasks.add(submission_task)
         submission_task.add_done_callback(server.submission_tasks.discard)
@@ -1138,6 +1185,26 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except OSError as exception:
             raise HTTPException(403, "폴더를 만들 수 없습니다. 서버의 접근 권한을 확인해 주세요.") from exception
 
+    @app.get("/api/outputs/input-images")
+    def input_image_candidates(path: str = ""):
+        """관리 루트의 현재 폴더에 속한 전체 이미지 후보를 반환하고 전체 동기화는 하지 않습니다."""
+
+        try:
+            directory_path = resolve_output_directory(server.config.managed_output_directory, path)
+            relative_path = directory_path.relative_to(server.config.managed_output_directory).as_posix()
+            return {"files": server.output_catalog.list_input_images("" if relative_path == "." else relative_path)}
+        except (ValueError, OSError) as exception:
+            raise HTTPException(422, "입력 폴더를 읽을 수 없습니다. 다시 선택해 주세요.") from exception
+
+    @app.post("/api/outputs/input-images/inspect")
+    def inspect_input_image_selection(payload: InputImageInspection):
+        """선택한 이미지의 실제 크기를 표시 방향에 맞춰 확인합니다."""
+
+        try:
+            return {"files": inspect_input_images(server.config.managed_output_directory, server.output_catalog, payload.output_ids)}
+        except (ValueError, OSError) as exception:
+            raise HTTPException(422, str(exception) if isinstance(exception, ValueError) else "입력 이미지를 확인할 수 없습니다.") from exception
+
     @app.post("/api/outputs/sync")
     def synchronize_outputs(request: Request):
         """수동 새로고침에서 현재 파일 목록만 대조하고 실제 크기·해상도는 수집하지 않습니다."""
@@ -1349,9 +1416,13 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                         request_settings, detail["loras"], request["output_stem"],
                     )
                 else:
-                    request_settings = detail["settings"]
+                    request_settings = minimax_execution_settings(detail["settings"])
                     upload_id = detail["upload_id"]
                     upload_path = await asyncio.to_thread(find_uploaded_image, server.upload_directory, upload_id)
+                    if detail.get("resolved", {}).get("source_image"):
+                        upload_path = await asyncio.to_thread(
+                            prepare_input_canvas, upload_path, request_settings["width"], request_settings["height"],
+                        )
                     uploaded_name = f"{request_id}_{upload_path.name}"
                     uploaded_reference = await server.comfy.upload_image(upload_path, uploaded_name)
                     request_workflow, metadata_workflow = await asyncio.to_thread(
@@ -1368,6 +1439,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                         "negative_selected_path": negative_selected_path,
                         "wildcard_seed": wildcard_seed, "settings": request_settings,
                         "loras": detail["loras"],
+                        "source_image": detail.get("resolved", {}).get("source_image"),
                     },
                 }
                 if await _skip_cancelled_submission(server, request_id):
@@ -1376,7 +1448,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                 prompt_id = await server.comfy.submit(request_workflow, metadata)
                 await asyncio.to_thread(
                     server.database.set_request_accepted,
-                    request_id, prompt_id, {"prompt": prompt_text, "negative": negative_text,
+                    request_id, prompt_id, {**detail.get("resolved", {}), "prompt": prompt_text, "negative": negative_text,
                                             "selected_path": selected_path,
                                             "negative_selected_path": negative_selected_path,
                                             "wildcard_seed": wildcard_seed, "settings": request_settings},

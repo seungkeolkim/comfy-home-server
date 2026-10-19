@@ -25,7 +25,12 @@ const applicationState = {
   loraEditorEntries: [],
   loraCatalogAvailable: false,
   selectedLoras: [],
-  selectedFiles: [],
+  minimaxInputImages: [],
+  minimaxInputCandidates: [],
+  minimaxInputDirectory: null,
+  minimaxInputLoading: false,
+  minimaxSelectionRevision: 0,
+  minimaxResolutionManual: false,
   tagGroups: [],
   tagEntries: [],
   selectedTagIds: new Set(),
@@ -81,6 +86,9 @@ const applicationState = {
 };
 
 const outputFolderPickerState = {
+  selectionMode: "move",
+  images: [],
+  selectedImageIds: new Set(),
   resolveSelection: null,
   path: "",
   parentPath: null,
@@ -523,6 +531,8 @@ function updateWorkflowOptions() {
   element("generate-tag-fields").classList.toggle("hidden", !isAnima);
   element("anima-options").classList.toggle("hidden", !isAnima);
   element("minimax-options").classList.toggle("hidden", isAnima);
+  element("minimax-input-fields").classList.toggle("hidden", isAnima);
+  element("minimax-submit-summary").classList.toggle("hidden", isAnima);
   element("generate-count-field").classList.toggle("hidden", !isAnima);
   element("generate-count-hint").classList.toggle("hidden", !isAnima);
   element("generate-count").disabled = !isAnima;
@@ -536,6 +546,7 @@ function updateWorkflowOptions() {
   renderLoraFileOptions();
   renderGenerateTagGroups();
   updatePresetWorkflowOptions();
+  renderMinimaxInputs();
 }
 
 /** 선택한 해상도를 Anima의 너비와 높이에 적용합니다. */
@@ -1236,6 +1247,8 @@ function generationSettings() {
     upscale_model_name: element("minimax-upscale-model").value,
     auto_align: true,
     ref_image_size: "match",
+    generation_mode: element("minimax-generation-mode").value,
+    resolution_mode: applicationState.minimaxResolutionManual ? "manual" : "automatic",
   };
 }
 
@@ -1267,19 +1280,84 @@ async function previewPrompt() {
   }).join("");
 }
 
-/** MiniMax 입력 이미지를 임시 업로드하고 식별자를 돌려줍니다. */
-async function uploadImages() {
-  const uploadIds = [];
-  for (const file of applicationState.selectedFiles) {
-    const formData = new FormData();
-    formData.append("file", file);
-    const uploaded = await apiRequest("/api/uploads", {
-      method: "POST",
-      body: formData,
+/** 상대 경로의 폴더 구분자는 유지하면서 파일명 특수문자를 URL에 안전하게 넣습니다. */
+function encodedOutputPath(relativePath) {
+  return relativePath.split("/").map(encodeURIComponent).join("/");
+}
+
+/** 선택을 초기화하고 이전 이미지 확인 응답을 무효화합니다. */
+function clearMinimaxInputs(resetAutomatic = false) {
+  applicationState.minimaxSelectionRevision += 1;
+  applicationState.minimaxInputImages = [];
+  applicationState.minimaxInputCandidates = [];
+  applicationState.minimaxInputDirectory = null;
+  applicationState.minimaxInputLoading = false;
+  if (resetAutomatic) applicationState.minimaxResolutionManual = false;
+  renderMinimaxInputs();
+}
+
+/** 실제 첫 이미지의 크기를 자동 기본값으로 적용하되 직접 수정한 값은 보존합니다. */
+function applyMinimaxAutomaticResolution() {
+  const referenceImage = applicationState.minimaxInputImages[0];
+  if (!referenceImage || applicationState.minimaxResolutionManual) return;
+  element("minimax-width").value = referenceImage.width;
+  element("minimax-height").value = referenceImage.height;
+}
+
+/** 선택 이미지와 실제 크기·혼합 여부·최종 공통 해상도 및 제출 건수를 표시합니다. */
+function renderMinimaxInputs() {
+  const selectedImages = applicationState.minimaxInputImages;
+  const folderScope = element("minimax-input-scope").value === "folder";
+  element("select-minimax-input").textContent = folderScope ? "서버 폴더 선택" : "서버 이미지 선택";
+  element("selected-images").textContent = applicationState.minimaxInputLoading ? "입력 이미지의 실제 크기를 확인하는 중…"
+    : selectedImages.length ? `${folderScope ? `${applicationState.minimaxInputDirectory || "결과물"} · ` : ""}${selectedImages.length}개 이미지 선택됨 · 이미지마다 영상 한 개`
+      : "선택한 이미지가 없습니다.";
+  const selectedIdentifiers = new Set(selectedImages.map(image => image.output_id));
+  element("minimax-selected-images").innerHTML = applicationState.minimaxInputCandidates.map(image =>
+    `<label class="input-image-card"><img src="/api/outputs/preview/${encodedOutputPath(image.path)}" alt="" loading="lazy" />${folderScope ? `<input type="checkbox" data-minimax-selected="${image.output_id}" aria-label="${escapeHtml(image.name)} 포함" ${selectedIdentifiers.has(image.output_id) ? "checked" : ""} />` : ""}<span>${escapeHtml(image.name)} · ${image.width} × ${image.height}</span></label>`,
+  ).join("");
+  const referenceImage = selectedImages[0];
+  const mixedDimensions = new Set(selectedImages.map(image => `${image.width}x${image.height}`)).size > 1;
+  const requestedWidth = Number(element("minimax-width").value);
+  const requestedHeight = Number(element("minimax-height").value);
+  const executionWidth = Math.ceil(requestedWidth / 32) * 32;
+  const executionHeight = Math.ceil(requestedHeight / 32) * 32;
+  const dimensionsAreValid = Number.isInteger(requestedWidth) && Number.isInteger(requestedHeight) &&
+    requestedWidth >= 16 && requestedHeight >= 16 && executionWidth <= 8192 && executionHeight <= 8192;
+  element("minimax-resolution-reference").textContent = referenceImage
+    ? `기준: ${referenceImage.name} · 원본 ${referenceImage.width} × ${referenceImage.height} · ${applicationState.minimaxResolutionManual ? "직접 입력" : "자동 입력"}${mixedDimensions ? " · 해상도가 다른 이미지가 섞여 있습니다." : ""} · ${dimensionsAreValid ? `제출 ${executionWidth} × ${executionHeight}` : "16~8192 범위의 해상도를 직접 입력해 주세요."}`
+    : "입력 이미지의 실제 크기로 해상도를 자동 입력합니다.";
+  element("minimax-automatic-resolution").disabled = !referenceImage || applicationState.minimaxInputLoading;
+  element("minimax-submit-summary").textContent = `${element("minimax-generation-mode").value} · 이미지 ${selectedImages.length}장 → 영상 ${selectedImages.length}개 · 공통 ${executionWidth} × ${executionHeight} · 각 ${element("minimax-duration").value}초`;
+}
+
+/** 공용 서버 탐색기에서 확정한 후보만 실제 해상도를 확인하여 입력으로 사용합니다. */
+async function selectMinimaxInputs() {
+  if (element("submit-button").disabled) return;
+  const inputScope = element("minimax-input-scope").value;
+  const selection = await chooseOutputFolder(inputScope === "single" ? "영상에 사용할 이미지 한 장을 선택해 주세요." : "폴더의 직하위 이미지마다 영상 한 개를 생성합니다. 최대 100장을 선택해 주세요.", inputScope);
+  if (selection === null) return;
+  const selectionRevision = ++applicationState.minimaxSelectionRevision;
+  applicationState.minimaxInputLoading = true;
+  applicationState.minimaxInputImages = [];
+  applicationState.minimaxInputCandidates = [];
+  renderMinimaxInputs();
+  try {
+    const inspection = await apiRequest("/api/outputs/input-images/inspect", {
+      method: "POST", body: JSON.stringify({ output_ids: selection.files.map(image => image.output_id) }),
     });
-    uploadIds.push(uploaded.upload_id);
+    if (selectionRevision !== applicationState.minimaxSelectionRevision) return;
+    applicationState.minimaxInputImages = inspection.files;
+    applicationState.minimaxInputCandidates = inspection.files;
+    applicationState.minimaxInputDirectory = inputScope === "folder" ? selection.input_directory : null;
+    applyMinimaxAutomaticResolution();
+    showNotice(`입력 이미지 ${inspection.files.length}장을 선택했습니다.`);
+  } finally {
+    if (selectionRevision === applicationState.minimaxSelectionRevision) {
+      applicationState.minimaxInputLoading = false;
+      renderMinimaxInputs();
+    }
   }
-  return uploadIds;
 }
 
 /** Batch를 서버에 제출합니다. */
@@ -1295,15 +1373,15 @@ async function submitBatch() {
   }
   if (
     workflow === "minimax_h3" &&
-    applicationState.selectedFiles.length === 0
+    applicationState.minimaxInputImages.length === 0
   ) {
     throw new Error("MiniMax 입력 이미지를 선택해 주세요.");
   }
+  if (workflow === "minimax_h3" && applicationState.minimaxInputLoading) throw new Error("입력 이미지 확인이 끝난 뒤 제출해 주세요.");
   const submitButton = element("submit-button");
   submitButton.disabled = true;
   submitButton.textContent = "제출 중...";
   try {
-    const uploadIds = workflow === "minimax_h3" ? await uploadImages() : [];
     const response = await apiRequest("/api/batches", {
       method: "POST",
       body: JSON.stringify({
@@ -1317,7 +1395,9 @@ async function submitBatch() {
         prompt_preset_id: applicationState.currentPresetId,
         lora_preset_id: applicationState.currentLoraPresetId,
         lora_preset_name: generationLoraPresetName(),
-        upload_ids: uploadIds,
+        output_ids: workflow === "minimax_h3" ? applicationState.minimaxInputImages.map(image => image.output_id) : [],
+        input_scope: workflow === "minimax_h3" ? element("minimax-input-scope").value : null,
+        input_directory: workflow === "minimax_h3" ? applicationState.minimaxInputDirectory : null,
       }),
     });
     showNotice(
@@ -1339,6 +1419,7 @@ function jobLoraSummary(jobInputs) {
 
 /** 상위 작업에 속한 ComfyUI 요청의 상태와 조작 버튼을 표시합니다. */
 function requestCardMarkup(request, statusNames, commonInputs) {
+  const sourceImage = request.result.source_image;
   const promptText = request.result.prompt || "확정 전";
   const negativeText = request.result.negative ?? commonInputs.body?.negative ?? "";
   const selectedLoras = Array.isArray(commonInputs.loras) ? commonInputs.loras : [];
@@ -1364,6 +1445,7 @@ function requestCardMarkup(request, statusNames, commonInputs) {
       ${negativeText ? `<div class="job-detail"><strong>Negative Prompt</strong> ${escapeHtml(negativeText)}</div>` : ""}
       ${negativeTagNames ? `<div class="job-detail"><strong>Negative 태그 경로</strong> ${escapeHtml(negativeTagNames)}</div>` : ""}
       <div class="job-detail"><strong>LoRA</strong> ${escapeHtml(loraText)}</div>
+      ${sourceImage ? `<div class="job-detail"><strong>입력 이미지</strong> ${escapeHtml(sourceImage.path)} · ${sourceImage.width} × ${sourceImage.height}</div>` : ""}
       ${request.error_message ? `<div class="job-detail"><strong>오류</strong> ${escapeHtml(request.error_message)}</div>` : ""}
       <div class="job-actions inline-actions">
         ${["submitting", "pending", "running"].includes(request.status) ? `<button class="button subtle small" data-cancel-request="${escapeHtml(request.request_id)}">요청 취소</button>` : ""}
@@ -1543,6 +1625,9 @@ function restoreGenerationSettings(workflow, settings) {
     inputElement.value = settings[settingKey] ?? inputElement.defaultValue;
   }
   element("minimax-upscale").value = settings.upscale_mode || "off";
+  element("minimax-generation-mode").value = settings.generation_mode || "FL2VA";
+  element("minimax-input-scope").value = settings.input_scope || "single";
+  applicationState.minimaxResolutionManual = true;
 }
 
 /** 상위 작업의 공통 입력을 현재 목록에 맞춰 복원하며 새 요청은 제출하지 않습니다. */
@@ -1594,10 +1679,7 @@ async function restoreJobGeneration(jobIdentifier) {
     restoreGenerationSettings(job.workflow, jobInputs.settings || {});
     element("generate-count").value = job.workflow === "anima" ? job.request_count : 1;
     element("job-description").value = job.description || "";
-    applicationState.selectedFiles = [];
-    element("minimax-images").value = "";
-    element("minimax-directory").value = "";
-    element("selected-images").textContent = "선택한 이미지가 없습니다.";
+    clearMinimaxInputs(false);
     element("preview-results").innerHTML = "";
     element("preview-results").classList.add("hidden");
     switchView("generate", { resetScroll: true });
@@ -1650,7 +1732,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
       <div class="job-selection-heading">
         ${selectionCheckbox}
         <div>
-        <h3>${escapeHtml(job.workflow)} · 작업 ${escapeHtml(job.job_id)}</h3>
+        <h3>${escapeHtml(job.workflow)}${job.workflow === "minimax_h3" ? ` · ${escapeHtml(requestSettings.generation_mode || "FL2VA")} · ${requestSettings.input_scope === "folder" ? "폴더 일괄" : "이미지 입력"}` : ""} · 작업 ${escapeHtml(job.job_id)}</h3>
         <p>${escapeHtml(job.created_at)} · ${dimensions.ratio} · ${dimensions.resolution} · CFG ${escapeHtml(requestSettings.cfg ?? "—")} · Steps ${escapeHtml(requestSettings.steps ?? "—")} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
         ${job.description ? `<p class="job-description">${escapeHtml(job.description)}</p>` : ""}
         </div>
@@ -2154,6 +2236,10 @@ async function deleteSelectedOutputs() {
 function renderOutputFolderPicker() {
   const pickerState = outputFolderPickerState;
   const directoryIsBusy = pickerState.loading || pickerState.creating;
+  const selectingImages = pickerState.selectionMode !== "move";
+  element("folder-picker-create-form").classList.toggle("hidden", selectingImages);
+  element("folder-picker-creation-hint").classList.toggle("hidden", selectingImages);
+  element("folder-picker-images").classList.toggle("hidden", !selectingImages);
   const breadcrumbParts = [{ name: "결과물", path: "" }];
   let breadcrumbPath = "";
   for (const directoryName of pickerState.path.split("/").filter(Boolean)) {
@@ -2170,10 +2256,17 @@ function renderOutputFolderPicker() {
   const status = pickerState.loading ? "폴더를 불러오는 중…" : pickerState.creating ? "폴더를 만드는 중…"
     : pickerState.error || (pickerState.directories.length ? "하위 폴더를 열거나 현재 폴더를 선택해 주세요." : "하위 폴더가 없습니다.");
   element("folder-picker-status").textContent = status;
+  if (selectingImages && pickerState.loaded && !pickerState.error) {
+    element("folder-picker-status").textContent = `직하위 이미지 ${pickerState.images.length}장 · ${pickerState.selectedImageIds.size}장 선택 · 최대 100장${pickerState.selectionMode === "single" ? " · 한 장을 선택해 주세요." : " · 제외할 이미지를 해제해 주세요."}`;
+  }
+  element("folder-picker-images").innerHTML = pickerState.images.map(image =>
+    `<label class="input-image-card"><img src="/api/outputs/preview/${encodedOutputPath(image.path)}" alt="" loading="lazy" /><input type="${pickerState.selectionMode === "single" ? "radio" : "checkbox"}" name="picker-input-image" data-pick-input="${image.output_id}" ${pickerState.selectedImageIds.has(String(image.output_id)) ? "checked" : ""} ${directoryIsBusy ? "disabled" : ""} /><span>${escapeHtml(image.name)}</span></label>`,
+  ).join("");
   element("folder-picker-retry").classList.toggle("hidden", directoryIsBusy || pickerState.loaded || !pickerState.error);
   element("folder-picker-name").disabled = directoryIsBusy || !pickerState.loaded;
   element("folder-picker-create").disabled = directoryIsBusy || !pickerState.loaded;
-  element("folder-picker-confirm").disabled = directoryIsBusy || !pickerState.loaded;
+  element("folder-picker-confirm").disabled = directoryIsBusy || !pickerState.loaded ||
+    (selectingImages && (pickerState.selectedImageIds.size === 0 || pickerState.selectedImageIds.size > 100));
   element("folder-picker-cancel").disabled = pickerState.creating;
 }
 
@@ -2185,16 +2278,24 @@ async function loadOutputFolder(directoryPath) {
   pickerState.path = directoryPath;
   pickerState.parentPath = directoryPath ? directoryPath.split("/").slice(0, -1).join("/") : null;
   pickerState.directories = [];
+  pickerState.images = [];
+  pickerState.selectedImageIds.clear();
   pickerState.loaded = false;
   pickerState.loading = true;
   pickerState.error = "";
   renderOutputFolderPicker();
   try {
-    const directoryListing = await apiRequest(`/api/outputs/directories?${new URLSearchParams({ path: directoryPath })}`);
+    const directoryQuery = new URLSearchParams({ path: directoryPath });
+    const [directoryListing, imageListing] = await Promise.all([
+      apiRequest(`/api/outputs/directories?${directoryQuery}`),
+      pickerState.selectionMode === "move" ? Promise.resolve({ files: [] }) : apiRequest(`/api/outputs/input-images?${directoryQuery}`),
+    ]);
     if (loadRevision !== pickerState.loadRevision || !pickerState.resolveSelection) return;
     pickerState.path = directoryListing.path;
     pickerState.parentPath = directoryListing.parent_path;
     pickerState.directories = directoryListing.directories;
+    pickerState.images = imageListing.files;
+    if (pickerState.selectionMode === "folder") pickerState.selectedImageIds = new Set(imageListing.files.map(image => String(image.output_id)));
     pickerState.loaded = true;
   } catch (error) {
     if (loadRevision !== pickerState.loadRevision || !pickerState.resolveSelection) return;
@@ -2209,11 +2310,14 @@ async function loadOutputFolder(directoryPath) {
 }
 
 /** 이동 목적지를 공용 Modal로 선택하며 취소는 null, 루트 선택은 빈 문자열로 반환합니다. */
-function chooseOutputFolder(description) {
+function chooseOutputFolder(description, selectionMode = "move") {
   if (outputFolderPickerState.resolveSelection) return Promise.resolve(null);
   outputFolderPickerState.sessionRevision += 1;
   outputFolderPickerState.openingElement = document.activeElement;
   outputFolderPickerState.creating = false;
+  outputFolderPickerState.selectionMode = selectionMode;
+  element("folder-picker-title").textContent = selectionMode === "move" ? "이동할 폴더 선택" : selectionMode === "single" ? "입력 이미지 선택" : "입력 폴더와 이미지 선택";
+  element("folder-picker-confirm").textContent = selectionMode === "move" ? "이 폴더로 이동" : "선택한 이미지 사용";
   element("folder-picker-description").textContent = description;
   element("folder-picker-name").value = "";
   const selectionPromise = new Promise(resolve => { outputFolderPickerState.resolveSelection = resolve; });
@@ -2289,11 +2393,27 @@ function bindOutputFolderPickerEvents() {
     const directoryButton = event.target.closest("[data-folder-path]");
     if (directoryButton && !directoryButton.disabled) loadOutputFolder(directoryButton.dataset.folderPath);
   });
+  element("folder-picker-images").addEventListener("change", event => {
+    const checkbox = event.target.closest("[data-pick-input]");
+    if (!checkbox) return;
+    if (outputFolderPickerState.selectionMode === "single") outputFolderPickerState.selectedImageIds.clear();
+    if (checkbox.checked) outputFolderPickerState.selectedImageIds.add(checkbox.dataset.pickInput);
+    else outputFolderPickerState.selectedImageIds.delete(checkbox.dataset.pickInput);
+    renderOutputFolderPicker();
+    element("folder-picker-images").querySelector(`[data-pick-input="${checkbox.dataset.pickInput}"]`)?.focus();
+  });
   element("folder-picker-parent").addEventListener("click", () => loadOutputFolder(outputFolderPickerState.parentPath));
   element("folder-picker-retry").addEventListener("click", () => loadOutputFolder(outputFolderPickerState.path));
   element("folder-picker-create-form").addEventListener("submit", createOutputPickerDirectory);
   element("folder-picker-cancel").addEventListener("click", () => finishOutputFolderSelection(null));
-  element("folder-picker-confirm").addEventListener("click", () => finishOutputFolderSelection(outputFolderPickerState.path));
+  element("folder-picker-confirm").addEventListener("click", () => {
+    const pickerState = outputFolderPickerState;
+    if (pickerState.selectionMode === "move") finishOutputFolderSelection(pickerState.path);
+    else finishOutputFolderSelection({
+      input_directory: pickerState.path,
+      files: pickerState.images.filter(image => pickerState.selectedImageIds.has(String(image.output_id))),
+    });
+  });
 }
 
 /** 이동 결과의 성공·이미 같은 폴더·실패 건수를 사용자에게 알립니다. */
@@ -2603,14 +2723,32 @@ function bindEvents() {
       renderSelectedLoras();
     }
   });
-  for (const inputId of ["minimax-images", "minimax-directory"])
-    element(inputId).addEventListener("change", (event) => {
-      applicationState.selectedFiles = [...event.target.files].filter((file) =>
-        /\.(png|jpe?g|webp|bmp|tiff?)$/i.test(file.name),
-      );
-      element("selected-images").textContent =
-        `${applicationState.selectedFiles.length}개 이미지 선택됨`;
+  element("select-minimax-input").addEventListener("click", () => runAction(selectMinimaxInputs));
+  element("minimax-input-scope").addEventListener("change", () => clearMinimaxInputs());
+  element("minimax-selected-images").addEventListener("change", event => {
+    const checkbox = event.target.closest("[data-minimax-selected]");
+    if (!checkbox) return;
+    const selectedIdentifiers = new Set(applicationState.minimaxInputImages.map(image => String(image.output_id)));
+    if (checkbox.checked) selectedIdentifiers.add(checkbox.dataset.minimaxSelected);
+    else selectedIdentifiers.delete(checkbox.dataset.minimaxSelected);
+    applicationState.minimaxInputImages = applicationState.minimaxInputCandidates.filter(image => selectedIdentifiers.has(String(image.output_id)));
+    applyMinimaxAutomaticResolution();
+    renderMinimaxInputs();
+  });
+  for (const inputIdentifier of ["minimax-width", "minimax-height"]) {
+    element(inputIdentifier).addEventListener("input", () => {
+      applicationState.minimaxResolutionManual = true;
+      renderMinimaxInputs();
     });
+  }
+  element("minimax-automatic-resolution").addEventListener("click", () => {
+    applicationState.minimaxResolutionManual = false;
+    applyMinimaxAutomaticResolution();
+    renderMinimaxInputs();
+  });
+  for (const inputIdentifier of ["minimax-generation-mode", "minimax-duration"]) {
+    element(inputIdentifier).addEventListener("input", renderMinimaxInputs);
+  }
   element("preview-button").addEventListener("click", () =>
     runAction(previewPrompt),
   );

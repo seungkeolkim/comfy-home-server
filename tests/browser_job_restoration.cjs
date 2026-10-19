@@ -93,7 +93,7 @@ function createRestorationRequestHandler(fixtures) {
       await route.fulfill({ contentType: contentTypes[filename], body: filesystem.readFileSync(path.join(projectDirectory, "web", filename), "utf8") });
       return;
     }
-    if (request.method() !== "GET") fixtures.mutations.push(requestPath);
+    if (request.method() !== "GET" && requestPath !== "/api/outputs/input-images/inspect") fixtures.mutations.push(requestPath);
     let response;
     if (requestPath === "/api/session") response = { authenticated: true };
     else if (requestPath === "/api/jobs/activity") response = { active_count: 0 };
@@ -102,6 +102,14 @@ function createRestorationRequestHandler(fixtures) {
     }
     else if (requestPath === "/api/status") response = { comfy_connected: true, output_directory: "test-output" };
     else if (requestPath === "/api/outputs") response = { files: [], total: 0, total_pages: 1 };
+    else if (requestPath === "/api/outputs/directories") response = { path: "", parent_path: null, directories: [] };
+    else if (requestPath === "/api/outputs/input-images" || requestPath === "/api/outputs/input-images/inspect") {
+      response = { files: [{ output_id: 1, name: "previous.png", path: "previous.png", width: 640, height: 480 }] };
+    }
+    else if (requestPath.startsWith("/api/outputs/preview/")) {
+      await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48"/>' });
+      return;
+    }
     else if (requestPath === "/api/jobs") {
       const selectedJobId = requestUrl.searchParams.get("job_id");
       const matchingJobs = selectedJobId ? fixtures.jobs.filter(job => job.job_id === selectedJobId) : fixtures.jobs;
@@ -211,7 +219,10 @@ async function main() {
     assert.equal(fixtures.tagEntries.some(entry => entry.tag_id === "scene"), false);
 
     await browserPage.locator("#generate-workflow").selectOption("minimax_h3");
-    await browserPage.locator("#minimax-images").setInputFiles({ name: "previous.png", mimeType: "image/png", buffer: Buffer.from("fixture image") });
+    await browserPage.locator("#select-minimax-input").click();
+    await browserPage.locator('[data-pick-input="1"]').check();
+    await browserPage.locator("#folder-picker-confirm").click();
+    await browserPage.waitForFunction(() => document.getElementById("selected-images").textContent.includes("1개"));
     assert.match(await browserPage.locator("#selected-images").textContent(), /1개/);
     await restoreJobFromCard(browserPage, "minimax-job");
     assert.equal(await browserPage.locator("#generate-minimax-prompt").inputValue(), "plain video prompt");
@@ -225,8 +236,7 @@ async function main() {
     ]) {
       assert.equal(await browserPage.locator(`#${inputIdentifier}`).inputValue(), expectedValue);
     }
-    assert.equal(await browserPage.locator("#minimax-images").evaluate(input => input.files.length), 0);
-    assert.equal(await browserPage.locator("#minimax-directory").evaluate(input => input.files.length), 0);
+    assert.equal(await browserPage.locator("#minimax-selected-images .input-image-card").count(), 0);
     assert.equal(await browserPage.locator("#selected-images").textContent(), "선택한 이미지가 없습니다.");
     assert.equal(await browserPage.locator('[data-select-tag]:checked').count(), 0);
     await browserPage.locator("#submit-button").click();

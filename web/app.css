@@ -53,6 +53,12 @@ body:has(.folder-picker[open]) { overflow: hidden; }
 .folder-create-controls { display: flex; flex-wrap: wrap; gap: 8px; }
 .folder-create-controls input { flex: 1 1 180px; min-width: 0; width: 100%; }
 .folder-picker-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+.input-image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; max-height: 350px; overflow-y: auto; }
+.input-image-card { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding: 8px; border: 1px solid #344159; border-radius: 10px; overflow-wrap: anywhere; }
+.input-image-card:has(input:checked) { border-color: #7ed6c0; background: #203b3c; }
+.input-image-card img { width: 100%; height: 100px; object-fit: contain; background: #0d111b; }
+.input-image-card input { width: 20px; height: 20px; min-height: 20px; }
+.input-image-card span { font-size: 12px; }
 button,
 input,
 select,

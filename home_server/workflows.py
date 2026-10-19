@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -187,23 +188,62 @@ def prepare_anima(
 
 def build_minimax_timeline(
     original_text: str, uploaded_image: str, prompt_text: str, width: int, height: int, duration: float,
+    generation_mode: str = "FL2VA",
+    prepared_canvas: bool = False,
 ) -> str:
-    """첫·마지막 frame과 Prompt를 Director timeline에 반영합니다."""
+    """요청 모드에 필요한 endpoint만 만들고 동일 이미지와 평문을 Timeline에 반영합니다."""
 
     timeline = json.loads(original_text or "{}")
     timeline.pop("continuity", None)
-    timeline["items"] = [
-        {"id": "home-first-frame", "type": "image", "slot": 0, "order": 0, "enabled": True, "value": uploaded_image},
-        {"id": "home-last-frame", "type": "image", "slot": 1, "order": 1, "enabled": True, "value": uploaded_image},
-    ]
+    timeline["items"] = []
+    for endpoint_slot in (0, 1):
+        if (generation_mode == "F2VA" and endpoint_slot == 1) or (generation_mode == "L2VA" and endpoint_slot == 0):
+            continue
+        timeline["items"].append({
+            "id": f"home-frame-{endpoint_slot}", "type": "image", "slot": endpoint_slot,
+            "order": endpoint_slot, "enabled": True, "value": uploaded_image,
+        })
+    timeline["prompt_blocks"] = []
+    timeline.pop("refmods", None)
     timeline["resolved_prompt"] = prompt_text
-    builder_state = timeline.get("builder_state") or {}
-    builder_state.update({"mode": "FL2VA", "duration": duration, "prompt_mode": "simple", "simple_prompt": prompt_text})
+    execution_mode = "I2VA" if generation_mode == "F2VA" else generation_mode
+    builder_state = {"mode": execution_mode, "duration": duration, "prompt_mode": "simple", "simple_prompt": prompt_text}
     timeline["builder_state"] = builder_state
     resolution = timeline.get("resolution") or {}
-    resolution.update({"custom_width": width, "custom_height": height})
+    resolution.update({
+        "aspect": "custom", "resolution": "custom", "custom_mode": "fixed",
+        "custom_aspect_w": width, "custom_aspect_h": height, "custom_width": width, "custom_height": height,
+    })
+    if prepared_canvas:
+        resolution["input_scaling"] = "Off"
     timeline["resolution"] = resolution
     return json.dumps(timeline, ensure_ascii=False, separators=(",", ":"))
+
+
+def minimax_execution_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    """지원 모드와 숫자 범위를 검증하고 기존 정책인 32 단위 해상도 정렬을 적용합니다."""
+
+    normalized_settings = dict(settings)
+    if normalized_settings.get("generation_mode", "FL2VA") not in {"F2VA", "L2VA", "FL2VA"}:
+        raise ValueError("MiniMax 생성 방식은 F2VA, L2VA, FL2VA 중 하나여야 합니다.")
+    for setting_name, default_value in (("width", 720), ("height", 720)):
+        try:
+            dimension = float(settings.get(setting_name, default_value))
+        except (TypeError, ValueError, OverflowError) as exception:
+            raise ValueError("MiniMax 너비와 높이는 숫자로 입력해 주세요.") from exception
+        if not math.isfinite(dimension) or not dimension.is_integer() or not 16 <= dimension <= 8192:
+            raise ValueError("MiniMax 너비와 높이는 16~8192 범위의 정수여야 합니다.")
+        normalized_settings[setting_name] = ((int(dimension) + 31) // 32) * 32 if settings.get("auto_align", True) else int(dimension)
+    for setting_name, default_value, maximum_value in (("duration", 10, 1000), ("frame_rate", 24, 240)):
+        try:
+            numeric_value = float(settings.get(setting_name, default_value))
+        except (TypeError, ValueError, OverflowError) as exception:
+            raise ValueError("MiniMax 길이와 Frame rate는 숫자로 입력해 주세요.") from exception
+        if not math.isfinite(numeric_value) or not 0.1 <= numeric_value <= maximum_value:
+            raise ValueError("MiniMax 길이 또는 Frame rate가 지원 범위를 벗어났습니다.")
+        normalized_settings[setting_name] = numeric_value
+    normalized_settings["generation_mode"] = settings.get("generation_mode", "FL2VA")
+    return normalized_settings
 
 
 def apply_minimax_upscale(workflow: dict[str, Any], mode: str, model_name: str) -> None:
@@ -258,33 +298,29 @@ def prepare_minimax(
     prompt_text: str, settings: dict[str, Any], selected_loras: list[dict[str, Any]],
     output_stem: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """MiniMax FL2VA 요청의 Director, LoRA, upscale, 저장 경로를 설정합니다."""
+    """공통 템플릿에 MiniMax 모드별 endpoint, LoRA, upscale과 저장 경로를 설정합니다."""
 
     request_workflow = copy.deepcopy(api_workflow)
     metadata_workflow = copy.deepcopy(ui_workflow)
+    settings = minimax_execution_settings(settings)
+    generation_mode = settings["generation_mode"]
+    execution_mode = "I2VA" if generation_mode == "F2VA" else generation_mode
     width = int(settings.get("width", 720))
     height = int(settings.get("height", 720))
     duration = float(settings.get("duration", 10))
     frame_rate = float(settings.get("frame_rate", 24))
-    if min(width, height, duration, frame_rate) <= 0:
-        raise ValueError("해상도, 길이, frame rate는 0보다 커야 합니다.")
-    if settings.get("auto_align", True):
-        width = ((width + 31) // 32) * 32
-        height = ((height + 31) // 32) * 32
-
     director_inputs = request_workflow["2730"]["inputs"]
     director_inputs.update({
-        "mode": "FL2VA", "prompt": prompt_text, "width": width, "height": height,
+        "mode": execution_mode, "prompt": prompt_text, "width": width, "height": height,
         "duration": duration, "frame_rate": frame_rate,
         "ref_image_size": str(settings.get("ref_image_size", "match")),
         "external_prompt_overwrite": prompt_text,
     })
     director_inputs["timeline_data"] = build_minimax_timeline(
         str(director_inputs.get("timeline_data", "{}")), uploaded_image,
-        prompt_text, width, height, duration,
+        prompt_text, width, height, duration, generation_mode, settings.get("resize_policy") == "fit_pad",
     )
-    builder_state = json.loads(str(director_inputs.get("builder_state", "{}")))
-    builder_state.update({"mode": "FL2VA", "duration": duration, "prompt_mode": "simple", "simple_prompt": prompt_text})
+    builder_state = {"mode": execution_mode, "duration": duration, "prompt_mode": "simple", "simple_prompt": prompt_text}
     director_inputs["builder_state"] = json.dumps(builder_state, ensure_ascii=False, separators=(",", ":"))
     for key in ("mode", "prompt", "width", "height", "duration", "frame_rate", "ref_image_size", "timeline_data", "builder_state"):
         update_ui_widget(metadata_workflow, "2730", key, director_inputs[key])

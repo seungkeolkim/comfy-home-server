@@ -295,6 +295,46 @@ class OutputCatalog:
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }
 
+    def list_input_images(self, directory_path: str) -> list[dict[str, Any]]:
+        """현재 폴더 직하위의 사용 가능한 이미지 ID와 현재 경로만 파일명순으로 반환합니다."""
+
+        directory_prefix = f"{directory_path}/" if directory_path else ""
+        with self._connect() as connection:
+            image_rows = connection.execute(
+                "SELECT output_id,relative_path FROM output_files WHERE is_available=1 AND is_deleted=0 "
+                "AND substr(relative_path,1,?)=? AND instr(substr(relative_path,?),'/')=0",
+                (len(directory_prefix), directory_prefix, len(directory_prefix) + 1),
+            ).fetchall()
+        image_files = []
+        for image_row in image_rows:
+            image_path = Path(image_row["relative_path"])
+            if image_path.suffix.lower() in IMAGE_OUTPUT_EXTENSIONS:
+                image_files.append({"output_id": image_row["output_id"], "path": image_row["relative_path"], "name": image_path.name})
+        image_files.sort(key=lambda image: (image["name"].casefold(), image["name"], image["path"]))
+        return image_files
+
+    def get_input_images(self, output_ids: list[int]) -> list[dict[str, Any]]:
+        """삭제·누락·영상 입력을 거부하고 선택 이미지의 최신 경로를 같은 조회에서 확인합니다."""
+
+        if not output_ids or len(output_ids) > 100 or len(set(output_ids)) != len(output_ids) or any(identifier <= 0 for identifier in output_ids):
+            raise ValueError("입력 이미지는 중복 없이 1~100장을 선택해 주세요.")
+        placeholders = ",".join("?" for _ in output_ids)
+        with self._connect() as connection:
+            image_rows = connection.execute(
+                f"SELECT output_id,relative_path FROM output_files WHERE output_id IN ({placeholders}) AND is_available=1 AND is_deleted=0",
+                output_ids,
+            ).fetchall()
+        if len(image_rows) != len(output_ids):
+            raise ValueError("선택한 이미지가 삭제되었거나 더 이상 사용할 수 없습니다. 다시 선택해 주세요.")
+        image_files = []
+        for image_row in image_rows:
+            image_path = Path(image_row["relative_path"])
+            if image_path.suffix.lower() not in IMAGE_OUTPUT_EXTENSIONS:
+                raise ValueError("영상은 MiniMax 입력 이미지로 사용할 수 없습니다.")
+            image_files.append({"output_id": image_row["output_id"], "path": image_row["relative_path"], "name": image_path.name})
+        image_files.sort(key=lambda image: (image["name"].casefold(), image["name"], image["path"]))
+        return image_files
+
     def list_deletable_output_ids(self, job_id: str = "", request_id: str = "") -> list[int]:
         """현재 필터의 모든 페이지에서 삭제 가능하고 보호되지 않은 이미지 ID만 조회합니다."""
 
