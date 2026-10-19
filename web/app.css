@@ -705,6 +705,28 @@ input[type="file"] {
   color: #b4bed2;
   font-size: 12px;
 }
+.job-card[data-job-prompt-card] {
+  cursor: pointer;
+}
+.job-prompts {
+  grid-column: 1/-1;
+  min-width: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.job-prompts[aria-expanded="true"] {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+.job-prompts:focus-visible {
+  outline: 2px solid #85d9c2;
+  outline-offset: 3px;
+  border-radius: 3px;
+}
 .job-requests {
   grid-column: 1/-1;
   border-top: 1px solid #30394a;

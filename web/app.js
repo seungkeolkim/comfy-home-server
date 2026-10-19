@@ -76,6 +76,7 @@ const applicationState = {
   jobsSelectionScope: null,
   jobSelectionMode: false,
   selectedJobIds: new Set(),
+  expandedJobPromptIds: new Set(),
   deletableJobIds: new Set(),
   selectingEveryJob: false,
   updatingJobProtectionId: null,
@@ -1700,6 +1701,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
   const originalBody = summaryDetail.body || {};
   const originalPrompt = typeof originalBody.prompt === "string" ? originalBody.prompt : "기록 없음";
   const originalNegative = typeof originalBody.negative === "string" ? originalBody.negative : "";
+  const promptIsExpanded = applicationState.expandedJobPromptIds.has(job.job_id);
   const loraSummary = jobLoraSummary(summaryDetail);
   const requestSettings = { ...summaryDetail.settings, ...summaryDetail.resolved?.settings };
   const dimensions = formatDimensions(requestSettings.width, requestSettings.height);
@@ -1728,7 +1730,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
         ${!canDelete ? `title="${job.deletion_protected ? "삭제 보호된 작업은 선택할 수 없습니다." : "진행 중인 작업은 선택할 수 없습니다."}"` : ""}>`
     : "";
   return `
-    <article class="job-card">
+    <article class="job-card" data-job-prompt-card="${escapeHtml(job.job_id)}">
       <div class="job-selection-heading">
         ${selectionCheckbox}
         <div>
@@ -1739,8 +1741,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
       </div>
       <span class="status-badge ${escapeHtml(job.status)}">${escapeHtml(statusNames[job.status] || job.status)}</span>
       ${job.deletion_protected ? '<span class="job-protection-badge">삭제 보호됨</span>' : ""}
-      <div class="job-detail job-original-prompt"><strong>입력 Prompt</strong> ${escapeHtml(originalPrompt)}</div>
-      ${originalNegative ? `<div class="job-detail job-original-negative-prompt"><strong>입력 Negative Prompt</strong> ${escapeHtml(originalNegative)}</div>` : ""}
+      <div class="job-prompts" role="button" tabindex="0" data-toggle-job-prompt="${escapeHtml(job.job_id)}" aria-expanded="${promptIsExpanded}" title="${promptIsExpanded ? "카드를 눌러 Prompt 접기" : "카드를 눌러 전체 Prompt 보기"}"><div class="job-detail job-original-prompt"><strong>입력 Prompt</strong> ${escapeHtml(originalPrompt)}</div>${originalNegative ? `<div class="job-detail job-original-negative-prompt"><strong>입력 Negative Prompt</strong> ${escapeHtml(originalNegative)}</div>` : ""}</div>
       <div class="job-actions inline-actions">
         <a class="button subtle small" data-navigation data-show-job-results="${escapeHtml(job.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "outputs", pageNumber: 1, outputFilter: { type: "job", id: job.job_id } }))}">작업 결과 보기</a>
         <button class="button subtle small" data-move-job-outputs="${escapeHtml(job.job_id)}" ${canCancel || jobSelectionIsBusy() || outputSelectionIsBusy() ? "disabled" : ""} ${canCancel ? 'title="생성이 끝난 뒤 결과물을 이동할 수 있습니다."' : ""}>${applicationState.movingJobId === job.job_id ? "결과물 이동 중…" : "결과물 폴더 이동"}</button>
@@ -1756,13 +1757,25 @@ function jobCardMarkup(job, statusNames, openJobIds) {
     </article>`;
 }
 
-/** 현재 작업 카드를 다시 그리면서 펼친 요청과 checkbox의 keyboard focus를 유지합니다. */
+/** 카드 전체를 다시 그리지 않고 원본 Positive·Negative Prompt의 공통 접힘 상태를 바꿉니다. */
+function toggleJobPromptExpansion(jobIdentifier) {
+  const promptContainer = document.querySelector(`[data-toggle-job-prompt="${CSS.escape(jobIdentifier)}"]`);
+  if (!promptContainer) return;
+  const promptIsExpanded = !applicationState.expandedJobPromptIds.has(jobIdentifier);
+  if (promptIsExpanded) applicationState.expandedJobPromptIds.add(jobIdentifier);
+  else applicationState.expandedJobPromptIds.delete(jobIdentifier);
+  promptContainer.setAttribute("aria-expanded", String(promptIsExpanded));
+  promptContainer.title = promptIsExpanded ? "카드를 눌러 Prompt 접기" : "카드를 눌러 전체 Prompt 보기";
+}
+
+/** 작업 카드를 다시 그리면서 펼친 Prompt·요청과 선택 영역의 Keyboard focus를 유지합니다. */
 function renderJobsList() {
   const statusNames = {
     submitting: "제출 중", pending: "대기", running: "실행 중", cancelling: "취소 중",
     completed: "완료", failed: "실패", partial: "일부 완료", cancelled: "취소", stopped: "중단",
   };
   const focusedJobId = document.activeElement?.dataset.selectJob;
+  const focusedPromptJobId = document.activeElement?.dataset.toggleJobPrompt;
   const openJobIds = new Set();
   for (const details of element("jobs-list").querySelectorAll("details[open]")) {
     openJobIds.add(details.dataset.jobDetails);
@@ -1777,6 +1790,9 @@ function renderJobsList() {
     for (const checkbox of element("jobs-list").querySelectorAll("[data-select-job]")) {
       if (checkbox.dataset.selectJob === focusedJobId) checkbox.focus({ preventScroll: true });
     }
+  }
+  if (focusedPromptJobId) {
+    document.querySelector(`[data-toggle-job-prompt="${CSS.escape(focusedPromptJobId)}"]`)?.focus({ preventScroll: true });
   }
   updateJobSelectionControls();
   for (const jobIdentifier of openJobIds) loadJobDetails(jobIdentifier);
@@ -2779,6 +2795,11 @@ function bindEvents() {
     updateJobSelectionControls();
   });
   element("jobs-list").addEventListener("click", (event) => {
+    const promptCard = event.target.closest("[data-job-prompt-card]");
+    const interactiveTarget = event.target.closest("a, button, input, select, textarea, label, details");
+    if (promptCard && !interactiveTarget && !window.getSelection()?.toString() && !jobSelectionIsBusy()) {
+      toggleJobPromptExpansion(promptCard.dataset.jobPromptCard);
+    }
     const moveOutputsButton = event.target.closest("[data-move-job-outputs]");
     if (moveOutputsButton && !moveOutputsButton.disabled)
       runAction(() => moveJobOutputs(moveOutputsButton.dataset.moveJobOutputs));
@@ -2819,6 +2840,12 @@ function bindEvents() {
       runAction(() => deleteJobHistory(deleteJobButton.dataset.deleteJob, false));
     if (deleteOutputsButton)
       runAction(() => deleteJobHistory(deleteOutputsButton.dataset.deleteJobOutputs, true));
+  });
+  element("jobs-list").addEventListener("keydown", event => {
+    const promptContainer = event.target.closest("[data-toggle-job-prompt]");
+    if (!promptContainer || !["Enter", " "].includes(event.key) || jobSelectionIsBusy()) return;
+    event.preventDefault();
+    toggleJobPromptExpansion(promptContainer.dataset.toggleJobPrompt);
   });
   element("toggle-output-selection").addEventListener("click", () => {
     if (outputSelectionIsBusy()) return;
