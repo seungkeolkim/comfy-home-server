@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const filesystem = require("node:fs");
 const path = require("node:path");
 const { chromium } = require("playwright");
+const { handleJobFolderReadRequest } = require("./browser_job_folder_mock.cjs");
 
 const projectDirectory = path.resolve(__dirname, "..");
 const screenshotDirectory = path.join(projectDirectory, "runtime", "browser-check");
@@ -25,6 +26,7 @@ async function handleBrowserRequest(route) {
   const request = route.request();
   const requestUrl = new URL(request.url());
   const requestPath = requestUrl.pathname;
+  if (await handleJobFolderReadRequest(route, [])) return;
   if (["/", "/app.css", "/app.js"].includes(requestPath)) {
     const filename = requestPath === "/" ? "index.html" : requestPath.slice(1);
     const contentTypes = { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css" };

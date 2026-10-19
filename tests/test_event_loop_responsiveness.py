@@ -41,7 +41,8 @@ def verify_session_and_cancellation(client: TestClient) -> None:
 
 @pytest.mark.parametrize("endpoint", [
     "/api/jobs?summary=true", "/api/jobs", "/api/jobs/completed", "/api/jobs/completed/inputs",
-    "/api/jobs/deletion-candidates", "/api/jobs/activity", "/api/tags", "/api/presets",
+    "/api/jobs/deletion-candidates", "/api/jobs/selection-candidates", "/api/job-folders",
+    "/api/jobs/activity", "/api/tags", "/api/presets",
     "/api/presets/saved/versions", "/api/loras", "/api/loras/presets", "/api/outputs",
 ])
 def test_slow_json_serialization_keeps_session_and_cancellation_responsive(

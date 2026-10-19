@@ -62,7 +62,7 @@ def test_group_tag_migration_backs_up_and_preserves_all_records(tmp_path: Path) 
     assert migrated_database.get_tag_group("empty-group")["tag_key"] == ""
     with sqlite3.connect(database_path) as connection:
         connection.row_factory = sqlite3.Row
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 12
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         migrated_entries = [dict(row) for row in connection.execute("SELECT * FROM tag_entries ORDER BY tag_id")]
@@ -121,7 +121,7 @@ def test_new_database_stores_jobs_presets_and_tags(tmp_path: Path) -> None:
     assert reopened_database.list_presets()[0]["body"] == {"prompt": "portrait, [SCENE]"}
     assert reopened_database.list_lora_profiles()[0]["settings"] == {"strength": 0.7}
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 12
     with pytest.raises(sqlite3.IntegrityError):
         database.add_job("rolled-back", "anima", "", requests)
     assert database.get_job("rolled-back") is None
@@ -373,7 +373,7 @@ def test_version_six_migration_preserves_protected_history_and_inputs(tmp_path: 
     assert migrated_database.get_job("protected")["cancellation_requested"] is False
     assert migrated_database.get_job_inputs("protected")["inputs"] == detail
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 12
 
 
 @pytest.mark.parametrize("schema_version", [6, 7, 8])
@@ -406,7 +406,7 @@ def test_request_storage_migration_preserves_inputs_results_and_cascade(tmp_path
     assert migrated_database.get_request("legacy-request")["result"] == detail["resolved"]
     assert migrated_database.get_request("legacy-request")["inputs"] == {"body": detail["body"]}
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 12
         assert "detail_json" not in {row[1] for row in connection.execute("PRAGMA table_info(job_requests)")}
         assert connection.execute("SELECT 1 FROM sqlite_master WHERE name = 'request_details'").fetchone() is None
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

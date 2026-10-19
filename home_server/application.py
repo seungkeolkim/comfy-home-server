@@ -13,6 +13,7 @@ import sqlite3
 import time
 import uuid
 from contextlib import asynccontextmanager
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
@@ -141,6 +142,7 @@ class BatchInput(BaseModel):
 
     workflow: str
     description: str = Field(default="", max_length=200)
+    folder_id: str | None = Field(default=None, min_length=1, max_length=64)
     body: dict[str, Any]
     selected_tag_ids: list[str] = Field(default_factory=list)
     count: int = Field(default=1, ge=1, le=100)
@@ -185,6 +187,20 @@ class JobDescriptionInput(BaseModel):
         """작업 생성과 같은 설명 검증을 재사용합니다."""
 
         return normalize_job_description(value)
+
+
+class JobFolderInput(BaseModel):
+    """이력 분류 폴더의 이름과 부모를 입력받습니다."""
+
+    name: str = Field(min_length=1, max_length=80)
+    parent_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class JobFolderAssignmentInput(BaseModel):
+    """선택한 작업들을 한 폴더 또는 미지정으로 이동합니다."""
+
+    job_ids: list[str] = Field(min_length=1, max_length=10000)
+    folder_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class InputImageInspection(BaseModel):
@@ -552,7 +568,7 @@ def store_batch_requests(
                            "lora_preset_name": payload.lora_preset_name if payload.loras else None},
             }
             submitted_requests.append(request)
-        server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests)
+        server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests, payload.folder_id)
         return job_id, submitted_requests
     except Exception:
         remove_input_snapshots(image_snapshots)
@@ -991,6 +1007,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         job_id: str = "",
         refresh: bool = False,
         summary: bool = False,
+        folder_id: str = Query(default="", max_length=64),
+        search: str = Query(default="", max_length=200),
     ):
         """작업 이력을 페이지 단위로 반환하고 필요하면 요청 상태를 갱신합니다."""
 
@@ -1001,16 +1019,69 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         def read_job_page_response() -> JSONResponse:
             """목록 조회부터 최종 JSON 직렬화까지 같은 Worker에서 완료합니다."""
 
-            response = read_jobs(page=page, page_size=page_size, job_id=job_id)
+            try:
+                response = read_jobs(page=page, page_size=page_size, job_id=job_id, folder_id=folder_id, search=search)
+            except LookupError as exception:
+                raise HTTPException(404, str(exception)) from exception
             return JSONResponse(response)
 
         return await asyncio.to_thread(read_job_page_response)
 
     @app.get("/api/jobs/deletion-candidates")
-    def job_deletion_candidates(job_id: str = ""):
+    def job_deletion_candidates(job_id: str = "", folder_id: str = "", search: str = ""):
         """현재 목록의 모든 페이지에서 삭제 가능한 작업 ID만 반환합니다."""
 
-        return JSONResponse({"job_ids": server.database.list_deletable_job_ids(job_id)})
+        return job_folder_operation(lambda: {"job_ids": server.database.list_deletable_job_ids(job_id, folder_id, search)})
+
+    def job_folder_operation(operation: Callable[[], Any], status_code: int = 200) -> JSONResponse:
+        """분류 오류를 사용자에게 보이는 404·422 응답으로 변환합니다."""
+
+        try:
+            return JSONResponse(operation(), status_code=status_code)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+
+    @app.get("/api/job-folders")
+    def job_folders():
+        """폴더 트리와 하위 포함 작업 수를 조회합니다."""
+
+        return JSONResponse(server.database.job_folders.list_folders())
+
+    @app.post("/api/job-folders", status_code=201)
+    def create_job_folder(payload: JobFolderInput):
+        """현재 위치 아래에 깊이를 검증한 이력 폴더를 만듭니다."""
+
+        return job_folder_operation(lambda: {
+            "folder_id": server.database.job_folders.save_folder(payload.name, payload.parent_id),
+        }, status_code=201)
+
+    @app.put("/api/job-folders/{folder_id}")
+    def update_job_folder(folder_id: str, payload: JobFolderInput):
+        """폴더 이름 또는 부모를 하위 트리 전체의 깊이와 함께 변경합니다."""
+
+        return job_folder_operation(lambda: {
+            "folder_id": server.database.job_folders.save_folder(payload.name, payload.parent_id, folder_id),
+        })
+
+    @app.delete("/api/job-folders/{folder_id}")
+    def delete_job_folder(folder_id: str):
+        """하위 폴더도 제거하고 소속 작업들은 미지정으로 돌립니다."""
+
+        return job_folder_operation(lambda: server.database.job_folders.delete_folder(folder_id))
+
+    @app.get("/api/jobs/selection-candidates")
+    def job_selection_candidates(job_id: str = "", folder_id: str = "", search: str = ""):
+        """현재 폴더·검색의 전체 이동 후보와 삭제 후보를 분리해 반환합니다."""
+
+        return job_folder_operation(lambda: server.database.list_job_selection_candidates(job_id, folder_id, search))
+
+    @app.post("/api/jobs/folder")
+    def move_jobs_to_folder(payload: JobFolderAssignmentInput):
+        """선택 작업들의 소속만 원자적으로 변경합니다."""
+
+        return job_folder_operation(lambda: server.database.job_folders.move_jobs(payload.job_ids, payload.folder_id))
 
     @app.get("/api/jobs/activity")
     def jobs_activity():

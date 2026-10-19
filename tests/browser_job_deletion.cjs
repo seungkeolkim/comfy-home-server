@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const filesystem = require("node:fs");
 const path = require("node:path");
 const { chromium } = require("playwright");
+const { handleJobFolderReadRequest } = require("./browser_job_folder_mock.cjs");
 
 const projectDirectory = path.resolve(__dirname, "..");
 const screenshotDirectory = path.join(projectDirectory, "runtime", "browser-check");
@@ -38,6 +39,11 @@ function createBrowserRequestHandler(mockState) {
     const request = route.request();
     const requestUrl = new URL(request.url());
     const requestPath = requestUrl.pathname;
+    if (await handleJobFolderReadRequest(route, mockState.jobs || [])) return;
+    if (requestPath.startsWith("/api/outputs/preview/")) {
+      await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="32" height="24"></svg>' });
+      return;
+    }
     if (["/", "/app.css", "/app.js"].includes(requestPath)) {
       const filename = requestPath === "/" ? "index.html" : requestPath.slice(1);
       const contentTypes = { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css" };
@@ -134,7 +140,7 @@ async function confirmDeletion(page, buttonIdentifier, acceptConfirmation) {
   return confirmationMessage;
 }
 
-/** 보호 설정의 유지와 모든 페이지의 두 삭제 방식에서 보호 작업이 제외되는지 확인합니다. */
+/** 보호·진행 상태는 이동용 선택을 유지하고 실제 삭제 대상에서만 제외합니다. */
 async function verifyProtectionAndGlobalSelection(browser) {
   const mockState = {
     jobs: createJobFixtures(), outputJobIds: new Set(), deletionRequests: [],
@@ -147,82 +153,50 @@ async function verifyProtectionAndGlobalSelection(browser) {
   const pageErrors = [];
   browserPage.on("pageerror", error => pageErrors.push(error.message));
   await browserPage.route("**/*", createBrowserRequestHandler(mockState));
-  await browserPage.goto("http://home-server.test/");
-  await browserPage.locator('[data-view="jobs"]:visible').click();
-  await browserPage.locator('[data-toggle-job-protection="deletion-job-1"]').waitFor();
-  assert.equal(await browserPage.locator('[data-delete-job="deletion-job-1"]').count(), 0);
-  assert.equal(await browserPage.locator('[data-delete-job-outputs="deletion-job-1"]').count(), 0);
-  assert.equal(await browserPage.locator('[data-toggle-job-protection="deletion-job-1"]').textContent(), "보호 해제");
-  await browserPage.locator("#toggle-job-selection").click();
-  await browserPage.locator("#select-every-job").waitFor({ state: "visible" });
-  assert.equal(await browserPage.locator('[data-select-job="deletion-job-1"]').isDisabled(), true);
-  await browserPage.locator("#select-every-job").click();
-  await waitForSelectedCount(browserPage, 6);
-  assert.equal(await browserPage.locator('[data-select-job="deletion-job-1"]').isChecked(), false);
-  await browserPage.locator('#jobs-pagination [data-jobs-page="2"]').first().click();
-  await browserPage.locator('[data-select-job="deletion-job-11"]').waitFor();
-  await waitForSelectedCount(browserPage, 6);
-  assert.equal(await browserPage.locator('[data-select-job="deletion-job-11"]').isDisabled(), true);
-  assert.equal(await browserPage.locator('[data-select-job="deletion-job-12"]').isChecked(), true);
-  await browserPage.locator('[data-toggle-job-protection="deletion-job-12"]').click();
-  await waitForSelectedCount(browserPage, 5);
-  await browserPage.waitForFunction(() => document.querySelector('[data-select-job="deletion-job-12"]').disabled);
-  assert.equal(await browserPage.locator('[data-select-job="deletion-job-12"]').isChecked(), false);
-  assert.equal(mockState.jobs[11].deletion_protected, true);
-
-  await browserPage.reload();
-  await browserPage.locator('[data-view="jobs"]:visible').click();
-  await browserPage.locator('#jobs-pagination [data-jobs-page="2"]').first().click();
-  await browserPage.locator('[data-toggle-job-protection="deletion-job-12"]').waitFor();
-  assert.equal(await browserPage.locator('[data-toggle-job-protection="deletion-job-12"]').textContent(), "보호 해제");
-  assert.equal(await browserPage.locator('[data-delete-job="deletion-job-12"]').count(), 0);
-  await browserPage.locator('[data-toggle-job-protection="deletion-job-12"]').click();
-  await browserPage.waitForFunction(() => document.querySelector('[data-toggle-job-protection="deletion-job-12"]').textContent === "삭제 보호");
-  await browserPage.locator("#toggle-job-selection").click();
-  await browserPage.locator("#select-every-job").click();
-  await waitForSelectedCount(browserPage, 6);
-  assert.equal(await browserPage.locator('[data-select-job="deletion-job-12"]').isEnabled(), true);
-  assert.equal(await browserPage.locator('[data-select-job="deletion-job-12"]').isChecked(), true);
-  await confirmDeletion(browserPage, "delete-selected-job-history", true);
-  await waitForSelectedCount(browserPage, 0);
-  const expectedDeletedJobs = [2, 3, 4, 5, 6, 12].map(jobNumber => `deletion-job-${jobNumber}`);
-  assert.deepEqual(mockState.deletionRequests.map(request => request.jobIdentifier), expectedDeletedJobs);
-  assert.equal(mockState.jobs.some(job => job.job_id === "deletion-job-1"), true);
-  assert.equal(mockState.jobs.some(job => job.job_id === "deletion-job-11"), true);
-  assert.equal(mockState.outputJobIds.size, 12);
-
-  mockState.jobs = createJobFixtures();
-  mockState.jobs[0].deletion_protected = true;
-  mockState.jobs[10].deletion_protected = true;
-  mockState.deletionRequests = [];
-  await browserPage.waitForFunction(() => document.querySelectorAll('[data-select-job]').length === 10);
-  await browserPage.locator("#select-every-job").click();
-  await waitForSelectedCount(browserPage, 6);
-  await confirmDeletion(browserPage, "delete-selected-job-outputs", true);
-  await waitForSelectedCount(browserPage, 0);
-  assert.deepEqual(mockState.deletionRequests.map(request => request.jobIdentifier), expectedDeletedJobs);
-  for (const protectedJobIdentifier of ["deletion-job-1", "deletion-job-11"]) {
-    assert.equal(mockState.outputJobIds.has(protectedJobIdentifier), true);
-    assert.equal(mockState.jobs.some(job => job.job_id === protectedJobIdentifier), true);
-  }
-  for (const deletedJobIdentifier of expectedDeletedJobs) {
-    assert.equal(mockState.outputJobIds.has(deletedJobIdentifier), false);
-  }
-
-  mockState.jobs.find(job => job.job_id === "deletion-job-7").requests[0].status = "completed";
-  await browserPage.waitForFunction(() => document.querySelector('[data-select-job="deletion-job-7"]').disabled === false);
-  await browserPage.locator('[data-select-job="deletion-job-7"]').check();
-  await waitForSelectedCount(browserPage, 1);
-  mockState.jobs.find(job => job.job_id === "deletion-job-7").deletion_protected = true;
-  await browserPage.waitForFunction(() => document.querySelector('[data-select-job="deletion-job-7"]').disabled);
-  await waitForSelectedCount(browserPage, 0);
-  assert.equal(await browserPage.locator("#select-every-job").isDisabled(), true);
-  await browserPage.setViewportSize({ width: 390, height: 844 });
-  assert.equal(await browserPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
-  filesystem.mkdirSync(screenshotDirectory, { recursive: true });
-  await browserPage.screenshot({ path: path.join(screenshotDirectory, "job-protection-mobile.png"), fullPage: true });
-  assert.deepEqual(pageErrors, []);
-  await browserPage.close();
+  try {
+    await browserPage.goto("http://home-server.test/?view=jobs");
+    await browserPage.locator('[data-toggle-job-protection="deletion-job-1"]').waitFor();
+    assert.equal(await browserPage.locator('[data-delete-job="deletion-job-1"]').count(), 0);
+    await browserPage.locator("#toggle-job-selection").click();
+    await browserPage.locator("#select-every-job").click();
+    await waitForSelectedCount(browserPage, 12);
+    assert.equal(await browserPage.locator('[data-select-job="deletion-job-1"]').isEnabled(), true);
+    assert.equal(await browserPage.locator('[data-select-job="deletion-job-1"]').isChecked(), true);
+    assert.equal(await browserPage.locator("#delete-selected-job-history").textContent(), "이력만 삭제 (6)");
+    await browserPage.locator('#jobs-pagination [data-jobs-page="2"]').first().click();
+    await browserPage.locator('[data-select-job="deletion-job-11"]').waitFor();
+    await browserPage.locator('[data-toggle-job-protection="deletion-job-12"]').click();
+    await browserPage.waitForFunction(() => document.getElementById("delete-selected-job-history").textContent === "이력만 삭제 (5)");
+    await waitForSelectedCount(browserPage, 12);
+    assert.equal(await browserPage.locator('[data-select-job="deletion-job-12"]').isChecked(), true);
+    await browserPage.locator('[data-toggle-job-protection="deletion-job-12"]').click();
+    await browserPage.waitForFunction(() => document.getElementById("delete-selected-job-history").textContent === "이력만 삭제 (6)");
+    await confirmDeletion(browserPage, "delete-selected-job-history", true);
+    await waitForSelectedCount(browserPage, 6);
+    const expectedDeletedJobs = [2, 3, 4, 5, 6, 12].map(number => `deletion-job-${number}`);
+    assert.deepEqual(mockState.deletionRequests.map(request => request.jobIdentifier), expectedDeletedJobs);
+    assert.equal(await browserPage.locator("#delete-selected-job-history").isDisabled(), true);
+    assert.equal(await browserPage.locator("#move-selected-job-folder").isEnabled(), true);
+    assert.equal(mockState.outputJobIds.size, 12);
+    mockState.jobs = createJobFixtures();
+    mockState.jobs[0].deletion_protected = true;
+    mockState.jobs[10].deletion_protected = true;
+    mockState.deletionRequests = [];
+    await browserPage.waitForFunction(() => applicationState.selectableJobIds.size === 12);
+    await browserPage.locator("#select-every-job").click();
+    await waitForSelectedCount(browserPage, 12);
+    await confirmDeletion(browserPage, "delete-selected-job-outputs", true);
+    await waitForSelectedCount(browserPage, 6);
+    assert.deepEqual(mockState.deletionRequests.map(request => request.jobIdentifier), expectedDeletedJobs);
+    for (const identifier of ["deletion-job-1", "deletion-job-11"]) {
+      assert.equal(mockState.outputJobIds.has(identifier), true);
+      assert.equal(mockState.jobs.some(job => job.job_id === identifier), true);
+    }
+    for (const identifier of expectedDeletedJobs) assert.equal(mockState.outputJobIds.has(identifier), false);
+    await browserPage.setViewportSize({ width: 390, height: 844 });
+    assert.equal(await browserPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    assert.deepEqual(pageErrors, []);
+  } finally { await browserPage.close(); }
 }
 
 /** 선택 상태, polling, 취소, 파일 삭제, 부분 실패, 페이지 경계와 모바일을 검증합니다. */
@@ -253,7 +227,7 @@ async function main() {
     assert.equal(await page.locator("#delete-selected-job-outputs").isDisabled(), true);
     assert.equal(await page.locator("[data-delete-job]").count(), 0);
     for (const activeJobNumber of [7, 8, 9, 10]) {
-      assert.equal(await page.locator(`[data-select-job="deletion-job-${activeJobNumber}"]`).isDisabled(), true);
+      assert.equal(await page.locator(`[data-select-job="deletion-job-${activeJobNumber}"]`).isDisabled(), false);
     }
     await page.locator('[data-select-job="deletion-job-1"]').check();
     await waitForSelectedCount(page, 1);
@@ -265,16 +239,16 @@ async function main() {
     assert.equal(await page.locator("#delete-selected-job-outputs").isDisabled(), true);
 
     await page.locator("#select-all-jobs").click();
-    await waitForSelectedCount(page, 6);
-    assert.equal(await page.locator("[data-select-job]:checked").count(), 6);
+    await waitForSelectedCount(page, 10);
+    assert.equal(await page.locator("[data-select-job]:checked").count(), 10);
     assert.equal(await page.locator('[data-select-job="deletion-job-11"]').count(), 0);
     await page.locator("#select-all-jobs").click();
     await waitForSelectedCount(page, 0);
 
     await page.locator("#select-every-job").click();
-    await waitForSelectedCount(page, 8);
-    assert.equal(await page.locator("[data-select-job]:checked").count(), 6);
-    assert.equal(await page.locator("#select-every-job").textContent(), "전체 선택 해제");
+    await waitForSelectedCount(page, 12);
+    assert.equal(await page.locator("[data-select-job]:checked").count(), 10);
+    assert.equal(await page.locator("#select-every-job").textContent(), "범위 전체 선택 해제");
     await page.locator("#select-every-job").click();
     await waitForSelectedCount(page, 0);
 
@@ -367,12 +341,12 @@ async function main() {
 
     await page.locator('[data-select-job="deletion-job-2"]').check();
     mockState.jobs[0].requests[0].status = "running";
-    await page.waitForFunction(() => document.querySelector('[data-select-job="deletion-job-2"]').disabled);
-    await waitForSelectedCount(page, 0);
+    await page.waitForFunction(() => document.getElementById("delete-selected-job-history").disabled);
+    await waitForSelectedCount(page, 1);
 
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator("#select-all-jobs").click();
-    await waitForSelectedCount(page, 4);
+    await waitForSelectedCount(page, 9);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     filesystem.mkdirSync(screenshotDirectory, { recursive: true });
     await page.screenshot({ path: path.join(screenshotDirectory, "job-multiple-deletion-mobile.png"), fullPage: true });

@@ -627,9 +627,54 @@ input[type="file"] {
   background: #4b2934;
   color: #ffced4;
 }
+.jobs-workspace { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; align-items: start; }
+.jobs-workspace-content { min-width: 0; }
+.jobs-folder-sidebar { position: sticky; top: 20px; padding: 14px 10px; border: 1px solid #2a3549; border-radius: 12px; background: #111827; }
+#jobs-folder-panel > summary { padding: 4px 8px 12px; font-weight: 700; cursor: pointer; overflow-wrap: anywhere; }
+#jobs-folder-tree { max-height: 62dvh; overflow-y: auto; margin-bottom: 12px; }
+#jobs-folder-tree ul { list-style: none; padding: 0; margin: 0; }
+.job-folder-row { display: flex; align-items: center; padding-left: calc(var(--folder-depth, 0) * 12px); border-radius: 7px; min-width: 0; }
+.job-folder-row.active { background: #203d43; }
+.job-folder-row:hover { background: #233044; }
+.job-folder-row a { display: flex; align-items: center; gap: 8px; justify-content: space-between; min-width: 0; min-height: 42px; flex: 1; padding: 7px 8px 7px 2px; color: #c5d1e5; text-decoration: none; font-size: 13px; }
+.job-folder-row a span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.job-folder-row a small { color: #91a5b9; flex-shrink: 0; }
+.job-folder-row.system-folder a { padding-left: 10px; font-weight: 600; }
+.job-folder-expand { display: inline-flex; align-items: center; justify-content: center; width: 24px; min-width: 24px; min-height: 38px; border: none; background: none; color: #a3b4ce; padding: 0; }
+.jobs-location-heading { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px; }
+#jobs-folder-location { display: block; font-size: 17px; overflow-wrap: anywhere; }
+#jobs-folder-count { margin: 3px 0 0; }
+.jobs-folder-menu { position: relative; flex-shrink: 0; }
+.jobs-folder-menu summary { display: block; font-size: 22px; padding: 0 12px; border: 1px solid #344159; border-radius: 8px; cursor: pointer; list-style: none; }
+.jobs-folder-menu summary::-webkit-details-marker { display: none; }
+.jobs-folder-menu > div { position: absolute; z-index: 4; right: 0; top: 42px; min-width: 180px; padding: 10px; border: 1px solid #344159; border-radius: 10px; background: #161d2c; box-shadow: 0 8px 30px #0007; }
+.jobs-search-form { display: flex; gap: 8px; margin-bottom: 14px; }
+.jobs-search-form input { min-width: 0; flex: 1; width: 100%; }
+.job-card .job-folder-location { display: inline-flex; align-items: center; gap: 6px; border: 0; border-radius: 5px; background: none; color: #9dbaeb; font-size: 12px; padding: 5px 0; max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+.job-folder-location:hover { color: #b3f0df; text-decoration: underline; }
+.job-folder-move-tree { max-height: 45dvh; overflow-y: auto; display: grid; gap: 6px; }
+.job-folder-destination { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px calc(12px + var(--folder-depth, 0) * 16px); min-height: 44px; border: 1px solid #2a3549; border-radius: 8px; overflow-wrap: anywhere; cursor: pointer; }
+.job-folder-destination:has(input:checked) { border-color: #7ed6c0; background: #203b3c; }
+.job-folder-destination input { width: 18px; height: 18px; min-height: 18px; flex-shrink: 0; }
+.job-result-thumbnails { grid-column: 1/-1; display: flex; gap: 8px; margin: 12px 0; }
+.job-card > .job-protection-badge { grid-column: 1/-1; }
+.job-card > .status-badge { justify-self: end; }
+.job-result-thumbnail { position: relative; flex: 0 1 112px; min-width: 0; width: 112px; height: 80px; padding: 0; overflow: hidden; border: 1px solid #344159; border-radius: 8px; background: #0d111b; }
+.job-result-thumbnail:hover { border-color: #7ed6c0; }
+.job-result-thumbnail img { display: block; width: 100%; height: 100%; object-fit: contain; font-size: 10px; color: #8f9eb7; }
+.job-result-thumbnail span { position: absolute; inset: 0; display: grid; place-items: center; color: white; text-shadow: 0 1px 5px #000; pointer-events: none; }
+@media (max-width: 800px) {
+  .jobs-workspace { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  .jobs-folder-sidebar { position: static; padding: 10px; }
+  #jobs-folder-panel > summary { padding: 4px 6px; }
+  #jobs-folder-tree { margin-top: 10px; max-height: 45dvh; }
+  .job-folder-row a { min-height: 44px; }
+  .job-result-thumbnail { width: min(28vw, 112px); height: 74px; }
+}
 .job-card {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
   gap: 9px;
   padding: 18px;
   background: #161d2c;

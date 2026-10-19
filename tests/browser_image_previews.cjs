@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const filesystem = require("node:fs");
 const path = require("node:path");
 const { chromium } = require("playwright");
+const { handleJobFolderReadRequest } = require("./browser_job_folder_mock.cjs");
 
 const projectDirectory = path.resolve(__dirname, "..");
 
@@ -24,6 +25,7 @@ function createImagePreviewHandler(fixtures) {
     const request = route.request();
     const requestUrl = new URL(request.url());
     const requestPath = requestUrl.pathname;
+    if (await handleJobFolderReadRequest(route, fixtures.jobs || [])) return;
     const matchingFiles = fixtures.files.filter(output =>
       (!requestUrl.searchParams.get("job_id") || output.job_id === requestUrl.searchParams.get("job_id")) &&
       (!requestUrl.searchParams.get("request_id") || output.request_id === requestUrl.searchParams.get("request_id")));
