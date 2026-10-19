@@ -26,6 +26,8 @@ MVP에서 지원하는 workflow는 다음 두 가지입니다.
 
 두 workflow의 API/UI JSON은 현재 `data/workflows/`에 있습니다. 범용 workflow 등록 기능은 MVP 범위에서 제외합니다. Workflow별로 필요한 입력 변환은 별도 adapter가 담당합니다.
 
+MiniMax의 F2VA·L2VA·동일 이미지 FL2VA, 단건/폴더 작업 구분과 첫 이미지 기준 해상도 자동 입력은 [작업 생성 UI 검토](docs/minimax_generation_design.md)에 기록했습니다. 아직 구현하지 않은 검토안입니다.
+
 ## 모델별 Prompt 입력
 
 - Prompt를 저장·불러오기하고 버전을 관리합니다.
