@@ -554,6 +554,15 @@
         <button id="job-input-confirm" class="button primary" type="button" disabled>선택한 이미지 사용</button>
       </div>
     </dialog>
+    <dialog id="image-preview-dialog" class="image-preview-dialog" aria-labelledby="image-preview-title">
+      <div class="image-preview-heading">
+        <h2 id="image-preview-title">이미지 미리보기</h2>
+        <button id="image-preview-close" class="button subtle" type="button" autofocus>닫기</button>
+      </div>
+      <img id="image-preview-content" alt="" />
+      <p id="image-preview-status" class="hint" role="status"></p>
+      <a id="image-preview-original" class="button subtle" target="_blank" rel="noopener">원본 보기</a>
+    </dialog>
     <dialog id="video-preview-dialog" class="video-preview-dialog" aria-labelledby="video-preview-title">
       <div class="video-preview-heading">
         <h2 id="video-preview-title">영상 미리보기</h2>

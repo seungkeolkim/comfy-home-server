@@ -16,6 +16,9 @@ const videoPreviewState = {
   opener: null, lastStatus: null, attachedIdentifier: null,
   pointerStartedOutside: false,
 };
+const imagePreviewState = {
+  outputId: null, opener: null, pointerStartedOutside: false,
+};
 
 const applicationState = {
   presets: [],
@@ -216,6 +219,7 @@ function showNotice(message, isError = false, action = null) {
 /** 로그인 화면만 표시합니다. */
 function showLogin() {
   closeVideoPreview(false);
+  closeImagePreview(false);
   finishJobInputSelection(null, true);
   finishOutputFolderSelection(null, true);
   window.clearTimeout(applicationState.pollingTimer);
@@ -391,6 +395,7 @@ function saveCurrentNavigationEntry() {
 /** 조회 조건과 탭 표시를 바꾸며 생성 입력이나 변경 요청은 실행하지 않습니다. */
 function displayNavigationState(navigationState) {
   closeVideoPreview(false);
+  closeImagePreview(false);
   finishJobInputSelection(null, true);
   const viewName = navigationState.viewName;
   if (viewName === "jobs") {
@@ -2360,7 +2365,7 @@ function renderOutputsList() {
             const media =
               outputFile.kind === "video"
                 ? `<button type="button" class="video-preview-trigger" data-video-preview="${outputFile.output_id}" aria-label="${escapeHtml(outputFile.name)} 저용량 미리보기" ${selectionIsBusy ? "disabled" : ""}><img src="/api/outputs/preview/${outputFile.path.split("/").map(encodeURIComponent).join("/")}" alt="${escapeHtml(outputFile.name)}" loading="lazy"><span class="video-preview-play" aria-hidden="true">▶</span></button>`
-                : `<img src="/api/outputs/preview/${outputFile.path.split("/").map(encodeURIComponent).join("/")}" alt="${escapeHtml(outputFile.name)}" loading="lazy">`;
+                : `<button type="button" class="image-preview-trigger" data-image-preview="${outputFile.output_id}" aria-label="${escapeHtml(outputFile.name)} 이미지 미리보기" ${selectionIsBusy ? "disabled" : ""}><img src="/api/outputs/preview/${encodedOutputPath(outputFile.path)}" alt="${escapeHtml(outputFile.name)}" loading="lazy"></button>`;
             const jobButton = outputFile.job_id
               ? `<a class="button job-link" data-navigation data-output-job="${escapeHtml(outputFile.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "jobs", pageNumber: 1, jobFilterId: outputFile.job_id }))}" aria-label="작업 ${escapeHtml(outputFile.job_id)} 보기">작업</a>`
               : "";
@@ -2400,16 +2405,72 @@ function closeVideoPreview(restoreFocus = true) {
   videoPreviewState.opener = null;
 }
 
+/** 압축된 이미지 미리보기를 열고 원본은 별도 버튼으로만 연결합니다. */
+function openImagePreview(outputFile, opener) {
+  closeVideoPreview(false);
+  closeImagePreview(false);
+  imagePreviewState.outputId = outputFile.output_id;
+  imagePreviewState.opener = opener;
+  const encodedPath = encodedOutputPath(outputFile.path);
+  element("image-preview-title").textContent = outputFile.name;
+  element("image-preview-original").href = `/media/${encodedPath}`;
+  element("image-preview-status").textContent = "미리보기를 불러오는 중…";
+  const image = element("image-preview-content");
+  image.alt = outputFile.name;
+  image.src = `/api/outputs/preview/${encodedPath}`;
+  element("image-preview-dialog").showModal();
+}
+
+/** 이미지 연결과 표시 상태를 정리하고 원래 Thumbnail 버튼으로 Focus를 돌립니다. */
+function closeImagePreview(restoreFocus = true) {
+  imagePreviewState.pointerStartedOutside = false;
+  imagePreviewState.outputId = null;
+  const image = element("image-preview-content");
+  image.removeAttribute("src");
+  image.alt = "";
+  element("image-preview-original").removeAttribute("href");
+  element("image-preview-status").textContent = "";
+  const dialog = element("image-preview-dialog");
+  if (dialog.open) dialog.close();
+  if (restoreFocus && imagePreviewState.opener?.isConnected) imagePreviewState.opener.focus({ preventScroll: true });
+  imagePreviewState.opener = null;
+}
+
 /** Dialog 자체로 전달된 Pointer가 실제 미리보기 바깥에 있는지 확인합니다. */
-function isVideoPreviewBackdropEvent(event) {
+function isPreviewBackdropEvent(event) {
   if (event.target !== event.currentTarget) return false;
   const dialogBounds = event.currentTarget.getBoundingClientRect();
   return event.clientX < dialogBounds.left || event.clientX > dialogBounds.right ||
     event.clientY < dialogBounds.top || event.clientY > dialogBounds.bottom;
 }
 
+/** 이미지·영상의 닫기·Escape·외부 클릭을 연결하며 내부에서 시작한 드래그는 유지합니다. */
+function bindPreviewDialogEvents(dialogIdentifier, closeButtonIdentifier, previewState, closePreview) {
+  const dialog = element(dialogIdentifier);
+  element(closeButtonIdentifier).addEventListener("click", () => closePreview());
+  dialog.addEventListener("pointerdown", event => {
+    previewState.pointerStartedOutside = isPreviewBackdropEvent(event);
+  });
+  dialog.addEventListener("pointercancel", () => {
+    previewState.pointerStartedOutside = false;
+  });
+  dialog.addEventListener("click", event => {
+    const clickedBackdrop = previewState.pointerStartedOutside && isPreviewBackdropEvent(event);
+    previewState.pointerStartedOutside = false;
+    if (clickedBackdrop) closePreview();
+  });
+  dialog.addEventListener("cancel", event => {
+    event.preventDefault();
+    closePreview();
+  });
+  dialog.addEventListener("close", () => {
+    if (!dialog.open && previewState.outputId !== null) closePreview();
+  });
+}
+
 /** 공유 변환을 접수하고 완료 전에도 준비된 MP4부터 재생합니다. */
 async function openVideoPreview(outputFile, opener, retry = false) {
+  closeImagePreview(false);
   closeVideoPreview(false);
   const revision = videoPreviewState.revision;
   videoPreviewState.outputId = outputFile.output_id;
@@ -2860,24 +2921,14 @@ function runAction(action) {
 
 /** 사용자 조작과 메뉴 이동을 연결합니다. */
 function bindEvents() {
-  element("video-preview-close").addEventListener("click", () => closeVideoPreview());
-  element("video-preview-dialog").addEventListener("pointerdown", (event) => {
-    videoPreviewState.pointerStartedOutside = isVideoPreviewBackdropEvent(event);
+  bindPreviewDialogEvents("video-preview-dialog", "video-preview-close", videoPreviewState, closeVideoPreview);
+  bindPreviewDialogEvents("image-preview-dialog", "image-preview-close", imagePreviewState, closeImagePreview);
+  element("image-preview-content").addEventListener("load", () => {
+    if (imagePreviewState.outputId !== null) element("image-preview-status").textContent = "";
   });
-  element("video-preview-dialog").addEventListener("pointercancel", () => {
-    videoPreviewState.pointerStartedOutside = false;
-  });
-  element("video-preview-dialog").addEventListener("click", (event) => {
-    const clickedBackdrop = videoPreviewState.pointerStartedOutside && isVideoPreviewBackdropEvent(event);
-    videoPreviewState.pointerStartedOutside = false;
-    if (clickedBackdrop) closeVideoPreview();
-  });
-  element("video-preview-dialog").addEventListener("cancel", (event) => {
-    event.preventDefault();
-    closeVideoPreview();
-  });
-  element("video-preview-dialog").addEventListener("close", () => {
-    if (!element("video-preview-dialog").open && videoPreviewState.outputId !== null) closeVideoPreview();
+  element("image-preview-content").addEventListener("error", () => {
+    if (imagePreviewState.outputId !== null)
+      element("image-preview-status").textContent = "이미지 미리보기를 불러올 수 없습니다. 원본 보기로 확인해 주세요.";
   });
   element("video-preview-player").addEventListener("error", () => {
     if (videoPreviewState.outputId !== null) showNotice("미리보기를 재생하지 못했습니다. 닫은 뒤 다시 열어 주세요.", true);
@@ -3223,6 +3274,12 @@ function bindEvents() {
     });
   });
   element("outputs-grid").addEventListener("click", (event) => {
+    const imagePreviewButton = event.target.closest("[data-image-preview]");
+    if (imagePreviewButton && !imagePreviewButton.disabled && !outputSelectionIsBusy()) {
+      const outputFile = applicationState.visibleOutputs.find(output => String(output.output_id) === imagePreviewButton.dataset.imagePreview);
+      if (outputFile) openImagePreview(outputFile, imagePreviewButton);
+      return;
+    }
     const previewButton = event.target.closest("[data-video-preview]");
     if (previewButton && !previewButton.disabled && !outputSelectionIsBusy()) {
       const outputFile = applicationState.visibleOutputs.find(output => String(output.output_id) === previewButton.dataset.videoPreview);
