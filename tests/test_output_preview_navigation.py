@@ -39,6 +39,7 @@ def test_preview_neighbors_follow_listing_order_across_pages_and_null_values(tmp
     listing = catalog.list_files(1, 100, **filters)["files"]
     for file_index, output_file in enumerate(listing):
         neighbors = catalog.get_file_neighbors(output_file["output_id"], **filters)
+        assert neighbors["current"] == {key: output_file[key] for key in ("output_id", "path", "name", "kind", "deletion_protected")}
         expected_previous = listing[file_index - 1] if file_index > 0 else None
         expected_next = listing[file_index + 1] if file_index + 1 < len(listing) else None
         for direction, expected_file in (("previous", expected_previous), ("next", expected_next)):
@@ -75,7 +76,10 @@ def test_preview_navigation_api_preserves_source_scope_and_rejects_removed_sourc
         assert neighbors["next"]["kind"] == "video"
         assert neighbors["previous"] is None
         assert client.get(endpoint, params={"request_id": first_request}).json() == neighbors
-        assert client.get(endpoint, params={"prefix": "source/"}).json() == {"previous": None, "next": None}
+        assert client.get(endpoint, params={"prefix": "source/"}).json() == {"previous": None, "next": None, "current": neighbors["current"]}
+        server.database.set_job_deletion_protection("first-job", True)
+        assert client.get(endpoint).json()["current"]["deletion_protected"] is True
+        server.database.set_job_deletion_protection("first-job", False)
         for invalid_parameters in ({"job_id": "second-job"}, {"request_id": second_request}, {"job_id": "missing"}):
             assert client.get(endpoint, params=invalid_parameters).status_code == 404
         assert client.get(endpoint, params={"job_id": "first-job", "request_id": first_request}).status_code == 422
@@ -83,7 +87,7 @@ def test_preview_navigation_api_preserves_source_scope_and_rejects_removed_sourc
         assert client.get("/api/outputs/999999/neighbors").status_code == 404
         with sqlite3.connect(server.database.database_path) as connection:
             connection.execute("UPDATE output_files SET is_deleted=1 WHERE output_id=?", (video_identifier,))
-        assert client.get(endpoint, params={"job_id": "first-job"}).json() == {"previous": None, "next": None}
+        assert client.get(endpoint, params={"job_id": "first-job"}).json() == {"previous": None, "next": None, "current": neighbors["current"]}
         assert client.get(f"/api/outputs/{video_identifier}/neighbors").status_code == 404
         assert server.database.delete_job("first-job")
         assert client.get(endpoint, params={"job_id": "first-job"}).status_code == 404

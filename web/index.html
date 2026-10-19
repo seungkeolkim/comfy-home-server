@@ -566,7 +566,11 @@
         <span id="image-preview-navigation-status" class="hint" role="status"></span>
         <button id="image-preview-next" class="button subtle" type="button" data-preview-next disabled>다음 →</button>
       </div>
-      <a id="image-preview-original" class="button subtle" target="_blank" rel="noopener">원본 보기</a>
+      <div class="preview-actions">
+        <a id="image-preview-original" class="button subtle" target="_blank" rel="noopener">원본 보기</a>
+        <button id="image-preview-delete" class="button danger" type="button" disabled>삭제</button>
+      </div>
+      <div id="image-preview-notice" class="notice hidden" role="status" aria-live="polite"></div>
     </dialog>
     <dialog id="video-preview-dialog" class="video-preview-dialog" aria-labelledby="video-preview-title">
       <div class="video-preview-heading">

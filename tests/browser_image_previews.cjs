@@ -14,7 +14,8 @@ function createImagePreviewFixtures() {
     width: index === 1 ? 512 : 768, height: index === 1 ? 768 : 512,
     deletion_protected: index === 1,
   }));
-  return { files, originalRequests: [], mutations: [], neighborQueries: [], neighborGate: null, rejectNeighbors: false };
+  return { files, originalRequests: [], mutations: [], neighborQueries: [], neighborGate: null, rejectNeighbors: false,
+    deletionRequests: [], rejectDeletion: false, protectOnDelete: false, deletionGate: null };
 }
 
 /** 원본 요청을 따로 기록하여 Thumbnail 미리보기만으로 원본을 받지 않는지 확인합니다. */
@@ -68,12 +69,31 @@ function createImagePreviewHandler(fixtures) {
         await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "현재 조회 범위에서 결과물을 찾을 수 없습니다." }) });
         return;
       }
-      response = { previous: matchingFiles[currentIndex - 1] || null, next: matchingFiles[currentIndex + 1] || null };
+      response = { previous: matchingFiles[currentIndex - 1] || null, next: matchingFiles[currentIndex + 1] || null,
+        current: { ...matchingFiles[currentIndex], deletion_protected: Boolean(matchingFiles[currentIndex].deletion_protected) } };
     }
     else if (requestPath === "/api/outputs/selection-candidates") response = {
       output_ids: fixtures.files.map(output => output.output_id),
       deletable_output_ids: fixtures.files.filter(output => output.kind === "image" && !output.deletion_protected).map(output => output.output_id),
     };
+    else if (/^\/api\/outputs\/\d+$/.test(requestPath) && request.method() === "DELETE") {
+      const outputIdentifier = Number(requestPath.split("/")[3]);
+      const outputFile = fixtures.files.find(output => output.output_id === outputIdentifier);
+      fixtures.deletionRequests.push(outputIdentifier);
+      if (fixtures.deletionGate) {
+        const deletionGate = fixtures.deletionGate;
+        fixtures.deletionGate = null;
+        deletionGate.markStarted();
+        await deletionGate.promise;
+      }
+      if (fixtures.protectOnDelete) outputFile.deletion_protected = true;
+      if (fixtures.rejectDeletion || outputFile.deletion_protected) {
+        await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: outputFile.deletion_protected ? "삭제 보호된 작업입니다." : "이미지 파일을 삭제할 수 없습니다." }) });
+        return;
+      }
+      fixtures.files = fixtures.files.filter(output => output.output_id !== outputIdentifier);
+      response = { deleted: true, deleted_files: 1 };
+    }
     else if (/^\/api\/outputs\/\d+\/video-preview$/.test(requestPath)) response = { state: "failed" };
     else if (requestPath === "/favicon.ico") {
       await route.fulfill({ status: 204 });
@@ -169,6 +189,7 @@ async function verifyPreviewNavigation(browser, width) {
     await page.locator('[data-image-preview="1"]').click();
     await neighborsStarted;
     assert.equal(await page.locator("#image-preview-next").isDisabled(), true);
+    assert.equal(await page.locator("#image-preview-delete").isDisabled(), true);
     await page.keyboard.press("Escape");
     await page.locator('[data-image-preview="3"]').click();
     await page.locator("#image-preview-next:not([disabled])").waitFor();
@@ -287,6 +308,127 @@ async function verifyImagePreviews(browser, width) {
   }
 }
 
+/** 미리보기 삭제의 확인·보호·실패·연속 이동·마지막 항목과 대기 중 닫기를 검증합니다. */
+async function verifyPreviewDeletion(browser, width) {
+  const context = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width < 600 });
+  const fixtures = createImagePreviewFixtures();
+  fixtures.files = fixtures.files.slice(0, 3).map(output => ({ ...output, job_id: "first-job" }));
+  fixtures.files.push({ output_id: 500, name: "other.png", path: "other.png", kind: "image", job_id: "other-job" });
+  await context.route("**/*", createImagePreviewHandler(fixtures));
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  try {
+    await page.goto("http://image-preview.test/?view=outputs&job_id=first-job");
+    await page.locator("#toggle-output-selection").click();
+    await page.locator('[data-select-output="1"]').check();
+    await page.locator('[data-image-preview="1"]').click();
+    await page.locator("#image-preview-delete:not([disabled])").waitFor();
+    const originalBounds = await page.locator("#image-preview-original").boundingBox();
+    const deleteBounds = await page.locator("#image-preview-delete").boundingBox();
+    assert.ok(deleteBounds.x > originalBounds.x + originalBounds.width);
+    assert.equal(await page.locator("#image-preview-delete").evaluate(button => {
+      const colorChannels = getComputedStyle(button).backgroundColor.match(/\d+/g).map(Number);
+      return colorChannels[0] > colorChannels[1] && colorChannels[0] > colorChannels[2];
+    }), true);
+    page.once("dialog", dialog => dialog.dismiss());
+    await page.locator("#image-preview-delete").click();
+    assert.deepEqual(fixtures.deletionRequests, []);
+    fixtures.rejectDeletion = true;
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#image-preview-delete").click();
+    await page.locator("#image-preview-notice").filter({ hasText: "삭제할 수 없습니다" }).waitFor();
+    await page.locator("#image-preview-delete:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-title").textContent(), fixtures.files[0].name);
+    fixtures.rejectDeletion = false;
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#image-preview-delete").click();
+    await page.locator("#image-preview-title").filter({ hasText: "긴 이미지 이름" }).waitFor();
+    await page.locator("#image-preview-next:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-delete").isDisabled(), true);
+    assert.match(await page.locator("#image-preview-delete").getAttribute("title"), /삭제 보호/);
+    assert.equal(await page.locator('[data-image-preview="1"]').count(), 0);
+    assert.equal(await page.locator("#selected-output-count").textContent(), "0개 선택");
+    assert.deepEqual(fixtures.deletionRequests, [1, 1]);
+    await page.locator("#image-preview-next").click();
+    await page.locator("#image-preview-delete:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-title").textContent(), "missing.png");
+    const artifactDirectory = path.join(projectDirectory, "runtime", "browser-check");
+    await page.screenshot({ path: path.join(artifactDirectory, `image-preview-delete-${width}.png`) });
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#image-preview-delete").click();
+    await page.locator("#image-preview-title").filter({ hasText: "긴 이미지 이름" }).waitFor();
+    assert.deepEqual(fixtures.deletionRequests, [1, 1, 3]);
+    await page.keyboard.press("Escape");
+    fixtures.files.find(output => output.output_id === 2).deletion_protected = false;
+    await page.locator('[data-image-preview="2"]').click();
+    await page.locator("#image-preview-delete:not([disabled])").waitFor();
+    fixtures.protectOnDelete = true;
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#image-preview-delete").click();
+    await page.locator("#image-preview-notice").filter({ hasText: "삭제 보호" }).waitFor();
+    await page.waitForFunction(() => document.getElementById("image-preview-delete").title.includes("삭제 보호"));
+    assert.equal(await page.locator("#image-preview-delete").isDisabled(), true);
+    assert.ok(fixtures.files.some(output => output.output_id === 2));
+    await page.keyboard.press("Escape");
+    fixtures.protectOnDelete = false;
+    fixtures.files.find(output => output.output_id === 2).deletion_protected = false;
+    await page.locator('[data-image-preview="2"]').click();
+    await page.locator("#image-preview-delete:not([disabled])").waitFor();
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#image-preview-delete").click();
+    await page.waitForFunction(() => !document.getElementById("image-preview-dialog").open);
+    assert.deepEqual(fixtures.files.map(output => output.output_id), [500]);
+
+    fixtures.files = [5, 6].map(outputIdentifier => ({ output_id: outputIdentifier, name: `${outputIdentifier}.png`, path: `${outputIdentifier}.png`, kind: "image", job_id: "first-job" }));
+    await page.goto("http://image-preview.test/?view=outputs&job_id=first-job");
+    await page.locator('[data-image-preview="5"]').click();
+    await page.locator("#image-preview-delete:not([disabled])").waitFor();
+    let markStarted;
+    let releaseDeletion;
+    const deletionStarted = new Promise(resolve => { markStarted = resolve; });
+    fixtures.deletionGate = { markStarted, promise: new Promise(resolve => { releaseDeletion = resolve; }) };
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#image-preview-delete").click();
+    await deletionStarted;
+    assert.equal(await page.locator("#image-preview-delete").isDisabled(), true);
+    assert.equal(await page.locator("#image-preview-next").isDisabled(), true);
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await page.locator("#image-preview-title").textContent(), "5.png");
+    await page.keyboard.press("Escape");
+    releaseDeletion();
+    await page.locator('[data-image-preview="6"]:not([disabled])').waitFor();
+    assert.equal(await page.locator("#image-preview-dialog").evaluate(dialog => dialog.open), false);
+
+    fixtures.files = Array.from({ length: 65 }, (unused, index) => ({ output_id: 1000 + index, name: `${1000 + index}.png`, path: `${1000 + index}.png`, kind: "image", job_id: "first-job", deletion_protected: index === 63 }));
+    await page.goto("http://image-preview.test/?view=outputs&job_id=first-job&page=2");
+    await page.locator('[data-image-preview="1064"]').click();
+    await page.locator("#image-preview-delete:not([disabled])").waitFor();
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#image-preview-delete").click();
+    await page.locator("#image-preview-title").filter({ hasText: "1063.png" }).waitFor();
+    await page.locator("#image-preview-previous:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-delete").isDisabled(), true);
+    assert.equal(await page.locator("#image-preview-next").isDisabled(), true);
+    await page.keyboard.press("Escape");
+    fixtures.files = [
+      { output_id: 700, name: "last-image.png", path: "last-image.png", kind: "image", job_id: "first-job" },
+      { output_id: 701, name: "next-video.mp4", path: "next-video.mp4", kind: "video", job_id: "first-job" },
+    ];
+    await page.goto("http://image-preview.test/?view=outputs&job_id=first-job");
+    await page.locator('[data-image-preview="700"]').click();
+    await page.locator("#image-preview-delete:not([disabled])").waitFor();
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#image-preview-delete").click();
+    await page.locator("#video-preview-title").filter({ hasText: "next-video.mp4" }).waitFor();
+    assert.equal(await page.locator("#image-preview-dialog").evaluate(dialog => dialog.open), false);
+    assert.deepEqual(fixtures.originalRequests, []);
+    assert.deepEqual(pageErrors, []);
+  } finally {
+    await context.close();
+  }
+}
+
 /** 실제 GPU·운영 이미지 변경 없이 두 화면 크기를 검증합니다. */
 async function main() {
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "msedge", headless: true });
@@ -295,7 +437,9 @@ async function main() {
     await verifyImagePreviews(browser, 390);
     await verifyPreviewNavigation(browser, 1280);
     await verifyPreviewNavigation(browser, 390);
-    console.log("Passed: image preview, scoped cross-page image/video navigation, keyboard/boundaries, stale/error responses, original-only requests, close/touch/focus and desktop/mobile layout.");
+    await verifyPreviewDeletion(browser, 1280);
+    await verifyPreviewDeletion(browser, 390);
+    console.log("Passed: image preview/deletion, scoped cross-page navigation, protection/cancel/failure, close during delete, stale responses, original-only requests and desktop/mobile layout.");
   } finally {
     await browser.close();
   }

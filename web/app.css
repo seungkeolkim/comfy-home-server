@@ -880,6 +880,7 @@ body:has(.image-preview-dialog[open]) { overflow: hidden; }
 .preview-navigation { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 12px 0; }
 .preview-navigation button { flex-shrink: 0; }
 .preview-navigation .hint { min-width: 0; overflow-wrap: anywhere; text-align: center; }
+.preview-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 #video-preview-player { display: block; width: 100%; max-height: 65dvh; margin: 12px 0; background: black; }
 #video-preview-notice { max-width: calc(100vw - 32px); box-sizing: border-box; }
 #video-preview-notice button { pointer-events: auto; }

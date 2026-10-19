@@ -1184,7 +1184,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/outputs/{output_id}/neighbors")
     def output_neighbors(output_id: int, job_id: str = "", request_id: str = "", prefix: str = ""):
-        """미리보기를 연 조회 범위 안에서 이미지·영상의 이전·다음 파일만 반환합니다."""
+        """미리보기 현재 파일의 삭제 보호 상태와 같은 범위의 이전·다음 파일을 반환합니다."""
 
         if job_id and request_id:
             raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")

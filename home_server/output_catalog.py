@@ -327,7 +327,7 @@ class OutputCatalog:
     def get_file_neighbors(
         self, output_id: int, job_id: str = "", request_id: str = "", prefix: str = "",
     ) -> dict[str, dict[str, Any] | None]:
-        """현재 필터와 목록 정렬 안의 인접 파일만 조회하며 페이지·FS·이력 JSON은 읽지 않습니다."""
+        """현재 파일의 보호 상태와 같은 범위의 인접 파일을 페이지·FS·이력 JSON 없이 읽습니다."""
 
         conditions = ["is_available=1", "is_deleted=0"]
         parameters = []
@@ -345,11 +345,19 @@ class OutputCatalog:
         with self._connect() as connection:
             connection.execute("BEGIN")
             current_row = connection.execute(
-                f"SELECT generated_at,length(seed) AS seed_length,seed,relative_path FROM output_files WHERE {filter_clause} AND output_id=?",
+                "SELECT generated_at,length(seed) AS seed_length,seed,relative_path,"
+                "COALESCE((SELECT deletion_protected FROM jobs WHERE jobs.job_id=output_files.job_id),0) AS deletion_protected "
+                f"FROM output_files WHERE {filter_clause} AND output_id=?",
                 [*parameters, output_id],
             ).fetchone()
             if current_row is None:
                 raise LookupError("현재 조회 범위에서 결과물을 찾을 수 없습니다. 목록을 새로고침해 주세요.")
+            current_path = Path(current_row["relative_path"])
+            neighbors["current"] = {
+                "output_id": output_id, "path": current_row["relative_path"], "name": current_path.name,
+                "kind": "video" if current_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS else "image",
+                "deletion_protected": bool(current_row["deletion_protected"]),
+            }
             for direction in ("previous", "next"):
                 cursor_condition, cursor_parameters = output_neighbor_condition(current_row, direction)
                 sort_order = OUTPUT_SORT_ORDER.replace("DESC", "ASC") if direction == "previous" else OUTPUT_SORT_ORDER

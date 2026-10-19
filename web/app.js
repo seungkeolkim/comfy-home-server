@@ -20,7 +20,7 @@ const imagePreviewState = {
   outputId: null, opener: null, pointerStartedOutside: false,
 };
 const outputPreviewNavigationState = {
-  revision: 0, controller: null, outputId: null, filter: null, opener: null,
+  revision: 0, controller: null, outputId: null, currentFile: null, filter: null, opener: null,
   previous: null, next: null, loading: false, error: "",
 };
 
@@ -204,7 +204,8 @@ async function apiRequest(path, options = {}) {
 
 /** 화면에 고정된 알림을 잠시 표시합니다. */
 function showNotice(message, isError = false, action = null) {
-  const notice = element("video-preview-dialog").open ? element("video-preview-notice") : element("notice");
+  const notice = element("video-preview-dialog").open ? element("video-preview-notice")
+    : element("image-preview-dialog").open ? element("image-preview-notice") : element("notice");
   notice.textContent = message;
   if (action) {
     const actionButton = document.createElement("button");
@@ -2420,6 +2421,7 @@ function openImagePreview(outputFile, opener) {
   element("image-preview-title").textContent = outputFile.name;
   element("image-preview-original").href = `/media/${encodedPath}`;
   element("image-preview-status").textContent = "미리보기를 불러오는 중…";
+  element("image-preview-notice").classList.add("hidden");
   const image = element("image-preview-content");
   image.alt = outputFile.name;
   image.src = `/api/outputs/preview/${encodedPath}`;
@@ -2436,6 +2438,7 @@ function closeImagePreview(restoreFocus = true, preserveNavigation = false) {
   image.alt = "";
   element("image-preview-original").removeAttribute("href");
   element("image-preview-status").textContent = "";
+  element("image-preview-notice").classList.add("hidden");
   const dialog = element("image-preview-dialog");
   if (dialog.open) dialog.close();
   if (restoreFocus && imagePreviewState.opener?.isConnected) imagePreviewState.opener.focus({ preventScroll: true });
@@ -2447,16 +2450,22 @@ function resetOutputPreviewNavigation() {
   const navigationState = outputPreviewNavigationState;
   navigationState.revision += 1;
   navigationState.controller?.abort();
-  Object.assign(navigationState, { controller: null, outputId: null, filter: null, opener: null, previous: null, next: null, loading: false, error: "" });
+  Object.assign(navigationState, { controller: null, outputId: null, currentFile: null, filter: null, opener: null, previous: null, next: null, loading: false, error: "" });
   renderOutputPreviewNavigation();
 }
 
 /** 현재 범위와 인접 파일 상태를 이미지·영상의 공통 이동 버튼에 표시합니다. */
 function renderOutputPreviewNavigation() {
   const navigationState = outputPreviewNavigationState;
+  const currentFile = navigationState.currentFile;
+  const deleteButton = element("image-preview-delete");
+  deleteButton.disabled = navigationState.loading || Boolean(navigationState.error) || outputSelectionIsBusy() ||
+    !currentFile || currentFile.kind !== "image" || currentFile.deletion_protected !== false;
+  deleteButton.textContent = applicationState.deletingOutputId === String(navigationState.outputId) ? "삭제 중…" : "삭제";
+  deleteButton.title = currentFile?.deletion_protected ? "삭제 보호된 작업의 결과물입니다." : "";
   for (const mediaKind of ["image", "video"]) {
-    element(`${mediaKind}-preview-previous`).disabled = navigationState.loading || !navigationState.previous;
-    element(`${mediaKind}-preview-next`).disabled = navigationState.loading || !navigationState.next;
+    element(`${mediaKind}-preview-previous`).disabled = navigationState.loading || outputSelectionIsBusy() || !navigationState.previous;
+    element(`${mediaKind}-preview-next`).disabled = navigationState.loading || outputSelectionIsBusy() || !navigationState.next;
     element(`${mediaKind}-preview-navigation-status`).textContent = navigationState.error || (navigationState.loading
       ? "이전·다음 결과물 확인 중…"
       : navigationState.outputId === null ? "" : navigationState.filter?.type === "job" ? "이 작업의 결과물" : navigationState.filter ? "이 요청의 결과물" : "전체 결과물");
@@ -2474,6 +2483,7 @@ function openOutputPreview(outputFile, opener, preserveScope = false) {
   navigationState.controller?.abort();
   navigationState.revision += 1;
   navigationState.outputId = outputFile.output_id;
+  navigationState.currentFile = null;
   navigationState.controller = new AbortController();
   navigationState.previous = null;
   navigationState.next = null;
@@ -2495,6 +2505,7 @@ async function loadOutputPreviewNeighbors(outputIdentifier, revision) {
     if (revision !== navigationState.revision) return;
     navigationState.previous = neighbors.previous;
     navigationState.next = neighbors.next;
+    navigationState.currentFile = neighbors.current;
   } catch (error) {
     if (revision !== navigationState.revision || error.name === "AbortError") return;
     navigationState.error = "이전·다음 결과물을 불러올 수 없습니다. 닫은 뒤 다시 열어 주세요.";
@@ -2509,7 +2520,7 @@ async function loadOutputPreviewNeighbors(outputIdentifier, revision) {
 /** 페이지 경계와 무관하게 현재 필터 안의 이전 또는 다음 결과물을 미리봅니다. */
 function navigateOutputPreview(direction) {
   const navigationState = outputPreviewNavigationState;
-  if (navigationState.loading || !navigationState[direction]) return;
+  if (navigationState.loading || outputSelectionIsBusy() || !navigationState[direction]) return;
   openOutputPreview(navigationState[direction], navigationState.opener, true);
 }
 
@@ -2978,11 +2989,64 @@ async function moveOutput(sourcePath) {
   }
 }
 
+/** 영구 삭제할 실제 이미지 경로와 이력 유지 여부를 사용자에게 확인합니다. */
+function confirmOutputImageDeletion(outputPath) {
+  return window.confirm(`이미지 파일을 영구 삭제하시겠습니까?\n${outputPath}\n작업 이력은 유지되며 파일은 복구할 수 없습니다.`);
+}
+
+/** 미리보기의 현재 이미지만 삭제하고 같은 범위의 다음·이전 파일로 이동합니다. */
+async function deletePreviewImage() {
+  const navigationState = outputPreviewNavigationState;
+  if (element("image-preview-delete").disabled || outputSelectionIsBusy()) return;
+  const currentFile = navigationState.currentFile;
+  if (!currentFile || !confirmOutputImageDeletion(currentFile.path)) return;
+  const revision = navigationState.revision;
+  const adjacentFile = navigationState.next || navigationState.previous;
+  const originalOpenerIdentifier = navigationState.opener?.dataset.imagePreview || navigationState.opener?.dataset.videoPreview;
+  let deletionSucceeded = false;
+  applicationState.deletingOutputId = String(currentFile.output_id);
+  applicationState.outputsLoadRevision += 1;
+  renderOutputsList();
+  renderOutputPreviewNavigation();
+  try {
+    await apiRequest(`/api/outputs/${currentFile.output_id}`, { method: "DELETE" });
+    applicationState.selectedOutputIds.delete(String(currentFile.output_id));
+    applicationState.visibleOutputs = applicationState.visibleOutputs.filter(output => output.output_id !== currentFile.output_id);
+    deletionSucceeded = true;
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    applicationState.deletingOutputId = null;
+    await loadOutputs();
+    renderOutputsList();
+    if (revision === navigationState.revision && navigationState.outputId === currentFile.output_id) {
+      if (deletionSucceeded) {
+        navigationState.opener = document.querySelector(`[data-image-preview="${CSS.escape(originalOpenerIdentifier || "")}"], [data-video-preview="${CSS.escape(originalOpenerIdentifier || "")}"]`) ||
+          element("outputs-grid").querySelector("[data-image-preview], [data-video-preview]") || element("refresh-outputs-button");
+        if (adjacentFile) openOutputPreview(adjacentFile, navigationState.opener, true);
+        else {
+          const focusTarget = navigationState.opener;
+          closeImagePreview(false);
+          focusTarget.focus({ preventScroll: true });
+        }
+      } else {
+        navigationState.loading = true;
+        await loadOutputPreviewNeighbors(currentFile.output_id, revision);
+      }
+    }
+    renderOutputPreviewNavigation();
+    if (deletionSucceeded) {
+      await Promise.resolve();
+      showNotice("이미지를 삭제했습니다.");
+    }
+  }
+}
+
 /** 확인한 이미지 한 장을 삭제하고 현재 필터와 페이지의 결과물을 다시 표시합니다. */
 async function deleteOutput(deleteButton) {
   if (deleteButton.disabled || outputSelectionIsBusy()) return;
   const outputPath = deleteButton.dataset.outputPath;
-  if (!window.confirm(`이미지 파일을 영구 삭제하시겠습니까?\n${outputPath}\n작업 이력은 유지되며 파일은 복구할 수 없습니다.`)) return;
+  if (!confirmOutputImageDeletion(outputPath)) return;
   applicationState.deletingOutputId = deleteButton.dataset.deleteOutput;
   applicationState.outputsLoadRevision += 1;
   renderOutputsList();
@@ -3008,6 +3072,7 @@ function runAction(action) {
 function bindEvents() {
   bindPreviewDialogEvents("video-preview-dialog", "video-preview-close", videoPreviewState, closeVideoPreview);
   bindPreviewDialogEvents("image-preview-dialog", "image-preview-close", imagePreviewState, closeImagePreview);
+  element("image-preview-delete").addEventListener("click", () => runAction(deletePreviewImage));
   element("image-preview-content").addEventListener("load", () => {
     if (imagePreviewState.outputId !== null) element("image-preview-status").textContent = "";
   });
