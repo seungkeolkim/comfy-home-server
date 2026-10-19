@@ -2,6 +2,10 @@
 
 작업일: 2026-10-11. 브랜치: `codex/job-cancellation-performance`.
 
+이 문서는 기존 **이미지 메모리 Cache**의 구현 기록입니다. 영상 정지 Thumbnail·저용량 재생·디스크 Cache·변환 Queue의 후속 설계는 [영상 미리보기와 Cache 설계](video_preview_cache_design.md)에 분리했습니다. 영상 설계는 아직 미구현이며 기존 이미지 Cache 정책은 유지합니다. 아래 범위 설명의 목록 전체 폴더 탐색은 작성 당시 동작이며 현재 목록은 [Catalog 구현 기록](output_metadata_improvement_plan.md)의 DB 기반 조회를 사용합니다.
+
+후속 설계의 영상 정지 Thumbnail은 기존 `thumbnail_cache_max_entries`와 같은 개수 상한을 사용하는 별도 디스크 LRU이며, 재인코딩한 저용량 영상은 모든 원본을 대상으로 별도 보관합니다. Thumbnail 퇴출로 저용량 영상이 삭제되지 않도록 두 저장 영역과 수명을 분리합니다.
+
 결과물 Preview는 같은 이미지가 다시 요청될 때도 서버에서 원본 decode·방향 보정·resize·WebP 압축을 반복했습니다. Browser의 조건부 요청은 ETag가 같을 때 304로 응답했지만, 조건 없는 재요청이나 다른 Browser에서는 변환 비용이 다시 발생했습니다.
 
 ## Cache에 남는 데이터
