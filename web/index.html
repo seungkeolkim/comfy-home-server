@@ -365,8 +365,8 @@
               <button id="select-every-output" class="button subtle small" type="button">결과물 전체 선택</button>
               <span id="selected-output-count" class="hint" role="status">0개 선택</span>
               <button id="move-selected-outputs" class="button subtle small" type="button" disabled>선택된 결과물 이동</button>
-              <button id="delete-selected-outputs" class="button danger small" type="button" disabled>선택된 이미지 삭제</button>
-              <span class="hint">현재 필터 안에서 페이지를 이동해도 선택이 유지됩니다. 영상·삭제 보호 결과물도 이동할 수 있으며 삭제에서는 제외됩니다.</span>
+              <button id="delete-selected-outputs" class="button danger small" type="button" disabled>선택된 결과물 삭제</button>
+              <span class="hint">현재 필터 안에서 페이지를 이동해도 선택이 유지됩니다. 이미지·영상 모두 삭제할 수 있으며, 삭제 보호된 결과물은 이동만 가능합니다.</span>
             </div>
           </div>
           <div id="outputs-grid" class="outputs-grid"></div>
@@ -583,7 +583,10 @@
         <span id="video-preview-navigation-status" class="hint" role="status"></span>
         <button id="video-preview-next" class="button subtle" type="button" data-preview-next disabled>다음 →</button>
       </div>
-      <a id="video-preview-original" class="button subtle" target="_blank" rel="noopener">원본 열기</a>
+      <div class="preview-actions">
+        <a id="video-preview-original" class="button subtle" target="_blank" rel="noopener">원본 열기</a>
+        <button id="video-preview-delete" class="button danger" type="button" disabled>삭제</button>
+      </div>
       <div id="video-preview-notice" class="notice hidden" role="status" aria-live="polite"></div>
     </dialog>
   </body>

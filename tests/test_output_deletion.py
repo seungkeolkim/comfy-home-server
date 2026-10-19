@@ -1,6 +1,7 @@
 """단건 이미지 삭제의 Migration, FS 경계와 catalog 조회 일관성을 검증합니다."""
 
 import sqlite3
+from unittest.mock import Mock
 from collections.abc import Iterator
 from os import DirEntry
 from pathlib import Path
@@ -14,6 +15,83 @@ from home_server.output_catalog import OutputCatalog
 from home_server.output_listing import iterate_output_directory_entries
 from test_application import FakeComfyClient, create_processing_test_app
 from test_output_catalog import add_catalog_test_request, read_history_json
+
+
+@pytest.mark.parametrize("request_status", ["submitting", "pending", "running", "cancelling", "completed", "cancelled", "failed", "partial"])
+@pytest.mark.parametrize("extension", [".png", ".mp4"])
+def test_output_deletion_ignores_job_state_and_only_checks_protection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request_status: str, extension: str,
+) -> None:
+    """취소 후 일부 완료를 포함한 모든 작업 상태에서 이미지·영상 삭제는 보호 여부만 검사합니다."""
+
+    application = create_processing_test_app(tmp_path, FakeComfyClient())
+    server = application.state.home_server
+    monkeypatch.setattr(server.video_previews, "request_scan", Mock())
+    invalidation = Mock(wraps=server.video_previews.invalidate_missing)
+    monkeypatch.setattr(server.video_previews, "invalidate_missing", invalidation)
+    source_path = f"generated{extension}"
+    server.database.add_job("state-job", "anima" if extension == ".png" else "minimax_h3", "삭제 검증", [
+        {"request_id": f"request-{request_index}", "status": "pending", "output_stem": "generated", "detail": {"body": {"prompt": "preserve"}, "settings": {"width": 64, "height": 64}}}
+        for request_index in range(2)
+    ])
+    server.database.complete_request("request-0", [source_path])
+    server.database.update_request("request-0", "completed" if request_status == "partial" else request_status)
+    server.database.update_request("request-1", "cancelled" if request_status == "partial" else request_status)
+    physical_path = server.config.managed_output_directory / source_path
+    physical_path.write_bytes(b"generated output")
+    with TestClient(application) as client:
+        client.post("/api/login", json={"password": "test"})
+        original_job = client.get("/api/jobs/state-job").json()
+        assert original_job["status"] == request_status
+        listing = client.get("/api/outputs", params={"job_id": "state-job"}).json()
+        output_identifier = listing["files"][0]["output_id"]
+        neighbors_endpoint = f"/api/outputs/{output_identifier}/neighbors"
+        candidates_endpoint = "/api/outputs/selection-candidates?job_id=state-job"
+        assert client.get(candidates_endpoint).json()["deletable_output_ids"] == [output_identifier]
+        assert client.get(neighbors_endpoint).json()["current"]["deletion_protected"] is False
+        server.database.set_job_deletion_protection("state-job", True)
+        assert client.get(candidates_endpoint).json()["deletable_output_ids"] == []
+        assert client.get(neighbors_endpoint).json()["current"]["deletion_protected"] is True
+        assert client.delete(f"/api/outputs/{output_identifier}").status_code == 409
+        assert physical_path.exists()
+        server.database.set_job_deletion_protection("state-job", False)
+        assert client.delete(f"/api/outputs/{output_identifier}").status_code == 200
+        assert not physical_path.exists()
+        assert server.output_catalog.is_deleted(source_path)
+        assert client.get("/api/jobs/state-job").json() == original_job
+        assert client.get("/api/outputs?job_id=state-job").json()["files"] == []
+        assert invalidation.call_count == (1 if extension == ".mp4" else 0)
+        server.database.complete_request("request-0", [source_path])
+        assert client.get("/api/outputs?job_id=state-job").json()["files"] == []
+
+
+@pytest.mark.parametrize("extension", [".mp4", ".webm", ".mkv", ".mov"])
+def test_video_deletion_invalidates_derived_cache_and_keeps_history(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, extension: str,
+) -> None:
+    """지원 영상 확장자는 Tombstone으로 삭제하고 파생 Cache 무효화 경로를 호출합니다."""
+
+    application = create_processing_test_app(tmp_path, FakeComfyClient())
+    server = application.state.home_server
+    monkeypatch.setattr(server.video_previews, "request_scan", Mock())
+    invalidation = Mock(wraps=server.video_previews.invalidate_missing)
+    monkeypatch.setattr(server.video_previews, "invalidate_missing", invalidation)
+    request_identifier = add_catalog_test_request(server.database)
+    relative_path = f"generated{extension}"
+    physical_path = server.config.managed_output_directory / relative_path
+    physical_path.write_bytes(b"video result")
+    server.database.complete_request(request_identifier, [relative_path])
+    original_history = read_history_json(server.database.database_path)
+    with TestClient(application) as client:
+        client.post("/api/login", json={"password": "test"})
+        output_identifier = client.get("/api/outputs").json()["files"][0]["output_id"]
+        assert client.delete(f"/api/outputs/{output_identifier}").status_code == 200
+        assert invalidation.call_count == 1
+        assert not physical_path.exists()
+        assert server.output_catalog.is_deleted(relative_path)
+        assert client.get(f"/media/{relative_path}").status_code == 404
+        assert client.get(f"/api/outputs/{output_identifier}/video-preview").status_code == 404
+        assert read_history_json(server.database.database_path) == original_history
 
 
 def test_schema_ten_migration_preserves_catalog_and_json(tmp_path: Path) -> None:
@@ -181,9 +259,9 @@ def test_failed_image_deletion_preserves_file_and_catalog(
             assert client.delete(f"/api/outputs/{output_id}").status_code == 200
 
 
-@pytest.mark.parametrize("relative_path", ["video.mp4", "directory.png", "../outside.png"])
-def test_single_deletion_rejects_non_images_and_unsafe_paths(tmp_path: Path, relative_path: str) -> None:
-    """인증과 catalog 식별자를 요구하며 영상·디렉터리·관리 폴더 밖 파일은 보존합니다."""
+@pytest.mark.parametrize("relative_path", ["unsupported.txt", "directory.png", "../outside.png"])
+def test_single_deletion_rejects_unsupported_files_and_unsafe_paths(tmp_path: Path, relative_path: str) -> None:
+    """인증과 catalog 식별자를 요구하며 미지원 파일·디렉터리·관리 폴더 밖 파일은 보존합니다."""
 
     application = create_processing_test_app(tmp_path, FakeComfyClient())
     server = application.state.home_server
@@ -266,7 +344,7 @@ def test_synchronization_does_not_restore_image_deleted_during_scan(
 
 
 def test_output_deletion_candidates_span_pages_and_respect_filters_and_protection(tmp_path: Path) -> None:
-    """전체 선택은 현재 필터의 모든 이미지 중 삭제·누락·영상·보호된 파일을 제외합니다."""
+    """전체 선택은 현재 필터의 모든 이미지 중 삭제·누락·보호된 파일을 제외하고 영상도 포함합니다."""
 
     application = create_processing_test_app(tmp_path, FakeComfyClient())
     server = application.state.home_server
@@ -292,30 +370,30 @@ def test_output_deletion_candidates_span_pages_and_respect_filters_and_protectio
         second_page = client.get("/api/outputs", params={"page": 2}).json()
         listed_files = first_page["files"] + second_page["files"]
         path_to_identifier = {output_file["path"]: output_file["output_id"] for output_file in listed_files}
-        expected_image_ids = {path_to_identifier[relative_path] for relative_path in image_paths}
+        expected_output_ids = {path_to_identifier[relative_path] for relative_path in [*image_paths, "anima/movie.mp4"]}
         assert len(first_page["files"]) == 64
-        assert len(expected_image_ids) == 65
-        assert set(client.get(candidate_endpoint).json()["output_ids"]) == expected_image_ids | {path_to_identifier["external.png"]}
+        assert len(expected_output_ids) == 66
+        assert set(client.get(candidate_endpoint).json()["output_ids"]) == expected_output_ids | {path_to_identifier["external.png"]}
         assert client.get(candidate_endpoint, params={"job_id": "protected-job"}).json() == {"output_ids": []}
         for query_parameters in ({"job_id": "catalog-job"}, {"request_id": request_id}):
-            assert set(client.get(candidate_endpoint, params=query_parameters).json()["output_ids"]) == expected_image_ids
+            assert set(client.get(candidate_endpoint, params=query_parameters).json()["output_ids"]) == expected_output_ids
         protected_output = client.get("/api/outputs", params={"request_id": protected_request_id}).json()["files"][0]
         assert protected_output["deletion_protected"] is True
 
         deleted_output_id = path_to_identifier[image_paths[0]]
         assert client.delete(f"/api/outputs/{deleted_output_id}").status_code == 200
-        expected_image_ids.remove(deleted_output_id)
-        assert set(client.get(candidate_endpoint, params={"job_id": "catalog-job"}).json()["output_ids"]) == expected_image_ids
+        expected_output_ids.remove(deleted_output_id)
+        assert set(client.get(candidate_endpoint, params={"job_id": "catalog-job"}).json()["output_ids"]) == expected_output_ids
 
         # 전체 선택 이후 보호가 설정되어도 기존 단건 API가 삭제 직전에 다시 검사합니다.
         server.database.set_job_deletion_protection("catalog-job", True)
         assert client.get(candidate_endpoint, params={"job_id": "catalog-job"}).json() == {"output_ids": []}
-        remaining_identifier = next(iter(expected_image_ids))
+        remaining_identifier = next(iter(expected_output_ids))
         assert client.delete(f"/api/outputs/{remaining_identifier}").status_code == 409
         protected_listing = client.get("/api/outputs", params={"job_id": "catalog-job"}).json()
         assert all(output_file["deletion_protected"] for output_file in protected_listing["files"])
         server.database.set_job_deletion_protection("catalog-job", False)
-        assert set(client.get(candidate_endpoint, params={"request_id": request_id}).json()["output_ids"]) == expected_image_ids
+        assert set(client.get(candidate_endpoint, params={"request_id": request_id}).json()["output_ids"]) == expected_output_ids
         assert client.get(candidate_endpoint, params={"job_id": "missing"}).status_code == 404
         assert client.get(candidate_endpoint, params={"request_id": "missing"}).status_code == 404
         assert client.get(candidate_endpoint, params={"job_id": "catalog-job", "request_id": request_id}).status_code == 422

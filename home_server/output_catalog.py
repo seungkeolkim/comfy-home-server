@@ -504,12 +504,12 @@ class OutputCatalog:
         return image_files
 
     def list_deletable_output_ids(self, job_id: str = "", request_id: str = "") -> list[int]:
-        """현재 필터의 모든 페이지에서 삭제 가능하고 보호되지 않은 이미지 ID만 조회합니다."""
+        """현재 필터의 모든 페이지에서 삭제 보호되지 않은 결과물 ID만 조회합니다."""
 
         return self.list_selection_candidates(job_id, request_id)["deletable_output_ids"]
 
     def list_selection_candidates(self, job_id: str = "", request_id: str = "") -> dict[str, list[int]]:
-        """현재 필터의 이동 가능한 전체 결과물과 삭제 가능한 이미지 ID를 구분해 조회합니다."""
+        """작업 상태와 무관하게 현재 필터의 전체 결과물과 삭제 보호되지 않은 ID를 조회합니다."""
 
         conditions = ["is_available=1", "is_deleted=0"]
         query_values = []
@@ -536,7 +536,7 @@ class OutputCatalog:
             output_extension = Path(candidate_row["relative_path"]).suffix.lower()
             if output_extension in MEDIA_EXTENSIONS:
                 output_ids.append(candidate_row["output_id"])
-            if output_extension in IMAGE_OUTPUT_EXTENSIONS and not candidate_row["deletion_protected"]:
+            if output_extension in MEDIA_EXTENSIONS and not candidate_row["deletion_protected"]:
                 deletable_output_ids.append(candidate_row["output_id"])
         return {"output_ids": output_ids, "deletable_output_ids": deletable_output_ids}
 
@@ -579,7 +579,7 @@ class OutputCatalog:
                 "SELECT 1 FROM output_files WHERE relative_path=? AND is_deleted=1", (relative_path,),
             ).fetchone() is not None
 
-    def delete_file(self, output_id: int, remove_image: Callable[[str], bool]) -> dict[str, Any]:
+    def delete_file(self, output_id: int, remove_file: Callable[[str], bool]) -> dict[str, Any]:
         """삭제 보호·이동과 경합하지 않도록 잠근 뒤 파일을 지우고 삭제 표시를 보존합니다."""
 
         with self._connect() as connection:
@@ -598,8 +598,8 @@ class OutputCatalog:
             connection.execute(
                 "UPDATE output_files SET is_deleted=1,is_available=0 WHERE output_id=?", (output_id,),
             )
-            removed_image = remove_image(output_row["relative_path"])
-        return {"deleted": True, "path": output_row["relative_path"], "deleted_files": int(removed_image)}
+            removed_file = remove_file(output_row["relative_path"])
+        return {"deleted": True, "path": output_row["relative_path"], "deleted_files": int(removed_file)}
 
     def move_file(
         self, source_relative_path: str, destination_relative_path: str,

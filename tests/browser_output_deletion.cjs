@@ -130,7 +130,7 @@ function createOutputRequestHandler(fixtures) {
       const matchingFiles = matchingOutputs(fixtures, requestUrl);
       response = {
         output_ids: matchingFiles.map(output => output.output_id),
-        deletable_output_ids: matchingFiles.filter(output => output.kind === "image" && !output.deletion_protected)
+        deletable_output_ids: matchingFiles.filter(output => !output.deletion_protected)
           .map(output => output.output_id),
       };
     }
@@ -155,7 +155,7 @@ function createOutputRequestHandler(fixtures) {
     else if (requestPath === "/api/outputs/deletion-candidates") {
       fixtures.candidateQueries.push(Object.fromEntries(requestUrl.searchParams));
       response = { output_ids: matchingOutputs(fixtures, requestUrl)
-        .filter(output => output.kind === "image" && !output.deletion_protected)
+        .filter(output => !output.deletion_protected)
         .map(output => output.output_id) };
     }
     else if (requestPath === "/api/outputs" && request.method() === "GET") {
@@ -205,7 +205,7 @@ async function confirmMultipleOutputDeletion(browserPage, selectedCount, acceptD
   const dialogPromise = browserPage.waitForEvent("dialog");
   const clickPromise = browserPage.locator("#delete-selected-outputs").click();
   const dialog = await dialogPromise;
-  assert.match(dialog.message(), new RegExp(`이미지 ${selectedCount}개`));
+  assert.match(dialog.message(), new RegExp(`결과물 ${selectedCount}개`));
   assert.match(dialog.message(), /작업 이력은 유지/);
   if (acceptDeletion) await dialog.accept();
   else await dialog.dismiss();
@@ -284,6 +284,7 @@ async function verifyMultipleOutputDeletion(browser, viewport) {
     await waitForSelectedOutputs(browserPage, 1);
     assert.deepEqual(fixtures.deletionRequests, [3, 4]);
     assert.equal(await browserPage.locator('[data-select-output="4"]').isChecked(), true);
+    await browserPage.locator("#notice").filter({ hasText: "삭제 실패 1개" }).waitFor();
     assert.match(await browserPage.locator("#notice").textContent(), /삭제 실패 1개/);
     assert.equal(await browserPage.locator('[data-delete-output="2"]').isDisabled(), true);
 
@@ -292,14 +293,14 @@ async function verifyMultipleOutputDeletion(browser, viewport) {
     await waitForSelectedOutputs(browserPage, 0);
     await browserPage.locator("#select-every-output").click();
     await waitForSelectedOutputs(browserPage, 64);
-    await confirmMultipleOutputDeletion(browserPage, 62, true);
-    await waitForSelectedOutputs(browserPage, 2);
-    assert.deepEqual(fixtures.outputs.map(output => output.output_id), [1, 2]);
-    assert.equal(await browserPage.locator(".output-card").count(), 2);
+    await confirmMultipleOutputDeletion(browserPage, 63, true);
+    await waitForSelectedOutputs(browserPage, 1);
+    assert.deepEqual(fixtures.outputs.map(output => output.output_id), [2]);
+    assert.equal(await browserPage.locator(".output-card").count(), 1);
     assert.equal(await browserPage.locator("#select-every-output").isDisabled(), false);
     assert.equal(await browserPage.locator("#delete-selected-outputs").isDisabled(), true);
     assert.equal(await browserPage.locator("#outputs-pagination").isVisible(), false);
-    assert.equal(fixtures.deletionRequests.includes(1), false);
+    assert.equal(fixtures.deletionRequests.includes(1), true);
     assert.equal(fixtures.deletionRequests.includes(2), false);
     assert.equal(await browserPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     const screenshotDirectory = path.join(projectDirectory, "runtime", "browser-check");
@@ -350,8 +351,8 @@ async function verifyOutputDeletion(browser, viewport) {
     await browserPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 작업의 결과 64개");
     assert.equal(await browserPage.locator(".output-card").count(), 64);
     assert.equal(await browserPage.locator('[data-delete-output="65"]').count(), 0);
-    assert.equal(await browserPage.locator('[data-delete-output="1"]').count(), 0);
-    assert.equal(await browserPage.locator("[data-delete-output]").count(), 63);
+    assert.equal(await browserPage.locator('[data-delete-output="1"]').count(), 1);
+    assert.equal(await browserPage.locator("[data-delete-output]").count(), 64);
     assert.deepEqual(fixtures.deletionRequests, [65, 65]);
     assert.equal(fixtures.outputQueries.at(-1).page, "1");
     assert.ok(fixtures.outputQueries.every(query => query.job_id === "image-job"));
@@ -405,7 +406,7 @@ async function verifyOutputMovement(browser, viewport) {
     await browserPage.waitForFunction(() => !document.getElementById("select-every-output").disabled);
     await browserPage.locator('[data-select-output="1"]').check();
     await browserPage.locator('[data-select-output="2"]').check();
-    assert.equal(await browserPage.locator("#delete-selected-outputs").isDisabled(), true);
+    assert.equal(await browserPage.locator("#delete-selected-outputs").isDisabled(), false);
     assert.equal(await browserPage.locator("#move-selected-outputs").isDisabled(), false);
     await browserPage.locator('[data-select-output="3"]').check();
     await browserPage.locator('[data-outputs-page="2"]').first().click();

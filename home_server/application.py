@@ -1201,7 +1201,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/outputs/deletion-candidates")
     def output_deletion_candidates(job_id: str = "", request_id: str = ""):
-        """현재 작업·요청 필터에서 보호되지 않은 이미지의 전체 선택용 ID를 반환합니다."""
+        """현재 작업·요청 필터에서 삭제 보호되지 않은 결과물의 전체 선택용 ID를 반환합니다."""
 
         if job_id and request_id:
             raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
@@ -1419,29 +1419,29 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.delete("/api/outputs/{output_id}")
     def delete_output(output_id: int):
-        """단일 이미지의 현재 파일을 지우고 작업 이력과 삭제된 catalog 행은 보존합니다."""
+        """작업 상태와 무관하게 보호되지 않은 결과물만 지우고 이력과 삭제 표시는 보존합니다."""
 
-        def remove_output_image(relative_path: str) -> bool:
-            """관리 폴더의 실제 이미지 파일만 삭제하며 이미 없으면 삭제 표시만 남깁니다."""
+        def remove_output_file(relative_path: str) -> bool:
+            """관리 폴더의 이미지·영상 파일만 삭제하며 이미 없으면 삭제 표시만 남깁니다."""
 
             try:
-                image_path = server.managed_path(relative_path)
+                output_path = server.managed_path(relative_path)
             except ValueError as exception:
                 raise HTTPException(422, str(exception)) from exception
-            if image_path != server.config.managed_output_directory / relative_path:
+            if output_path != server.config.managed_output_directory / relative_path:
                 raise HTTPException(422, "symlink 경로의 결과물은 삭제할 수 없습니다.")
-            if image_path.suffix.lower() not in PREVIEW_IMAGE_EXTENSIONS:
-                raise HTTPException(422, "이미지 결과물만 삭제할 수 있습니다.")
+            if output_path.suffix.lower() not in MEDIA_EXTENSIONS:
+                raise HTTPException(422, "지원하는 이미지·영상 결과물만 삭제할 수 있습니다.")
             try:
-                image_path.unlink()
+                output_path.unlink()
             except FileNotFoundError:
                 return False
             except OSError as exception:
-                raise HTTPException(409, "이미지 파일을 삭제할 수 없습니다.") from exception
+                raise HTTPException(409, "결과물 파일을 삭제할 수 없습니다.") from exception
             return True
 
         try:
-            deletion_result = server.output_catalog.delete_file(output_id, remove_output_image)
+            deletion_result = server.output_catalog.delete_file(output_id, remove_output_file)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
         except ValueError as exception:
@@ -1449,9 +1449,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except sqlite3.Error as exception:
             LOGGER.exception("결과물 삭제 DB 오류: output_id=%s", output_id)
             raise HTTPException(409, "결과물 삭제 상태를 DB에 반영하지 못했습니다.") from exception
-        image_path = server.config.managed_output_directory / deletion_result["path"]
-        IMAGE_DIMENSION_CACHE.invalidate(image_path)
-        server.thumbnail_cache.invalidate(image_path)
+        output_path = server.config.managed_output_directory / deletion_result["path"]
+        IMAGE_DIMENSION_CACHE.invalidate(output_path)
+        server.thumbnail_cache.invalidate(output_path)
+        if output_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS:
+            server.video_previews.invalidate_missing()
         LOGGER.info("결과물 삭제: output_id=%s path=%s deleted_files=%s", output_id,
                     deletion_result["path"], deletion_result["deleted_files"])
         return JSONResponse(deletion_result)

@@ -2327,9 +2327,9 @@ async function loadOutputs() {
   }
 }
 
-/** 보호되지 않은 이미지에만 단건·다중 삭제를 허용합니다. */
+/** 작업 상태·파일 종류와 무관하게 삭제 보호 여부로 단건·다중 삭제를 판단합니다. */
 function canDeleteOutput(outputFile) {
-  return outputFile.kind === "image" && !outputFile.deletion_protected;
+  return !outputFile.deletion_protected;
 }
 
 /** 결과물 선택·삭제·이동 중 다른 조작을 잠글지 확인합니다. */
@@ -2376,7 +2376,7 @@ function updateOutputSelectionControls() {
   }
 }
 
-/** 현재 결과물과 선택 상태를 표시하고 보호된 이미지의 삭제 버튼을 비활성화합니다. */
+/** 현재 결과물과 선택 상태를 표시하고 삭제 보호된 파일의 삭제 버튼을 비활성화합니다. */
 function renderOutputsList() {
   const selectionIsBusy = outputSelectionIsBusy();
   const visibleFiles = applicationState.visibleOutputs;
@@ -2393,9 +2393,7 @@ function renderOutputsList() {
             const jobButton = outputFile.job_id
               ? `<a class="button job-link" data-navigation data-output-job="${escapeHtml(outputFile.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "jobs", pageNumber: 1, jobFilterId: outputFile.job_id }))}" aria-label="작업 ${escapeHtml(outputFile.job_id)} 보기">작업</a>`
               : "";
-            const deleteButton = outputFile.kind === "image"
-              ? `<button class="button danger" data-delete-output="${outputFile.output_id}" data-output-path="${escapeHtml(outputFile.path)}" ${selectionIsBusy || !canDeleteOutput(outputFile) ? "disabled" : ""} ${outputFile.deletion_protected ? 'title="삭제 보호된 작업의 결과물입니다."' : ""}>삭제</button>`
-              : "";
+            const deleteButton = `<button class="button danger" data-delete-output="${outputFile.output_id}" data-output-path="${escapeHtml(outputFile.path)}" ${selectionIsBusy || !canDeleteOutput(outputFile) ? "disabled" : ""} ${outputFile.deletion_protected ? 'title="삭제 보호된 작업의 결과물입니다."' : ""}>삭제</button>`;
             const isSelected = applicationState.selectedOutputIds.has(String(outputFile.output_id));
             const selectionCheckbox = applicationState.outputSelectionMode
               ? `<label class="output-selection-control"><input class="output-selection-checkbox" type="checkbox" data-select-output="${outputFile.output_id}" aria-label="결과물 ${escapeHtml(outputFile.name)} 선택" ${isSelected ? "checked" : ""} ${selectionIsBusy ? "disabled" : ""}>선택</label>`
@@ -2477,12 +2475,12 @@ function resetOutputPreviewNavigation() {
 function renderOutputPreviewNavigation() {
   const navigationState = outputPreviewNavigationState;
   const currentFile = navigationState.currentFile;
-  const deleteButton = element("image-preview-delete");
-  deleteButton.disabled = navigationState.loading || Boolean(navigationState.error) || outputSelectionIsBusy() ||
-    !currentFile || currentFile.kind !== "image" || currentFile.deletion_protected !== false;
-  deleteButton.textContent = applicationState.deletingOutputId === String(navigationState.outputId) ? "삭제 중…" : "삭제";
-  deleteButton.title = currentFile?.deletion_protected ? "삭제 보호된 작업의 결과물입니다." : "";
   for (const mediaKind of ["image", "video"]) {
+    const deleteButton = element(`${mediaKind}-preview-delete`);
+    deleteButton.disabled = navigationState.loading || Boolean(navigationState.error) || outputSelectionIsBusy() ||
+      !currentFile || currentFile.deletion_protected !== false;
+    deleteButton.textContent = applicationState.deletingOutputId === String(navigationState.outputId) ? "삭제 중…" : "삭제";
+    deleteButton.title = currentFile?.deletion_protected ? "삭제 보호된 작업의 결과물입니다." : "";
     element(`${mediaKind}-preview-previous`).disabled = navigationState.loading || outputSelectionIsBusy() || !navigationState.previous;
     element(`${mediaKind}-preview-next`).disabled = navigationState.loading || outputSelectionIsBusy() || !navigationState.next;
     element(`${mediaKind}-preview-navigation-status`).textContent = navigationState.error || (navigationState.loading
@@ -2703,14 +2701,14 @@ async function toggleEveryOutputSelection() {
   }
 }
 
-/** 한 번 확인한 이미지들을 개별 API로 삭제하고 실패한 선택만 재시도할 수 있게 남깁니다. */
+/** 한 번 확인한 결과물들을 개별 API로 삭제하고 실패한 선택만 재시도할 수 있게 남깁니다. */
 async function deleteSelectedOutputs() {
   if (!applicationState.outputSelectionMode || outputSelectionIsBusy()) return;
   const selectedOutputIds = [...applicationState.selectedOutputIds].filter(outputIdentifier =>
     applicationState.deletableOutputIds.has(outputIdentifier),
   );
   if (selectedOutputIds.length === 0) return;
-  if (!window.confirm(`선택한 이미지 ${selectedOutputIds.length}개를 영구 삭제하시겠습니까? 영상·삭제 보호 결과물은 제외됩니다. 작업 이력은 유지되며 파일은 복구할 수 없습니다.`)) return;
+  if (!window.confirm(`선택한 결과물 ${selectedOutputIds.length}개를 영구 삭제하시겠습니까? 삭제 보호 결과물은 제외됩니다. 작업 이력은 유지되며 파일은 복구할 수 없습니다.`)) return;
   applicationState.deletingSelectedOutputs = true;
   applicationState.outputsLoadRevision += 1;
   renderOutputsList();
@@ -2725,7 +2723,7 @@ async function deleteSelectedOutputs() {
         applicationState.deletableOutputIds.delete(outputIdentifier);
         applicationState.visibleOutputs = applicationState.visibleOutputs.filter(outputFile => String(outputFile.output_id) !== outputIdentifier);
       } catch (error) {
-        deletionFailures.push(`이미지 ${outputIdentifier}: ${error.message}`);
+        deletionFailures.push(`결과물 ${outputIdentifier}: ${error.message}`);
       }
     }
   } finally {
@@ -2734,7 +2732,7 @@ async function deleteSelectedOutputs() {
     renderOutputsList();
     await loadOutputs();
   }
-  const deletionSummary = `이미지 ${deletedOutputsCount}개를 삭제했습니다.`;
+  const deletionSummary = `결과물 ${deletedOutputsCount}개를 삭제했습니다.`;
   showNotice(deletionFailures.length
     ? `${deletionSummary} 삭제 실패 ${deletionFailures.length}개 · ${deletionFailures[0]}` : deletionSummary,
     deletionFailures.length > 0);
@@ -3008,17 +3006,17 @@ async function moveOutput(sourcePath) {
   }
 }
 
-/** 영구 삭제할 실제 이미지 경로와 이력 유지 여부를 사용자에게 확인합니다. */
-function confirmOutputImageDeletion(outputPath) {
-  return window.confirm(`이미지 파일을 영구 삭제하시겠습니까?\n${outputPath}\n작업 이력은 유지되며 파일은 복구할 수 없습니다.`);
+/** 영구 삭제할 실제 결과물 경로와 이력 유지 여부를 사용자에게 확인합니다. */
+function confirmOutputFileDeletion(outputPath) {
+  return window.confirm(`결과물 파일을 영구 삭제하시겠습니까?\n${outputPath}\n작업 이력은 유지되며 파일은 복구할 수 없습니다.`);
 }
 
-/** 미리보기의 현재 이미지만 삭제하고 같은 범위의 다음·이전 파일로 이동합니다. */
-async function deletePreviewImage() {
+/** 미리보기의 현재 결과물만 삭제하고 같은 범위의 다음·이전 파일로 이동합니다. */
+async function deletePreviewOutput() {
   const navigationState = outputPreviewNavigationState;
-  if (element("image-preview-delete").disabled || outputSelectionIsBusy()) return;
   const currentFile = navigationState.currentFile;
-  if (!currentFile || !confirmOutputImageDeletion(currentFile.path)) return;
+  if (!currentFile || element(`${currentFile.kind}-preview-delete`).disabled || outputSelectionIsBusy()) return;
+  if (!confirmOutputFileDeletion(currentFile.path)) return;
   const revision = navigationState.revision;
   const adjacentFile = navigationState.next || navigationState.previous;
   const originalOpenerIdentifier = navigationState.opener?.dataset.imagePreview || navigationState.opener?.dataset.videoPreview;
@@ -3045,6 +3043,7 @@ async function deletePreviewImage() {
         if (adjacentFile) openOutputPreview(adjacentFile, navigationState.opener, true);
         else {
           const focusTarget = navigationState.opener;
+          closeVideoPreview(false);
           closeImagePreview(false);
           focusTarget.focus({ preventScroll: true });
         }
@@ -3056,22 +3055,22 @@ async function deletePreviewImage() {
     renderOutputPreviewNavigation();
     if (deletionSucceeded) {
       await Promise.resolve();
-      showNotice("이미지를 삭제했습니다.");
+      showNotice("결과물을 삭제했습니다.");
     }
   }
 }
 
-/** 확인한 이미지 한 장을 삭제하고 현재 필터와 페이지의 결과물을 다시 표시합니다. */
+/** 확인한 결과물 하나를 삭제하고 현재 필터와 페이지의 목록을 다시 표시합니다. */
 async function deleteOutput(deleteButton) {
   if (deleteButton.disabled || outputSelectionIsBusy()) return;
   const outputPath = deleteButton.dataset.outputPath;
-  if (!confirmOutputImageDeletion(outputPath)) return;
+  if (!confirmOutputFileDeletion(outputPath)) return;
   applicationState.deletingOutputId = deleteButton.dataset.deleteOutput;
   applicationState.outputsLoadRevision += 1;
   renderOutputsList();
   try {
     await apiRequest(`/api/outputs/${encodeURIComponent(deleteButton.dataset.deleteOutput)}`, { method: "DELETE" });
-    showNotice("이미지를 삭제했습니다.");
+    showNotice("결과물을 삭제했습니다.");
     applicationState.selectedOutputIds.delete(deleteButton.dataset.deleteOutput);
   } finally {
     applicationState.deletingOutputId = null;
@@ -3091,7 +3090,8 @@ function runAction(action) {
 function bindEvents() {
   bindPreviewDialogEvents("video-preview-dialog", "video-preview-close", videoPreviewState, closeVideoPreview);
   bindPreviewDialogEvents("image-preview-dialog", "image-preview-close", imagePreviewState, closeImagePreview);
-  element("image-preview-delete").addEventListener("click", () => runAction(deletePreviewImage));
+  element("image-preview-delete").addEventListener("click", () => runAction(deletePreviewOutput));
+  element("video-preview-delete").addEventListener("click", () => runAction(deletePreviewOutput));
   element("image-preview-content").addEventListener("load", () => {
     if (imagePreviewState.outputId !== null) element("image-preview-status").textContent = "";
   });

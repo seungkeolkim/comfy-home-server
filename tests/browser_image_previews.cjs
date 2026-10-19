@@ -74,7 +74,7 @@ function createImagePreviewHandler(fixtures) {
     }
     else if (requestPath === "/api/outputs/selection-candidates") response = {
       output_ids: fixtures.files.map(output => output.output_id),
-      deletable_output_ids: fixtures.files.filter(output => output.kind === "image" && !output.deletion_protected).map(output => output.output_id),
+      deletable_output_ids: fixtures.files.filter(output => !output.deletion_protected).map(output => output.output_id),
     };
     else if (/^\/api\/outputs\/\d+$/.test(requestPath) && request.method() === "DELETE") {
       const outputIdentifier = Number(requestPath.split("/")[3]);
@@ -429,6 +429,78 @@ async function verifyPreviewDeletion(browser, width) {
   }
 }
 
+/** 작업 상태와 파일 종류에 따른 삭제 표시·보호·영상 삭제 후 이동을 검증합니다. */
+async function verifyAnyStateOutputDeletion(browser, width) {
+  const context = await browser.newContext({ viewport: { width, height: 900 } });
+  const fixtures = createImagePreviewFixtures();
+  const jobStates = ["partial", "cancelled", "failed", "running", "pending", "cancelling", "submitting", "completed"];
+  fixtures.files = jobStates.map((jobStatus, index) => ({
+    output_id: 8000 + index, name: `${jobStatus}.${index % 2 ? "png" : "mp4"}`,
+    path: `${jobStatus}.${index % 2 ? "png" : "mp4"}`, kind: index % 2 ? "image" : "video",
+    job_id: `state-${jobStatus}`, job_status: jobStatus, deletion_protected: false,
+  }));
+  for (const mediaKind of ["image", "video"]) {
+    fixtures.files.push({ output_id: mediaKind === "image" ? 8100 : 8101, name: `protected-${mediaKind}.png`,
+      path: `protected-${mediaKind}.png`, kind: mediaKind, job_id: "protected-job", deletion_protected: true });
+  }
+  await context.route("**/*", createImagePreviewHandler(fixtures));
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  try {
+    await page.goto("http://image-preview.test/?view=outputs");
+    for (const outputFile of fixtures.files) {
+      const listDeleteButton = page.locator(`[data-delete-output="${outputFile.output_id}"]`);
+      assert.equal(await listDeleteButton.isVisible(), true);
+      assert.equal(await listDeleteButton.isDisabled(), outputFile.deletion_protected);
+      await page.locator(`[data-${outputFile.kind}-preview="${outputFile.output_id}"]`).click();
+      await page.waitForFunction(mediaKind => document.getElementById(`${mediaKind}-preview-navigation-status`).textContent === "전체 결과물", outputFile.kind);
+      assert.equal(await page.locator(`#${outputFile.kind}-preview-delete`).isVisible(), true);
+      assert.equal(await page.locator(`#${outputFile.kind}-preview-delete`).isDisabled(), outputFile.deletion_protected);
+      await page.keyboard.press("Escape");
+    }
+    await page.goto("http://image-preview.test/?view=outputs&job_id=state-partial");
+    await page.locator('[data-video-preview="8000"]').click();
+    await page.locator("#video-preview-delete:not([disabled])").waitFor();
+    page.once("dialog", dialog => dialog.dismiss());
+    await page.locator("#video-preview-delete").click();
+    assert.deepEqual(fixtures.deletionRequests, []);
+    fixtures.protectOnDelete = true;
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#video-preview-delete").click();
+    await page.locator("#video-preview-notice").filter({ hasText: "삭제 보호" }).waitFor();
+    await page.waitForFunction(() => document.getElementById("video-preview-delete").title.includes("삭제 보호"));
+    assert.equal(await page.locator("#video-preview-delete").isDisabled(), true);
+    await page.keyboard.press("Escape");
+    fixtures.protectOnDelete = false;
+    fixtures.files.find(output => output.output_id === 8000).deletion_protected = false;
+    await page.locator('[data-video-preview="8000"]').click();
+    await page.locator("#video-preview-delete:not([disabled])").waitFor();
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#video-preview-delete").click();
+    await page.waitForFunction(() => !document.getElementById("video-preview-dialog").open);
+    assert.equal(fixtures.files.some(output => output.output_id === 8000), false);
+    assert.ok(fixtures.files.some(output => output.job_id === "state-completed"));
+
+    fixtures.files = [
+      { output_id: 9000, name: "partial.mp4", path: "partial.mp4", kind: "video", job_id: "state-partial", deletion_protected: false },
+      { output_id: 9001, name: "remaining.png", path: "remaining.png", kind: "image", job_id: "state-partial", deletion_protected: false },
+    ];
+    await page.goto("http://image-preview.test/?view=outputs&job_id=state-partial");
+    await page.locator('[data-video-preview="9000"]').click();
+    await page.locator("#video-preview-delete:not([disabled])").waitFor();
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator("#video-preview-delete").click();
+    await page.locator("#image-preview-delete:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-title").textContent(), "remaining.png");
+    assert.equal(await page.locator("#video-preview-dialog").evaluate(dialog => dialog.open), false);
+    assert.deepEqual(fixtures.originalRequests, []);
+    assert.deepEqual(pageErrors, []);
+  } finally {
+    await context.close();
+  }
+}
+
 /** 실제 GPU·운영 이미지 변경 없이 두 화면 크기를 검증합니다. */
 async function main() {
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "msedge", headless: true });
@@ -439,7 +511,9 @@ async function main() {
     await verifyPreviewNavigation(browser, 390);
     await verifyPreviewDeletion(browser, 1280);
     await verifyPreviewDeletion(browser, 390);
-    console.log("Passed: image preview/deletion, scoped cross-page navigation, protection/cancel/failure, close during delete, stale responses, original-only requests and desktop/mobile layout.");
+    await verifyAnyStateOutputDeletion(browser, 1280);
+    await verifyAnyStateOutputDeletion(browser, 390);
+    console.log("Passed: image/video deletion in every job state, protection/cancel/failure, scoped cross-page navigation, close during delete, stale responses and desktop/mobile layout.");
   } finally {
     await browser.close();
   }
