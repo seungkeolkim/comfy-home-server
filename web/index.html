@@ -99,6 +99,7 @@
                 <select id="minimax-input-scope">
                   <option value="single">이미지 한 장 → 영상 한 개</option>
                   <option value="folder">폴더 일괄 · 이미지마다 영상 한 개</option>
+                  <option value="job">작업 결과 선택 · 이미지마다 영상 한 개</option>
                 </select>
                 <button id="select-minimax-input" class="button subtle" type="button">서버 이미지 선택</button>
                 <p id="selected-images" class="hint" role="status">선택한 이미지가 없습니다.</p>
@@ -531,6 +532,26 @@
       <div class="folder-picker-actions">
         <button id="folder-picker-cancel" class="button subtle" type="button">취소</button>
         <button id="folder-picker-confirm" class="button primary" type="button">이 폴더로 이동</button>
+      </div>
+    </dialog>
+    <dialog id="job-input-picker" class="folder-picker" aria-labelledby="job-input-title">
+      <h2 id="job-input-title">작업 결과 선택</h2>
+      <p class="hint">작업을 고른 뒤 사용할 이미지를 선택해 주세요. 최대 100장까지 선택할 수 있습니다.</p>
+      <button id="job-input-back" class="button subtle hidden" type="button">작업 목록으로</button>
+      <p id="job-input-source" class="hint"></p>
+      <p id="job-input-status" class="hint" role="status"></p>
+      <button id="job-input-retry" class="button subtle hidden" type="button">다시 불러오기</button>
+      <ul id="job-input-jobs" class="folder-directory-list" aria-label="이미지가 있는 작업"></ul>
+      <div id="job-input-pagination" class="inline-actions">
+        <button id="job-input-previous" class="button subtle" type="button">이전</button>
+        <span id="job-input-page"></span>
+        <button id="job-input-next" class="button subtle" type="button">다음</button>
+      </div>
+      <button id="job-input-select-all" class="button subtle hidden" type="button">전체 선택</button>
+      <div id="job-input-images" class="input-image-grid hidden" aria-label="작업 결과 이미지"></div>
+      <div class="folder-picker-actions">
+        <button id="job-input-cancel" class="button subtle" type="button">취소</button>
+        <button id="job-input-confirm" class="button primary" type="button" disabled>선택한 이미지 사용</button>
       </div>
     </dialog>
     <dialog id="video-preview-dialog" class="video-preview-dialog" aria-labelledby="video-preview-title">

@@ -39,7 +39,28 @@ function createMinimaxRequestHandler(fixtures) {
     if (requestPath === "/api/session") response = { authenticated: true };
     else if (requestPath === "/api/status") response = { comfy_connected: true, output_directory: "test-output" };
     else if (requestPath === "/api/jobs/activity") response = { active_count: 0 };
-    else if (requestPath === "/api/jobs") response = { items: [], page: 1, total: 0, total_pages: 1, active_count: 0 };
+    else if (requestPath === "/api/jobs") response = { items: [{
+      job_id: "source-job", workflow: "anima", description: "원본 작업", created_at: "2026-10-19", status: "completed",
+      status_counts: { completed: 2 }, request_count: 2, deletion_protected: true,
+      summary: { body: { prompt: "자동 복사하면 안 되는 원본 Prompt" }, settings: {} },
+    }], page: 1, total: 1, total_pages: 1, active_count: 0 };
+    else if (requestPath === "/api/outputs/input-jobs") {
+      const pageNumber = Number(requestUrl.searchParams.get("page"));
+      response = { items: [{ job_id: pageNumber === 1 ? "source-job" : "big-job", workflow: "anima", description: pageNumber === 1 ? "원본 작업" : "많은 이미지", created_at: "2026-10-19", image_count: pageNumber === 1 ? 2 : 101 }], total_pages: 2 };
+    } else if (/^\/api\/jobs\/[^/]+\/input-images$/.test(requestPath)) {
+      const jobIdentifier = requestPath.split("/")[3];
+      if (fixtures.jobImageGate) {
+        const imageGate = fixtures.jobImageGate;
+        fixtures.jobImageGate = null;
+        imageGate.markStarted();
+        await imageGate.promise;
+      }
+      if (fixtures.rejectJobImages) {
+        await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "입력 작업을 찾을 수 없습니다." }) });
+        return;
+      }
+      response = { job: { job_id: jobIdentifier, workflow: "anima", description: "원본 작업" }, files: fixtures.emptyJobImages ? [] : fixtures.images.filter(image => jobIdentifier === "big-job" ? image.output_id >= 100 : [1, 3].includes(image.output_id)) };
+    }
     else if (["/api/presets", "/api/loras/presets"].includes(requestPath)) response = [];
     else if (requestPath === "/api/loras") response = { files: [], profiles: [] };
     else if (requestPath === "/api/tags") response = {
@@ -202,6 +223,88 @@ async function verifyMinimaxGeneration(browser, viewport) {
     assert.equal(await browserPage.locator("#minimax-selected-images .input-image-card").count(), 0);
     fixtures.rejectInspection = false;
     await chooseInputImages(browserPage, "folder", 1);
+    await browserPage.locator("#minimax-input-scope").selectOption("job");
+    await browserPage.locator("#select-minimax-input").click();
+    await browserPage.locator("#job-input-next").click();
+    await browserPage.locator('[data-pick-input-job="big-job"]').click();
+    await browserPage.waitForFunction(() => document.querySelectorAll("[data-pick-job-input]").length === 101);
+    assert.equal(await browserPage.locator("#job-input-confirm").isDisabled(), true);
+    await browserPage.locator('[data-pick-job-input="100"]').uncheck();
+    assert.equal(await browserPage.locator("#job-input-confirm").isDisabled(), false);
+    await browserPage.locator("#job-input-select-all").click();
+    assert.equal(await browserPage.locator("#job-input-confirm").isDisabled(), true);
+    await browserPage.locator("#job-input-select-all").click();
+    assert.match(await browserPage.locator("#job-input-status").textContent(), /선택 0장/);
+    await browserPage.locator("#job-input-back").click();
+    await browserPage.locator("#job-input-previous").click();
+    await browserPage.locator('[data-pick-input-job="source-job"]').click();
+    await browserPage.locator('[data-pick-job-input="1"]').uncheck();
+    await browserPage.locator("#job-input-confirm").click();
+    await browserPage.waitForFunction(() => document.querySelectorAll("[data-minimax-selected]").length === 1);
+    assert.equal(fixtures.inspections.at(-1).input_job_id, "source-job");
+    assert.deepEqual(fixtures.inspections.at(-1).output_ids, [3]);
+    assert.equal(await browserPage.locator("#minimax-width").inputValue(), "65");
+    await browserPage.locator("#submit-button").click();
+    await browserPage.waitForFunction(() => !document.getElementById("submit-button").disabled);
+    assert.equal(fixtures.submissions.at(-1).input_job_id, "source-job");
+    assert.equal(fixtures.submissions.at(-1).input_scope, "job");
+    assert.equal(fixtures.submissions.at(-1).input_directory, null);
+    assert.deepEqual(fixtures.submissions.at(-1).output_ids, [3]);
+    await browserPage.locator("#select-minimax-input").click();
+    await browserPage.keyboard.press("Escape");
+    assert.equal(await browserPage.locator('[data-minimax-selected="3"]').isChecked(), true);
+
+    // 이력 바로가기는 확정 후에만 생성 화면으로 이동하며 작성 중인 MiniMax 입력을 보존합니다.
+    await browserPage.locator("#generate-minimax-prompt").fill("내가 작성한 Prompt");
+    await browserPage.locator("#minimax-width").fill("320");
+    await browserPage.locator('[data-view="jobs"]:visible').first().click();
+    await browserPage.locator('[data-use-job-input="source-job"]').click();
+    await browserPage.locator("#job-input-cancel").click();
+    assert.equal(await browserPage.locator("#view-jobs").isVisible(), true);
+    await browserPage.locator('[data-use-job-input="source-job"]').click();
+    await browserPage.locator("#job-input-confirm").click();
+    await browserPage.waitForFunction(() => document.querySelectorAll("[data-minimax-selected]").length === 2);
+    assert.equal(await browserPage.locator("#generate-minimax-prompt").inputValue(), "내가 작성한 Prompt");
+    assert.equal(await browserPage.locator("#minimax-width").inputValue(), "320");
+    assert.equal(fixtures.submissions.length, 5);
+    await browserPage.locator("#minimax-automatic-resolution").click();
+    await browserPage.locator('[data-minimax-selected="1"]').uncheck();
+    assert.equal(await browserPage.locator("#minimax-width").inputValue(), "65");
+
+    fixtures.rejectJobImages = true;
+    await browserPage.locator("#select-minimax-input").click();
+    await browserPage.locator('[data-pick-input-job="source-job"]').click();
+    await browserPage.waitForFunction(() => document.getElementById("job-input-status").textContent.includes("찾을 수 없습니다"));
+    assert.equal(await browserPage.locator("#job-input-confirm").isDisabled(), true);
+    fixtures.rejectJobImages = false;
+    fixtures.emptyJobImages = true;
+    await browserPage.locator("#job-input-retry").click();
+    await browserPage.waitForFunction(() => document.getElementById("job-input-status").textContent.includes("이미지 0장"));
+    assert.equal(await browserPage.locator("#job-input-confirm").isDisabled(), true);
+    await browserPage.locator("#job-input-cancel").click();
+    fixtures.emptyJobImages = false;
+
+    let markJobStarted;
+    let releaseJobImages;
+    const jobImagesStarted = new Promise(resolve => { markJobStarted = resolve; });
+    fixtures.jobImageGate = { markStarted: markJobStarted, promise: new Promise(resolve => { releaseJobImages = resolve; }) };
+    await browserPage.locator("#select-minimax-input").click();
+    await browserPage.locator('[data-pick-input-job="source-job"]').click();
+    await jobImagesStarted;
+    await browserPage.locator("#job-input-cancel").click();
+    await browserPage.locator("#select-minimax-input").click();
+    const staleJobResponse = browserPage.waitForResponse(response => response.url().endsWith("/source-job/input-images"));
+    releaseJobImages();
+    await staleJobResponse;
+    assert.equal(await browserPage.locator("#job-input-images").isVisible(), false);
+    await browserPage.keyboard.press("Escape");
+    await browserPage.locator("#generate-workflow").selectOption("anima");
+    await browserPage.locator('[data-view="jobs"]:visible').first().click();
+    await browserPage.locator('[data-use-job-input="source-job"]').click();
+    await browserPage.locator("#job-input-confirm").click();
+    await browserPage.waitForFunction(() => document.getElementById("generate-workflow").value === "minimax_h3" && document.querySelectorAll("[data-minimax-selected]").length === 2);
+    assert.equal(await browserPage.locator("#generate-minimax-prompt").inputValue(), "");
+    assert.equal(fixtures.submissions.length, 5);
     assert.equal(await browserPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     assert.deepEqual(pageErrors, []);
     const screenshotDirectory = path.join(projectDirectory, "runtime", "browser-check");
@@ -218,7 +321,7 @@ async function main() {
   try {
     await verifyMinimaxGeneration(browser, { width: 1280, height: 950 });
     await verifyMinimaxGeneration(browser, { width: 390, height: 844 });
-    console.log("Passed: MiniMax modes, server inputs, automatic/manual dimensions, mixed sizes, folder limits, cancel, stale responses and mobile layout.");
+    console.log("Passed: MiniMax modes, folder/job image selection, source metadata, history shortcut, limits, cancellation, stale responses and desktop/mobile layout.");
   } finally {
     await browser.close();
   }

@@ -143,8 +143,20 @@ class BatchInput(BaseModel):
     lora_preset_name: str | None = Field(default=None, max_length=120)
     upload_ids: list[str] = Field(default_factory=list)
     output_ids: list[int] = Field(default_factory=list, max_length=100)
-    input_scope: Literal["single", "folder"] | None = None
+    input_scope: Literal["single", "folder", "job"] | None = None
     input_directory: str | None = None
+    input_job_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_job_input(self) -> BatchInput:
+        """작업 입력 출처를 MiniMax 서버 이미지 선택과 함께 명시적으로 전달하게 합니다."""
+
+        if self.input_scope == "job":
+            if self.workflow != "minimax_h3" or not self.input_job_id or not self.output_ids or self.upload_ids:
+                raise ValueError("작업 결과 입력에는 원본 작업과 서버 이미지 1~100장을 선택해 주세요.")
+        elif self.input_job_id is not None:
+            raise ValueError("작업 결과 선택에서만 원본 작업을 지정할 수 있습니다.")
+        return self
 
     @field_validator("description")
     @classmethod
@@ -160,6 +172,7 @@ class InputImageInspection(BaseModel):
     """실제 해상도를 확인할 서버 이미지 ID를 제한합니다."""
 
     output_ids: list[int] = Field(min_length=1, max_length=100)
+    input_job_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class JobProtectionInput(BaseModel):
@@ -476,7 +489,7 @@ def store_batch_requests(
         if payload.output_ids:
             image_snapshots = snapshot_input_images(
                 server.config.managed_output_directory, server.output_catalog, server.upload_directory,
-                payload.output_ids, payload.input_scope, payload.input_directory,
+                payload.output_ids, payload.input_scope, payload.input_directory, payload.input_job_id,
             )
             upload_ids = [image_record["upload_id"] for image_record in image_snapshots]
             reference_image = image_snapshots[0]
@@ -485,6 +498,9 @@ def store_batch_requests(
                 "resolution_reference": {key: reference_image[key] for key in ("output_id", "path", "width", "height")},
                 "resize_policy": "fit_pad",
             })
+            if payload.input_scope == "job":
+                request_settings["input_job_id"] = payload.input_job_id
+                request_settings["input_output_ids"] = [image_record["output_id"] for image_record in image_snapshots]
             resolution_mode = request_settings.get("resolution_mode", "automatic")
             if resolution_mode not in {"automatic", "manual"}:
                 raise ValueError("해상도 설정은 자동 또는 직접 입력이어야 합니다.")
@@ -505,6 +521,8 @@ def store_batch_requests(
                 initial_result["source_image"] = {
                     key: image_snapshots[image_index][key] for key in ("output_id", "path", "name", "width", "height")
                 }
+                if payload.input_scope == "job":
+                    initial_result["source_image"]["job_id"] = payload.input_job_id
             request = {
                 "request_id": request_id, "job_id": job_id, "workflow": payload.workflow,
                 "status": "submitting", "output_stem": output_stem,
@@ -981,6 +999,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         return JSONResponse({"active_count": server.database.count_active_jobs()})
 
+    @app.get("/api/jobs/{job_id}/input-images")
+    def job_input_images(job_id: str):
+        """작업의 현재 이미지 후보와 작은 출처 요약만 제공하며 원본 Prompt는 복원하지 않습니다."""
+
+        try:
+            return server.output_catalog.list_job_input_images(job_id)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+
     @app.get("/api/jobs/{job_id}/inputs")
     def job_inputs(job_id: str):
         """생성 탭 복원에 필요한 작업 공통 입력을 반환합니다."""
@@ -1218,12 +1245,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except (ValueError, OSError) as exception:
             raise HTTPException(422, "입력 폴더를 읽을 수 없습니다. 다시 선택해 주세요.") from exception
 
+    @app.get("/api/outputs/input-jobs")
+    def input_image_jobs(page: int = Query(default=1, ge=1), page_size: int = Query(default=10, ge=1, le=100)):
+        """사용 가능한 이미지 결과물이 있는 작업을 페이지별로 반환합니다."""
+
+        return server.output_catalog.list_input_jobs(page, page_size)
+
     @app.post("/api/outputs/input-images/inspect")
     def inspect_input_image_selection(payload: InputImageInspection):
         """선택한 이미지의 실제 크기를 표시 방향에 맞춰 확인합니다."""
 
         try:
-            return {"files": inspect_input_images(server.config.managed_output_directory, server.output_catalog, payload.output_ids)}
+            return {"files": inspect_input_images(
+                server.config.managed_output_directory, server.output_catalog, payload.output_ids, payload.input_job_id,
+            )}
         except (ValueError, OSError) as exception:
             raise HTTPException(422, str(exception) if isinstance(exception, ValueError) else "입력 이미지를 확인할 수 없습니다.") from exception
 

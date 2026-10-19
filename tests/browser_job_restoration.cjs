@@ -52,7 +52,8 @@ function createRestorationFixtures() {
       body: { prompt: "video [CHR]" }, selected_tags: structuredClone(selectedTags),
       prompt_preset_id: "video-prompt", lora_preset_id: "video-lora", lora_preset_name: "영상 조합",
       loras: structuredClone(minimaxLoras),
-      settings: { width: 704, height: 512, duration: 3.5, frame_rate: 30, upscale_mode: "model", upscale_model_name: "saved-upscale.pth" },
+      settings: { width: 704, height: 512, duration: 3.5, frame_rate: 30, upscale_mode: "model", upscale_model_name: "saved-upscale.pth",
+        input_scope: "job", input_job_id: "deleted-source-job", input_output_ids: [100, 101] },
     }, requests: [],
   };
   for (let requestIndex = 1; requestIndex <= 2; requestIndex += 1) {
@@ -237,6 +238,7 @@ async function main() {
       assert.equal(await browserPage.locator(`#${inputIdentifier}`).inputValue(), expectedValue);
     }
     assert.equal(await browserPage.locator("#minimax-selected-images .input-image-card").count(), 0);
+    assert.equal(await browserPage.locator("#minimax-input-scope").inputValue(), "job");
     assert.equal(await browserPage.locator("#selected-images").textContent(), "선택한 이미지가 없습니다.");
     assert.equal(await browserPage.locator('[data-select-tag]:checked').count(), 1);
     assert.equal(await browserPage.locator('[data-select-tag="character-a"]').isChecked(), true);

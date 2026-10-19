@@ -20,6 +20,9 @@ from .output_timing import OutputTimingRecorder, measure_output_step
 
 OUTPUT_SORT_ORDER = "generated_at DESC, length(seed) DESC, seed DESC, relative_path DESC"
 LOGGER = logging.getLogger(__name__)
+INPUT_IMAGE_FILTER = "(" + " OR ".join(
+    "lower(relative_path) LIKE '%" + extension + "'" for extension in sorted(IMAGE_OUTPUT_EXTENSIONS)
+) + ")"
 
 
 def normalized_output_path(relative_path: str) -> str | None:
@@ -360,21 +363,64 @@ class OutputCatalog:
         image_files.sort(key=lambda image: (image["name"].casefold(), image["name"], image["path"]))
         return image_files
 
-    def get_input_images(self, output_ids: list[int]) -> list[dict[str, Any]]:
+    def list_input_jobs(self, page: int, page_size: int) -> dict[str, Any]:
+        """이미지가 남은 작업의 작은 요약만 페이지 조회하고 Prompt·하위 이력은 읽지 않습니다."""
+
+        image_counts_query = (
+            "WITH image_counts AS (SELECT job_id,COUNT(*) AS image_count FROM output_files "
+            f"WHERE is_available=1 AND is_deleted=0 AND {INPUT_IMAGE_FILTER} GROUP BY job_id) "
+        )
+        with self._connect() as connection:
+            total = connection.execute(
+                image_counts_query + "SELECT COUNT(*) FROM jobs JOIN image_counts USING(job_id)"
+            ).fetchone()[0]
+            job_rows = connection.execute(
+                image_counts_query + "SELECT jobs.job_id,jobs.workflow,jobs.description,jobs.created_at,image_count "
+                "FROM jobs JOIN image_counts USING(job_id) ORDER BY jobs.created_at DESC,jobs.rowid DESC LIMIT ? OFFSET ?",
+                (page_size, (page - 1) * page_size),
+            ).fetchall()
+        return {"items": [dict(job_row) for job_row in job_rows], "page": page, "total": total,
+                "total_pages": max(1, (total + page_size - 1) // page_size)}
+
+    def list_job_input_images(self, job_id: str) -> dict[str, Any]:
+        """작업의 현재 이미지 경로를 폴더와 무관하게 조회하고 영상·삭제 결과물은 제외합니다."""
+
+        with self._connect() as connection:
+            job_row = connection.execute(
+                "SELECT job_id,workflow,description,created_at FROM jobs WHERE job_id=?", (job_id,),
+            ).fetchone()
+            if job_row is None:
+                raise LookupError("입력 작업을 찾을 수 없습니다.")
+            image_rows = connection.execute(
+                "SELECT output_id,relative_path FROM output_files "
+                f"WHERE job_id=? AND is_available=1 AND is_deleted=0 AND {INPUT_IMAGE_FILTER}", (job_id,),
+            ).fetchall()
+        image_files = []
+        for image_row in image_rows:
+            image_path = Path(image_row["relative_path"])
+            image_files.append({"output_id": image_row["output_id"], "path": image_row["relative_path"], "name": image_path.name})
+        image_files.sort(key=lambda image: (image["name"].casefold(), image["name"], image["path"]))
+        return {"job": {**dict(job_row), "image_count": len(image_files)}, "files": image_files}
+
+    def get_input_images(self, output_ids: list[int], input_job_id: str | None = None) -> list[dict[str, Any]]:
         """삭제·누락·영상 입력을 거부하고 선택 이미지의 최신 경로를 같은 조회에서 확인합니다."""
 
         if not output_ids or len(output_ids) > 100 or len(set(output_ids)) != len(output_ids) or any(identifier <= 0 for identifier in output_ids):
             raise ValueError("입력 이미지는 중복 없이 1~100장을 선택해 주세요.")
         placeholders = ",".join("?" for _ in output_ids)
         with self._connect() as connection:
+            if input_job_id is not None and connection.execute("SELECT 1 FROM jobs WHERE job_id=?", (input_job_id,)).fetchone() is None:
+                raise ValueError("입력 작업이 삭제되었거나 더 이상 사용할 수 없습니다.")
             image_rows = connection.execute(
-                f"SELECT output_id,relative_path FROM output_files WHERE output_id IN ({placeholders}) AND is_available=1 AND is_deleted=0",
+                f"SELECT output_id,relative_path,job_id FROM output_files WHERE output_id IN ({placeholders}) AND is_available=1 AND is_deleted=0",
                 output_ids,
             ).fetchall()
         if len(image_rows) != len(output_ids):
             raise ValueError("선택한 이미지가 삭제되었거나 더 이상 사용할 수 없습니다. 다시 선택해 주세요.")
         image_files = []
         for image_row in image_rows:
+            if input_job_id is not None and image_row["job_id"] != input_job_id:
+                raise ValueError("선택한 작업에 속한 이미지만 함께 제출할 수 있습니다. 다시 선택해 주세요.")
             image_path = Path(image_row["relative_path"])
             if image_path.suffix.lower() not in IMAGE_OUTPUT_EXTENSIONS:
                 raise ValueError("영상은 MiniMax 입력 이미지로 사용할 수 없습니다.")

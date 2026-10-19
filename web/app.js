@@ -33,6 +33,7 @@ const applicationState = {
   minimaxInputImages: [],
   minimaxInputCandidates: [],
   minimaxInputDirectory: null,
+  minimaxInputJob: null,
   minimaxInputLoading: false,
   minimaxSelectionRevision: 0,
   minimaxResolutionManual: false,
@@ -107,6 +108,12 @@ const outputFolderPickerState = {
   loadRevision: 0,
   sessionRevision: 0,
   openingElement: null,
+};
+
+const jobInputPickerState = {
+  revision: 0, resolveSelection: null, openingElement: null,
+  page: 1, totalPages: 1, jobs: [], jobIdentifier: null, job: null,
+  images: [], selectedImageIds: new Set(), loading: false, error: "",
 };
 
 /** 식별자로 HTML 요소를 가져옵니다. */
@@ -209,6 +216,7 @@ function showNotice(message, isError = false, action = null) {
 /** 로그인 화면만 표시합니다. */
 function showLogin() {
   closeVideoPreview(false);
+  finishJobInputSelection(null, true);
   finishOutputFolderSelection(null, true);
   window.clearTimeout(applicationState.pollingTimer);
   applicationState.pollingTimer = null;
@@ -383,6 +391,7 @@ function saveCurrentNavigationEntry() {
 /** 조회 조건과 탭 표시를 바꾸며 생성 입력이나 변경 요청은 실행하지 않습니다. */
 function displayNavigationState(navigationState) {
   closeVideoPreview(false);
+  finishJobInputSelection(null, true);
   const viewName = navigationState.viewName;
   if (viewName === "jobs") {
     applicationState.jobsPage = navigationState.pageNumber;
@@ -1310,6 +1319,7 @@ function clearMinimaxInputs(resetAutomatic = false) {
   applicationState.minimaxInputImages = [];
   applicationState.minimaxInputCandidates = [];
   applicationState.minimaxInputDirectory = null;
+  applicationState.minimaxInputJob = null;
   applicationState.minimaxInputLoading = false;
   if (resetAutomatic) applicationState.minimaxResolutionManual = false;
   renderMinimaxInputs();
@@ -1326,14 +1336,19 @@ function applyMinimaxAutomaticResolution() {
 /** 선택 이미지와 실제 크기·혼합 여부·최종 공통 해상도 및 제출 건수를 표시합니다. */
 function renderMinimaxInputs() {
   const selectedImages = applicationState.minimaxInputImages;
-  const folderScope = element("minimax-input-scope").value === "folder";
-  element("select-minimax-input").textContent = folderScope ? "서버 폴더 선택" : "서버 이미지 선택";
+  const inputScope = element("minimax-input-scope").value;
+  const folderScope = inputScope === "folder";
+  const multipleImages = inputScope !== "single";
+  const sourceLabel = inputScope === "job" && applicationState.minimaxInputJob
+    ? `작업 ${applicationState.minimaxInputJob.description || applicationState.minimaxInputJob.job_id} · `
+    : folderScope ? `${applicationState.minimaxInputDirectory || "결과물"} · ` : "";
+  element("select-minimax-input").textContent = inputScope === "job" ? "작업 결과 선택" : folderScope ? "서버 폴더 선택" : "서버 이미지 선택";
   element("selected-images").textContent = applicationState.minimaxInputLoading ? "입력 이미지의 실제 크기를 확인하는 중…"
-    : selectedImages.length ? `${folderScope ? `${applicationState.minimaxInputDirectory || "결과물"} · ` : ""}${selectedImages.length}개 이미지 선택됨 · 이미지마다 영상 한 개`
+    : selectedImages.length ? `${sourceLabel}${selectedImages.length}개 이미지 선택됨 · 이미지마다 영상 한 개`
       : "선택한 이미지가 없습니다.";
   const selectedIdentifiers = new Set(selectedImages.map(image => image.output_id));
   element("minimax-selected-images").innerHTML = applicationState.minimaxInputCandidates.map(image =>
-    `<label class="input-image-card"><img src="/api/outputs/preview/${encodedOutputPath(image.path)}" alt="" loading="lazy" />${folderScope ? `<input type="checkbox" data-minimax-selected="${image.output_id}" aria-label="${escapeHtml(image.name)} 포함" ${selectedIdentifiers.has(image.output_id) ? "checked" : ""} />` : ""}<span>${escapeHtml(image.name)} · ${image.width} × ${image.height}</span></label>`,
+    `<label class="input-image-card"><img src="/api/outputs/preview/${encodedOutputPath(image.path)}" alt="" loading="lazy" />${multipleImages ? `<input type="checkbox" data-minimax-selected="${image.output_id}" aria-label="${escapeHtml(image.name)} 포함" ${selectedIdentifiers.has(image.output_id) ? "checked" : ""} />` : ""}<span>${escapeHtml(image.name)} · ${image.width} × ${image.height}</span></label>`,
   ).join("");
   const referenceImage = selectedImages[0];
   const mixedDimensions = new Set(selectedImages.map(image => `${image.width}x${image.height}`)).size > 1;
@@ -1354,21 +1369,30 @@ function renderMinimaxInputs() {
 async function selectMinimaxInputs() {
   if (element("submit-button").disabled) return;
   const inputScope = element("minimax-input-scope").value;
-  const selection = await chooseOutputFolder(inputScope === "single" ? "영상에 사용할 이미지 한 장을 선택해 주세요." : "폴더의 직하위 이미지마다 영상 한 개를 생성합니다. 최대 100장을 선택해 주세요.", inputScope);
+  const selection = inputScope === "job" ? await chooseJobInput()
+    : await chooseOutputFolder(inputScope === "single" ? "영상에 사용할 이미지 한 장을 선택해 주세요." : "폴더의 직하위 이미지마다 영상 한 개를 생성합니다. 최대 100장을 선택해 주세요.", inputScope);
   if (selection === null) return;
+  await applyMinimaxInputSelection(selection, inputScope);
+}
+
+/** 선택을 확정한 이미지의 현재 상태와 해상도를 검증하고 공통 Snapshot 입력을 준비합니다. */
+async function applyMinimaxInputSelection(selection, inputScope) {
   const selectionRevision = ++applicationState.minimaxSelectionRevision;
   applicationState.minimaxInputLoading = true;
   applicationState.minimaxInputImages = [];
   applicationState.minimaxInputCandidates = [];
+  applicationState.minimaxInputDirectory = null;
+  applicationState.minimaxInputJob = null;
   renderMinimaxInputs();
   try {
     const inspection = await apiRequest("/api/outputs/input-images/inspect", {
-      method: "POST", body: JSON.stringify({ output_ids: selection.files.map(image => image.output_id) }),
+      method: "POST", body: JSON.stringify({ output_ids: selection.files.map(image => image.output_id), input_job_id: selection.job?.job_id || null }),
     });
     if (selectionRevision !== applicationState.minimaxSelectionRevision) return;
     applicationState.minimaxInputImages = inspection.files;
     applicationState.minimaxInputCandidates = inspection.files;
     applicationState.minimaxInputDirectory = inputScope === "folder" ? selection.input_directory : null;
+    applicationState.minimaxInputJob = inputScope === "job" ? selection.job : null;
     applyMinimaxAutomaticResolution();
     showNotice(`입력 이미지 ${inspection.files.length}장을 선택했습니다.`);
   } finally {
@@ -1377,6 +1401,156 @@ async function selectMinimaxInputs() {
       renderMinimaxInputs();
     }
   }
+}
+
+/** 이력의 이미지 선택을 확정한 뒤 MiniMax로 이동하며 원본 Prompt는 복사하지 않습니다. */
+async function useJobResultsAsMinimaxInput(jobIdentifier) {
+  if (element("submit-button").disabled || applicationState.restoringJobId) return;
+  const selection = await chooseJobInput(jobIdentifier);
+  if (selection === null) return;
+  if (element("generate-workflow").value !== "minimax_h3") resetGenerationWorkflow("minimax_h3");
+  element("minimax-input-scope").value = "job";
+  clearMinimaxInputs();
+  switchView("generate", { resetScroll: true });
+  await applyMinimaxInputSelection(selection, "job");
+}
+
+/** 작업 선택 창의 상태와 선택 개수를 갱신하며 Checkbox의 Focus는 유지합니다. */
+function renderJobInputPicker(rebuildContents = true) {
+  const pickerState = jobInputPickerState;
+  const showingImages = pickerState.jobIdentifier !== null;
+  const selectedCount = pickerState.selectedImageIds.size;
+  element("job-input-back").classList.toggle("hidden", !showingImages);
+  element("job-input-source").textContent = pickerState.job
+    ? `${pickerState.job.workflow} · ${pickerState.job.description || "설명 없음"} · ${pickerState.job.job_id}` : "";
+  element("job-input-status").textContent = pickerState.error || (pickerState.loading ? "불러오는 중…"
+    : showingImages ? `이미지 ${pickerState.images.length}장 · 선택 ${selectedCount}장 / 최대 100장`
+      : pickerState.jobs.length ? "입력으로 사용할 작업을 선택해 주세요." : "사용할 수 있는 이미지가 있는 작업이 없습니다.");
+  element("job-input-retry").classList.toggle("hidden", !pickerState.error);
+  element("job-input-jobs").classList.toggle("hidden", showingImages);
+  element("job-input-pagination").classList.toggle("hidden", showingImages);
+  element("job-input-images").classList.toggle("hidden", !showingImages);
+  element("job-input-select-all").classList.toggle("hidden", !showingImages);
+  element("job-input-select-all").disabled = pickerState.loading || !pickerState.images.length;
+  element("job-input-select-all").textContent = selectedCount === pickerState.images.length ? "전체 해제" : "전체 선택";
+  element("job-input-page").textContent = `${pickerState.page} / ${pickerState.totalPages}`;
+  element("job-input-previous").disabled = pickerState.loading || pickerState.page <= 1;
+  element("job-input-next").disabled = pickerState.loading || pickerState.page >= pickerState.totalPages;
+  element("job-input-confirm").disabled = pickerState.loading || Boolean(pickerState.error) || !pickerState.job || selectedCount < 1 || selectedCount > 100;
+  if (!rebuildContents) return;
+  element("job-input-jobs").innerHTML = pickerState.jobs.map(job =>
+    `<li><button class="button subtle" type="button" data-pick-input-job="${escapeHtml(job.job_id)}" ${pickerState.loading ? "disabled" : ""}>${escapeHtml(job.description || "설명 없음")}<br>${escapeHtml(job.workflow)} · ${escapeHtml(job.created_at)} · 이미지 ${job.image_count}장<br>${escapeHtml(job.job_id)}</button></li>`).join("");
+  element("job-input-images").innerHTML = pickerState.images.map(image =>
+    `<label class="input-image-card"><img src="/api/outputs/preview/${encodedOutputPath(image.path)}" loading="lazy" alt="" /><input type="checkbox" data-pick-job-input="${image.output_id}" aria-label="${escapeHtml(image.name)} 포함" ${pickerState.selectedImageIds.has(image.output_id) ? "checked" : ""} /><span>${escapeHtml(image.path)}</span></label>`).join("");
+}
+
+/** 작은 작업 요약만 페이지 조회하며 닫히거나 다른 조회로 바뀐 응답은 무시합니다. */
+async function loadJobInputJobs(page = 1) {
+  const pickerState = jobInputPickerState;
+  const revision = ++pickerState.revision;
+  Object.assign(pickerState, { page, jobIdentifier: null, job: null, jobs: [], images: [], selectedImageIds: new Set(), loading: true, error: "" });
+  renderJobInputPicker();
+  try {
+    const result = await apiRequest(`/api/outputs/input-jobs?page=${page}&page_size=10`);
+    if (revision !== pickerState.revision) return;
+    Object.assign(pickerState, { jobs: result.items, totalPages: result.total_pages });
+  } catch (error) {
+    if (revision === pickerState.revision) pickerState.error = error.message;
+  } finally {
+    if (revision === pickerState.revision) {
+      pickerState.loading = false;
+      renderJobInputPicker();
+    }
+  }
+}
+
+/** 작업 소속의 현재 이미지 목록을 조회하고 전체 후보를 표시하여 임의로 100장만 자르지 않습니다. */
+async function loadJobInputImages(jobIdentifier) {
+  const pickerState = jobInputPickerState;
+  const revision = ++pickerState.revision;
+  Object.assign(pickerState, { jobIdentifier, job: null, images: [], selectedImageIds: new Set(), loading: true, error: "" });
+  renderJobInputPicker();
+  try {
+    const result = await apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}/input-images`);
+    if (revision !== pickerState.revision) return;
+    pickerState.job = result.job;
+    pickerState.images = result.files;
+    pickerState.selectedImageIds = new Set(result.files.map(image => image.output_id));
+  } catch (error) {
+    if (revision === pickerState.revision) pickerState.error = error.message;
+  } finally {
+    if (revision === pickerState.revision) {
+      pickerState.loading = false;
+      renderJobInputPicker();
+    }
+  }
+}
+
+/** 작업 결과 선택 창을 열고 확정된 명시적 이미지 목록 또는 취소 결과를 기다립니다. */
+function chooseJobInput(initialJobIdentifier = null) {
+  finishJobInputSelection(null, true);
+  const pickerState = jobInputPickerState;
+  pickerState.openingElement = document.activeElement;
+  pickerState.page = 1;
+  pickerState.totalPages = 1;
+  const selectionPromise = new Promise(resolve => { pickerState.resolveSelection = resolve; });
+  element("job-input-picker").showModal();
+  if (initialJobIdentifier) loadJobInputImages(initialJobIdentifier);
+  else loadJobInputJobs();
+  return selectionPromise;
+}
+
+/** 선택 창을 닫고 대기 중인 조회를 무효화하며 필요한 경우 원래 버튼으로 Focus를 돌립니다. */
+function finishJobInputSelection(selection, skipFocus = false) {
+  const pickerState = jobInputPickerState;
+  pickerState.revision += 1;
+  const resolveSelection = pickerState.resolveSelection;
+  pickerState.resolveSelection = null;
+  const openingElement = pickerState.openingElement;
+  pickerState.openingElement = null;
+  if (element("job-input-picker").open) element("job-input-picker").close();
+  if (resolveSelection) resolveSelection(selection);
+  if (!skipFocus && openingElement?.isConnected) openingElement.focus();
+}
+
+/** 작업 목록·이미지 선택·페이지 이동과 Escape 취소를 공용 선택 흐름에 연결합니다. */
+function bindJobInputPickerEvents() {
+  element("job-input-jobs").addEventListener("click", event => {
+    const jobButton = event.target.closest("[data-pick-input-job]");
+    if (jobButton && !jobButton.disabled) loadJobInputImages(jobButton.dataset.pickInputJob);
+  });
+  element("job-input-images").addEventListener("change", event => {
+    const checkbox = event.target.closest("[data-pick-job-input]");
+    if (!checkbox || jobInputPickerState.loading) return;
+    const outputIdentifier = Number(checkbox.dataset.pickJobInput);
+    if (checkbox.checked) jobInputPickerState.selectedImageIds.add(outputIdentifier);
+    else jobInputPickerState.selectedImageIds.delete(outputIdentifier);
+    renderJobInputPicker(false);
+  });
+  element("job-input-select-all").addEventListener("click", () => {
+    const pickerState = jobInputPickerState;
+    pickerState.selectedImageIds = pickerState.selectedImageIds.size === pickerState.images.length
+      ? new Set() : new Set(pickerState.images.map(image => image.output_id));
+    renderJobInputPicker();
+  });
+  element("job-input-back").addEventListener("click", () => loadJobInputJobs(jobInputPickerState.page));
+  element("job-input-previous").addEventListener("click", () => loadJobInputJobs(jobInputPickerState.page - 1));
+  element("job-input-next").addEventListener("click", () => loadJobInputJobs(jobInputPickerState.page + 1));
+  element("job-input-retry").addEventListener("click", () => jobInputPickerState.jobIdentifier
+    ? loadJobInputImages(jobInputPickerState.jobIdentifier) : loadJobInputJobs(jobInputPickerState.page));
+  element("job-input-cancel").addEventListener("click", () => finishJobInputSelection(null));
+  element("job-input-picker").addEventListener("cancel", event => {
+    event.preventDefault();
+    finishJobInputSelection(null);
+  });
+  element("job-input-picker").addEventListener("close", () => {
+    if (!element("job-input-picker").open) finishJobInputSelection(null);
+  });
+  element("job-input-confirm").addEventListener("click", () => {
+    if (element("job-input-confirm").disabled) return;
+    const pickerState = jobInputPickerState;
+    finishJobInputSelection({ job: pickerState.job, files: pickerState.images.filter(image => pickerState.selectedImageIds.has(image.output_id)) });
+  });
 }
 
 /** Batch를 서버에 제출합니다. */
@@ -1417,6 +1591,7 @@ async function submitBatch() {
         output_ids: workflow === "minimax_h3" ? applicationState.minimaxInputImages.map(image => image.output_id) : [],
         input_scope: workflow === "minimax_h3" ? element("minimax-input-scope").value : null,
         input_directory: workflow === "minimax_h3" ? applicationState.minimaxInputDirectory : null,
+        input_job_id: workflow === "minimax_h3" ? applicationState.minimaxInputJob?.job_id || null : null,
       }),
     });
     showNotice(
@@ -1468,7 +1643,7 @@ function requestCardMarkup(request, statusNames, commonInputs) {
       <span class="status-badge ${escapeHtml(request.status)}">${escapeHtml(statusNames[request.status] || request.status)}</span>
       <div class="job-prompts request-prompts" role="button" tabindex="0" data-toggle-request-prompt="${escapeHtml(request.request_id)}" aria-expanded="${promptIsExpanded}" title="${promptIsExpanded ? "하위 요청 카드를 눌러 Prompt·태그 경로 접기" : "하위 요청 카드를 눌러 전체 Prompt·태그 경로 보기"}">${requestPromptDetailsMarkup}</div>
       <div class="job-detail"><strong>LoRA</strong> ${escapeHtml(loraText)}</div>
-      ${sourceImage ? `<div class="job-detail"><strong>입력 이미지</strong> ${escapeHtml(sourceImage.path)} · ${sourceImage.width} × ${sourceImage.height}</div>` : ""}
+      ${sourceImage ? `<div class="job-detail"><strong>입력 이미지</strong> ${sourceImage.job_id ? `작업 ${escapeHtml(sourceImage.job_id)} · ` : ""}${escapeHtml(sourceImage.path)} · ${sourceImage.width} × ${sourceImage.height}</div>` : ""}
       ${request.error_message ? `<div class="job-detail"><strong>오류</strong> ${escapeHtml(request.error_message)}</div>` : ""}
       <div class="job-actions inline-actions">
         ${["submitting", "pending", "running"].includes(request.status) ? `<button class="button subtle small" data-cancel-request="${escapeHtml(request.request_id)}">요청 취소</button>` : ""}
@@ -1754,15 +1929,17 @@ function jobCardMarkup(job, statusNames, openJobIds) {
       <div class="job-selection-heading">
         ${selectionCheckbox}
         <div>
-        <h3>${escapeHtml(job.workflow)}${job.workflow === "minimax_h3" ? ` · ${escapeHtml(requestSettings.generation_mode || "FL2VA")} · ${requestSettings.input_scope === "folder" ? "폴더 일괄" : "이미지 입력"}` : ""} · 작업 ${escapeHtml(job.job_id)}</h3>
+        <h3>${escapeHtml(job.workflow)}${job.workflow === "minimax_h3" ? ` · ${escapeHtml(requestSettings.generation_mode || "FL2VA")} · ${requestSettings.input_scope === "job" ? "작업 결과 일괄" : requestSettings.input_scope === "folder" ? "폴더 일괄" : "이미지 입력"}` : ""} · 작업 ${escapeHtml(job.job_id)}</h3>
         <p>${escapeHtml(job.created_at)} · ${dimensions.ratio} · ${dimensions.resolution} · CFG ${escapeHtml(requestSettings.cfg ?? "—")} · Steps ${escapeHtml(requestSettings.steps ?? "—")} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
         ${job.description ? `<p class="job-description">${escapeHtml(job.description)}</p>` : ""}
+        ${requestSettings.input_scope === "job" ? `<p class="hint">입력 출처: 작업 ${escapeHtml(requestSettings.input_job_id)}</p>` : ""}
         </div>
       </div>
       <span class="status-badge ${escapeHtml(job.status)}">${escapeHtml(statusNames[job.status] || job.status)}</span>
       ${job.deletion_protected ? '<span class="job-protection-badge">삭제 보호됨</span>' : ""}
       <div class="job-prompts" role="button" tabindex="0" data-toggle-job-prompt="${escapeHtml(job.job_id)}" aria-expanded="${promptIsExpanded}" title="${promptIsExpanded ? "카드를 눌러 Prompt 접기" : "카드를 눌러 전체 Prompt 보기"}"><div class="job-detail job-original-prompt"><strong>입력 Prompt</strong> ${escapeHtml(originalPrompt)}</div>${originalNegative ? `<div class="job-detail job-original-negative-prompt"><strong>입력 Negative Prompt</strong> ${escapeHtml(originalNegative)}</div>` : ""}</div>
       <div class="job-actions inline-actions">
+        ${job.workflow === "anima" && completedCount > 0 ? `<button class="button subtle small" data-use-job-input="${escapeHtml(job.job_id)}" ${jobSelectionIsBusy() || applicationState.restoringJobId || element("submit-button").disabled ? "disabled" : ""}>MiniMax 입력으로 사용</button>` : ""}
         <a class="button subtle small" data-navigation data-show-job-results="${escapeHtml(job.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "outputs", pageNumber: 1, outputFilter: { type: "job", id: job.job_id } }))}">작업 결과 보기</a>
         <button class="button subtle small" data-move-job-outputs="${escapeHtml(job.job_id)}" ${canCancel || jobSelectionIsBusy() || outputSelectionIsBusy() ? "disabled" : ""} ${canCancel ? 'title="생성이 끝난 뒤 결과물을 이동할 수 있습니다."' : ""}>${applicationState.movingJobId === job.job_id ? "결과물 이동 중…" : "결과물 폴더 이동"}</button>
         <button class="button ${job.deletion_protected ? "job-protected" : "subtle"} small" data-toggle-job-protection="${escapeHtml(job.job_id)}" aria-pressed="${Boolean(job.deletion_protected)}" ${jobSelectionIsBusy() ? "disabled" : ""}>${job.deletion_protected ? "보호 해제" : "삭제 보호"}</button>
@@ -2973,6 +3150,9 @@ function bindEvents() {
     const restoreJobButton = event.target.closest("[data-restore-job]");
     if (restoreJobButton && !restoreJobButton.disabled)
       runAction(() => restoreJobGeneration(restoreJobButton.dataset.restoreJob));
+    const useJobInputButton = event.target.closest("[data-use-job-input]");
+    if (useJobInputButton && !useJobInputButton.disabled)
+      runAction(() => useJobResultsAsMinimaxInput(useJobInputButton.dataset.useJobInput));
     const cancelButton = event.target.closest("[data-cancel-request]");
     const cancelJobButton = event.target.closest("[data-cancel-job]");
     const deleteJobButton = event.target.closest("[data-delete-job]");
@@ -3127,6 +3307,7 @@ function bindLoraPresetEvents() {
 /** 첫 화면을 준비하고 기존 session을 확인합니다. */
 async function initializeApplication() {
   bindOutputFolderPickerEvents();
+  bindJobInputPickerEvents();
   bindEvents();
   initializeNavigationHistory();
   updateAnimaResolutionOptions();

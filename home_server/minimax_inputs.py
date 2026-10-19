@@ -38,10 +38,12 @@ def read_input_dimensions(image_path: Path) -> tuple[int, int]:
     return width, height
 
 
-def inspect_input_images(output_root: Path, catalog: OutputCatalog, output_ids: list[int]) -> list[dict[str, Any]]:
+def inspect_input_images(
+    output_root: Path, catalog: OutputCatalog, output_ids: list[int], input_job_id: str | None = None,
+) -> list[dict[str, Any]]:
     """선택한 최대 100장의 실제 크기를 확인하며 불완전한 입력은 조용히 제외하지 않습니다."""
 
-    inspected_images = catalog.get_input_images(output_ids)
+    inspected_images = catalog.get_input_images(output_ids, input_job_id)
     for image_record in inspected_images:
         try:
             image_path = resolve_input_image(output_root, image_record["path"])
@@ -54,13 +56,15 @@ def inspect_input_images(output_root: Path, catalog: OutputCatalog, output_ids: 
 
 def snapshot_input_images(
     output_root: Path, catalog: OutputCatalog, upload_directory: Path, output_ids: list[int],
-    input_scope: str | None, input_directory: str | None,
+    input_scope: str | None, input_directory: str | None, input_job_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """제출 대상의 최신 경로를 확인하고 원본과 독립된 임시 파일을 만들며 실패하면 전부 회수합니다."""
 
-    if input_scope not in {"single", "folder"} or (input_scope == "single" and len(output_ids) != 1):
-        raise ValueError("단건은 이미지 한 장, 폴더 작업은 이미지 1~100장을 선택해 주세요.")
-    image_records = catalog.get_input_images(output_ids)
+    if input_scope not in {"single", "folder", "job"} or (input_scope == "single" and len(output_ids) != 1):
+        raise ValueError("단건은 이미지 한 장, 폴더/작업 결과는 이미지 1~100장을 선택해 주세요.")
+    if (input_scope == "job") != (input_job_id is not None):
+        raise ValueError("작업 결과 입력에는 원본 작업을 지정해 주세요.")
+    image_records = catalog.get_input_images(output_ids, input_job_id)
     if input_scope == "folder":
         if input_directory is None:
             raise ValueError("입력 폴더를 선택해 주세요.")
