@@ -10,6 +10,10 @@ const ANIMA_RESOLUTIONS = {
   "9:16": [[576, 1024], [720, 1280], [864, 1536]],
 };
 const TAG_NAME_COLLATOR = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
+const KOREAN_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+});
 const NAVIGATION_VIEW_NAMES = ["generate", "jobs", "outputs", "prompts", "tags", "lora-presets"];
 const videoPreviewState = {
   revision: 0, outputId: null, timer: null, controller: null,
@@ -136,6 +140,21 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+/** 저장된 시각을 단말 시간대와 무관한 KST로 표시하고 시각이 없는 값은 그대로 둡니다. */
+function formatKoreanTimestamp(timestamp) {
+  if (typeof timestamp !== "string" || !timestamp.trim()) return "—";
+  const timestampText = timestamp.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(timestampText)) return timestampText;
+  const timestampWithoutTimezone = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+  const normalizedTimestamp = timestampWithoutTimezone.test(timestampText)
+    ? `${timestampText.replace(" ", "T")}Z` : timestampText;
+  const timestampDate = new Date(normalizedTimestamp);
+  if (Number.isNaN(timestampDate.getTime())) return timestampText;
+  const dateTimeParts = Object.fromEntries(KOREAN_DATE_TIME_FORMATTER.formatToParts(timestampDate)
+    .map(part => [part.type, part.value]));
+  return `${dateTimeParts.year}-${dateTimeParts.month}-${dateTimeParts.day} ${dateTimeParts.hour}:${dateTimeParts.minute}:${dateTimeParts.second} KST`;
 }
 
 /** 표시 그룹을 한국어 이름순으로 정렬하고 같은 이름은 ID로 순서를 고정합니다. */
@@ -660,7 +679,7 @@ function renderPresetList() {
     ? applicationState.presets
         .map(
           (preset) =>
-            `<div class="preset-row"><div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.workflow)} · v${preset.version} · ${escapeHtml(preset.updated_at)}</small></div><div class="inline-actions"><button class="button subtle small" data-load-preset="${escapeHtml(preset.preset_id)}">열기</button><button class="button subtle small" data-show-versions="${escapeHtml(preset.preset_id)}">버전</button></div></div>`,
+            `<div class="preset-row"><div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.workflow)} · v${preset.version} · ${escapeHtml(formatKoreanTimestamp(preset.updated_at))}</small></div><div class="inline-actions"><button class="button subtle small" data-load-preset="${escapeHtml(preset.preset_id)}">열기</button><button class="button subtle small" data-show-versions="${escapeHtml(preset.preset_id)}">버전</button></div></div>`,
         )
         .join("")
     : `<p class="empty-state">저장된 preset이 없습니다.</p>`;
@@ -705,7 +724,7 @@ async function showPresetVersions(presetId) {
   element("preset-version-history").innerHTML = applicationState.presetVersions
     .map(
       (version) => `
-    <div class="preset-row"><div><strong>v${version.version}</strong><small>${escapeHtml(version.saved_at)}</small></div>
+    <div class="preset-row"><div><strong>v${version.version}</strong><small>${escapeHtml(formatKoreanTimestamp(version.saved_at))}</small></div>
     <button class="button subtle small" data-load-version="${version.version}" data-preset-id="${escapeHtml(presetId)}">이 버전 열기</button></div>`,
     )
     .join("");
@@ -1449,7 +1468,7 @@ function renderJobInputPicker(rebuildContents = true) {
   element("job-input-confirm").disabled = pickerState.loading || Boolean(pickerState.error) || !pickerState.job || selectedCount < 1 || selectedCount > 100;
   if (!rebuildContents) return;
   element("job-input-jobs").innerHTML = pickerState.jobs.map(job =>
-    `<li><button class="button subtle" type="button" data-pick-input-job="${escapeHtml(job.job_id)}" ${pickerState.loading ? "disabled" : ""}>${escapeHtml(job.description || "설명 없음")}<br>${escapeHtml(job.workflow)} · ${escapeHtml(job.created_at)} · 이미지 ${job.image_count}장<br>${escapeHtml(job.job_id)}</button></li>`).join("");
+    `<li><button class="button subtle" type="button" data-pick-input-job="${escapeHtml(job.job_id)}" ${pickerState.loading ? "disabled" : ""}>${escapeHtml(job.description || "설명 없음")}<br>${escapeHtml(job.workflow)} · ${escapeHtml(formatKoreanTimestamp(job.created_at))} · 이미지 ${job.image_count}장<br>${escapeHtml(job.job_id)}</button></li>`).join("");
   element("job-input-images").innerHTML = pickerState.images.map(image =>
     `<label class="input-image-card"><img src="/api/outputs/preview/${encodedOutputPath(image.path)}" loading="lazy" alt="" /><input type="checkbox" data-pick-job-input="${image.output_id}" aria-label="${escapeHtml(image.name)} 포함" ${pickerState.selectedImageIds.has(image.output_id) ? "checked" : ""} /><span>${escapeHtml(image.path)}</span></label>`).join("");
 }
@@ -1940,7 +1959,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
         ${selectionCheckbox}
         <div>
         <h3>${escapeHtml(job.workflow)}${job.workflow === "minimax_h3" ? ` · ${escapeHtml(requestSettings.generation_mode || "FL2VA")} · ${requestSettings.input_scope === "job" ? "작업 결과 일괄" : requestSettings.input_scope === "folder" ? "폴더 일괄" : "이미지 입력"}` : ""} · 작업 ${escapeHtml(job.job_id)}</h3>
-        <p>${escapeHtml(job.created_at)} · ${dimensions.ratio} · ${dimensions.resolution} · CFG ${escapeHtml(requestSettings.cfg ?? "—")} · Steps ${escapeHtml(requestSettings.steps ?? "—")} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
+        <p>${escapeHtml(formatKoreanTimestamp(job.created_at))} · ${dimensions.ratio} · ${dimensions.resolution} · CFG ${escapeHtml(requestSettings.cfg ?? "—")} · Steps ${escapeHtml(requestSettings.steps ?? "—")} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
         ${job.description ? `<p class="job-description">${escapeHtml(job.description)}</p>` : ""}
         ${requestSettings.input_scope === "job" ? `<p class="hint">입력 출처: 작업 ${escapeHtml(requestSettings.input_job_id)}</p>` : ""}
         </div>

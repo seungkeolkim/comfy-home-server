@@ -123,6 +123,8 @@ thumbnail_cache_warmup_enabled = false
 
 `[outputs]`의 `video_preview_worker_count = 4`, `video_preview_encoder_threads = 2`로 병렬도를 조정합니다. `video_preview_on_completion_enabled`, `video_preview_warmup_enabled`는 기본 `true`이며 일반 이미지 Warmup과 독립적입니다. 변환은 기본 총 3회까지 지연 재시도하며 실패 Toast의 `재시도`로 명시적 재시도를 할 수 있습니다. 기동 Producer는 후보 접수 후 종료하고 Worker/Scheduler는 서버 종료까지 대기합니다. Docker는 FFmpeg가 포함되도록 `docker compose up -d --build`로 다시 빌드해야 하며, Windows 직접 실행에는 PATH의 `ffmpeg`와 `ffprobe`가 필요합니다. 전체 영상의 명시적 삭제·재변환 외에는 완료본을 개수나 시간으로 자동 퇴출하지 않습니다.
 
+화면의 작업 제출 시간과 작업 결과 선택 창, Prompt 저장·버전 시각은 접속 단말의 시간대와 무관하게 `YYYY-MM-DD HH:mm:ss KST`로 표시합니다. DB와 API의 UTC 시각은 유지하며 화면에서 `Asia/Seoul`로 변환합니다. 생성된 파일명은 바꾸지 않습니다.
+
 ## 저장 위치
 
 - Prompt, LoRA 조합, 작업 기록 SQLite, 임시 upload: 프로젝트의 `runtime/`
