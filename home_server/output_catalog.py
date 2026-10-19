@@ -295,6 +295,53 @@ class OutputCatalog:
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }
 
+    def get_video_source(self, output_id: int) -> dict[str, Any]:
+        """영상의 최신 현재 경로를 조회하고 삭제·미등록·다른 종류의 결과물을 거부합니다."""
+
+        with self._connect() as connection:
+            output_row = connection.execute(
+                "SELECT output_id,relative_path,is_deleted FROM output_files WHERE output_id=?", (output_id,),
+            ).fetchone()
+        if output_row is None or output_row["is_deleted"]:
+            raise FileNotFoundError("영상을 찾을 수 없습니다.")
+        if Path(output_row["relative_path"]).suffix.lower() not in VIDEO_OUTPUT_EXTENSIONS:
+            raise ValueError("영상 결과물만 미리보기를 지원합니다.")
+        return dict(output_row)
+
+    def video_output_id(self, relative_path: str) -> int:
+        """정지 Thumbnail 경로를 현재 영상 식별자로 변환합니다."""
+
+        with self._connect() as connection:
+            output_row = connection.execute(
+                "SELECT output_id FROM output_files WHERE relative_path=? AND is_deleted=0", (relative_path,),
+            ).fetchone()
+        if output_row is None:
+            raise FileNotFoundError("영상을 찾을 수 없습니다.")
+        return output_row["output_id"]
+
+    def iter_video_sources(self, request_id: str | None = None) -> Iterator[dict[str, Any]]:
+        """현재 영상 후보를 ID Keyset으로 페이지 조회하며 전체 목록을 메모리에 올리지 않습니다."""
+
+        previous_identifier = 9223372036854775807
+        while True:
+            with self._connect() as connection:
+                query = (
+                    "SELECT output_id,relative_path FROM output_files WHERE output_id<? "
+                    "AND is_available=1 AND is_deleted=0 AND "
+                    "(lower(relative_path) LIKE '%.mp4' OR lower(relative_path) LIKE '%.webm' "
+                    "OR lower(relative_path) LIKE '%.mkv' OR lower(relative_path) LIKE '%.mov')"
+                )
+                query_values: list[Any] = [previous_identifier]
+                if request_id is not None:
+                    query += " AND request_id=?"
+                    query_values.append(request_id)
+                output_rows = connection.execute(query + " ORDER BY output_id DESC LIMIT 100", query_values).fetchall()
+            if not output_rows:
+                return
+            for output_row in output_rows:
+                yield dict(output_row)
+            previous_identifier = output_rows[-1]["output_id"]
+
     def list_input_images(self, directory_path: str) -> list[dict[str, Any]]:
         """현재 폴더 직하위의 사용 가능한 이미지 ID와 현재 경로만 파일명순으로 반환합니다."""
 

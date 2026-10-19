@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -29,13 +29,15 @@ from .logging_setup import configure_application_logging, shutdown_application_l
 from .minimax_inputs import inspect_input_images, prepare_input_canvas, remove_input_snapshots, snapshot_input_images
 from .output_catalog import OutputCatalog
 from .output_directories import create_output_directory, list_output_directories, resolve_output_directory
-from .output_listing import MEDIA_EXTENSIONS
+from .output_listing import MEDIA_EXTENSIONS, VIDEO_OUTPUT_EXTENSIONS
 from .output_timing import OutputTimingRecorder, measure_output_step
 from .tag_builder import (
     MAX_PROMPT_LENGTH, MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt,
     resolve_anima_prompts, resolve_tag_text, validate_tag_selection,
 )
 from .thumbnail_cache import PREVIEW_IMAGE_EXTENSIONS, PREVIEW_SIZE, ThumbnailCache, ThumbnailTooLargeError
+from .video_encoding import VideoEncodingError
+from .video_preview_cache import VideoPreviewCache, VideoPreviewQueueFull
 from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, minimax_execution_settings, prepare_anima, prepare_minimax
 
 
@@ -45,6 +47,12 @@ LOGGER = logging.getLogger(__name__)
 CANCEL_CONFIRMATION_SECONDS = 15
 MISSING_REQUEST_GRACE_SECONDS = 30
 IMAGE_DIMENSION_CACHE = ImageDimensionCache()
+
+
+class VideoPreviewInput(BaseModel):
+    """명시적 재시도와 일반 미리보기 접수를 구분합니다."""
+
+    retry: bool = False
 
 
 def image_dimensions(image_path: Path) -> tuple[int, int] | None:
@@ -316,6 +324,7 @@ class HomeServer:
         self.database = Database(config.runtime_directory / "home_server.sqlite3")
         self.output_catalog = OutputCatalog(self.database.database_path)
         self.output_catalog.synchronize(config.managed_output_directory)
+        self.video_previews = VideoPreviewCache(config, self.output_catalog)
         self.comfy = ComfyClient(config.comfy_endpoint)
         self.sessions: dict[str, float] = {}
         self.login_failures: dict[str, list[float]] = {}
@@ -544,11 +553,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         LOGGER.info("서버 시작: 로그 파일=%s", log_path)
         if server.config.thumbnail_cache_warmup_enabled:
             server.thumbnail_cache.start_warmup(server.config.managed_output_directory)
+        server.video_previews.start()
         monitor_task = asyncio.create_task(_monitor_requests(server))
         cancellation_task = asyncio.create_task(_monitor_cancellations(server))
         try:
             yield
         finally:
+            await asyncio.to_thread(server.video_previews.stop)
             monitor_task.cancel()
             cancellation_task.cancel()
             await asyncio.gather(monitor_task, cancellation_task, return_exceptions=True)
@@ -1091,6 +1102,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(409, str(exception)) from exception
         if not deleted:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        if delete_outputs:
+            server.video_previews.invalidate_missing()
         LOGGER.info("작업 이력 삭제: job_id=%s delete_outputs=%s deleted_files=%s missing_files=%s", job_id, delete_outputs, deleted_files, missing_files)
         return JSONResponse({"deleted": True, "deleted_files": deleted_files, "missing_files": missing_files})
 
@@ -1220,7 +1233,63 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         output_timing = getattr(request.state, "output_timing", None)
         with measure_output_step(output_timing, "catalog_sync", emit=True):
-            return server.output_catalog.synchronize(server.config.managed_output_directory)
+            result = server.output_catalog.synchronize(server.config.managed_output_directory)
+        server.video_previews.invalidate_missing()
+        if server.config.video_preview_warmup_enabled:
+            server.video_previews.request_scan(priority=2, cleanup=True)
+        return result
+
+    def video_preview_source(output_id: int):
+        """미리보기 API에서 동일한 현재 원본 검증과 HTTP 오류를 사용합니다."""
+
+        try:
+            return server.video_previews.source(output_id)
+        except FileNotFoundError as exception:
+            server.video_previews.invalidate_missing()
+            raise HTTPException(404, "원본 영상을 찾을 수 없습니다.") from exception
+        except (ValueError, OSError) as exception:
+            raise HTTPException(422, "영상 경로나 접근 권한을 확인해 주세요.") from exception
+
+    @app.post("/api/outputs/{output_id}/video-preview")
+    def request_video_preview(output_id: int, payload: VideoPreviewInput):
+        """Cache·공유 Task를 반환하며 클릭 종료와 독립된 변환을 접수합니다."""
+
+        video_preview_source(output_id)
+        try:
+            return server.video_previews.enqueue(output_id, retry=payload.retry)
+        except VideoPreviewQueueFull as exception:
+            raise HTTPException(429, "영상 변환 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.") from exception
+        except VideoEncodingError as exception:
+            raise HTTPException(503, str(exception)) from exception
+        except (OSError, ValueError) as exception:
+            raise HTTPException(422, "미리보기 저장소에 접근할 수 없습니다.") from exception
+
+    @app.get("/api/outputs/{output_id}/video-preview")
+    def video_preview_status(output_id: int):
+        """진행 상태만 확인하고 실패 제한이나 재시도 대기를 초기화하지 않습니다."""
+
+        return server.video_previews.describe(video_preview_source(output_id))
+
+    @app.get("/api/outputs/{output_id}/video-preview/stream")
+    def stream_video_preview(output_id: int, request: Request, version: str):
+        """완료본에는 Range를, 진행 중 출력에는 독립적인 점진 Streaming을 제공합니다."""
+
+        source = video_preview_source(output_id)
+        if version != source.identifier:
+            raise HTTPException(409, "원본 영상이 변경되었습니다. 미리보기를 다시 열어 주세요.")
+        complete_path = server.video_previews.complete_file(source)
+        if complete_path is not None:
+            preview_stat = complete_path.stat()
+            headers = {"Cache-Control": "private, max-age=0, must-revalidate",
+                       "ETag": f'"{source.identifier}-{preview_stat.st_mtime_ns:x}-{preview_stat.st_size:x}"'}
+            if request.headers.get("if-none-match") == headers["ETag"]:
+                return Response(status_code=304, headers=headers)
+            return FileResponse(complete_path, media_type="video/mp4", headers=headers)
+        state = server.video_previews.describe(source)
+        if state["state"] != "converting":
+            raise HTTPException(409, "미리보기 변환이 아직 준비되지 않았습니다.")
+        return StreamingResponse(server.video_previews.stream(source), media_type="video/mp4",
+                                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
     @app.get("/api/outputs/preview/{relative_path:path}")
     def output_preview(relative_path: str, request: Request):
@@ -1235,6 +1304,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(404, str(exception)) from exception
         if server.output_catalog.is_deleted(file_path.relative_to(server.config.managed_output_directory).as_posix()):
             raise HTTPException(404, "삭제된 결과물입니다.")
+        if file_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS:
+            try:
+                output_id = server.output_catalog.video_output_id(relative_path)
+                source = server.video_previews.source(output_id)
+                etag = f'"video-poster-{source.identifier}"'
+                cache_headers = {"Cache-Control": "private, max-age=0, must-revalidate", "ETag": etag}
+                if request.headers.get("if-none-match") == etag:
+                    return Response(status_code=304, headers=cache_headers)
+                thumbnail_bytes, _ = server.video_previews.thumbnail(output_id)
+                return Response(thumbnail_bytes, media_type="image/webp", headers=cache_headers)
+            except FileNotFoundError as exception:
+                server.video_previews.invalidate_missing()
+                raise HTTPException(404, "원본 영상을 찾을 수 없습니다.") from exception
+            except VideoEncodingError as exception:
+                raise HTTPException(422, str(exception)) from exception
+            except (OSError, ValueError) as exception:
+                LOGGER.warning("VIDEO_PREVIEW event=thumbnail_access_failed path=%s error=%r", relative_path, exception)
+                raise HTTPException(422, "영상 Thumbnail을 만들 수 없습니다.") from exception
         with measure_output_step(output_timing, "preview_file_type_check", relative_path, emit=True):
             is_preview_image = file_path.is_file() and file_path.suffix.lower() in PREVIEW_IMAGE_EXTENSIONS
         if not is_preview_image:
@@ -1557,6 +1644,12 @@ async def _refresh_requests(server: HomeServer) -> None:
         applied_updates = await asyncio.to_thread(server.database.apply_request_states, updates)
         for update in applied_updates:
             LOGGER.info("요청 상태 갱신: request_id=%s status=%s", update["request_id"], update["status"])
+            if update["status"] == "completed":
+                try:
+                    await asyncio.to_thread(server.video_previews.completed_request, update["request_id"])
+                except Exception:
+                    LOGGER.exception("영상 미리보기 접수 실패: request_id=%s", update["request_id"])
+                    server.video_previews.request_scan()
 
 
 async def _monitor_requests(server: HomeServer) -> None:

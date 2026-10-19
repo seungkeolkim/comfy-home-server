@@ -3,6 +3,22 @@ thumbnail_cache_max_entries = 10000
 # 개발 중 잦은 재기동에서는 끄고, 기동 후 최근 이미지를 미리 읽으려면 켭니다.
 thumbnail_cache_warmup_enabled = true
 
+# 영상 정지 Thumbnail은 위 이미지와 같은 개수 상한을 사용합니다. 저용량 영상은 모두 보관합니다.
+video_preview_worker_count = 4
+video_preview_encoder_threads = 2
+video_preview_on_completion_enabled = true
+video_preview_warmup_enabled = true
+video_preview_queue_max_entries = 256
+video_preview_frame_rate = 12
+video_preview_max_dimension = 640
+video_preview_video_bitrate_kbps = 300
+video_preview_audio_bitrate_kbps = 48
+video_preview_retry_max_attempts = 3
+video_preview_retry_initial_delay_seconds = 10
+video_preview_retry_max_delay_seconds = 60
+video_preview_timeout_seconds = 300
+video_preview_shutdown_timeout_seconds = 10
+
 [server]
 host = "0.0.0.0"
 port = 8388

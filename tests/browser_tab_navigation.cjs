@@ -89,6 +89,9 @@ function createNavigationRequestHandler(fixtures) {
       response = fixtures.jobs.find(job => job.job_id === requestPath.split("/").at(-1));
     } else if (requestPath === "/api/batches") {
       response = { job_id: "submitted-job", request_ids: ["submitted-request"] };
+    } else if (requestPath.startsWith("/api/outputs/preview/")) {
+      await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="black"/></svg>' });
+      return;
     } else if (requestPath === "/favicon.ico") {
       await route.fulfill({ status: 204 });
       return;

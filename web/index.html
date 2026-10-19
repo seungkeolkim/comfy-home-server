@@ -533,5 +533,14 @@
         <button id="folder-picker-confirm" class="button primary" type="button">이 폴더로 이동</button>
       </div>
     </dialog>
+    <dialog id="video-preview-dialog" class="video-preview-dialog" aria-labelledby="video-preview-title">
+      <div class="video-preview-heading">
+        <h2 id="video-preview-title">영상 미리보기</h2>
+        <button id="video-preview-close" class="button subtle" type="button" autofocus>닫기</button>
+      </div>
+      <video id="video-preview-player" controls playsinline muted loop preload="auto"></video>
+      <a id="video-preview-original" class="button subtle" target="_blank" rel="noopener">원본 열기</a>
+      <div id="video-preview-notice" class="notice hidden" role="status" aria-live="polite"></div>
+    </dialog>
   </body>
 </html>

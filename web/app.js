@@ -11,6 +11,11 @@ const ANIMA_RESOLUTIONS = {
 };
 const TAG_NAME_COLLATOR = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
 const NAVIGATION_VIEW_NAMES = ["generate", "jobs", "outputs", "prompts", "tags", "lora-presets"];
+const videoPreviewState = {
+  revision: 0, outputId: null, timer: null, controller: null,
+  opener: null, lastStatus: null, attachedIdentifier: null,
+  pointerStartedOutside: false,
+};
 
 const applicationState = {
   presets: [],
@@ -184,9 +189,17 @@ async function apiRequest(path, options = {}) {
 }
 
 /** 화면에 고정된 알림을 잠시 표시합니다. */
-function showNotice(message, isError = false) {
-  const notice = element("notice");
+function showNotice(message, isError = false, action = null) {
+  const notice = element("video-preview-dialog").open ? element("video-preview-notice") : element("notice");
   notice.textContent = message;
+  if (action) {
+    const actionButton = document.createElement("button");
+    actionButton.type = "button";
+    actionButton.className = "button subtle";
+    actionButton.textContent = action.label;
+    actionButton.addEventListener("click", action.run, { once: true });
+    notice.append(" ", actionButton);
+  }
   notice.classList.toggle("error", isError);
   notice.classList.remove("hidden");
   window.clearTimeout(applicationState.noticeHideTimer);
@@ -195,6 +208,7 @@ function showNotice(message, isError = false) {
 
 /** 로그인 화면만 표시합니다. */
 function showLogin() {
+  closeVideoPreview(false);
   finishOutputFolderSelection(null, true);
   window.clearTimeout(applicationState.pollingTimer);
   applicationState.pollingTimer = null;
@@ -368,6 +382,7 @@ function saveCurrentNavigationEntry() {
 
 /** 조회 조건과 탭 표시를 바꾸며 생성 입력이나 변경 요청은 실행하지 않습니다. */
 function displayNavigationState(navigationState) {
+  closeVideoPreview(false);
   const viewName = navigationState.viewName;
   if (viewName === "jobs") {
     applicationState.jobsPage = navigationState.pageNumber;
@@ -2167,7 +2182,7 @@ function renderOutputsList() {
             const dimensionSource = outputFile.dimensions_source === "settings" ? " (설정)" : "";
             const media =
               outputFile.kind === "video"
-                ? `<span class="output-video-placeholder">영상 · 열기로 재생</span>`
+                ? `<button type="button" class="video-preview-trigger" data-video-preview="${outputFile.output_id}" aria-label="${escapeHtml(outputFile.name)} 저용량 미리보기" ${selectionIsBusy ? "disabled" : ""}><img src="/api/outputs/preview/${outputFile.path.split("/").map(encodeURIComponent).join("/")}" alt="${escapeHtml(outputFile.name)}" loading="lazy"><span class="video-preview-play" aria-hidden="true">▶</span></button>`
                 : `<img src="/api/outputs/preview/${outputFile.path.split("/").map(encodeURIComponent).join("/")}" alt="${escapeHtml(outputFile.name)}" loading="lazy">`;
             const jobButton = outputFile.job_id
               ? `<a class="button job-link" data-navigation data-output-job="${escapeHtml(outputFile.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "jobs", pageNumber: 1, jobFilterId: outputFile.job_id }))}" aria-label="작업 ${escapeHtml(outputFile.job_id)} 보기">작업</a>`
@@ -2185,6 +2200,110 @@ function renderOutputsList() {
           .join("")
       : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;
   updateOutputSelectionControls();
+}
+
+/** 재생 연결과 Polling만 해제하고 서버 Queue와 변환은 유지합니다. */
+function closeVideoPreview(restoreFocus = true) {
+  videoPreviewState.pointerStartedOutside = false;
+  videoPreviewState.revision += 1;
+  window.clearTimeout(videoPreviewState.timer);
+  videoPreviewState.controller?.abort();
+  videoPreviewState.controller = null;
+  videoPreviewState.outputId = null;
+  videoPreviewState.attachedIdentifier = null;
+  const video = element("video-preview-player");
+  video.pause();
+  video.removeAttribute("src");
+  video.removeAttribute("poster");
+  video.load();
+  element("video-preview-notice").classList.add("hidden");
+  const dialog = element("video-preview-dialog");
+  if (dialog.open) dialog.close();
+  if (restoreFocus && videoPreviewState.opener?.isConnected) videoPreviewState.opener.focus({ preventScroll: true });
+  videoPreviewState.opener = null;
+}
+
+/** Dialog 자체로 전달된 Pointer가 실제 미리보기 바깥에 있는지 확인합니다. */
+function isVideoPreviewBackdropEvent(event) {
+  if (event.target !== event.currentTarget) return false;
+  const dialogBounds = event.currentTarget.getBoundingClientRect();
+  return event.clientX < dialogBounds.left || event.clientX > dialogBounds.right ||
+    event.clientY < dialogBounds.top || event.clientY > dialogBounds.bottom;
+}
+
+/** 공유 변환을 접수하고 완료 전에도 준비된 MP4부터 재생합니다. */
+async function openVideoPreview(outputFile, opener, retry = false) {
+  closeVideoPreview(false);
+  const revision = videoPreviewState.revision;
+  videoPreviewState.outputId = outputFile.output_id;
+  videoPreviewState.opener = opener;
+  videoPreviewState.lastStatus = null;
+  videoPreviewState.controller = new AbortController();
+  const encodedPath = outputFile.path.split("/").map(encodeURIComponent).join("/");
+  element("video-preview-title").textContent = outputFile.name;
+  element("video-preview-original").href = `/media/${encodedPath}`;
+  element("video-preview-player").poster = `/api/outputs/preview/${encodedPath}`;
+  element("video-preview-dialog").showModal();
+  try {
+    const status = await apiRequest(`/api/outputs/${outputFile.output_id}/video-preview`, {
+      method: "POST", body: JSON.stringify({ retry }), signal: videoPreviewState.controller.signal,
+    });
+    if (revision !== videoPreviewState.revision) return;
+    updateVideoPreviewStatus(outputFile, status, revision);
+  } catch (error) {
+    if (revision === videoPreviewState.revision && error.name !== "AbortError") showNotice(error.message, true);
+  }
+}
+
+/** 활성 영상의 상태 전이에만 Toast를 띄우고 중복 재생 연결을 만들지 않습니다. */
+function updateVideoPreviewStatus(outputFile, status, revision) {
+  if (revision !== videoPreviewState.revision || !element("video-preview-dialog").open) return;
+  const messages = {
+    queued: "미리보기 변환 대기 중입니다.",
+    converting: "미리보기 변환 중입니다.",
+    retry_wait: "미리보기 변환에 실패해 재시도를 기다리고 있습니다.",
+    failed: "미리보기 변환에 실패했습니다.",
+    missing: "미리보기 파일이 없습니다. 다시 열어 주세요.",
+  };
+  if (videoPreviewState.lastStatus !== status.state && messages[status.state]) {
+    const retryAction = status.state === "failed" ? {
+      label: "재시도",
+      run: () => {
+        if (revision === videoPreviewState.revision) runAction(() => openVideoPreview(outputFile, videoPreviewState.opener, true));
+      },
+    } : null;
+    showNotice(messages[status.state], status.state === "failed", retryAction);
+  }
+  videoPreviewState.lastStatus = status.state;
+  if (["retry_wait", "failed"].includes(status.state) && videoPreviewState.attachedIdentifier) {
+    const video = element("video-preview-player");
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    videoPreviewState.attachedIdentifier = null;
+  }
+  if ((status.stream_ready || status.state === "ready") && videoPreviewState.attachedIdentifier !== status.identifier) {
+    const video = element("video-preview-player");
+    videoPreviewState.attachedIdentifier = status.identifier;
+    video.src = `/api/outputs/${outputFile.output_id}/video-preview/stream?version=${encodeURIComponent(status.identifier)}`;
+    video.play().catch(() => {});
+  }
+  if (["queued", "converting", "retry_wait"].includes(status.state)) {
+    videoPreviewState.timer = window.setTimeout(() => pollVideoPreview(outputFile, revision), 750);
+  }
+}
+
+/** 한 번에 하나의 상태 조회만 수행하고 닫거나 교체한 영상의 늦은 응답을 무시합니다. */
+async function pollVideoPreview(outputFile, revision) {
+  if (revision !== videoPreviewState.revision) return;
+  try {
+    const status = await apiRequest(`/api/outputs/${outputFile.output_id}/video-preview`, {
+      signal: videoPreviewState.controller.signal,
+    });
+    updateVideoPreviewStatus(outputFile, status, revision);
+  } catch (error) {
+    if (revision === videoPreviewState.revision && error.name !== "AbortError") showNotice(error.message, true);
+  }
 }
 
 /** 현재 페이지의 결과물을 모두 선택하거나 해제합니다. */
@@ -2564,6 +2683,28 @@ function runAction(action) {
 
 /** 사용자 조작과 메뉴 이동을 연결합니다. */
 function bindEvents() {
+  element("video-preview-close").addEventListener("click", () => closeVideoPreview());
+  element("video-preview-dialog").addEventListener("pointerdown", (event) => {
+    videoPreviewState.pointerStartedOutside = isVideoPreviewBackdropEvent(event);
+  });
+  element("video-preview-dialog").addEventListener("pointercancel", () => {
+    videoPreviewState.pointerStartedOutside = false;
+  });
+  element("video-preview-dialog").addEventListener("click", (event) => {
+    const clickedBackdrop = videoPreviewState.pointerStartedOutside && isVideoPreviewBackdropEvent(event);
+    videoPreviewState.pointerStartedOutside = false;
+    if (clickedBackdrop) closeVideoPreview();
+  });
+  element("video-preview-dialog").addEventListener("cancel", (event) => {
+    event.preventDefault();
+    closeVideoPreview();
+  });
+  element("video-preview-dialog").addEventListener("close", () => {
+    if (!element("video-preview-dialog").open && videoPreviewState.outputId !== null) closeVideoPreview();
+  });
+  element("video-preview-player").addEventListener("error", () => {
+    if (videoPreviewState.outputId !== null) showNotice("미리보기를 재생하지 못했습니다. 닫은 뒤 다시 열어 주세요.", true);
+  });
   document.addEventListener("click", handleNavigationLinkClick);
   element("jobs-list").addEventListener("toggle", (event) => {
     saveCurrentNavigationEntry();
@@ -2902,6 +3043,12 @@ function bindEvents() {
     });
   });
   element("outputs-grid").addEventListener("click", (event) => {
+    const previewButton = event.target.closest("[data-video-preview]");
+    if (previewButton && !previewButton.disabled && !outputSelectionIsBusy()) {
+      const outputFile = applicationState.visibleOutputs.find(output => String(output.output_id) === previewButton.dataset.videoPreview);
+      if (outputFile) runAction(() => openVideoPreview(outputFile, previewButton));
+      return;
+    }
     const button = event.target.closest("[data-move-output]");
     if (button && !button.disabled) runAction(() => moveOutput(button.dataset.moveOutput));
     const deleteButton = event.target.closest("[data-delete-output]");

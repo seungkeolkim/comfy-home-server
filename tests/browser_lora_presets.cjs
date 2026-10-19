@@ -509,9 +509,9 @@ async function main() {
     await page.locator("#refresh-outputs-button").click();
     await page.locator(".output-card").first().waitFor();
     assert.equal(await page.locator(".output-card").count(), 64);
-    assert.equal(await page.locator(".output-video-placeholder").count(), 1);
-    assert.equal(await page.locator(".output-card img").count(), 63);
-    assert.equal(await page.locator('.output-card img[src^="/api/outputs/preview/"]').count(), 63);
+    assert.equal(await page.locator("[data-video-preview]").count(), 1);
+    assert.equal(await page.locator(".output-card img").count(), 64);
+    assert.equal(await page.locator('.output-card img[src^="/api/outputs/preview/"]').count(), 64);
     assert.match(await page.locator(".output-card").first().locator("small").textContent(),
       /9:16 · 720 × 1280 \(설정\)/);
     assert.match(await page.locator(".output-card").nth(1).locator("small").textContent(),

@@ -2,9 +2,9 @@
 
 작성일: 2026-10-19
 
-상태: **설계 기록이며 아직 구현하지 않았습니다.** 사용자와 합의한 동작과 구현 시 검증할 제안을 구분합니다.
+상태: **기본 범위를 구현했습니다.** 설계문서를 `5cc6b36`으로 먼저 커밋한 뒤 개발했습니다. 현재 구현·설정·실측과 검증 범위는 13장에 기록합니다. 실제 Android/iOS 기기 검증은 남아 있습니다.
 
-현재 코드 기준 Commit: `d7a4087` (`feat: collapse request prompts and tag paths`).
+설계 당시 코드 기준 Commit: `d7a4087` (`feat: collapse request prompts and tag paths`).
 
 추가 합의: 신규 하위 요청의 영상 생성 완료와 서버 기동 시 미변환 영상 탐색도 자동 변환의 접수 경로에 포함합니다. 기동 때 정리만 하고 클릭을 기다리던 초기 설계는 아래 내용으로 대체합니다. Thread 수명·실패 재시도 수치는 구현 제안입니다.
 
@@ -50,7 +50,7 @@
 1. 목록은 Lazy loading으로 정지 Thumbnail만 요청합니다. 목록 진입이나 정지 Frame 추출 때문에 영상 전체 변환을 시작하지 않습니다.
 2. Thumbnail에 재생 아이콘과 접근성 이름을 표시합니다. 클릭하면 Dialog를 열고 미리보기를 요청합니다.
 3. 완료 파일이 있으면 바로 재생합니다. 없으면 클릭에 대한 `미리보기 변환 대기 중입니다.` 또는 `미리보기 변환 중입니다.` Toast를 표시하고 첫 Fragment가 준비되면 재생을 시도합니다.
-4. 닫기·Escape·다른 영상 선택·탭 이동 시 기존 Video element의 재생·다운로드 연결만 해제합니다. Queue와 진행 중 변환은 유지합니다.
+4. 닫기·Escape·미리보기 바깥 영역 클릭/터치·다른 영상 선택·탭 이동 시 기존 Video element의 재생·다운로드 연결만 해제합니다. Queue와 진행 중 변환은 유지합니다. Dialog 내부 여백·영상 조작·Toast Action은 바깥 클릭으로 취급하지 않고 내부에서 시작한 Drag가 바깥에서 끝나도 닫지 않습니다.
 5. 다시 열면 기존 Task나 완성된 Cache를 재사용합니다.
 
 - Dialog에 재생 제어·닫기·`원본 열기`를 제공합니다. 모바일 자동 재생이 제한되면 재생 버튼을 제공합니다.
@@ -138,7 +138,7 @@
 
 ## 6. `config.toml` 설정안
 
-Worker 수와 Encoder thread 수를 설정으로 제어하고 Frame rate를 최대 12fps로 시작하는 것은 확정 방향입니다. 아래 나머지 숫자는 제안이며 현재 Parser는 영상 설정을 지원하지 않습니다. 문서화만으로 실제 설정 파일에 추가하지 않습니다.
+Worker 수와 Encoder thread 수를 설정으로 제어하고 Frame rate를 최대 12fps로 시작합니다. 아래 설정은 현재 Parser와 `config.toml`에 반영했으며 기본값도 예시와 같습니다. 완료본에는 출력 설정 변경을 소급 적용하지 않습니다.
 
 ```toml
 [outputs]
@@ -165,9 +165,11 @@ video_preview_max_dimension = 640
 video_preview_frame_rate = 12
 video_preview_video_bitrate_kbps = 300
 video_preview_audio_bitrate_kbps = 48
+video_preview_timeout_seconds = 300
+video_preview_shutdown_timeout_seconds = 10
 ```
 
-- `*_enabled`는 `bool`, 나머지는 `bool`을 제외한 양의 정수로 검증하고 기본값은 측정 후 확정합니다. 자동 접수 두 설정은 사용자 요청대로 기본 On을 제안합니다. 최대 재시도 지연은 초기 지연보다 작지 않아야 합니다. 변경은 서버 재시작 시 적용하는 안으로 시작합니다.
+- `*_enabled`는 `bool`, 나머지는 `bool`을 제외한 양의 정수로 검증합니다. 자동 접수 두 설정은 기본 On이고 최대 재시도 지연은 초기 지연보다 작지 않아야 합니다. 변경은 서버 재시작 시 적용합니다.
 - Encoder thread 수는 프로세스 전체 CPU 수의 엄격한 상한이 아닙니다. Decoder·Filter 병렬도도 구현에서 제한·측정합니다.
 - Worker가 늘면 원본 decoding 메모리·IO도 증가합니다. 압축 Cache 용량으로 변환 중 RAM을 추정하지 않습니다.
 - `thumbnail_cache_max_entries`를 일반 이미지 메모리 LRU와 영상 정지 Thumbnail 디스크 LRU의 동일한 개수 상한으로 사용합니다. 현재 예시는 각각 최대 10,000개이며 하나의 합산 Pool로 바꾸지 않습니다. 별도 영상 Thumbnail 개수 설정을 추가하지 않습니다.
@@ -292,7 +294,7 @@ HLS/DASH·여러 화질 자동 전환·구간별 저장/재개·GPU Encoder 자�
 
 ### Benchmark
 
-변환 시간·CPU·최대 RAM은 **아직 측정하지 않았습니다.** 예를 들어 10초 영상을 5배 속도로 처리하면 변환은 약 2초지만 현재 장비의 성능 보장이 아닙니다.
+아래는 설계 당시 측정 계획입니다. 현재 Windows 장비의 실제 변환 시간·압축 크기·메모리 샘플링 결과는 13장에 기록합니다. 다른 장비·영상에 동일한 성능을 보장하지 않습니다.
 
 - 실제 해상도·길이·Codec·음성 유무가 다른 대표 원본을 선택합니다.
 - Queue 대기, Probe/원본 확인, 첫 Fragment 생성, 브라우저 첫 재생, 전체 변환 완료, Cache Hit 첫 재생을 각각 측정합니다.
@@ -319,7 +321,7 @@ HLS/DASH·여러 화질 자동 전환·구간별 저장/재개·GPU Encoder 자�
 - 클릭 시 대기/변환 중/실패 Toast, 늦은 응답 무시, 반복 Toast 방지, 카드 상태 Badge 미추가와 실제 12fps 결과를 확인합니다. 설정 누락/잘못된 타입/음수/0을 검사합니다.
 - 결과물 목록과 Git에 파생 파일이 섞이지 않고 새 Cache 정리가 서비스 준비를 막지 않는지 확인합니다.
 
-## 12. 구현 순서와 미확정 사항
+## 12. 설계 당시 구현 순서
 
 1. FFmpeg/ffprobe 의존성, 대표 원본 Benchmark와 모바일 점진 재생 Prototype을 검증합니다.
 2. 12fps로 실제 결과를 확인하고 나머지 Profile·Worker 기본값과 직접 Streaming/MSE 연결 방식을 확정합니다. 이후 출력 설정 변경을 기존 완료본에 소급하지 않습니다.
@@ -328,7 +330,51 @@ HLS/DASH·여러 화질 자동 전환·구간별 저장/재개·GPU Encoder 자�
 5. Thumbnail/Dialog를 연결하고 다중 접속·모바일·일반 API 회귀를 검증합니다.
 6. 실제 API·확정 설정·측정값·구현 상태를 이 문서와 README에 갱신합니다.
 
-미확정 항목은 12fps 이외 수치 기본값, 우선순위 Aging 세부 규칙, 실패 분류·Backoff 세부 값, Decoder/영상 Thumbnail 자원 배분, 모바일 점진 재생 연결 방식, 종료·변환 Timeout입니다. 모든 원본의 저용량 영상 보관·정지 Thumbnail만 이미지와 동일 개수 제한·설정 변경 시 완료본 유지·클릭 시 Toast·닫기 후 계속 변환·신규 완료/기동 누락 자동 접수 방향은 확정 사항입니다.
+모든 원본의 저용량 영상 보관·정지 Thumbnail만 이미지와 동일 개수 제한·설정 변경 시 완료본 유지·클릭 시 Toast·닫기 후 계속 변환·신규 완료/기동 누락 자동 접수 방향을 구현했습니다. 실제 값과 남은 기기 검증은 아래 기록을 따릅니다.
+
+## 13. 구현과 검증 기록
+
+### 구성과 확정한 동작
+
+- `home_server/video_encoding.py`: FFmpeg/ffprobe 실행, 최대 640px·12fps H.264 baseline/AAC 48kbps, Decoder/Encoder 각 설정 Thread 수와 Filter 1개, WebP 정지 Frame 추출을 담당합니다. 영상 출력은 stdout에서 임시 파일로 바로 누적하며 전체 원본/결과를 RAM에 보관하지 않습니다.
+- `home_server/video_preview_cache.py`: 영속 영상·독립 Thumbnail LRU·중복 Task 공유·Queue·Worker·기동 Producer·지연 재시도와 정리를 담당합니다. 원본 ID와 stat 버전으로 식별하고 현재 출력 설정을 Key나 완료본 재검사에 사용하지 않습니다.
+- `runtime/cache/media/previews/`에는 모든 저용량 영상과 완료/실패 Metadata, `thumbnails/`에는 별도 개수 제한 WebP를 저장합니다. Thumbnail 퇴출은 영상·실패 Metadata에 영향을 주지 않습니다.
+- 완료 영상 API는 `POST/GET /api/outputs/{output_id}/video-preview`, 재생은 `GET .../stream?version={identifier}`이며 명시적 재시도는 POST의 `{"retry": true}`입니다. 완료 파일은 Range·ETag를 지원하고 진행 중에는 Cache를 쓰지 않는 점진 응답을 제공합니다.
+- 현재 연결은 native Video element와 fragmented MP4입니다. MSE/HLS 추가 없이 Edge에서 완료 전 재생을 확인했습니다. 재생 Dialog는 최대 750ms 간격으로 상태를 순차 조회하고 상태 전이 때만 Toast를 표시합니다. 음성은 보관하되 자동 재생은 음소거 상태로 시작하며 Controls에서 해제할 수 있습니다.
+- 기본 Worker 4개, 각 Encoder/Decoder 2 threads, Queue 대기 한도 256개, 변환 Timeout 300초입니다. Thumbnail 추출은 별도 동시 2건·최대 30초이고 일반 이미지 변환 Slot과 분리합니다.
+- 우선순위는 클릭 0·신규 완료 1·기동 채우기 2이며 `접수 monotonic 시각 + 우선순위 × 30초`가 작은 순서로 처리해 오래된 낮은 등급도 실행합니다. 진행 중 작업은 선점하지 않습니다.
+- 일시 오류는 최초 포함 총 3회, 10초·20초 지연으로 재시도합니다. Scheduler가 대기하므로 Worker를 점유하지 않습니다. 현재 Jitter는 사용하지 않습니다. 실패 Metadata 저장 자체가 불가능하면 실행 중 메모리에도 최종 실패를 보관해 같은 실행에서 자동 재탐색이 무한 재시도하지 않게 합니다.
+- 정상 종료 시 10초까지 완료를 기다린 뒤 남은 FFmpeg를 중지합니다. Probe 최대 15초를 고려해 최대 16초의 추가 회수 대기에서 Producer/Scheduler/Worker를 join합니다. 화면 닫기는 이 종료 신호를 보내지 않습니다.
+- 영상 신규 완료는 `apply_request_states()` Commit 이후 접수합니다. 기동 Producer는 전체 미변환 원본 접수 후 끝나고 Worker/Scheduler는 서버 수명 동안 유지됩니다. 서버 종료로 중단된 작업은 다음 기동에서 처음부터 처리합니다.
+- 원본 삭제·교체·현재 경로 이동을 재검사하고 Cache 정리는 원본·작업 DB를 수정하지 않습니다. 원본 Root 부재/권한 오류는 삭제로 일괄 처리하지 않습니다. Windows의 긴 `\\?\` 경로 접두어는 Root 경계 비교 전에 정규화하며 링크 경계 검증은 유지합니다.
+- DB schema 변경은 없습니다. `Dockerfile`에 FFmpeg/ffprobe 의존성을 추가하며 추가 Mount는 사용하지 않습니다.
+
+### 현재 장비 실측
+
+운영 Catalog에 있는 실제 영상 2개를 읽기만 하고, 별도 `runtime/verification/video-benchmark-*/`에 결과를 기록했습니다. 원본·작업 상태·정식 Cache는 Benchmark에서 수정하지 않았습니다. Windows FFmpeg 9.0 계열에서 현재 640px/12fps/300+48kbps 설정으로 측정했습니다.
+
+| 측정 | 결과 |
+|---|---|
+| 원본 크기 | 25,727,810 / 28,358,315 bytes |
+| 미리보기 크기 | 약 468,248~469,043 bytes, 약 0.47MB |
+| 개별 전체 변환 | 약 2.13~2.38초 |
+| 2개 순차 처리 총 시간 | 약 4.61초 |
+| 2개 병렬 처리 총 시간 | 약 2.36초 |
+| 첫 1KB 이상 출력까지 | 약 184~272ms, 재생 첫 Frame 시간과는 다름 |
+| FFmpeg 메모리 최대 샘플 | 순차 약 133MiB, 2건 병렬 합계 약 258MiB |
+
+20ms 간격 RSS/Working Set 샘플링이며 절대 최대 메모리 보장이 아닙니다. Worker 수 4 설정도 측정했지만 원본이 2개여서 실제 동시 실행은 최대 2개였습니다. 4개 동시 실행의 처리량·메모리는 이번 측정으로 판단하지 않습니다. CPU 사용률·실제 모바일 네트워크 첫 재생 지연과 Linux Container에서의 속도는 이 표에 포함하지 않습니다.
+
+### 검증 결과와 한계
+
+- Python 전체 검사: **247 passed, 1 skipped**. 기존 Starlette TestClient 의존성 Deprecation warning 1개가 있으며 새 Worker의 Thread 예외는 없습니다.
+- `tests/test_video_preview_cache.py`: 실제 무음/음성 FFmpeg 출력과 WebP, 인증·Range·ETag·원본 삭제, Queue 한도보다 많은 기동 후보, 중복/병렬 제한, 독립 Thumbnail 퇴출, 설정 변경/재기동/이동 후 완료본 보존, Root 부재, 재시도 상한/재기동, Reader 종료 후 완료, Thread 회수, 상위 작업 완료 전 신규 하위 요청 접수를 확인했습니다.
+- `tests/browser_video_previews.cjs`: 운영 데이터와 분리한 실제 HTTP 서버·실제 Codec·느린 입력 읽기로 Edge 1280px/390px에서 **변환 중 첫 재생**, 빠른 닫기 후 변환 계속/완료, 실패 Toast 재시도, 완료본 재생, Escape·Focus·선택 Checkbox 분리와 원본 미요청을 확인했습니다. 작은 Thumbnail이 모두 실제로 로딩되는지도 검사합니다.
+- 기존 LoRA/작업/태그 화면, 결과물 폴더 이동·삭제·보호와 Desktop/Mobile 탭·History 회귀를 확인했습니다. `node --check`, Python compile, `git diff --check`를 수행했습니다.
+- FFmpeg가 포함된 Docker 이미지를 빌드하고 서비스를 재기동했습니다. 서비스 `healthy`, 운영 영상 2개의 기동 자동 변환 완료, 정지 WebP와 저용량 영상 HTTP 200·Range HTTP 206을 확인했습니다. Linux Container의 실제 완료 파일은 473,367 / 471,552 bytes이고 Thumbnail은 16,242 / 19,092 bytes였습니다. 원본·작업 이력은 변경하지 않았습니다.
+- 390px 검사는 Windows Edge의 Mobile emulation입니다. **실제 Android/iOS·Safari 기기에서는 아직 확인하지 않았습니다.** Codec 지원과 모바일 네트워크 조건은 사용자 기기에서 확인해야 합니다. 정상 미리보기 재생 실패 시 Toast와 원본 열기를 제공하며 자동 원본 다운로드는 하지 않습니다.
+
+구현 이후 코드 변경으로 검사 결과가 달라지면 이 기록도 갱신합니다.
 
 ## 참고
 

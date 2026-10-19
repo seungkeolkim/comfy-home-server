@@ -117,7 +117,9 @@ thumbnail_cache_warmup_enabled = false
 
 백그라운드 채우기는 개발 중 반복 재기동 비용을 줄이도록 기본적으로 꺼져 있습니다. `true`로 켜면 기동 직후 별도 Thread에서 최신 이미지부터 최대 설정 개수까지만 채우며, 서비스 준비 완료를 기다리게 하지 않습니다. 기존 이미지 전체의 파일 정보를 탐색한 뒤 한 장씩 원본을 읽고 변환합니다. 생성 사이에 50ms씩 대기하며, 사용자가 조회한 썸네일을 백그라운드 작업 때문에 퇴출하지 않습니다. 메모리에만 보관하므로 썸네일을 SSD에 쓰지 않지만 재기동마다 원본 읽기와 CPU 변환 비용은 다시 발생합니다. 파일 존재·관리 경로·수정 시간·크기는 요청마다 확인하여 외부 삭제·이동·변경을 반영하며, 변경 없이 재시작한 경우에도 메모리 Cache는 새로 만들어집니다. [Cache 동작과 검증](docs/thumbnail_cache.md)을 참고하세요.
 
-영상 정지 Thumbnail·클릭 시 저용량 영상 재생·디스크 저장과 병렬 변환 Queue는 [영상 미리보기와 Cache 설계](docs/video_preview_cache_design.md)에 정리한 **미구현 후속 범위**입니다. 신규 하위 요청 완료·기동 시 미변환 영상 채우기·사용자 클릭에서 접수하고, 팝업을 닫아도 변환을 완료합니다. 저용량 영상은 모든 원본을 대상으로 보관하고 정지 Thumbnail만 이미지와 동일한 개수 설정으로 제한합니다. 최대 12fps로 시작하며 출력 설정을 바꿔도 기존 완료본을 재변환하지 않습니다. 클릭 시 대기/변환 중/실패는 Toast로 안내합니다. Worker/Encoder 병렬도·지연 재시도와 원본 수동 삭제 시 기동 정리도 문서에 기록했습니다. 영상 설정 예시는 아직 실제 Parser에서 지원하지 않습니다.
+영상은 정지 Thumbnail을 표시하고 클릭하면 저용량 미리보기를 재생합니다. 기존 `열기`는 원본용입니다. 신규 하위 요청 완료·기동 시 미변환 영상 채우기·사용자 클릭에서 공유 Queue에 접수하며 팝업을 닫아도 변환을 완료합니다. 기본 최대 640px·12fps H.264/AAC이며 변환 중에도 앞부분부터 재생합니다. 저용량 영상은 `runtime/cache/media/previews/`에 모두 보관하고 정지 Thumbnail은 `thumbnails/`에서 이미지와 같은 `thumbnail_cache_max_entries` 값으로 별도 LRU를 적용합니다. 출력 설정을 바꿔도 완료본은 재변환하지 않으며 클릭 시 대기/변환 중/실패를 Toast로 안내합니다. 원본 수동 삭제로 남은 파생 파일은 기동/수동 동기화에서 정리합니다. [설계·실측·검증 기록](docs/video_preview_cache_design.md)을 참고하세요. 실제 Android/iOS 기기는 아직 검증하지 않았습니다.
+
+`[outputs]`의 `video_preview_worker_count = 4`, `video_preview_encoder_threads = 2`로 병렬도를 조정합니다. `video_preview_on_completion_enabled`, `video_preview_warmup_enabled`는 기본 `true`이며 일반 이미지 Warmup과 독립적입니다. 변환은 기본 총 3회까지 지연 재시도하며 실패 Toast의 `재시도`로 명시적 재시도를 할 수 있습니다. 기동 Producer는 후보 접수 후 종료하고 Worker/Scheduler는 서버 종료까지 대기합니다. Docker는 FFmpeg가 포함되도록 `docker compose up -d --build`로 다시 빌드해야 하며, Windows 직접 실행에는 PATH의 `ffmpeg`와 `ffprobe`가 필요합니다. 전체 영상의 명시적 삭제·재변환 외에는 완료본을 개수나 시간으로 자동 퇴출하지 않습니다.
 
 ## 저장 위치
 

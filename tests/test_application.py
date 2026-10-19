@@ -510,7 +510,7 @@ def test_output_pagination_and_transient_preview(tmp_path: Path) -> None:
         assert updated_preview.headers["etag"] != preview_response.headers["etag"]
         assert client.get("/api/outputs/preview/anima/animation.gif").headers["content-type"] == "image/webp"
         assert client.get("/api/outputs/preview/anima/small-00.png").status_code == 422
-        assert client.get("/api/outputs/preview/anima/movie.webm").status_code == 404
+        assert client.get("/api/outputs/preview/anima/movie.webm").status_code == 422
         assert client.get("/api/outputs/preview/../outside.png").status_code != 200
         assert client.get("/media/anima/large.png").content == original_path.read_bytes()
         assert sorted(path.name for path in image_directory.iterdir()) == [

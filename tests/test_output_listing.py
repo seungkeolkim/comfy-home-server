@@ -35,6 +35,10 @@ def test_output_listing_sorts_by_filename_without_path_stat(tmp_path: Path, monk
     """수정 시각과 무관하게 파일명으로 정렬하고 크기 metadata 및 stat 호출을 제거합니다."""
 
     application = create_processing_test_app(tmp_path, FakeComfyClient())
+    def skip_independent_video_workers():
+        """목록의 전역 stat 금지 검증에서 독립 영상 백그라운드 IO를 분리합니다."""
+
+    monkeypatch.setattr(application.state.home_server.video_previews, "start", skip_independent_video_workers)
     managed_directory = application.state.home_server.config.managed_output_directory
     output_names = [
         "261015_010001_3.png", "261015_010001_20.png", "261015_010002_1.png", "unknown.png",
