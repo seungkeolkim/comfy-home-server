@@ -190,14 +190,14 @@ class JobDescriptionInput(BaseModel):
 
 
 class JobFolderInput(BaseModel):
-    """이력 분류 폴더의 이름과 부모를 입력받습니다."""
+    """작업 분류 분류의 이름과 부모를 입력받습니다."""
 
     name: str = Field(min_length=1, max_length=80)
     parent_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class JobFolderAssignmentInput(BaseModel):
-    """선택한 작업들을 한 폴더 또는 미지정으로 이동합니다."""
+    """선택한 작업들을 한 분류 또는 미분류로 이동합니다."""
 
     job_ids: list[str] = Field(min_length=1, max_length=10000)
     folder_id: str | None = Field(default=None, min_length=1, max_length=64)
@@ -1045,13 +1045,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/job-folders")
     def job_folders():
-        """폴더 트리와 하위 포함 작업 수를 조회합니다."""
+        """분류 트리와 하위 포함 작업 수를 조회합니다."""
 
         return JSONResponse(server.database.job_folders.list_folders())
 
     @app.post("/api/job-folders", status_code=201)
     def create_job_folder(payload: JobFolderInput):
-        """현재 위치 아래에 깊이를 검증한 이력 폴더를 만듭니다."""
+        """현재 위치 아래에 깊이를 검증한 작업 분류를 만듭니다."""
 
         return job_folder_operation(lambda: {
             "folder_id": server.database.job_folders.save_folder(payload.name, payload.parent_id),
@@ -1059,7 +1059,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.put("/api/job-folders/{folder_id}")
     def update_job_folder(folder_id: str, payload: JobFolderInput):
-        """폴더 이름 또는 부모를 하위 트리 전체의 깊이와 함께 변경합니다."""
+        """분류 이름 또는 부모를 하위 트리 전체의 깊이와 함께 변경합니다."""
 
         return job_folder_operation(lambda: {
             "folder_id": server.database.job_folders.save_folder(payload.name, payload.parent_id, folder_id),
@@ -1067,13 +1067,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.delete("/api/job-folders/{folder_id}")
     def delete_job_folder(folder_id: str):
-        """하위 폴더도 제거하고 소속 작업들은 미지정으로 돌립니다."""
+        """하위 분류도 제거하고 소속 작업들은 미분류로 돌립니다."""
 
         return job_folder_operation(lambda: server.database.job_folders.delete_folder(folder_id))
 
     @app.get("/api/jobs/selection-candidates")
     def job_selection_candidates(job_id: str = "", folder_id: str = "", search: str = ""):
-        """현재 폴더·검색의 전체 이동 후보와 삭제 후보를 분리해 반환합니다."""
+        """현재 분류·검색의 전체 이동 후보와 삭제 후보를 분리해 반환합니다."""
 
         return job_folder_operation(lambda: server.database.list_job_selection_candidates(job_id, folder_id, search))
 

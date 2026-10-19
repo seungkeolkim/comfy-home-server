@@ -1,4 +1,4 @@
-/** 기존 Browser Fixture에 이력 폴더 읽기 API와 이동·삭제 후보 분리를 제공합니다. */
+/** 기존 Browser Fixture에 작업 분류 읽기 API와 이동·삭제 후보 분리를 제공합니다. */
 async function handleJobFolderReadRequest(route, jobs = []) {
   const requestUrl = new URL(route.request().url());
   let response;

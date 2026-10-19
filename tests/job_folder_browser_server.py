@@ -1,4 +1,4 @@
-"""운영 데이터와 분리된 이력 폴더 Browser 검증 서버입니다."""
+"""운영 데이터와 분리된 작업 분류 Browser 검증 서버입니다."""
 
 import sys
 from pathlib import Path
@@ -13,7 +13,7 @@ from test_output_catalog import add_catalog_test_request
 
 
 def create_job_folder_browser_application(runtime_directory: Path):
-    """두 페이지 이상의 이력과 깊이 3 폴더·보호 작업·실제 이미지를 준비합니다."""
+    """두 페이지 이상의 이력과 깊이 3 분류·보호 작업·실제 이미지를 준비합니다."""
 
     output_directory = runtime_directory / "outputs"
     output_directory.mkdir(parents=True, exist_ok=True)

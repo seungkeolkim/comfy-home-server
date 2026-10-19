@@ -1794,7 +1794,7 @@ function toggleAllJobSelections() {
   renderJobsList();
 }
 
-/** 현재 폴더·검색의 모든 페이지에서 작업을 선택하고 삭제 후보는 별도로 유지합니다. */
+/** 현재 분류·검색의 모든 페이지에서 작업을 선택하고 삭제 후보는 별도로 유지합니다. */
 async function toggleEveryJobSelection() {
   if (!applicationState.jobSelectionMode || jobSelectionIsBusy()) return;
   const everyJobSelected = applicationState.selectableJobIds.size > 0 &&
@@ -1902,7 +1902,7 @@ async function saveJobDescription() {
   }
 }
 
-/** 삭제 보호만 변경하며 폴더 이동에 사용할 선택은 유지합니다. */
+/** 삭제 보호만 변경하며 분류 변경에 사용할 선택은 유지합니다. */
 async function toggleJobDeletionProtection(jobIdentifier) {
   if (jobSelectionIsBusy()) return;
   const job = applicationState.visibleJobs.find((candidate) => candidate.job_id === jobIdentifier);
@@ -2096,7 +2096,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
         <h3>${escapeHtml(job.workflow)}${job.workflow === "minimax_h3" ? ` · ${escapeHtml(requestSettings.generation_mode || "FL2VA")} · ${requestSettings.input_scope === "job" ? "작업 결과 일괄" : requestSettings.input_scope === "folder" ? "폴더 일괄" : "이미지 입력"}` : ""} · 작업 ${escapeHtml(job.job_id)}</h3>
         <p>${escapeHtml(formatKoreanTimestamp(job.created_at))} · ${dimensions.ratio} · ${dimensions.resolution} · CFG ${escapeHtml(requestSettings.cfg ?? "—")} · Steps ${escapeHtml(requestSettings.steps ?? "—")} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
         <p class="job-description"><span class="job-description-text">${job.description ? escapeHtml(job.description) : "(작업 설명 없음)"}</span><button class="job-description-edit" type="button" data-edit-job-description="${escapeHtml(job.job_id)}" aria-label="작업 설명 수정" title="작업 설명 수정" ${jobSelectionIsBusy() ? "disabled" : ""}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m16 3 5 5-12 12-6 1 1-6Z"></path><path d="m14 5 5 5"></path></svg></button></p>
-        <button class="job-folder-location" data-move-job-folder="${escapeHtml(job.job_id)}" type="button" title="이력 폴더 이동" ${jobSelectionIsBusy() ? "disabled" : ""}>📁 ${escapeHtml(jobHistoryFolderLabel(job.folder_id))} <span aria-hidden="true">↗</span></button>
+        <button class="job-folder-location" data-move-job-folder="${escapeHtml(job.job_id)}" type="button" title="분류 변경" ${jobSelectionIsBusy() ? "disabled" : ""}>📁 ${escapeHtml(jobHistoryFolderLabel(job.folder_id))} <span aria-hidden="true">↗</span></button>
         ${requestSettings.input_scope === "job" ? `<p class="hint">입력 출처: 작업 ${escapeHtml(requestSettings.input_job_id)}</p>` : ""}
         </div>
       </div>
@@ -2107,7 +2107,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
       <div class="job-actions inline-actions">
         ${job.workflow === "anima" && completedCount > 0 ? `<button class="button subtle small" data-use-job-input="${escapeHtml(job.job_id)}" ${jobSelectionIsBusy() || applicationState.restoringJobId || element("submit-button").disabled ? "disabled" : ""}>MiniMax 입력으로 사용</button>` : ""}
         <a class="button subtle small" data-navigation data-show-job-results="${escapeHtml(job.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "outputs", pageNumber: 1, outputFilter: { type: "job", id: job.job_id } }))}">작업 결과 보기</a>
-        <button class="button subtle small" data-move-job-outputs="${escapeHtml(job.job_id)}" ${canCancel || jobSelectionIsBusy() || outputSelectionIsBusy() ? "disabled" : ""} ${canCancel ? 'title="생성이 끝난 뒤 결과물을 이동할 수 있습니다."' : ""}>${applicationState.movingJobId === job.job_id ? "결과물 이동 중…" : "결과물 폴더 이동"}</button>
+        <button class="button subtle small" data-move-job-outputs="${escapeHtml(job.job_id)}" ${canCancel || jobSelectionIsBusy() || outputSelectionIsBusy() ? "disabled" : ""} ${canCancel ? 'title="생성이 끝난 뒤 결과물을 이동할 수 있습니다."' : ""}>${applicationState.movingJobId === job.job_id ? "파일 이동 중…" : "파일 이동"}</button>
         <button class="button ${job.deletion_protected ? "job-protected" : "subtle"} small" data-toggle-job-protection="${escapeHtml(job.job_id)}" aria-pressed="${Boolean(job.deletion_protected)}" ${jobSelectionIsBusy() ? "disabled" : ""}>${job.deletion_protected ? "보호 해제" : "삭제 보호"}</button>
         ${canCancel ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.job_id)}" ${cancellationIsBusy ? "disabled" : ""}>${cancellationIsBusy ? "취소 처리 중" : job.cancellation_requested ? "취소 재시도" : "작업 취소"}</button>` : ""}
         ${canDelete && !applicationState.jobSelectionMode ? `<button class="button subtle small" data-delete-job="${escapeHtml(job.job_id)}">이력만 삭제</button><button class="button danger small" data-delete-job-outputs="${escapeHtml(job.job_id)}">이력·결과물 삭제</button>` : ""}
@@ -2298,7 +2298,7 @@ async function refreshJobPages() {
         applicationState.jobsPage = 1;
         applicationState.jobsReloadRequested = true;
         saveCurrentNavigationEntry();
-        showNotice("선택한 폴더가 삭제되어 폴더 미지정으로 이동했습니다.");
+        showNotice("선택한 분류가 삭제되어 미분류로 변경했습니다.");
         continue;
       }
       if (candidates?.error) throw candidates.error;
@@ -2559,7 +2559,7 @@ function renderOutputsList() {
               ? `<label class="output-selection-control"><input class="output-selection-checkbox" type="checkbox" data-select-output="${outputFile.output_id}" aria-label="결과물 ${escapeHtml(outputFile.name)} 선택" ${isSelected ? "checked" : ""} ${selectionIsBusy ? "disabled" : ""}>선택</label>`
               : "";
             const protectionLabel = outputFile.deletion_protected ? '<span class="output-protection-label">삭제 보호</span>' : "";
-            return `<article class="output-card${isSelected ? " output-selected" : ""}"><div class="output-preview">${media}${selectionCheckbox}</div><div class="output-info"><strong>${escapeHtml(outputFile.name)}</strong>${protectionLabel}<small>${escapeHtml(outputFile.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(outputFile.path)}" ${selectionIsBusy ? "disabled" : ""}>이동</button>${deleteButton}${jobButton}</div></div></article>`;
+            return `<article class="output-card${isSelected ? " output-selected" : ""}"><div class="output-preview">${media}${selectionCheckbox}</div><div class="output-info"><strong>${escapeHtml(outputFile.name)}</strong>${protectionLabel}<small>${escapeHtml(outputFile.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(outputFile.path)}" ${selectionIsBusy ? "disabled" : ""}>파일 이동</button>${deleteButton}${jobButton}</div></div></article>`;
           })
           .join("")
       : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;
@@ -2982,8 +2982,8 @@ function chooseOutputFolder(description, selectionMode = "move") {
   outputFolderPickerState.openingElement = document.activeElement;
   outputFolderPickerState.creating = false;
   outputFolderPickerState.selectionMode = selectionMode;
-  element("folder-picker-title").textContent = selectionMode === "move" ? "이동할 폴더 선택" : selectionMode === "single" ? "입력 이미지 선택" : "입력 폴더와 이미지 선택";
-  element("folder-picker-confirm").textContent = selectionMode === "move" ? "이 폴더로 이동" : "선택한 이미지 사용";
+  element("folder-picker-title").textContent = selectionMode === "move" ? "파일을 옮길 폴더 선택" : selectionMode === "single" ? "입력 이미지 선택" : "입력 폴더와 이미지 선택";
+  element("folder-picker-confirm").textContent = selectionMode === "move" ? "이 폴더로 파일 이동" : "선택한 이미지 사용";
   element("folder-picker-description").textContent = description;
   element("folder-picker-name").value = "";
   const selectionPromise = new Promise(resolve => { outputFolderPickerState.resolveSelection = resolve; });
@@ -3710,7 +3710,7 @@ function bindLoraPresetEvents() {
   });
 }
 
-/** 작업 조회·전체 선택에서 폴더·설명·특정 작업 범위를 동일하게 전달합니다. */
+/** 작업 조회·전체 선택에서 분류·설명·특정 작업 범위를 동일하게 전달합니다. */
 function jobHistoryQuery() {
   const query = new URLSearchParams();
   if (applicationState.jobFilterId) query.set("job_id", applicationState.jobFilterId);
@@ -3724,13 +3724,13 @@ function currentJobHistoryScope() {
   return jobHistoryQuery().toString();
 }
 
-/** 작업 소속의 전체 경로를 표시하며 미지정은 시스템 이름으로 통일합니다. */
+/** 작업 소속의 전체 경로를 표시하며 미분류는 시스템 이름으로 통일합니다. */
 function jobHistoryFolderLabel(folderIdentifier) {
-  if (!folderIdentifier) return "폴더 미지정";
-  return jobHistoryFolderState.folders.find(folder => folder.folder_id === folderIdentifier)?.path || "폴더 확인 중…";
+  if (!folderIdentifier) return "미분류";
+  return jobHistoryFolderState.folders.find(folder => folder.folder_id === folderIdentifier)?.path || "분류 확인 중…";
 }
 
-/** 폴더 응답을 저장하고 제출 폼의 현재 선택은 유효한 동안 유지합니다. */
+/** 분류 응답을 저장하고 제출 폼의 현재 선택은 유효한 동안 유지합니다. */
 function applyJobHistoryFolders(response) {
   jobHistoryFolderState.folders = response.items;
   jobHistoryFolderState.totalCount = response.total_count;
@@ -3738,7 +3738,7 @@ function applyJobHistoryFolders(response) {
   jobHistoryFolderState.loaded = true;
   const submissionSelect = element("job-history-folder");
   const selectedIdentifier = submissionSelect.value;
-  const optionMarkup = '<option value="">폴더 미지정</option>' + response.items.map(folder =>
+  const optionMarkup = '<option value="">미분류</option>' + response.items.map(folder =>
     `<option value="${escapeHtml(folder.folder_id)}">${escapeHtml(folder.path)}</option>`).join("");
   if (submissionSelect.innerHTML !== optionMarkup) {
     submissionSelect.innerHTML = optionMarkup;
@@ -3747,7 +3747,7 @@ function applyJobHistoryFolders(response) {
   renderJobHistoryFolders();
 }
 
-/** 중첩 들여쓰기·펼침·작업 수가 있는 폴더 행을 만들고 선택은 Navigation 링크로 처리합니다. */
+/** 중첩 들여쓰기·펼침·작업 수가 있는 분류 행을 만들고 선택은 Navigation 링크로 처리합니다. */
 function jobHistoryFolderTreeMarkup(parentIdentifier = null) {
   const childFolders = jobHistoryFolderState.folders.filter(folder => folder.parent_id === parentIdentifier);
   childFolders.sort((leftFolder, rightFolder) => TAG_NAME_COLLATOR.compare(leftFolder.name, rightFolder.name));
@@ -3767,24 +3767,24 @@ function jobHistoryFolderTreeMarkup(parentIdentifier = null) {
 function renderJobHistoryFolders() {
   const state = jobHistoryFolderState;
   const currentFolder = state.folders.find(folder => folder.folder_id === applicationState.jobFolderId);
-  const currentLabel = applicationState.jobFolderId === "unassigned" ? "폴더 미지정"
+  const currentLabel = applicationState.jobFolderId === "unassigned" ? "미분류"
     : currentFolder?.path || "전체 작업";
   const count = currentFolder?.job_count ?? (applicationState.jobFolderId === "unassigned" ? state.unassignedCount : state.totalCount);
   element("jobs-folder-location").textContent = currentLabel;
-  element("jobs-folder-panel-title").textContent = window.matchMedia("(max-width: 800px)").matches ? `📁 ${currentLabel}` : "이력 폴더";
+  element("jobs-folder-panel-title").textContent = window.matchMedia("(max-width: 800px)").matches ? `📁 ${currentLabel}` : "작업 분류";
   element("jobs-folder-count").textContent = state.loaded
-    ? `${count}개 작업${currentFolder?.descendant_folder_count ? " · 하위 폴더 포함" : ""}${applicationState.jobSearch ? ` · 검색 결과 ${applicationState.jobsMatchedCount}개` : ""}` : "";
+    ? `${count}개 작업${currentFolder?.descendant_folder_count ? " · 하위 분류 포함" : ""}${applicationState.jobSearch ? ` · 검색 결과 ${applicationState.jobsMatchedCount}개` : ""}` : "";
   element("jobs-folder-menu").classList.toggle("hidden", !currentFolder);
   element("create-job-folder").disabled = jobSelectionIsBusy() || !state.loaded || currentFolder?.depth === 3;
-  element("create-job-folder").title = currentFolder?.depth === 3 ? "최대 3단계입니다. 상위 폴더를 선택해 주세요." : "선택한 폴더 아래에 새 폴더 만들기";
+  element("create-job-folder").title = currentFolder?.depth === 3 ? "최대 3단계입니다. 상위 분류를 선택해 주세요." : "선택한 분류 아래에 새 분류 만들기";
   element("clear-jobs-search").classList.toggle("hidden", !applicationState.jobSearch);
-  element("jobs-folder-status").textContent = !state.loaded ? "폴더를 불러오는 중입니다." : currentFolder?.depth === 3 ? "최대 깊이 3단계입니다." : "";
+  element("jobs-folder-status").textContent = !state.loaded ? "분류를 불러오는 중입니다." : currentFolder?.depth === 3 ? "최대 깊이 3단계입니다." : "";
   const signature = JSON.stringify([state.folders, state.totalCount, state.unassignedCount,
     applicationState.jobFolderId, [...state.collapsedFolderIds]]);
   if (signature === state.renderSignature) return;
   state.renderSignature = signature;
   const systemFolders = [{ identifier: "", name: "전체 작업", count: state.totalCount },
-    { identifier: "unassigned", name: "폴더 미지정", count: state.unassignedCount }];
+    { identifier: "unassigned", name: "미분류", count: state.unassignedCount }];
   element("jobs-folder-tree").innerHTML = `<ul>${systemFolders.map(folder => {
     const selected = applicationState.jobFolderId === folder.identifier;
     const folderUrl = navigationUrl({ viewName: "jobs", pageNumber: 1, jobFolderId: folder.identifier });
@@ -3800,7 +3800,7 @@ function openJobHistoryFolderEditor(folderIdentifier = null) {
   const currentFolder = jobHistoryFolderState.folders.find(item => item.folder_id === applicationState.jobFolderId);
   jobHistoryFolderState.editingFolderId = folderIdentifier;
   element("jobs-folder-menu").open = false;
-  element("job-folder-editor-title").textContent = folder ? "이력 폴더 이름·위치 변경" : "새 이력 폴더";
+  element("job-folder-editor-title").textContent = folder ? "작업 분류 이름·위치 변경" : "새 분류";
   element("job-folder-name").value = folder?.name || "";
   const descendants = jobHistoryFolderState.folders.filter(item => item.path_ids.includes(folderIdentifier));
   const subtreeHeight = folder ? Math.max(...descendants.map(item => item.depth - folder.depth + 1)) : 1;
@@ -3825,7 +3825,7 @@ function setJobHistoryFolderBusy(busy) {
   updateJobSelectionControls();
 }
 
-/** 저장한 폴더를 다시 읽되 기존 생성 입력·선택·페이지는 그대로 유지합니다. */
+/** 저장한 분류를 다시 읽되 기존 생성 입력·선택·페이지는 그대로 유지합니다. */
 async function saveJobHistoryFolder(event) {
   event.preventDefault();
   if (jobSelectionIsBusy()) return;
@@ -3839,7 +3839,7 @@ async function saveJobHistoryFolder(event) {
     });
     applyJobHistoryFolders(await apiRequest("/api/job-folders"));
     element("job-folder-editor").close();
-    showNotice(folderIdentifier ? "이력 폴더를 변경했습니다." : "이력 폴더를 만들었습니다.");
+    showNotice(folderIdentifier ? "작업 분류를 변경했습니다." : "작업 분류를 만들었습니다.");
   } catch (error) {
     element("job-folder-editor-status").textContent = error.message;
   } finally {
@@ -3849,12 +3849,12 @@ async function saveJobHistoryFolder(event) {
   }
 }
 
-/** 삭제 범위와 미지정으로 이동하는 작업 수를 먼저 확인하고 실제 파일은 건드리지 않습니다. */
+/** 삭제 범위와 미분류로 변경하는 작업 수를 먼저 확인하고 실제 파일은 건드리지 않습니다. */
 async function deleteJobHistoryFolder() {
   if (jobSelectionIsBusy()) return;
   const folder = jobHistoryFolderState.folders.find(item => item.folder_id === applicationState.jobFolderId);
   if (!folder) return;
-  const confirmation = `‘${folder.name}’ 폴더와 하위 폴더 ${folder.descendant_folder_count}개를 삭제하시겠습니까?\n작업 ${folder.job_count}개는 ‘폴더 미지정’으로 이동합니다.\n작업 이력과 결과물 파일은 유지됩니다.`;
+  const confirmation = `‘${folder.name}’ 분류와 하위 분류 ${folder.descendant_folder_count}개를 삭제하시겠습니까?\n작업 ${folder.job_count}개는 ‘미분류’로 변경합니다.\n작업 이력과 결과물 파일은 유지됩니다.`;
   if (!window.confirm(confirmation)) return;
   const navigationRevision = applicationState.navigationRevision;
   setJobHistoryFolderBusy(true);
@@ -3865,14 +3865,14 @@ async function deleteJobHistoryFolder() {
     if (navigationRevision === applicationState.navigationRevision && applicationState.currentView === "jobs") {
       switchView("jobs", { resetScroll: true, pageNumber: 1, jobFolderId: "unassigned", jobFilterId: null, jobSearch: "" });
     }
-    showNotice(`폴더 ${response.deleted_folder_count}개를 삭제하고 작업 ${response.moved_job_count}개를 폴더 미지정으로 이동했습니다.`);
+    showNotice(`분류 ${response.deleted_folder_count}개를 삭제하고 작업 ${response.moved_job_count}개를 미분류로 변경했습니다.`);
   } finally {
     setJobHistoryFolderBusy(false);
     await loadJobs();
   }
 }
 
-/** 개별 또는 여러 작업에 대해 시스템 미지정과 3단계 폴더를 같은 선택창으로 제공합니다. */
+/** 개별 또는 여러 작업에 대해 시스템 미분류와 3단계 분류를 같은 선택창으로 제공합니다. */
 async function openJobHistoryFolderMove(jobIdentifiers) {
   if (jobSelectionIsBusy() || !jobIdentifiers.length) return;
   const dialogRevision = ++jobHistoryFolderState.dialogRevision;
@@ -3884,10 +3884,10 @@ async function openJobHistoryFolderMove(jobIdentifiers) {
   jobHistoryFolderState.movingJobIds = [...jobIdentifiers];
   const firstJob = applicationState.visibleJobs.find(job => job.job_id === jobIdentifiers[0]);
   const initialFolder = firstJob?.folder_id || "";
-  const choices = [{ folder_id: "", path: "폴더 미지정", depth: 1 }, ...jobHistoryFolderState.folders];
+  const choices = [{ folder_id: "", path: "미분류", depth: 1 }, ...jobHistoryFolderState.folders];
   element("job-folder-move-tree").innerHTML = choices.map(folder =>
     `<label class="job-folder-destination" style="--folder-depth:${folder.depth - 1}"><input type="radio" name="history-folder-destination" value="${escapeHtml(folder.folder_id)}" ${folder.folder_id === initialFolder ? "checked" : ""} /><span>📁 ${escapeHtml(folder.path)}</span></label>`).join("");
-  element("job-folder-move-summary").textContent = `작업 ${jobIdentifiers.length}개의 이력 폴더를 변경합니다.`;
+  element("job-folder-move-summary").textContent = `작업 ${jobIdentifiers.length}개의 분류를 변경합니다.`;
   element("job-folder-move-status").textContent = "";
   element("job-folder-move-dialog").showModal();
 }
@@ -3900,13 +3900,13 @@ async function saveJobHistoryFolderMove(event) {
   const destination = element("job-folder-move-tree").querySelector("input:checked");
   if (!destination || !jobIdentifiers.length) return;
   setJobHistoryFolderBusy(true);
-  element("job-folder-move-status").textContent = "이동 중…";
+  element("job-folder-move-status").textContent = "분류 변경 중…";
   try {
     const response = await apiRequest("/api/jobs/folder", {
       method: "POST", body: JSON.stringify({ job_ids: jobIdentifiers, folder_id: destination.value || null }),
     });
     element("job-folder-move-dialog").close();
-    showNotice(`작업 ${response.moved_job_count}개의 이력 폴더를 변경했습니다.`);
+    showNotice(`작업 ${response.moved_job_count}개의 분류를 변경했습니다.`);
     applicationState.jobsRenderSignature = null;
   } catch (error) {
     element("job-folder-move-status").textContent = error.message;
@@ -3933,7 +3933,7 @@ function jobHistoryPreviewMarkup(job) {
   }).join("")}</div>`;
 }
 
-/** 폴더·검색·이동 이벤트를 연결하고 모바일에서는 처음에 트리를 접습니다. */
+/** 분류·검색·이동 이벤트를 연결하고 모바일에서는 처음에 트리를 접습니다. */
 function bindJobHistoryFolderEvents() {
   const mobileLayout = window.matchMedia("(max-width: 800px)");
   element("jobs-folder-panel").open = !mobileLayout.matches;

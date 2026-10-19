@@ -1,4 +1,4 @@
-"""이력 폴더의 깊이·소속·삭제·조회 범위와 기존 데이터 보존을 검증합니다."""
+"""작업 분류의 깊이·소속·삭제·조회 범위와 기존 데이터 보존을 검증합니다."""
 
 import sqlite3
 from pathlib import Path
@@ -42,7 +42,7 @@ def test_folder_tree_rejects_cycles_duplicates_and_subtree_depth(tmp_path: Path)
 
 
 def test_folder_deletion_unassigns_all_jobs_and_preserves_history_and_files(tmp_path: Path) -> None:
-    """진행 중·보호 작업도 소속만 이동하며 폴더 삭제는 원본 데이터에 영향을 주지 않습니다."""
+    """진행 중·보호 작업도 소속만 이동하며 분류 삭제는 원본 데이터에 영향을 주지 않습니다."""
 
     database = Database(tmp_path / "jobs.sqlite3")
     parent_id = database.job_folders.save_folder("부모", None)
@@ -118,7 +118,7 @@ def test_folder_search_and_selection_share_scope(tmp_path: Path, summary: bool) 
 
 
 def test_folder_api_requires_auth_and_moves_atomically(tmp_path: Path) -> None:
-    """API 검증 실패나 삭제된 작업·폴더가 있으면 일부 소속만 변경하지 않습니다."""
+    """API 검증 실패나 삭제된 작업·분류가 있으면 일부 소속만 변경하지 않습니다."""
 
     application = create_processing_test_app(tmp_path, FakeComfyClient())
     database = application.state.home_server.database
@@ -166,7 +166,7 @@ def test_schema_eleven_upgrade_and_group_only_rollback_preserve_new_history(tmp_
 
 
 def test_submission_folder_is_committed_with_job_or_rolled_back(tmp_path: Path) -> None:
-    """제출 시 사라진 폴더를 지정하면 작업 일부가 남지 않으며 미지정이 기본입니다."""
+    """제출 시 사라진 분류를 지정하면 작업 일부가 남지 않으며 미지정이 기본입니다."""
 
     database = Database(tmp_path / "jobs.sqlite3")
     folder_id = database.job_folders.save_folder("제출", None)
@@ -175,7 +175,7 @@ def test_submission_folder_is_committed_with_job_or_rolled_back(tmp_path: Path) 
     assert database.get_job_inputs("assigned")["folder_id"] == folder_id
     assert database.get_job_inputs("unassigned")["folder_id"] is None
     database.job_folders.delete_folder(folder_id)
-    with pytest.raises(ValueError, match="폴더를 찾을 수 없습니다"):
+    with pytest.raises(ValueError, match="분류를 찾을 수 없습니다"):
         database.add_job("rejected", "anima", "실패", [], folder_id)
     assert database.get_job("rejected") is None
     assert database.list_jobs()["total"] == 2
