@@ -49,7 +49,7 @@ function createRestorationFixtures() {
     job_id: "minimax-job", workflow: "minimax_h3", description: "영상 설명", request_count: 2,
     created_at: "2026-10-10", status: "completed", status_counts: { completed: 2 },
     inputs: {
-      body: { prompt: "plain video prompt" }, selected_tags: [],
+      body: { prompt: "video [CHR]" }, selected_tags: structuredClone(selectedTags),
       prompt_preset_id: "video-prompt", lora_preset_id: "video-lora", lora_preset_name: "영상 조합",
       loras: structuredClone(minimaxLoras),
       settings: { width: 704, height: 512, duration: 3.5, frame_rate: 30, upscale_mode: "model", upscale_model_name: "saved-upscale.pth" },
@@ -71,7 +71,7 @@ function createRestorationFixtures() {
     jobs: [animaJob, minimaxJob, legacyJob, missingBodyJob], tagGroups, tagEntries,
     promptPresets: [
       { preset_id: "anima-prompt", name: "이미지 Prompt", workflow: "anima", version: 1, body: structuredClone(originalAnimaBody) },
-      { preset_id: "video-prompt", name: "영상 Prompt", workflow: "minimax_h3", version: 1, body: { prompt: "plain video prompt" } },
+      { preset_id: "video-prompt", name: "영상 Prompt", workflow: "minimax_h3", version: 1, body: { prompt: "video [CHR]" } },
     ],
     loraPresets: [
       { preset_id: "anima-lora", name: "이미지 조합", workflow: "anima", loras: structuredClone(animaLoras) },
@@ -225,7 +225,7 @@ async function main() {
     await browserPage.waitForFunction(() => document.getElementById("selected-images").textContent.includes("1개"));
     assert.match(await browserPage.locator("#selected-images").textContent(), /1개/);
     await restoreJobFromCard(browserPage, "minimax-job");
-    assert.equal(await browserPage.locator("#generate-minimax-prompt").inputValue(), "plain video prompt");
+    assert.equal(await browserPage.locator("#generate-minimax-prompt").inputValue(), "video [CHR]");
     assert.equal(await browserPage.locator("#generate-preset").inputValue(), "video-prompt");
     assert.equal(await browserPage.locator("#generate-lora-preset").inputValue(), "video-lora");
     assert.equal(await browserPage.locator('#selected-loras [data-lora-field="video_strength"]').inputValue(), "0.3");
@@ -238,7 +238,10 @@ async function main() {
     }
     assert.equal(await browserPage.locator("#minimax-selected-images .input-image-card").count(), 0);
     assert.equal(await browserPage.locator("#selected-images").textContent(), "선택한 이미지가 없습니다.");
-    assert.equal(await browserPage.locator('[data-select-tag]:checked').count(), 0);
+    assert.equal(await browserPage.locator('[data-select-tag]:checked').count(), 1);
+    assert.equal(await browserPage.locator('[data-select-tag="character-a"]').isChecked(), true);
+    assert.equal(await browserPage.locator('[data-select-tag="character-b"]').count(), 0);
+    assert.equal(await browserPage.locator('[data-select-tag="moved-character"]').count(), 0);
     await browserPage.locator("#submit-button").click();
     await browserPage.waitForFunction(() => document.getElementById("notice").textContent === "MiniMax 입력 이미지를 선택해 주세요.");
     assert.equal(fixtures.submissions.length, 1);
@@ -249,7 +252,7 @@ async function main() {
     await browserPage.locator('[data-restore-job="anima-job"]').click();
     await browserPage.waitForFunction(() => document.getElementById("notice").textContent === "태그 목록 조회 실패");
     assert.equal(await browserPage.locator("#generate-workflow").inputValue(), "minimax_h3");
-    assert.equal(await browserPage.locator("#generate-minimax-prompt").inputValue(), "plain video prompt");
+    assert.equal(await browserPage.locator("#generate-minimax-prompt").inputValue(), "video [CHR]");
     fixtures.failTags = false;
     await browserPage.locator('[data-restore-job="missing-body-job"]').click();
     await browserPage.waitForFunction(() => document.getElementById("notice").textContent.includes("원본 Prompt 기록이 없습니다"));

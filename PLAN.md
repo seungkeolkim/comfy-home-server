@@ -31,14 +31,14 @@ MiniMax의 F2VA·L2VA·동일 이미지 FL2VA, 서버 이미지 단건/폴더 �
 ## 모델별 Prompt 입력
 
 - Prompt를 저장·불러오기하고 버전을 관리합니다.
-- MiniMax H3는 영상 전용 Prompt를 평문으로 입력합니다. wildcard와 태그 조합은 적용하지 않고, 한 Batch의 모든 입력 이미지에 같은 문구를 그대로 전달합니다. 추후 structured 입력을 별도로 설계합니다.
+- MiniMax H3는 영상 전용 Prompt 텍스트에 Anima와 같은 `[TAG]` 참조를 사용할 수 있습니다. 같은 태그 목록을 공유하고 선택 항목의 weight·중첩 참조를 이미지별로 독립 추첨합니다. wildcard 문법은 해석하지 않고 태그 치환 후 남은 `{a|b}`·`__name__` 등의 텍스트를 그대로 전달합니다. 전용 structured 입력은 별도 범위입니다.
 - Anima Prompt preset에는 Prompt와 Negative Prompt 텍스트를 저장합니다. Prompt 본문의 `[SCENE]` 같은 참조가 태그 조합의 시작점입니다.
 - 참조 태그는 그룹에 저장하고 개별 항목은 소속 그룹의 참조 태그를 따릅니다. 여러 그룹이 같은 참조 key를 가질 수 있습니다.
 - 생성 화면은 Prompt·Negative Prompt와 선택된 항목의 본문에서 필요한 참조 key를 찾고, 해당 참조 key를 가진 모든 그룹 및 하위 항목을 표시합니다. 현재 표시된 항목은 그룹 단위로 일괄선택·해제할 수 있습니다.
 - 같은 참조 key를 가진 여러 그룹에서 체크한 항목을 하나의 후보 집합으로 묶고 각 참조 위치마다 기존 항목 weight로 추첨합니다. 여러 단계의 참조를 허용하고 누락·cycle을 제출 전에 검증합니다. 제출 시점의 그룹 참조를 항목 snapshot에 복사하여 이후 그룹 편집과 무관하게 유지하며, 확정한 최종 문구를 ComfyUI에 전달하고 미리보기도 제공합니다.
 - Positive와 Negative 양쪽의 태그 및 wildcard를 확정합니다. 같은 참조가 두 Prompt에 등장해도 독립 추첨하며 Negative의 선택 경로는 별도로 저장하여 미리보기와 작업 세부에서 확인합니다.
 - Anima의 `sample_prompt.txt`는 wildcard 작성 형식을 파악하기 위한 샘플입니다. 샘플의 소재를 앱의 고정 기능으로 취급하지 않습니다.
-- Anima는 요청별 태그 선택 경로·최종 Prompt·random seed를, MiniMax는 입력한 평문을 기록해 생성 조건을 확인할 수 있게 합니다.
+- 두 Workflow 모두 원본 Prompt·선택 후보 Snapshot과 요청별 태그 선택 경로·최종 Prompt를 기록합니다. MiniMax는 `tag_seed`, Anima는 같은 태그 추첨 Seed와 wildcard Seed를 함께 보관합니다.
 
 ## LoRA
 

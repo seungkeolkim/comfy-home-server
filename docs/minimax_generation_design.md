@@ -56,7 +56,7 @@
 아래는 권장안이며 아직 모두 확정한 사항은 아닙니다.
 
 - UI는 생성 방식 → 처리 대상 → 공통 이미지 입력 → Prompt → LoRA → 영상 옵션 → 제출 요약으로 구성합니다.
-- Prompt는 평문 그대로 유지하며, 폴더 작업의 모든 이미지에 같은 Prompt를 적용합니다.
+- 초기에는 평문을 모든 이미지에 동일하게 적용했습니다. 후속 요청으로 공통 템플릿의 `[TAG]`를 이미지마다 독립 치환하도록 확장했습니다. 현재 동작은 7장을 참고합니다.
 - 폴더는 우선 직하위 이미지만 표시하고 제출 전 대상 이미지를 체크 해제할 수 있도록 합니다. 하위 폴더 포함 여부는 별도 결정합니다.
 - 제출 전 `FL2VA · 이미지 24장 → 영상 24개 · 공통 해상도 · 각 영상 길이`처럼 실행 규모를 표시합니다.
 - 제출 시 대상 목록을 확정하고 입력을 임시 복사하는 Snapshot 방식을 검토합니다. 대기 중 원본 이동·삭제로부터 입력을 분리하고, 원본 ID와 선택 당시 경로를 이력에 남깁니다.
@@ -95,3 +95,17 @@
 - Backend: 실제 EXIF 크기, 삭제 보호 이미지의 입력 사용, 모드별 API/UI Metadata 일치, 원본 삭제 후 Snapshot 사용, 접수 실패/용량 초과 정리, 임시 파일명 충돌 보존, symlink/junction 경계를 통과했습니다.
 - 기존 Browser 회귀: 작업 복원, 결과물 이동·삭제/공용 탐색기, 탭/History, LoRA·작업·태그 흐름을 통과했습니다. LoRA Browser fixture의 이전 24건 기대값은 현재 64건 페이지 기준으로 맞췄습니다.
 - 실행 중인 Docker 서비스에서 새 API와 Batch 입력 schema 반영, `healthy` 및 Session HTTP 200을 확인했습니다.
+
+## 7. 후속 구현: MiniMax 태그 기반 Prompt interpolation
+
+- 작업 Prompt 접기는 `aa4b133`으로 먼저 커밋한 뒤 이 기능을 구현했습니다.
+- Anima와 동일한 태그 Catalog·선택 UI·중첩 `[TAG]` 문법·weight 추첨과 누락/cycle 검증을 재사용합니다. MiniMax의 입력은 기존 Positive Prompt 하나이며 별도 Negative Prompt 입력은 추가하지 않습니다.
+- 태그 선택 영역은 현재 Workflow의 Prompt를 참조합니다. Anima만 Negative Prompt 참조도 함께 탐색합니다. 다른 모델의 숨겨진 입력은 MiniMax의 태그 후보를 만들지 않습니다.
+- 단건과 폴더 작업 모두 이미지별로 독립 추첨합니다. 같은 태그 참조를 반복하면 각 위치에서 독립적으로 선택하며 같은 항목이 반복될 수 있습니다.
+- 태그 치환은 앱 서버에서 수행합니다. MiniMax에서는 ComfyUI wildcard API를 호출하지 않으며 `{a|b}`, `__name__`, 태그 문법에 해당하지 않는 `[Scene]` 등의 원문은 유지합니다.
+- 미리보기는 이미지 없이도 추첨 예시와 선택 경로를 반환합니다. 제출 시 다시 추첨하고 후보 Snapshot을 저장하므로, 접수 후 태그가 수정·삭제되어도 대기 중 요청의 내용은 바뀌지 않습니다.
+- 작업 공통 입력에는 원본 템플릿과 선택 후보를, 요청 result와 영상 Metadata에는 최종 Prompt·선택 경로·`tag_seed`를 보관합니다. Director Prompt, external overwrite, Timeline과 Builder state에도 동일한 확정 문구를 사용합니다. MiniMax `wildcard_seed`는 null입니다.
+- 작업 복원은 원본 템플릿과 현재 정의에 남아 있고 도달 가능한 선택 항목을 복원합니다. 삭제되거나 다른 참조로 이동한 항목은 되살리지 않습니다. 입력 이미지는 계속 다시 선택합니다.
+- 기존 DB schema와 공통 Workflow 템플릿을 유지합니다.
+
+검증: Python 전체 `230 passed, 1 skipped`; Desktop/Mobile의 MiniMax 중첩 태그 선택·미리보기·세 모드 제출, 현재 태그를 적용한 작업 복원, Anima/LoRA 태그 흐름을 확인했습니다. 실제 GPU 작업은 추가 제출하지 않았습니다.

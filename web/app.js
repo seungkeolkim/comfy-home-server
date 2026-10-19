@@ -529,7 +529,7 @@ function updateWorkflowOptions() {
   const isAnima = element("generate-workflow").value === "anima";
   element("anima-prompt-fields").classList.toggle("hidden", !isAnima);
   element("minimax-prompt-fields").classList.toggle("hidden", isAnima);
-  element("generate-tag-fields").classList.toggle("hidden", !isAnima);
+  element("generate-tag-fields").classList.remove("hidden");
   element("anima-options").classList.toggle("hidden", !isAnima);
   element("minimax-options").classList.toggle("hidden", isAnima);
   element("minimax-input-fields").classList.toggle("hidden", isAnima);
@@ -537,11 +537,14 @@ function updateWorkflowOptions() {
   element("generate-count-field").classList.toggle("hidden", !isAnima);
   element("generate-count-hint").classList.toggle("hidden", !isAnima);
   element("generate-count").disabled = !isAnima;
-  element("lora-step").textContent = isAnima ? "03" : "02";
-  element("workflow-options-step").textContent = isAnima ? "04" : "03";
+  element("lora-step").textContent = "03";
+  element("workflow-options-step").textContent = "04";
+  element("generate-tag-description").textContent = isAnima
+    ? "Prompt·Negative Prompt의 [TAG]와 선택한 항목의 하위 [TAG]를 가진 그룹을 표시합니다. 같은 참조 태그의 선택 항목은 함께 추첨됩니다."
+    : "Prompt의 [TAG]와 선택한 항목의 하위 [TAG]를 가진 그룹을 표시합니다. 이미지마다 독립 추첨하고 같은 참조 태그의 선택 항목은 함께 추첨됩니다.";
   element("preview-hint").textContent = isAnima
     ? "미리보기는 선택한 항목을 조합하고 Impact wildcard를 확정한 예시입니다."
-    : "미리보기는 모든 입력 이미지에 사용할 평문을 그대로 보여줍니다.";
+    : "미리보기는 이미지별 태그 추첨 예시입니다. 실제 제출할 때 다시 추첨하며 wildcard 문법은 그대로 유지합니다.";
   renderLoraPresetList();
   renderSelectedLoras();
   renderLoraFileOptions();
@@ -583,7 +586,7 @@ function updatePresetWorkflowOptions() {
   element("preset-minimax-fields").classList.toggle("hidden", isAnima);
   element("preset-form-description").textContent = isAnima
     ? "태그 참조가 포함된 Prompt 텍스트를 버전으로 저장합니다."
-    : "MiniMax Prompt를 평문으로 편집하고 버전으로 저장합니다.";
+    : "MiniMax의 [TAG] 참조를 포함한 원본 Prompt를 버전으로 저장합니다.";
 }
 
 /** 저장된 preset 목록을 불러옵니다. */
@@ -741,11 +744,13 @@ async function loadTags() {
   }
 }
 
-/** 두 Prompt와 선택된 태그 본문에서 필요한 참조 키를 재귀적으로 찾습니다. */
+/** 현재 Workflow의 Prompt와 선택된 태그 본문에서 필요한 참조 키를 재귀적으로 찾습니다. */
 function requiredTagKeys() {
   const requiredKeys = new Set();
   const visitedTagIds = new Set();
-  const pendingTexts = [element("generate-anima-prompt").value, element("generate-negative").value];
+  const currentBody = generateBody();
+  const pendingTexts = [currentBody.prompt];
+  if (element("generate-workflow").value === "anima") pendingTexts.push(currentBody.negative || "");
   while (pendingTexts.length) {
     const templateText = pendingTexts.shift();
     for (const match of templateText.matchAll(/\[([A-Z][A-Z0-9_]*)\]/g)) {
@@ -780,7 +785,9 @@ function renderGenerateTagGroups() {
   const container = element("generate-tag-groups");
   const requiredKeys = requiredTagKeys();
   if (!requiredKeys.size) {
-    element("tag-selection-status").textContent = "Prompt와 Negative Prompt에 [TAG] 참조가 없습니다. 태그 선택이 필요하지 않습니다.";
+    element("tag-selection-status").textContent = element("generate-workflow").value === "anima"
+      ? "Prompt와 Negative Prompt에 [TAG] 참조가 없습니다. 태그 선택이 필요하지 않습니다."
+      : "Prompt에 [TAG] 참조가 없습니다. 태그 선택이 필요하지 않습니다.";
     container.innerHTML = "";
     return;
   }
@@ -1261,16 +1268,11 @@ async function previewPrompt() {
     body: JSON.stringify({
       workflow,
       body: generateBody(),
-      selected_tag_ids: workflow === "anima" ? activeSelectedTagIds() : [],
+      selected_tag_ids: activeSelectedTagIds(),
       count: 5,
     }),
   });
   element("preview-results").classList.remove("hidden");
-  if (workflow === "minimax_h3") {
-    element("preview-results").innerHTML =
-      `<div class="preview-item"><strong>MiniMax에 전달할 평문</strong>${escapeHtml(response.combined_prompt)}</div>`;
-    return;
-  }
   element("preview-results").innerHTML = response.examples.map((example) => {
     const selectedNames = example.selected_path.map((item) => item.name).join(" → ");
     const negativeNames = (example.negative_selected_path || []).map((item) => item.name).join(" → ");
@@ -1389,7 +1391,7 @@ async function submitBatch() {
         workflow,
         description: element("job-description").value,
         body: generateBody(),
-        selected_tag_ids: workflow === "anima" ? activeSelectedTagIds() : [],
+        selected_tag_ids: activeSelectedTagIds(),
         count: workflow === "anima" ? Number(element("generate-count").value) : 1,
         settings: generationSettings(),
         loras: applicationState.selectedLoras,
@@ -1666,12 +1668,10 @@ async function restoreJobGeneration(jobIdentifier) {
 
     // 과거 정의는 되살리지 않고 현재 참조에서 체크할 수 있는 항목만 남깁니다.
     const currentTagIds = new Set(currentTags.entries.map((entry) => entry.tag_id));
-    if (job.workflow === "anima") {
-      for (const selectedTag of jobInputs.selected_tags || []) {
-        if (currentTagIds.has(selectedTag.tag_id)) applicationState.selectedTagIds.add(selectedTag.tag_id);
-      }
-      applicationState.selectedTagIds = new Set(activeSelectedTagIds());
+    for (const selectedTag of jobInputs.selected_tags || []) {
+      if (currentTagIds.has(selectedTag.tag_id)) applicationState.selectedTagIds.add(selectedTag.tag_id);
     }
+    applicationState.selectedTagIds = new Set(activeSelectedTagIds());
     applicationState.expandedTagGroupIds = new Set(
       currentTags.groups.filter((group) => group.default_expanded).map((group) => group.group_id),
     );
@@ -2589,6 +2589,7 @@ function bindEvents() {
   });
   element("generate-anima-prompt").addEventListener("input", renderGenerateTagGroups);
   element("generate-negative").addEventListener("input", renderGenerateTagGroups);
+  element("generate-minimax-prompt").addEventListener("input", renderGenerateTagGroups);
   element("expand-generate-tag-groups-button").addEventListener("click", () =>
     setTagGroupsExpanded("generate-tag-groups", applicationState.expandedTagGroupIds, true));
   element("collapse-generate-tag-groups-button").addEventListener("click", () =>

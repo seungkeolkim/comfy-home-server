@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import random
 import re
 import secrets
 import shutil
@@ -30,7 +31,10 @@ from .output_catalog import OutputCatalog
 from .output_directories import create_output_directory, list_output_directories, resolve_output_directory
 from .output_listing import MEDIA_EXTENSIONS
 from .output_timing import OutputTimingRecorder, measure_output_step
-from .tag_builder import MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt, resolve_anima_prompts, validate_tag_selection
+from .tag_builder import (
+    MAX_PROMPT_LENGTH, MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt,
+    resolve_anima_prompts, resolve_tag_text, validate_tag_selection,
+)
 from .thumbnail_cache import PREVIEW_IMAGE_EXTENSIONS, PREVIEW_SIZE, ThumbnailCache, ThumbnailTooLargeError
 from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, minimax_execution_settings, prepare_anima, prepare_minimax
 
@@ -81,12 +85,14 @@ def selected_tag_definitions(
     return selected_tags
 
 
-def plain_prompt(body: dict[str, Any]) -> str:
-    """MiniMax Prompt를 조립하거나 wildcard로 확장하지 않고 그대로 반환합니다."""
+def minimax_prompt_template(body: dict[str, Any]) -> str:
+    """태그 치환 전 MiniMax Prompt의 타입과 길이를 검증하고 원문을 반환합니다."""
 
     prompt_text = body.get("prompt")
     if not isinstance(prompt_text, str) or not prompt_text.strip():
         raise ValueError("MiniMax Prompt를 입력해 주세요.")
+    if len(prompt_text) > MAX_PROMPT_LENGTH:
+        raise ValueError("MiniMax Prompt 길이 제한을 초과했습니다.")
     return prompt_text
 
 
@@ -678,7 +684,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         body = dict(payload.body)
         try:
             if payload.workflow == "minimax_h3":
-                plain_prompt(body)
+                minimax_prompt_template(body)
             else:
                 prompt_text = anima_prompt(body)
                 negative_text = body.get("negative", "")
@@ -698,7 +704,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/tags")
     def list_tags():
-        """Anima 태그 항목과 표시 그룹을 함께 반환합니다."""
+        """두 Workflow가 공유하는 태그 항목과 표시 그룹을 반환합니다."""
 
         return JSONResponse({"groups": server.database.list_tag_groups(), "entries": server.database.list_tag_entries()})
 
@@ -759,36 +765,37 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/prompts/preview")
     async def preview(payload: PreviewInput):
-        """Anima는 wildcard를 확장하고 MiniMax는 평문을 그대로 보여줍니다."""
+        """공통 태그를 요청별로 추첨하고 Anima의 경우에만 wildcard까지 확정해 보여줍니다."""
 
-        if payload.workflow == "minimax_h3":
-            if payload.selected_tag_ids:
-                raise HTTPException(422, "MiniMax에는 태그 선택을 사용할 수 없습니다.")
-            try:
-                prompt_text = plain_prompt(payload.body)
-            except ValueError as exception:
-                raise HTTPException(422, str(exception)) from exception
-            return await asyncio.to_thread(JSONResponse, {
-                "combined_prompt": prompt_text, "examples": [{"index": 1, "seed": None, "prompt": prompt_text}],
-            })
-        if payload.workflow != "anima":
+        if payload.workflow not in {"anima", "minimax_h3"}:
             raise HTTPException(422, "지원하지 않는 workflow입니다.")
         try:
-            prompt_text = anima_prompt(payload.body)
-            negative_text = anima_negative_prompt(payload.body)
+            if payload.workflow == "anima":
+                prompt_text = anima_prompt(payload.body)
+                negative_text = anima_negative_prompt(payload.body)
+            else:
+                prompt_text = minimax_prompt_template(payload.body)
+                negative_text = ""
             selected_tags = await asyncio.to_thread(
                 selected_tag_definitions, server.database, payload.selected_tag_ids, prompt_text, negative_text,
             )
             examples = []
             for example_index in range(payload.count):
-                wildcard_seed = secrets.randbelow(2**31)
-                template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
-                    resolve_anima_prompts, payload.body, selected_tags, wildcard_seed,
-                )
-                resolved = await server.comfy.populate_wildcards(template, wildcard_seed)
-                resolved_negative = await server.comfy.populate_wildcards(negative_template, wildcard_seed)
+                prompt_seed = secrets.randbelow(2**31)
+                if payload.workflow == "anima":
+                    template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
+                        resolve_anima_prompts, payload.body, selected_tags, prompt_seed,
+                    )
+                    resolved = await server.comfy.populate_wildcards(template, prompt_seed)
+                    resolved_negative = await server.comfy.populate_wildcards(negative_template, prompt_seed)
+                else:
+                    resolved, selected_path = await asyncio.to_thread(
+                        resolve_tag_text, prompt_text, selected_tags, random.Random(prompt_seed),
+                    )
+                    resolved_negative = ""
+                    negative_selected_path = []
                 examples.append({
-                    "index": example_index + 1, "seed": wildcard_seed,
+                    "index": example_index + 1, "seed": prompt_seed,
                     "prompt": resolved, "negative": resolved_negative, "selected_path": selected_path,
                     "negative_selected_path": negative_selected_path,
                 })
@@ -796,7 +803,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(422, str(exception)) from exception
         except Exception as exception:
             raise HTTPException(502, str(exception)) from exception
-        return await asyncio.to_thread(JSONResponse, {"combined_prompt": None, "examples": examples})
+        combined_prompt = examples[0]["prompt"] if payload.workflow == "minimax_h3" else None
+        return await asyncio.to_thread(JSONResponse, {"combined_prompt": combined_prompt, "examples": examples})
 
     @app.get("/api/loras")
     async def loras():
@@ -895,9 +903,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         selected_tags: list[dict[str, Any]] = []
         try:
             if payload.workflow == "minimax_h3":
-                if payload.selected_tag_ids:
-                    raise ValueError("MiniMax에는 태그 선택을 사용할 수 없습니다.")
-                plain_prompt(payload.body)
+                prompt_text = minimax_prompt_template(payload.body)
+                selected_tags = await asyncio.to_thread(
+                    selected_tag_definitions, server.database, payload.selected_tag_ids, prompt_text,
+                )
                 minimax_execution_settings(payload.settings)
             else:
                 prompt_text = anima_prompt(payload.body)
@@ -1388,6 +1397,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                     continue
                 if request["workflow"] == "anima":
                     wildcard_seed = secrets.randbelow(2**31)
+                    tag_seed = wildcard_seed
                     prompt_template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
                         resolve_anima_prompts,
                         detail["body"], detail["selected_tags"], wildcard_seed,
@@ -1398,9 +1408,11 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                     )
                 else:
                     wildcard_seed = None
-                    selected_path = []
+                    tag_seed = secrets.randbelow(2**31)
+                    prompt_text, selected_path = await asyncio.to_thread(
+                        resolve_tag_text, minimax_prompt_template(detail["body"]), detail["selected_tags"], random.Random(tag_seed),
+                    )
                     negative_selected_path = []
-                    prompt_text = plain_prompt(detail["body"])
                     negative_text = ""
                 if request["workflow"] not in workflow_templates:
                     workflow_templates[request["workflow"]] = await asyncio.to_thread(
@@ -1437,7 +1449,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                         "prompt": prompt_text, "negative": negative_text,
                         "selected_path": selected_path,
                         "negative_selected_path": negative_selected_path,
-                        "wildcard_seed": wildcard_seed, "settings": request_settings,
+                        "wildcard_seed": wildcard_seed, "tag_seed": tag_seed, "settings": request_settings,
                         "loras": detail["loras"],
                         "source_image": detail.get("resolved", {}).get("source_image"),
                     },
@@ -1451,7 +1463,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                     request_id, prompt_id, {**detail.get("resolved", {}), "prompt": prompt_text, "negative": negative_text,
                                             "selected_path": selected_path,
                                             "negative_selected_path": negative_selected_path,
-                                            "wildcard_seed": wildcard_seed, "settings": request_settings},
+                                            "wildcard_seed": wildcard_seed, "tag_seed": tag_seed, "settings": request_settings},
                 )
                 server.cancellation_wakeup.set()
                 LOGGER.info("요청 접수: request_id=%s prompt_id=%s", request_id, prompt_id)

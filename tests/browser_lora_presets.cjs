@@ -323,10 +323,10 @@ async function main() {
     assert.equal(await page.locator("#anima-width").inputValue(), "576");
     assert.equal(await page.locator("#anima-height").inputValue(), "864");
     await page.locator("#generate-workflow").selectOption("minimax_h3");
-    assert.equal(await page.locator("#generate-tag-fields").isVisible(), false);
+    assert.equal(await page.locator("#generate-tag-fields").isVisible(), true);
     assert.equal(await page.locator("#generate-count-field").isVisible(), false);
-    assert.equal(await page.locator("#lora-step").textContent(), "02");
-    assert.equal(await page.locator("#workflow-options-step").textContent(), "03");
+    assert.equal(await page.locator("#lora-step").textContent(), "03");
+    assert.equal(await page.locator("#workflow-options-step").textContent(), "04");
     await page.locator("#generate-workflow").selectOption("anima");
     await page.locator('.sidebar [data-view="lora-presets"]').click();
     await page.locator("#lora-preset-name").fill("Portrait combination");

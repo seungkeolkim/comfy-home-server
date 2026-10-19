@@ -16,7 +16,7 @@ function createMinimaxFixtures() {
   for (let imageNumber = 0; imageNumber < 101; imageNumber += 1) {
     images.push({ output_id: imageNumber + 100, name: `${imageNumber}.png`, path: `big/${imageNumber}.png`, width: 64, height: 96 });
   }
-  return { images, submissions: [], inspections: [], inspectionGate: null, rejectInspection: false };
+  return { images, submissions: [], previews: [], inspections: [], inspectionGate: null, rejectInspection: false };
 }
 
 /** 현재 앱 파일을 제공하고 GPU·실제 파일을 건드리는 요청은 받지 않습니다. */
@@ -42,7 +42,25 @@ function createMinimaxRequestHandler(fixtures) {
     else if (requestPath === "/api/jobs") response = { items: [], page: 1, total: 0, total_pages: 1, active_count: 0 };
     else if (["/api/presets", "/api/loras/presets"].includes(requestPath)) response = [];
     else if (requestPath === "/api/loras") response = { files: [], profiles: [] };
-    else if (requestPath === "/api/tags") response = { groups: [], entries: [] };
+    else if (requestPath === "/api/tags") response = {
+      groups: [
+        { group_id: "actions", name: "동작", tag_key: "ACTION", default_expanded: true },
+        { group_id: "actors", name: "인물", tag_key: "ACTOR", default_expanded: true },
+      ],
+      entries: [
+        { tag_id: "action", group_id: "actions", name: "걷기", content: "[ACTOR] walks", weight: 1 },
+        { tag_id: "actor-a", group_id: "actors", name: "인물 A", content: "person A", weight: 1 },
+        { tag_id: "actor-b", group_id: "actors", name: "인물 B", content: "person B", weight: 2 },
+      ],
+    };
+    else if (requestPath === "/api/prompts/preview") {
+      const payload = route.request().postDataJSON();
+      fixtures.previews.push(payload);
+      response = { combined_prompt: null, examples: Array.from({ length: payload.count }, (unused, exampleIndex) => ({
+        index: exampleIndex + 1, seed: exampleIndex, prompt: `person ${exampleIndex % 2 ? "A" : "B"} walks`,
+        selected_path: [{ name: "걷기" }, { name: exampleIndex % 2 ? "인물 A" : "인물 B" }],
+      })) };
+    }
     else if (requestPath === "/api/outputs/directories") {
       const directoryPath = requestUrl.searchParams.get("path") || "";
       response = {
@@ -99,7 +117,15 @@ async function verifyMinimaxGeneration(browser, viewport) {
     await browserPage.goto("http://minimax.test/");
     await browserPage.locator("#generate-workflow").selectOption("minimax_h3");
     assert.equal(await browserPage.locator('#minimax-input-fields input[type="file"]').count(), 0);
-    await browserPage.locator("#generate-minimax-prompt").fill("[Scene]\n{camera|lighting}\n__literal__");
+    await browserPage.locator("#generate-minimax-prompt").fill("[ACTION]\n[Scene]\n{camera|lighting}\n__literal__");
+    assert.equal(await browserPage.locator("#generate-tag-fields").isVisible(), true);
+    await browserPage.locator('[data-select-tag="action"]').check();
+    await browserPage.locator('[data-select-tag="actor-a"]').check();
+    await browserPage.locator('[data-select-tag="actor-b"]').check();
+    await browserPage.locator("#preview-button").click();
+    await browserPage.waitForFunction(() => document.querySelectorAll("#preview-results .preview-item").length === 5);
+    assert.deepEqual(fixtures.previews.at(-1).selected_tag_ids, ["action", "actor-a", "actor-b"]);
+    assert.match(await browserPage.locator("#preview-results").textContent(), /걷기 → 인물/);
     await chooseInputImages(browserPage, "folder", 1);
     assert.equal(await browserPage.locator("#minimax-width").inputValue(), "65");
     assert.equal(await browserPage.locator("#minimax-height").inputValue(), "97");
@@ -116,9 +142,12 @@ async function verifyMinimaxGeneration(browser, viewport) {
       assert.deepEqual(submission.output_ids, [1]);
       assert.equal(submission.settings.generation_mode, generationMode);
       assert.equal(submission.input_scope, "single");
-      assert.equal(submission.body.prompt, "[Scene]\n{camera|lighting}\n__literal__");
+      assert.equal(submission.body.prompt, "[ACTION]\n[Scene]\n{camera|lighting}\n__literal__");
+      assert.deepEqual(submission.selected_tag_ids, ["action", "actor-a", "actor-b"]);
       assert.equal(submission.upload_ids, undefined);
     }
+    await browserPage.locator("#generate-minimax-prompt").fill("[Scene]\n{camera|lighting}\n__literal__");
+    assert.match(await browserPage.locator("#tag-selection-status").textContent(), /태그 선택이 필요하지 않습니다/);
     await browserPage.locator("#minimax-input-scope").selectOption("folder");
     assert.equal(await browserPage.locator("#minimax-selected-images .input-image-card").count(), 0);
     await chooseInputImages(browserPage, "folder");
@@ -133,6 +162,7 @@ async function verifyMinimaxGeneration(browser, viewport) {
     await browserPage.locator("#submit-button").click();
     await browserPage.waitForFunction(() => !document.getElementById("submit-button").disabled);
     assert.equal(fixtures.submissions.at(-1).settings.resolution_mode, "manual");
+    assert.deepEqual(fixtures.submissions.at(-1).selected_tag_ids, []);
     assert.deepEqual(fixtures.submissions.at(-1).output_ids, [1, 2, 3]);
     assert.equal(fixtures.submissions.at(-1).input_directory, "folder");
     await browserPage.locator("#minimax-automatic-resolution").click();
