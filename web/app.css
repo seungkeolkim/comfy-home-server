@@ -694,10 +694,31 @@ input[type="file"] {
   overflow-wrap: anywhere;
 }
 .job-card .job-description {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   margin-top: 10px;
   color: #dce7f4;
+  font-size: 13px;
+  font-weight: 700;
   white-space: pre-wrap;
 }
+.job-description-text { min-width: 0; }
+.job-description-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  color: #92a1b6;
+  background: transparent;
+}
+.job-description-edit:hover { color: #e8ebf2; background: #263248; }
+.job-description-edit:focus-visible { outline: 2px solid #85d9c2; outline-offset: 2px; }
 .job-card .job-detail {
   grid-column: 1/-1;
   white-space: pre-wrap;

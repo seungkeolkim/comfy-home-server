@@ -534,6 +534,19 @@
         <button id="folder-picker-confirm" class="button primary" type="button">이 폴더로 이동</button>
       </div>
     </dialog>
+    <dialog id="job-description-dialog" class="folder-picker" aria-labelledby="job-description-title">
+      <h2 id="job-description-title">작업 설명 수정</h2>
+      <form id="job-description-form" class="stack">
+        <label for="job-description-input">작업 설명</label>
+        <input id="job-description-input" type="text" maxlength="200" autocomplete="off" autofocus />
+        <p class="hint">최대 200자, 한 줄로 입력해 주세요.</p>
+        <p id="job-description-status" class="hint" role="status"></p>
+        <div class="folder-picker-actions">
+          <button id="job-description-cancel" class="button subtle" type="button">취소</button>
+          <button id="job-description-save" class="button primary" type="submit">저장</button>
+        </div>
+      </form>
+    </dialog>
     <dialog id="job-input-picker" class="folder-picker" aria-labelledby="job-input-title">
       <h2 id="job-input-title">작업 결과 선택</h2>
       <p class="hint">작업을 고른 뒤 사용할 이미지를 선택해 주세요. 최대 100장까지 선택할 수 있습니다.</p>

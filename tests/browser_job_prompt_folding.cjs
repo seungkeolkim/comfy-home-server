@@ -113,7 +113,7 @@ async function verifyPromptFolding(browser, viewport) {
     assert.equal(expandedDimensions.expanded, "true");
     assert.ok(Math.abs(expandedDimensions.height - expandedDimensions.lineHeight * 6) <= 1);
     assert.match(await sixLinePrompt.textContent(), /NEG3/);
-    await sixLineCard.locator(".job-description").click();
+    await sixLineCard.locator(".job-description-text").click();
     assert.equal(await sixLinePrompt.getAttribute("aria-expanded"), "false");
     await sixLinePrompt.focus();
     await browserPage.keyboard.press("Enter");

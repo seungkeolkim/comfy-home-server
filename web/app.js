@@ -27,6 +27,9 @@ const outputPreviewNavigationState = {
   revision: 0, controller: null, outputId: null, currentFile: null, filter: null, opener: null,
   previous: null, next: null, loading: false, error: "",
 };
+const jobDescriptionEditorState = {
+  jobIdentifier: null, revision: 0, openingElement: null,
+};
 
 const applicationState = {
   presets: [],
@@ -98,6 +101,7 @@ const applicationState = {
   deletableJobIds: new Set(),
   selectingEveryJob: false,
   updatingJobProtectionId: null,
+  updatingJobDescriptionId: null,
   deletingSelectedJobs: false,
   restoringJobId: null,
   noticeHideTimer: null,
@@ -242,6 +246,7 @@ function showNotice(message, isError = false, action = null) {
 
 /** 로그인 화면만 표시합니다. */
 function showLogin() {
+  closeJobDescriptionEditor(false);
   closeVideoPreview(false);
   closeImagePreview(false);
   finishJobInputSelection(null, true);
@@ -418,6 +423,7 @@ function saveCurrentNavigationEntry() {
 
 /** 조회 조건과 탭 표시를 바꾸며 생성 입력이나 변경 요청은 실행하지 않습니다. */
 function displayNavigationState(navigationState) {
+  closeJobDescriptionEditor(false);
   closeVideoPreview(false);
   closeImagePreview(false);
   finishJobInputSelection(null, true);
@@ -1693,7 +1699,7 @@ function canDeleteJobHistory(job) {
 /** 선택·삭제·보호 설정을 변경 중인지 확인합니다. */
 function jobSelectionIsBusy() {
   return outputFolderPickerState.resolveSelection !== null || applicationState.deletingSelectedJobs || applicationState.selectingEveryJob ||
-    applicationState.updatingJobProtectionId !== null || applicationState.movingJobId !== null;
+    applicationState.updatingJobProtectionId !== null || applicationState.updatingJobDescriptionId !== null || applicationState.movingJobId !== null;
 }
 
 /** 선택 모드, 선택 건수와 삭제 처리 상태에 맞춰 일괄 조작 버튼을 갱신합니다. */
@@ -1763,6 +1769,87 @@ async function toggleEveryJobSelection() {
   } finally {
     applicationState.selectingEveryJob = false;
     renderJobsList();
+  }
+}
+
+/** 선택한 작업의 현재 설명을 독립된 Dialog에서 편집하여 Polling에 덮어쓰이지 않게 합니다. */
+function openJobDescriptionEditor(jobIdentifier, openingElement) {
+  if (jobSelectionIsBusy()) return;
+  const job = applicationState.visibleJobs.find(candidate => candidate.job_id === jobIdentifier);
+  if (!job) return;
+  closeJobDescriptionEditor(false);
+  jobDescriptionEditorState.jobIdentifier = jobIdentifier;
+  jobDescriptionEditorState.openingElement = openingElement;
+  element("job-description-input").value = job.description || "";
+  element("job-description-input").disabled = false;
+  element("job-description-save").disabled = false;
+  element("job-description-save").textContent = "저장";
+  element("job-description-status").textContent = "";
+  element("job-description-dialog").showModal();
+  element("job-description-input").select();
+}
+
+/** 편집을 닫고 늦은 저장 응답이 Dialog를 다시 조작하지 않도록 세대를 변경합니다. */
+function closeJobDescriptionEditor(restoreFocus = true) {
+  const editorState = jobDescriptionEditorState;
+  const jobIdentifier = editorState.jobIdentifier;
+  const openingElement = editorState.openingElement;
+  editorState.revision += 1;
+  editorState.jobIdentifier = null;
+  editorState.openingElement = null;
+  const dialog = element("job-description-dialog");
+  if (dialog.open) dialog.close();
+  if (!restoreFocus) return;
+  const currentButton = jobIdentifier ? document.querySelector(`[data-edit-job-description="${CSS.escape(jobIdentifier)}"]`) : null;
+  if (currentButton) currentButton.focus({ preventScroll: true });
+  else if (openingElement?.isConnected) openingElement.focus({ preventScroll: true });
+}
+
+/** 설명만 저장하고 현재 페이지·펼침·선택·생성 폼을 유지한 채 작업 목록을 갱신합니다. */
+async function saveJobDescription() {
+  const editorState = jobDescriptionEditorState;
+  const jobIdentifier = editorState.jobIdentifier;
+  if (!jobIdentifier || applicationState.updatingJobDescriptionId !== null) return;
+  const revision = editorState.revision;
+  let descriptionSaved = false;
+  applicationState.updatingJobDescriptionId = jobIdentifier;
+  applicationState.jobsLoadRevision += 1;
+  element("job-description-input").disabled = true;
+  element("job-description-save").disabled = true;
+  element("job-description-save").textContent = "저장 중…";
+  element("job-description-status").textContent = "";
+  renderJobsList();
+  try {
+    const result = await apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}/description`, {
+      method: "PATCH", body: JSON.stringify({ description: element("job-description-input").value }),
+    });
+    const job = applicationState.visibleJobs.find(candidate => candidate.job_id === jobIdentifier);
+    if (job) job.description = result.description;
+    const cachedJob = applicationState.jobDetails.get(jobIdentifier)?.job;
+    if (cachedJob) cachedJob.description = result.description;
+    if (applicationState.minimaxInputJob?.job_id === jobIdentifier) {
+      applicationState.minimaxInputJob.description = result.description;
+      renderMinimaxInputs();
+    }
+    applicationState.jobsRenderSignature = null;
+    await loadJobs();
+    descriptionSaved = true;
+    showNotice("작업 설명을 수정했습니다.");
+  } catch (error) {
+    if (revision === editorState.revision) element("job-description-status").textContent = error.message;
+    else showNotice(error.message, true);
+  } finally {
+    applicationState.updatingJobDescriptionId = null;
+    renderJobsList();
+    if (revision === editorState.revision) {
+      if (descriptionSaved) closeJobDescriptionEditor();
+      else {
+        element("job-description-input").disabled = false;
+        element("job-description-save").disabled = false;
+        element("job-description-save").textContent = "저장";
+        element("job-description-input").focus({ preventScroll: true });
+      }
+    }
   }
 }
 
@@ -1960,7 +2047,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
         <div>
         <h3>${escapeHtml(job.workflow)}${job.workflow === "minimax_h3" ? ` · ${escapeHtml(requestSettings.generation_mode || "FL2VA")} · ${requestSettings.input_scope === "job" ? "작업 결과 일괄" : requestSettings.input_scope === "folder" ? "폴더 일괄" : "이미지 입력"}` : ""} · 작업 ${escapeHtml(job.job_id)}</h3>
         <p>${escapeHtml(formatKoreanTimestamp(job.created_at))} · ${dimensions.ratio} · ${dimensions.resolution} · CFG ${escapeHtml(requestSettings.cfg ?? "—")} · Steps ${escapeHtml(requestSettings.steps ?? "—")} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
-        ${job.description ? `<p class="job-description">${escapeHtml(job.description)}</p>` : ""}
+        <p class="job-description"><span class="job-description-text">${job.description ? escapeHtml(job.description) : "(작업 설명 없음)"}</span><button class="job-description-edit" type="button" data-edit-job-description="${escapeHtml(job.job_id)}" aria-label="작업 설명 수정" title="작업 설명 수정" ${jobSelectionIsBusy() ? "disabled" : ""}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m16 3 5 5-12 12-6 1 1-6Z"></path><path d="m14 5 5 5"></path></svg></button></p>
         ${requestSettings.input_scope === "job" ? `<p class="hint">입력 출처: 작업 ${escapeHtml(requestSettings.input_job_id)}</p>` : ""}
         </div>
       </div>
@@ -2014,6 +2101,7 @@ function renderJobsList() {
   const focusedJobId = document.activeElement?.dataset.selectJob;
   const focusedPromptJobId = document.activeElement?.dataset.toggleJobPrompt;
   const focusedPromptRequestId = document.activeElement?.dataset.toggleRequestPrompt;
+  const focusedDescriptionJobId = document.activeElement?.dataset.editJobDescription;
   const openJobIds = new Set();
   for (const details of element("jobs-list").querySelectorAll("details[open]")) {
     openJobIds.add(details.dataset.jobDetails);
@@ -2036,6 +2124,9 @@ function renderJobsList() {
   for (const jobIdentifier of openJobIds) loadJobDetails(jobIdentifier);
   if (focusedPromptRequestId) {
     document.querySelector(`[data-toggle-request-prompt="${CSS.escape(focusedPromptRequestId)}"]`)?.focus({ preventScroll: true });
+  }
+  if (focusedDescriptionJobId) {
+    document.querySelector(`[data-edit-job-description="${CSS.escape(focusedDescriptionJobId)}"]`)?.focus({ preventScroll: true });
   }
 }
 
@@ -3088,6 +3179,18 @@ function runAction(action) {
 
 /** 사용자 조작과 메뉴 이동을 연결합니다. */
 function bindEvents() {
+  element("job-description-form").addEventListener("submit", event => {
+    event.preventDefault();
+    runAction(saveJobDescription);
+  });
+  element("job-description-cancel").addEventListener("click", () => closeJobDescriptionEditor());
+  element("job-description-dialog").addEventListener("cancel", event => {
+    event.preventDefault();
+    closeJobDescriptionEditor();
+  });
+  element("job-description-dialog").addEventListener("close", () => {
+    if (!element("job-description-dialog").open && jobDescriptionEditorState.jobIdentifier !== null) closeJobDescriptionEditor();
+  });
   bindPreviewDialogEvents("video-preview-dialog", "video-preview-close", videoPreviewState, closeVideoPreview);
   bindPreviewDialogEvents("image-preview-dialog", "image-preview-close", imagePreviewState, closeImagePreview);
   element("image-preview-delete").addEventListener("click", () => runAction(deletePreviewOutput));
@@ -3364,6 +3467,9 @@ function bindEvents() {
     const moveOutputsButton = event.target.closest("[data-move-job-outputs]");
     if (moveOutputsButton && !moveOutputsButton.disabled)
       runAction(() => moveJobOutputs(moveOutputsButton.dataset.moveJobOutputs));
+    const editDescriptionButton = event.target.closest("[data-edit-job-description]");
+    if (editDescriptionButton && !editDescriptionButton.disabled)
+      openJobDescriptionEditor(editDescriptionButton.dataset.editJobDescription, editDescriptionButton);
     const protectionButton = event.target.closest("[data-toggle-job-protection]");
     if (protectionButton && !protectionButton.disabled)
       runAction(() => toggleJobDeletionProtection(protectionButton.dataset.toggleJobProtection));

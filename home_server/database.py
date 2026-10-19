@@ -669,6 +669,15 @@ class Database:
             ).fetchall()
         return [job_row["job_id"] for job_row in job_rows]
 
+    def update_job_description(self, job_id: str, description: str) -> bool:
+        """작업의 설명 column만 갱신하며 생성 입력·요청 시각·정렬·보호 상태는 유지합니다."""
+
+        with self._connect() as connection:
+            result = connection.execute(
+                "UPDATE jobs SET description = ? WHERE job_id = ?", (description, job_id),
+            )
+        return result.rowcount > 0
+
     def set_job_deletion_protection(self, job_id: str, deletion_protected: bool) -> bool:
         """작업의 삭제 보호 설정을 저장하고 작업이 없으면 False를 반환합니다."""
 

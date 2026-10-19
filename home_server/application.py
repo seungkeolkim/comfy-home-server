@@ -128,6 +128,14 @@ class PreviewInput(BaseModel):
     count: int = Field(default=5, ge=1, le=20)
 
 
+def normalize_job_description(value: str) -> str:
+    """생성·수정에서 같은 한 줄 설명과 앞뒤 공백 정리 규칙을 적용합니다."""
+
+    if "\n" in value or "\r" in value:
+        raise ValueError("작업 설명은 한 줄로 입력해 주세요.")
+    return value.strip()
+
+
 class BatchInput(BaseModel):
     """ComfyUI에 제출할 Batch의 공통 옵션입니다."""
 
@@ -163,9 +171,20 @@ class BatchInput(BaseModel):
     def validate_description(cls, value: str) -> str:
         """작업 설명의 공백을 정리하고 여러 줄 입력을 거부합니다."""
 
-        if "\n" in value or "\r" in value:
-            raise ValueError("작업 설명은 한 줄로 입력해 주세요.")
-        return value.strip()
+        return normalize_job_description(value)
+
+
+class JobDescriptionInput(BaseModel):
+    """이미 제출된 작업의 표시용 설명만 수정합니다."""
+
+    description: str = Field(max_length=200)
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str) -> str:
+        """작업 생성과 같은 설명 검증을 재사용합니다."""
+
+        return normalize_job_description(value)
 
 
 class InputImageInspection(BaseModel):
@@ -1025,6 +1044,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if job is None:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
         return JSONResponse(job)
+
+    @app.patch("/api/jobs/{job_id}/description")
+    def update_job_description(job_id: str, payload: JobDescriptionInput):
+        """작업 상태·삭제 보호와 무관하게 설명만 변경하고 생성 입력과 요청은 유지합니다."""
+
+        if not server.database.update_job_description(job_id, payload.description):
+            raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        return {"job_id": job_id, "description": payload.description}
 
     @app.patch("/api/jobs/{job_id}/protection")
     def update_job_protection(job_id: str, payload: JobProtectionInput):
