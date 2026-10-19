@@ -77,6 +77,7 @@ const applicationState = {
   jobSelectionMode: false,
   selectedJobIds: new Set(),
   expandedJobPromptIds: new Set(),
+  expandedRequestPromptIds: new Set(),
   deletableJobIds: new Set(),
   selectingEveryJob: false,
   updatingJobProtectionId: null,
@@ -1436,17 +1437,21 @@ function requestCardMarkup(request, statusNames, commonInputs) {
   const selectedTagNames = selectedPath.map((item) => item.name).join(" → ");
   const negativeSelectedPath = request.result.negative_selected_path || [];
   const negativeTagNames = negativeSelectedPath.map((item) => item.name).join(" → ");
+  const promptIsExpanded = applicationState.expandedRequestPromptIds.has(request.request_id);
+  const requestPromptDetailsMarkup = [
+    `<div class="job-detail"><strong>Prompt</strong> ${escapeHtml(promptText)}</div>`,
+    selectedTagNames ? `<div class="job-detail"><strong>태그 경로</strong> ${escapeHtml(selectedTagNames)}</div>` : "",
+    negativeText ? `<div class="job-detail"><strong>Negative Prompt</strong> ${escapeHtml(negativeText)}</div>` : "",
+    negativeTagNames ? `<div class="job-detail"><strong>Negative 태그 경로</strong> ${escapeHtml(negativeTagNames)}</div>` : "",
+  ].join("");
   return `
-    <div class="job-request">
+    <div class="job-request" data-request-prompt-card="${escapeHtml(request.request_id)}">
       <div>
         <strong>요청 ${request.request_index} · ${escapeHtml(request.request_id)}</strong>
         <p>prompt_id ${escapeHtml(request.prompt_id || "대기 중")}</p>
       </div>
       <span class="status-badge ${escapeHtml(request.status)}">${escapeHtml(statusNames[request.status] || request.status)}</span>
-      <div class="job-detail"><strong>Prompt</strong> ${escapeHtml(promptText)}</div>
-      ${selectedTagNames ? `<div class="job-detail"><strong>태그 경로</strong> ${escapeHtml(selectedTagNames)}</div>` : ""}
-      ${negativeText ? `<div class="job-detail"><strong>Negative Prompt</strong> ${escapeHtml(negativeText)}</div>` : ""}
-      ${negativeTagNames ? `<div class="job-detail"><strong>Negative 태그 경로</strong> ${escapeHtml(negativeTagNames)}</div>` : ""}
+      <div class="job-prompts request-prompts" role="button" tabindex="0" data-toggle-request-prompt="${escapeHtml(request.request_id)}" aria-expanded="${promptIsExpanded}" title="${promptIsExpanded ? "하위 요청 카드를 눌러 Prompt·태그 경로 접기" : "하위 요청 카드를 눌러 전체 Prompt·태그 경로 보기"}">${requestPromptDetailsMarkup}</div>
       <div class="job-detail"><strong>LoRA</strong> ${escapeHtml(loraText)}</div>
       ${sourceImage ? `<div class="job-detail"><strong>입력 이미지</strong> ${escapeHtml(sourceImage.path)} · ${sourceImage.width} × ${sourceImage.height}</div>` : ""}
       ${request.error_message ? `<div class="job-detail"><strong>오류</strong> ${escapeHtml(request.error_message)}</div>` : ""}
@@ -1768,7 +1773,18 @@ function toggleJobPromptExpansion(jobIdentifier) {
   promptContainer.title = promptIsExpanded ? "카드를 눌러 Prompt 접기" : "카드를 눌러 전체 Prompt 보기";
 }
 
-/** 작업 카드를 다시 그리면서 펼친 Prompt·요청과 선택 영역의 Keyboard focus를 유지합니다. */
+/** 하위 요청의 Prompt·태그 경로를 상위 카드 및 다른 요청과 독립적으로 펼치거나 접습니다. */
+function toggleRequestPromptExpansion(requestIdentifier) {
+  const promptContainer = document.querySelector(`[data-toggle-request-prompt="${CSS.escape(requestIdentifier)}"]`);
+  if (!promptContainer) return;
+  const promptIsExpanded = !applicationState.expandedRequestPromptIds.has(requestIdentifier);
+  if (promptIsExpanded) applicationState.expandedRequestPromptIds.add(requestIdentifier);
+  else applicationState.expandedRequestPromptIds.delete(requestIdentifier);
+  promptContainer.setAttribute("aria-expanded", String(promptIsExpanded));
+  promptContainer.title = promptIsExpanded ? "하위 요청 카드를 눌러 Prompt·태그 경로 접기" : "하위 요청 카드를 눌러 전체 Prompt·태그 경로 보기";
+}
+
+/** 작업 카드를 다시 그리면서 상위·하위 Prompt의 펼침 상태와 Keyboard focus를 유지합니다. */
 function renderJobsList() {
   const statusNames = {
     submitting: "제출 중", pending: "대기", running: "실행 중", cancelling: "취소 중",
@@ -1776,6 +1792,7 @@ function renderJobsList() {
   };
   const focusedJobId = document.activeElement?.dataset.selectJob;
   const focusedPromptJobId = document.activeElement?.dataset.toggleJobPrompt;
+  const focusedPromptRequestId = document.activeElement?.dataset.toggleRequestPrompt;
   const openJobIds = new Set();
   for (const details of element("jobs-list").querySelectorAll("details[open]")) {
     openJobIds.add(details.dataset.jobDetails);
@@ -1796,6 +1813,9 @@ function renderJobsList() {
   }
   updateJobSelectionControls();
   for (const jobIdentifier of openJobIds) loadJobDetails(jobIdentifier);
+  if (focusedPromptRequestId) {
+    document.querySelector(`[data-toggle-request-prompt="${CSS.escape(focusedPromptRequestId)}"]`)?.focus({ preventScroll: true });
+  }
 }
 
 /** 상태 집계가 바뀌었는지 확인할 작은 상세 갱신 기준을 만듭니다. */
@@ -2797,9 +2817,11 @@ function bindEvents() {
   });
   element("jobs-list").addEventListener("click", (event) => {
     const promptCard = event.target.closest("[data-job-prompt-card]");
-    const interactiveTarget = event.target.closest("a, button, input, select, textarea, label, details");
-    if (promptCard && !interactiveTarget && !window.getSelection()?.toString() && !jobSelectionIsBusy()) {
-      toggleJobPromptExpansion(promptCard.dataset.jobPromptCard);
+    const requestPromptCard = event.target.closest("[data-request-prompt-card]");
+    const interactiveTarget = event.target.closest("a, button, input, select, textarea, label, summary");
+    if (!interactiveTarget && !window.getSelection()?.toString() && !jobSelectionIsBusy()) {
+      if (requestPromptCard) toggleRequestPromptExpansion(requestPromptCard.dataset.requestPromptCard);
+      else if (promptCard && !event.target.closest("details")) toggleJobPromptExpansion(promptCard.dataset.jobPromptCard);
     }
     const moveOutputsButton = event.target.closest("[data-move-job-outputs]");
     if (moveOutputsButton && !moveOutputsButton.disabled)
@@ -2843,10 +2865,11 @@ function bindEvents() {
       runAction(() => deleteJobHistory(deleteOutputsButton.dataset.deleteJobOutputs, true));
   });
   element("jobs-list").addEventListener("keydown", event => {
-    const promptContainer = event.target.closest("[data-toggle-job-prompt]");
+    const promptContainer = event.target.closest("[data-toggle-job-prompt], [data-toggle-request-prompt]");
     if (!promptContainer || !["Enter", " "].includes(event.key) || jobSelectionIsBusy()) return;
     event.preventDefault();
-    toggleJobPromptExpansion(promptContainer.dataset.toggleJobPrompt);
+    if (promptContainer.hasAttribute("data-toggle-request-prompt")) toggleRequestPromptExpansion(promptContainer.dataset.toggleRequestPrompt);
+    else toggleJobPromptExpansion(promptContainer.dataset.toggleJobPrompt);
   });
   element("toggle-output-selection").addEventListener("click", () => {
     if (outputSelectionIsBusy()) return;

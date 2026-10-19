@@ -705,7 +705,8 @@ input[type="file"] {
   color: #b4bed2;
   font-size: 12px;
 }
-.job-card[data-job-prompt-card] {
+.job-card[data-job-prompt-card],
+.job-request[data-request-prompt-card] {
   cursor: pointer;
 }
 .job-prompts {
