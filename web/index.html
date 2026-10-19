@@ -561,6 +561,11 @@
       </div>
       <img id="image-preview-content" alt="" />
       <p id="image-preview-status" class="hint" role="status"></p>
+      <div class="preview-navigation" aria-label="이미지 결과물 이동">
+        <button id="image-preview-previous" class="button subtle" type="button" data-preview-previous disabled>← 이전</button>
+        <span id="image-preview-navigation-status" class="hint" role="status"></span>
+        <button id="image-preview-next" class="button subtle" type="button" data-preview-next disabled>다음 →</button>
+      </div>
       <a id="image-preview-original" class="button subtle" target="_blank" rel="noopener">원본 보기</a>
     </dialog>
     <dialog id="video-preview-dialog" class="video-preview-dialog" aria-labelledby="video-preview-title">
@@ -569,6 +574,11 @@
         <button id="video-preview-close" class="button subtle" type="button" autofocus>닫기</button>
       </div>
       <video id="video-preview-player" controls playsinline muted loop preload="auto"></video>
+      <div class="preview-navigation" aria-label="영상 결과물 이동">
+        <button id="video-preview-previous" class="button subtle" type="button" data-preview-previous disabled>← 이전</button>
+        <span id="video-preview-navigation-status" class="hint" role="status"></span>
+        <button id="video-preview-next" class="button subtle" type="button" data-preview-next disabled>다음 →</button>
+      </div>
       <a id="video-preview-original" class="button subtle" target="_blank" rel="noopener">원본 열기</a>
       <div id="video-preview-notice" class="notice hidden" role="status" aria-live="polite"></div>
     </dialog>

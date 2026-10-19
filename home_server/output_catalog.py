@@ -52,6 +52,32 @@ def requested_dimensions(settings: dict[str, Any]) -> tuple[int | None, int | No
     return (width, height) if min(width, height) > 0 else (None, None)
 
 
+def output_neighbor_condition(current_row: sqlite3.Row, direction: str) -> tuple[str, list[Any]]:
+    """목록의 내림차순과 NULL 순서를 유지하는 인접 Cursor 조건을 구성합니다."""
+
+    cursor_columns = ("generated_at", "length(seed)", "seed", "relative_path")
+    cursor_values = (current_row["generated_at"], current_row["seed_length"], current_row["seed"], current_row["relative_path"])
+    alternatives = []
+    parameters = []
+    equal_conditions = []
+    equal_values = []
+    for column, value in zip(cursor_columns, cursor_values):
+        comparison = None
+        comparison_values = []
+        if value is None:
+            if direction == "previous":
+                comparison = f"{column} IS NOT NULL"
+        else:
+            comparison = f"{column} > ?" if direction == "previous" else f"({column} < ? OR {column} IS NULL)"
+            comparison_values.append(value)
+        if comparison is not None:
+            alternatives.append("(" + " AND ".join([*equal_conditions, comparison]) + ")")
+            parameters.extend([*equal_values, *comparison_values])
+        equal_conditions.append(f"{column} IS ?")
+        equal_values.append(value)
+    return "(" + " OR ".join(alternatives) + ")", parameters
+
+
 class OutputCatalog:
     """파일당 한 행을 유지하고 일반 목록 요청은 FS·JSON 없이 조회합니다."""
 
@@ -297,6 +323,47 @@ class OutputCatalog:
             "files": page_files, "page": page, "page_size": page_size, "total": total,
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }
+
+    def get_file_neighbors(
+        self, output_id: int, job_id: str = "", request_id: str = "", prefix: str = "",
+    ) -> dict[str, dict[str, Any] | None]:
+        """현재 필터와 목록 정렬 안의 인접 파일만 조회하며 페이지·FS·이력 JSON은 읽지 않습니다."""
+
+        conditions = ["is_available=1", "is_deleted=0"]
+        parameters = []
+        if job_id:
+            conditions.append("job_id=?")
+            parameters.append(job_id)
+        if request_id:
+            conditions.append("request_id=?")
+            parameters.append(request_id)
+        if prefix:
+            conditions.append("substr(relative_path,1,?)=?")
+            parameters.extend((len(prefix), prefix))
+        filter_clause = " AND ".join(conditions)
+        neighbors = {"previous": None, "next": None}
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            current_row = connection.execute(
+                f"SELECT generated_at,length(seed) AS seed_length,seed,relative_path FROM output_files WHERE {filter_clause} AND output_id=?",
+                [*parameters, output_id],
+            ).fetchone()
+            if current_row is None:
+                raise LookupError("현재 조회 범위에서 결과물을 찾을 수 없습니다. 목록을 새로고침해 주세요.")
+            for direction in ("previous", "next"):
+                cursor_condition, cursor_parameters = output_neighbor_condition(current_row, direction)
+                sort_order = OUTPUT_SORT_ORDER.replace("DESC", "ASC") if direction == "previous" else OUTPUT_SORT_ORDER
+                neighbor_row = connection.execute(
+                    f"SELECT output_id,relative_path FROM output_files WHERE {filter_clause} AND {cursor_condition} ORDER BY {sort_order} LIMIT 1",
+                    [*parameters, *cursor_parameters],
+                ).fetchone()
+                if neighbor_row is not None:
+                    output_path = Path(neighbor_row["relative_path"])
+                    neighbors[direction] = {
+                        "output_id": neighbor_row["output_id"], "path": neighbor_row["relative_path"], "name": output_path.name,
+                        "kind": "video" if output_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS else "image",
+                    }
+        return neighbors
 
     def get_video_source(self, output_id: int) -> dict[str, Any]:
         """영상의 최신 현재 경로를 조회하고 삭제·미등록·다른 종류의 결과물을 거부합니다."""

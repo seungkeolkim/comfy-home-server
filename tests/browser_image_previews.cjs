@@ -14,14 +14,18 @@ function createImagePreviewFixtures() {
     width: index === 1 ? 512 : 768, height: index === 1 ? 768 : 512,
     deletion_protected: index === 1,
   }));
-  return { files, originalRequests: [], mutations: [] };
+  return { files, originalRequests: [], mutations: [], neighborQueries: [], neighborGate: null, rejectNeighbors: false };
 }
 
 /** 원본 요청을 따로 기록하여 Thumbnail 미리보기만으로 원본을 받지 않는지 확인합니다. */
 function createImagePreviewHandler(fixtures) {
   return async function handleImagePreviewRequest(route) {
     const request = route.request();
-    const requestPath = new URL(request.url()).pathname;
+    const requestUrl = new URL(request.url());
+    const requestPath = requestUrl.pathname;
+    const matchingFiles = fixtures.files.filter(output =>
+      (!requestUrl.searchParams.get("job_id") || output.job_id === requestUrl.searchParams.get("job_id")) &&
+      (!requestUrl.searchParams.get("request_id") || output.request_id === requestUrl.searchParams.get("request_id")));
     if (["/", "/app.js", "/app.css"].includes(requestPath)) {
       const filename = requestPath === "/" ? "index.html" : requestPath.slice(1);
       const contentTypes = { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css" };
@@ -47,18 +51,143 @@ function createImagePreviewHandler(fixtures) {
     else if (["/api/presets", "/api/loras/presets"].includes(requestPath)) response = [];
     else if (requestPath === "/api/loras") response = { files: [], profiles: [] };
     else if (requestPath === "/api/tags") response = { groups: [], entries: [] };
-    else if (requestPath === "/api/outputs") response = { files: fixtures.files, page: 1, total: fixtures.files.length, total_pages: 1 };
+    else if (requestPath === "/api/outputs") {
+      const pageNumber = Number(requestUrl.searchParams.get("page") || 1);
+      response = { files: matchingFiles.slice((pageNumber - 1) * 64, pageNumber * 64), page: pageNumber, total: matchingFiles.length, total_pages: Math.ceil(matchingFiles.length / 64) };
+    }
+    else if (/^\/api\/outputs\/\d+\/neighbors$/.test(requestPath)) {
+      fixtures.neighborQueries.push({ output_id: Number(requestPath.split("/")[3]), ...Object.fromEntries(requestUrl.searchParams) });
+      if (fixtures.neighborGate) {
+        const neighborGate = fixtures.neighborGate;
+        fixtures.neighborGate = null;
+        neighborGate.markStarted();
+        await neighborGate.promise;
+      }
+      const currentIndex = matchingFiles.findIndex(output => output.output_id === Number(requestPath.split("/")[3]));
+      if (fixtures.rejectNeighbors || currentIndex < 0) {
+        await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ detail: "현재 조회 범위에서 결과물을 찾을 수 없습니다." }) });
+        return;
+      }
+      response = { previous: matchingFiles[currentIndex - 1] || null, next: matchingFiles[currentIndex + 1] || null };
+    }
     else if (requestPath === "/api/outputs/selection-candidates") response = {
       output_ids: fixtures.files.map(output => output.output_id),
       deletable_output_ids: fixtures.files.filter(output => output.kind === "image" && !output.deletion_protected).map(output => output.output_id),
     };
-    else if (requestPath === "/api/outputs/4/video-preview") response = { state: "failed" };
+    else if (/^\/api\/outputs\/\d+\/video-preview$/.test(requestPath)) response = { state: "failed" };
     else if (requestPath === "/favicon.ico") {
       await route.fulfill({ status: 204 });
       return;
     } else throw new Error(`Unexpected request: ${request.method()} ${requestPath}`);
     await route.fulfill({ contentType: "application/json", body: JSON.stringify(response) });
   };
+}
+
+/** 64장 경계를 넘는 작업 범위와 이미지·영상 혼합 이동 및 늦은 응답을 확인합니다. */
+async function verifyPreviewNavigation(browser, width) {
+  const context = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width < 600 });
+  const fixtures = createImagePreviewFixtures();
+  fixtures.files = [];
+  for (let outputIdentifier = 1; outputIdentifier <= 136; outputIdentifier += 1) {
+    const videoOutput = outputIdentifier === 129;
+    fixtures.files.push({
+      output_id: outputIdentifier, name: `result-${outputIdentifier}.${videoOutput ? "mp4" : "png"}`,
+      path: `results/result-${outputIdentifier}.${videoOutput ? "mp4" : "png"}`, kind: videoOutput ? "video" : "image",
+      job_id: outputIdentifier % 2 ? "first-job" : "second-job",
+      request_id: outputIdentifier % 4 === 1 ? "first-request" : "second-request", width: 768, height: 512,
+    });
+  }
+  await context.route("**/*", createImagePreviewHandler(fixtures));
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  try {
+    await page.goto("http://image-preview.test/?view=outputs&job_id=first-job");
+    const originalButton = page.locator('[data-image-preview="127"]');
+    await originalButton.click();
+    await page.locator("#image-preview-next:not([disabled])").waitFor();
+    assert.match(await page.locator("#image-preview-navigation-status").textContent(), /이 작업의 결과물/);
+    const originalUrl = page.url();
+    const originalScroll = await page.evaluate(() => window.scrollY);
+    await page.locator("#image-preview-next").click();
+    await page.locator("#video-preview-next:not([disabled])").waitFor();
+    assert.equal(await page.locator("#video-preview-title").textContent(), "result-129.mp4");
+    assert.equal(await page.locator("#image-preview-dialog").evaluate(dialog => dialog.open), false);
+    await page.locator("#video-preview-next").click();
+    await page.locator("#image-preview-previous:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-title").textContent(), "result-131.png");
+    await page.keyboard.press("ArrowLeft");
+    await page.locator("#video-preview-previous:not([disabled])").waitFor();
+    await page.locator("#video-preview-previous").click();
+    await page.locator("#image-preview-next:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-title").textContent(), "result-127.png");
+    await page.locator("#image-preview-close").click();
+    assert.equal(page.url(), originalUrl);
+    assert.equal(await page.evaluate(() => window.scrollY), originalScroll);
+    assert.equal(await originalButton.evaluate(button => button === document.activeElement), true);
+    assert.equal(await page.locator('[data-image-preview="127"]').count(), 1);
+    assert.equal(await page.locator('[data-image-preview="131"]').count(), 0);
+    assert.ok(fixtures.neighborQueries.every(query => query.job_id === "first-job"));
+
+    await page.goto("http://image-preview.test/?view=outputs&job_id=first-job&page=2");
+    await page.locator('[data-image-preview="135"]').click();
+    await page.locator("#image-preview-previous:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-next").isDisabled(), true);
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await page.locator("#image-preview-title").textContent(), "result-135.png");
+    await page.keyboard.press("Escape");
+    await page.locator('[data-video-preview="129"]').click();
+    await page.locator("#video-preview-previous:not([disabled])").waitFor();
+    await page.locator("#video-preview-previous").click();
+    await page.locator("#image-preview-next:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-title").textContent(), "result-127.png");
+    assert.match(page.url(), /page=2/);
+    await page.keyboard.press("Escape");
+
+    await page.goto("http://image-preview.test/?view=outputs&request_id=first-request");
+    await page.locator('[data-image-preview="1"]').click();
+    await page.locator("#image-preview-next:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-previous").isDisabled(), true);
+    await page.locator("#image-preview-next").click();
+    await page.locator("#image-preview-previous:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-title").textContent(), "result-5.png");
+    assert.equal(fixtures.neighborQueries.at(-1).request_id, "first-request");
+    await page.keyboard.press("Escape");
+
+    await page.goto("http://image-preview.test/?view=outputs");
+    await page.locator('[data-image-preview="1"]').click();
+    await page.locator("#image-preview-next:not([disabled])").waitFor();
+    await page.locator("#image-preview-next").click();
+    await page.locator("#image-preview-previous:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-title").textContent(), "result-2.png");
+    assert.equal(fixtures.neighborQueries.at(-1).job_id, undefined);
+    await page.keyboard.press("Escape");
+    let markStarted;
+    let releaseNeighbors;
+    const neighborsStarted = new Promise(resolve => { markStarted = resolve; });
+    fixtures.neighborGate = { markStarted, promise: new Promise(resolve => { releaseNeighbors = resolve; }) };
+    await page.locator('[data-image-preview="1"]').click();
+    await neighborsStarted;
+    assert.equal(await page.locator("#image-preview-next").isDisabled(), true);
+    await page.keyboard.press("Escape");
+    await page.locator('[data-image-preview="3"]').click();
+    await page.locator("#image-preview-next:not([disabled])").waitFor();
+    releaseNeighbors();
+    await page.locator("#image-preview-next").click();
+    await page.locator("#image-preview-previous:not([disabled])").waitFor();
+    assert.equal(await page.locator("#image-preview-title").textContent(), "result-4.png");
+    await page.keyboard.press("Escape");
+    fixtures.rejectNeighbors = true;
+    await page.locator('[data-image-preview="1"]').click();
+    await page.locator("#image-preview-navigation-status").filter({ hasText: "불러올 수 없습니다" }).waitFor();
+    assert.equal(await page.locator("#image-preview-next").isDisabled(), true);
+    assert.equal(await page.locator("#image-preview-original").isVisible(), true);
+    await page.keyboard.press("Escape");
+    assert.deepEqual(fixtures.originalRequests, []);
+    assert.deepEqual(pageErrors, []);
+  } finally {
+    await context.close();
+  }
 }
 
 /** 미리보기의 실제 이미지가 준비될 때까지 기다립니다. */
@@ -164,7 +293,9 @@ async function main() {
   try {
     await verifyImagePreviews(browser, 1280);
     await verifyImagePreviews(browser, 390);
-    console.log("Passed: image preview, explicit original-only request, close/backdrop/Escape, touch/drag/focus, protected/multiselect images, failure recovery, navigation and mobile layout.");
+    await verifyPreviewNavigation(browser, 1280);
+    await verifyPreviewNavigation(browser, 390);
+    console.log("Passed: image preview, scoped cross-page image/video navigation, keyboard/boundaries, stale/error responses, original-only requests, close/touch/focus and desktop/mobile layout.");
   } finally {
     await browser.close();
   }

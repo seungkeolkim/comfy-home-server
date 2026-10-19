@@ -19,6 +19,10 @@ const videoPreviewState = {
 const imagePreviewState = {
   outputId: null, opener: null, pointerStartedOutside: false,
 };
+const outputPreviewNavigationState = {
+  revision: 0, controller: null, outputId: null, filter: null, opener: null,
+  previous: null, next: null, loading: false, error: "",
+};
 
 const applicationState = {
   presets: [],
@@ -2385,7 +2389,8 @@ function renderOutputsList() {
 }
 
 /** 재생 연결과 Polling만 해제하고 서버 Queue와 변환은 유지합니다. */
-function closeVideoPreview(restoreFocus = true) {
+function closeVideoPreview(restoreFocus = true, preserveNavigation = false) {
+  if (!preserveNavigation) resetOutputPreviewNavigation();
   videoPreviewState.pointerStartedOutside = false;
   videoPreviewState.revision += 1;
   window.clearTimeout(videoPreviewState.timer);
@@ -2407,8 +2412,8 @@ function closeVideoPreview(restoreFocus = true) {
 
 /** 압축된 이미지 미리보기를 열고 원본은 별도 버튼으로만 연결합니다. */
 function openImagePreview(outputFile, opener) {
-  closeVideoPreview(false);
-  closeImagePreview(false);
+  closeVideoPreview(false, true);
+  closeImagePreview(false, true);
   imagePreviewState.outputId = outputFile.output_id;
   imagePreviewState.opener = opener;
   const encodedPath = encodedOutputPath(outputFile.path);
@@ -2422,7 +2427,8 @@ function openImagePreview(outputFile, opener) {
 }
 
 /** 이미지 연결과 표시 상태를 정리하고 원래 Thumbnail 버튼으로 Focus를 돌립니다. */
-function closeImagePreview(restoreFocus = true) {
+function closeImagePreview(restoreFocus = true, preserveNavigation = false) {
+  if (!preserveNavigation) resetOutputPreviewNavigation();
   imagePreviewState.pointerStartedOutside = false;
   imagePreviewState.outputId = null;
   const image = element("image-preview-content");
@@ -2436,6 +2442,77 @@ function closeImagePreview(restoreFocus = true) {
   imagePreviewState.opener = null;
 }
 
+/** 열린 목록 범위를 해제하고 늦게 도착한 인접 파일 응답을 무효화합니다. */
+function resetOutputPreviewNavigation() {
+  const navigationState = outputPreviewNavigationState;
+  navigationState.revision += 1;
+  navigationState.controller?.abort();
+  Object.assign(navigationState, { controller: null, outputId: null, filter: null, opener: null, previous: null, next: null, loading: false, error: "" });
+  renderOutputPreviewNavigation();
+}
+
+/** 현재 범위와 인접 파일 상태를 이미지·영상의 공통 이동 버튼에 표시합니다. */
+function renderOutputPreviewNavigation() {
+  const navigationState = outputPreviewNavigationState;
+  for (const mediaKind of ["image", "video"]) {
+    element(`${mediaKind}-preview-previous`).disabled = navigationState.loading || !navigationState.previous;
+    element(`${mediaKind}-preview-next`).disabled = navigationState.loading || !navigationState.next;
+    element(`${mediaKind}-preview-navigation-status`).textContent = navigationState.error || (navigationState.loading
+      ? "이전·다음 결과물 확인 중…"
+      : navigationState.outputId === null ? "" : navigationState.filter?.type === "job" ? "이 작업의 결과물" : navigationState.filter ? "이 요청의 결과물" : "전체 결과물");
+  }
+}
+
+/** 현재 결과물 범위를 고정하여 열고 이미지·영상 전환에서도 원래 목록의 Focus를 유지합니다. */
+function openOutputPreview(outputFile, opener, preserveScope = false) {
+  const navigationState = outputPreviewNavigationState;
+  if (!preserveScope) {
+    resetOutputPreviewNavigation();
+    navigationState.filter = applicationState.outputFilter ? { ...applicationState.outputFilter } : null;
+    navigationState.opener = opener;
+  }
+  navigationState.controller?.abort();
+  navigationState.revision += 1;
+  navigationState.outputId = outputFile.output_id;
+  navigationState.controller = new AbortController();
+  navigationState.previous = null;
+  navigationState.next = null;
+  navigationState.loading = true;
+  navigationState.error = "";
+  if (outputFile.kind === "video") runAction(() => openVideoPreview(outputFile, navigationState.opener));
+  else openImagePreview(outputFile, navigationState.opener);
+  renderOutputPreviewNavigation();
+  loadOutputPreviewNeighbors(outputFile.output_id, navigationState.revision);
+}
+
+/** 같은 작업·요청 필터 안의 인접 파일만 읽고 닫거나 이동한 뒤의 응답은 무시합니다. */
+async function loadOutputPreviewNeighbors(outputIdentifier, revision) {
+  const navigationState = outputPreviewNavigationState;
+  const query = new URLSearchParams();
+  if (navigationState.filter) query.set(navigationState.filter.type === "job" ? "job_id" : "request_id", navigationState.filter.id);
+  try {
+    const neighbors = await apiRequest(`/api/outputs/${outputIdentifier}/neighbors?${query}`, { signal: navigationState.controller.signal });
+    if (revision !== navigationState.revision) return;
+    navigationState.previous = neighbors.previous;
+    navigationState.next = neighbors.next;
+  } catch (error) {
+    if (revision !== navigationState.revision || error.name === "AbortError") return;
+    navigationState.error = "이전·다음 결과물을 불러올 수 없습니다. 닫은 뒤 다시 열어 주세요.";
+  } finally {
+    if (revision === navigationState.revision) {
+      navigationState.loading = false;
+      renderOutputPreviewNavigation();
+    }
+  }
+}
+
+/** 페이지 경계와 무관하게 현재 필터 안의 이전 또는 다음 결과물을 미리봅니다. */
+function navigateOutputPreview(direction) {
+  const navigationState = outputPreviewNavigationState;
+  if (navigationState.loading || !navigationState[direction]) return;
+  openOutputPreview(navigationState[direction], navigationState.opener, true);
+}
+
 /** Dialog 자체로 전달된 Pointer가 실제 미리보기 바깥에 있는지 확인합니다. */
 function isPreviewBackdropEvent(event) {
   if (event.target !== event.currentTarget) return false;
@@ -2447,6 +2524,14 @@ function isPreviewBackdropEvent(event) {
 /** 이미지·영상의 닫기·Escape·외부 클릭을 연결하며 내부에서 시작한 드래그는 유지합니다. */
 function bindPreviewDialogEvents(dialogIdentifier, closeButtonIdentifier, previewState, closePreview) {
   const dialog = element(dialogIdentifier);
+  dialog.querySelector("[data-preview-previous]").addEventListener("click", () => navigateOutputPreview("previous"));
+  dialog.querySelector("[data-preview-next]").addEventListener("click", () => navigateOutputPreview("next"));
+  dialog.addEventListener("keydown", event => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.target.closest("video, input, textarea, select")) return;
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    navigateOutputPreview(event.key === "ArrowLeft" ? "previous" : "next");
+  });
   element(closeButtonIdentifier).addEventListener("click", () => closePreview());
   dialog.addEventListener("pointerdown", event => {
     previewState.pointerStartedOutside = isPreviewBackdropEvent(event);
@@ -2470,8 +2555,8 @@ function bindPreviewDialogEvents(dialogIdentifier, closeButtonIdentifier, previe
 
 /** 공유 변환을 접수하고 완료 전에도 준비된 MP4부터 재생합니다. */
 async function openVideoPreview(outputFile, opener, retry = false) {
-  closeImagePreview(false);
-  closeVideoPreview(false);
+  closeImagePreview(false, true);
+  closeVideoPreview(false, true);
   const revision = videoPreviewState.revision;
   videoPreviewState.outputId = outputFile.output_id;
   videoPreviewState.opener = opener;
@@ -3277,13 +3362,13 @@ function bindEvents() {
     const imagePreviewButton = event.target.closest("[data-image-preview]");
     if (imagePreviewButton && !imagePreviewButton.disabled && !outputSelectionIsBusy()) {
       const outputFile = applicationState.visibleOutputs.find(output => String(output.output_id) === imagePreviewButton.dataset.imagePreview);
-      if (outputFile) openImagePreview(outputFile, imagePreviewButton);
+      if (outputFile) openOutputPreview(outputFile, imagePreviewButton);
       return;
     }
     const previewButton = event.target.closest("[data-video-preview]");
     if (previewButton && !previewButton.disabled && !outputSelectionIsBusy()) {
       const outputFile = applicationState.visibleOutputs.find(output => String(output.output_id) === previewButton.dataset.videoPreview);
-      if (outputFile) runAction(() => openVideoPreview(outputFile, previewButton));
+      if (outputFile) openOutputPreview(outputFile, previewButton);
       return;
     }
     const button = event.target.closest("[data-move-output]");

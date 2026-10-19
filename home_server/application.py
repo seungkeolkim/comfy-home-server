@@ -1182,6 +1182,23 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         output_timing.record("handler_total", handler_started_at, emit=True)
         return response
 
+    @app.get("/api/outputs/{output_id}/neighbors")
+    def output_neighbors(output_id: int, job_id: str = "", request_id: str = "", prefix: str = ""):
+        """미리보기를 연 조회 범위 안에서 이미지·영상의 이전·다음 파일만 반환합니다."""
+
+        if job_id and request_id:
+            raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
+        normalized_prefix = prefix.replace("\\", "/")
+        if normalized_prefix:
+            try:
+                server.managed_path(normalized_prefix)
+            except ValueError as exception:
+                raise HTTPException(422, str(exception)) from exception
+        try:
+            return server.output_catalog.get_file_neighbors(output_id, job_id, request_id, normalized_prefix)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+
     @app.get("/api/outputs/deletion-candidates")
     def output_deletion_candidates(job_id: str = "", request_id: str = ""):
         """현재 작업·요청 필터에서 보호되지 않은 이미지의 전체 선택용 ID를 반환합니다."""
