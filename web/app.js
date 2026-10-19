@@ -10,7 +10,26 @@ const ANIMA_RESOLUTIONS = {
   "9:16": [[576, 1024], [720, 1280], [864, 1536]],
 };
 const TAG_NAME_COLLATOR = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
+const KOREAN_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+});
 const NAVIGATION_VIEW_NAMES = ["generate", "jobs", "outputs", "prompts", "tags", "lora-presets"];
+const videoPreviewState = {
+  revision: 0, outputId: null, timer: null, controller: null,
+  opener: null, lastStatus: null, attachedIdentifier: null,
+  pointerStartedOutside: false,
+};
+const imagePreviewState = {
+  outputId: null, opener: null, pointerStartedOutside: false,
+};
+const outputPreviewNavigationState = {
+  revision: 0, controller: null, outputId: null, currentFile: null, filter: null, opener: null,
+  previous: null, next: null, loading: false, error: "",
+};
+const jobDescriptionEditorState = {
+  jobIdentifier: null, revision: 0, openingElement: null,
+};
 
 const applicationState = {
   presets: [],
@@ -25,7 +44,13 @@ const applicationState = {
   loraEditorEntries: [],
   loraCatalogAvailable: false,
   selectedLoras: [],
-  selectedFiles: [],
+  minimaxInputImages: [],
+  minimaxInputCandidates: [],
+  minimaxInputDirectory: null,
+  minimaxInputJob: null,
+  minimaxInputLoading: false,
+  minimaxSelectionRevision: 0,
+  minimaxResolutionManual: false,
   tagGroups: [],
   tagEntries: [],
   selectedTagIds: new Set(),
@@ -44,6 +69,18 @@ const applicationState = {
   outputsPage: 1,
   outputsLoadRevision: 0,
   outputsRenderSignature: null,
+  visibleOutputs: [],
+  outputSelectionMode: false,
+  outputSelectionScope: null,
+  selectedOutputIds: new Set(),
+  selectableOutputIds: new Set(),
+  deletableOutputIds: new Set(),
+  selectingEveryOutput: false,
+  deletingSelectedOutputs: false,
+  deletingOutputId: null,
+  movingOutputPath: null,
+  movingSelectedOutputs: false,
+  movingJobId: null,
   jobsPage: 1,
   jobFilterId: null,
   jobsLoadRevision: 0,
@@ -59,13 +96,39 @@ const applicationState = {
   jobsSelectionScope: null,
   jobSelectionMode: false,
   selectedJobIds: new Set(),
+  expandedJobPromptIds: new Set(),
+  expandedRequestPromptIds: new Set(),
   deletableJobIds: new Set(),
   selectingEveryJob: false,
   updatingJobProtectionId: null,
+  updatingJobDescriptionId: null,
   deletingSelectedJobs: false,
   restoringJobId: null,
   noticeHideTimer: null,
   pollingTimer: null,
+};
+
+const outputFolderPickerState = {
+  selectionMode: "move",
+  images: [],
+  selectedImageIds: new Set(),
+  resolveSelection: null,
+  path: "",
+  parentPath: null,
+  directories: [],
+  loading: false,
+  creating: false,
+  loaded: false,
+  error: "",
+  loadRevision: 0,
+  sessionRevision: 0,
+  openingElement: null,
+};
+
+const jobInputPickerState = {
+  revision: 0, resolveSelection: null, openingElement: null,
+  page: 1, totalPages: 1, jobs: [], jobIdentifier: null, job: null,
+  images: [], selectedImageIds: new Set(), loading: false, error: "",
 };
 
 /** 식별자로 HTML 요소를 가져옵니다. */
@@ -81,6 +144,21 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+/** 저장된 시각을 단말 시간대와 무관한 KST로 표시하고 시각이 없는 값은 그대로 둡니다. */
+function formatKoreanTimestamp(timestamp) {
+  if (typeof timestamp !== "string" || !timestamp.trim()) return "—";
+  const timestampText = timestamp.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(timestampText)) return timestampText;
+  const timestampWithoutTimezone = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?$/;
+  const normalizedTimestamp = timestampWithoutTimezone.test(timestampText)
+    ? `${timestampText.replace(" ", "T")}Z` : timestampText;
+  const timestampDate = new Date(normalizedTimestamp);
+  if (Number.isNaN(timestampDate.getTime())) return timestampText;
+  const dateTimeParts = Object.fromEntries(KOREAN_DATE_TIME_FORMATTER.formatToParts(timestampDate)
+    .map(part => [part.type, part.value]));
+  return `${dateTimeParts.year}-${dateTimeParts.month}-${dateTimeParts.day} ${dateTimeParts.hour}:${dateTimeParts.minute}:${dateTimeParts.second} KST`;
 }
 
 /** 표시 그룹을 한국어 이름순으로 정렬하고 같은 이름은 ID로 순서를 고정합니다. */
@@ -148,9 +226,18 @@ async function apiRequest(path, options = {}) {
 }
 
 /** 화면에 고정된 알림을 잠시 표시합니다. */
-function showNotice(message, isError = false) {
-  const notice = element("notice");
+function showNotice(message, isError = false, action = null) {
+  const notice = element("video-preview-dialog").open ? element("video-preview-notice")
+    : element("image-preview-dialog").open ? element("image-preview-notice") : element("notice");
   notice.textContent = message;
+  if (action) {
+    const actionButton = document.createElement("button");
+    actionButton.type = "button";
+    actionButton.className = "button subtle";
+    actionButton.textContent = action.label;
+    actionButton.addEventListener("click", action.run, { once: true });
+    notice.append(" ", actionButton);
+  }
   notice.classList.toggle("error", isError);
   notice.classList.remove("hidden");
   window.clearTimeout(applicationState.noticeHideTimer);
@@ -159,6 +246,11 @@ function showNotice(message, isError = false) {
 
 /** 로그인 화면만 표시합니다. */
 function showLogin() {
+  closeJobDescriptionEditor(false);
+  closeVideoPreview(false);
+  closeImagePreview(false);
+  finishJobInputSelection(null, true);
+  finishOutputFolderSelection(null, true);
   window.clearTimeout(applicationState.pollingTimer);
   applicationState.pollingTimer = null;
   element("application").classList.add("hidden");
@@ -290,7 +382,8 @@ function handleNavigationLinkClick(event) {
   const navigationLink = event.target.closest("a[data-navigation]");
   if (!navigationLink) return;
   if (navigationLink.getAttribute("aria-disabled") === "true" ||
-      (navigationLink.hasAttribute("data-jobs-page") && jobSelectionIsBusy())) {
+      (navigationLink.hasAttribute("data-jobs-page") && jobSelectionIsBusy()) ||
+      (navigationLink.hasAttribute("data-outputs-page") && outputSelectionIsBusy())) {
     event.preventDefault();
     return;
   }
@@ -330,6 +423,10 @@ function saveCurrentNavigationEntry() {
 
 /** 조회 조건과 탭 표시를 바꾸며 생성 입력이나 변경 요청은 실행하지 않습니다. */
 function displayNavigationState(navigationState) {
+  closeJobDescriptionEditor(false);
+  closeVideoPreview(false);
+  closeImagePreview(false);
+  finishJobInputSelection(null, true);
   const viewName = navigationState.viewName;
   if (viewName === "jobs") {
     applicationState.jobsPage = navigationState.pageNumber;
@@ -492,22 +589,28 @@ function updateWorkflowOptions() {
   const isAnima = element("generate-workflow").value === "anima";
   element("anima-prompt-fields").classList.toggle("hidden", !isAnima);
   element("minimax-prompt-fields").classList.toggle("hidden", isAnima);
-  element("generate-tag-fields").classList.toggle("hidden", !isAnima);
+  element("generate-tag-fields").classList.remove("hidden");
   element("anima-options").classList.toggle("hidden", !isAnima);
   element("minimax-options").classList.toggle("hidden", isAnima);
+  element("minimax-input-fields").classList.toggle("hidden", isAnima);
+  element("minimax-submit-summary").classList.toggle("hidden", isAnima);
   element("generate-count-field").classList.toggle("hidden", !isAnima);
   element("generate-count-hint").classList.toggle("hidden", !isAnima);
   element("generate-count").disabled = !isAnima;
-  element("lora-step").textContent = isAnima ? "03" : "02";
-  element("workflow-options-step").textContent = isAnima ? "04" : "03";
+  element("lora-step").textContent = "03";
+  element("workflow-options-step").textContent = "04";
+  element("generate-tag-description").textContent = isAnima
+    ? "Prompt·Negative Prompt의 [TAG]와 선택한 항목의 하위 [TAG]를 가진 그룹을 표시합니다. 같은 참조 태그의 선택 항목은 함께 추첨됩니다."
+    : "Prompt의 [TAG]와 선택한 항목의 하위 [TAG]를 가진 그룹을 표시합니다. 이미지마다 독립 추첨하고 같은 참조 태그의 선택 항목은 함께 추첨됩니다.";
   element("preview-hint").textContent = isAnima
     ? "미리보기는 선택한 항목을 조합하고 Impact wildcard를 확정한 예시입니다."
-    : "미리보기는 모든 입력 이미지에 사용할 평문을 그대로 보여줍니다.";
+    : "미리보기는 이미지별 태그 추첨 예시입니다. 실제 제출할 때 다시 추첨하며 wildcard 문법은 그대로 유지합니다.";
   renderLoraPresetList();
   renderSelectedLoras();
   renderLoraFileOptions();
   renderGenerateTagGroups();
   updatePresetWorkflowOptions();
+  renderMinimaxInputs();
 }
 
 /** 선택한 해상도를 Anima의 너비와 높이에 적용합니다. */
@@ -543,7 +646,7 @@ function updatePresetWorkflowOptions() {
   element("preset-minimax-fields").classList.toggle("hidden", isAnima);
   element("preset-form-description").textContent = isAnima
     ? "태그 참조가 포함된 Prompt 텍스트를 버전으로 저장합니다."
-    : "MiniMax Prompt를 평문으로 편집하고 버전으로 저장합니다.";
+    : "MiniMax의 [TAG] 참조를 포함한 원본 Prompt를 버전으로 저장합니다.";
 }
 
 /** 저장된 preset 목록을 불러옵니다. */
@@ -582,7 +685,7 @@ function renderPresetList() {
     ? applicationState.presets
         .map(
           (preset) =>
-            `<div class="preset-row"><div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.workflow)} · v${preset.version} · ${escapeHtml(preset.updated_at)}</small></div><div class="inline-actions"><button class="button subtle small" data-load-preset="${escapeHtml(preset.preset_id)}">열기</button><button class="button subtle small" data-show-versions="${escapeHtml(preset.preset_id)}">버전</button></div></div>`,
+            `<div class="preset-row"><div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.workflow)} · v${preset.version} · ${escapeHtml(formatKoreanTimestamp(preset.updated_at))}</small></div><div class="inline-actions"><button class="button subtle small" data-load-preset="${escapeHtml(preset.preset_id)}">열기</button><button class="button subtle small" data-show-versions="${escapeHtml(preset.preset_id)}">버전</button></div></div>`,
         )
         .join("")
     : `<p class="empty-state">저장된 preset이 없습니다.</p>`;
@@ -627,7 +730,7 @@ async function showPresetVersions(presetId) {
   element("preset-version-history").innerHTML = applicationState.presetVersions
     .map(
       (version) => `
-    <div class="preset-row"><div><strong>v${version.version}</strong><small>${escapeHtml(version.saved_at)}</small></div>
+    <div class="preset-row"><div><strong>v${version.version}</strong><small>${escapeHtml(formatKoreanTimestamp(version.saved_at))}</small></div>
     <button class="button subtle small" data-load-version="${version.version}" data-preset-id="${escapeHtml(presetId)}">이 버전 열기</button></div>`,
     )
     .join("");
@@ -701,11 +804,13 @@ async function loadTags() {
   }
 }
 
-/** 두 Prompt와 선택된 태그 본문에서 필요한 참조 키를 재귀적으로 찾습니다. */
+/** 현재 Workflow의 Prompt와 선택된 태그 본문에서 필요한 참조 키를 재귀적으로 찾습니다. */
 function requiredTagKeys() {
   const requiredKeys = new Set();
   const visitedTagIds = new Set();
-  const pendingTexts = [element("generate-anima-prompt").value, element("generate-negative").value];
+  const currentBody = generateBody();
+  const pendingTexts = [currentBody.prompt];
+  if (element("generate-workflow").value === "anima") pendingTexts.push(currentBody.negative || "");
   while (pendingTexts.length) {
     const templateText = pendingTexts.shift();
     for (const match of templateText.matchAll(/\[([A-Z][A-Z0-9_]*)\]/g)) {
@@ -740,7 +845,9 @@ function renderGenerateTagGroups() {
   const container = element("generate-tag-groups");
   const requiredKeys = requiredTagKeys();
   if (!requiredKeys.size) {
-    element("tag-selection-status").textContent = "Prompt와 Negative Prompt에 [TAG] 참조가 없습니다. 태그 선택이 필요하지 않습니다.";
+    element("tag-selection-status").textContent = element("generate-workflow").value === "anima"
+      ? "Prompt와 Negative Prompt에 [TAG] 참조가 없습니다. 태그 선택이 필요하지 않습니다."
+      : "Prompt에 [TAG] 참조가 없습니다. 태그 선택이 필요하지 않습니다.";
     container.innerHTML = "";
     return;
   }
@@ -1208,6 +1315,8 @@ function generationSettings() {
     upscale_model_name: element("minimax-upscale-model").value,
     auto_align: true,
     ref_image_size: "match",
+    generation_mode: element("minimax-generation-mode").value,
+    resolution_mode: applicationState.minimaxResolutionManual ? "manual" : "automatic",
   };
 }
 
@@ -1219,16 +1328,11 @@ async function previewPrompt() {
     body: JSON.stringify({
       workflow,
       body: generateBody(),
-      selected_tag_ids: workflow === "anima" ? activeSelectedTagIds() : [],
+      selected_tag_ids: activeSelectedTagIds(),
       count: 5,
     }),
   });
   element("preview-results").classList.remove("hidden");
-  if (workflow === "minimax_h3") {
-    element("preview-results").innerHTML =
-      `<div class="preview-item"><strong>MiniMax에 전달할 평문</strong>${escapeHtml(response.combined_prompt)}</div>`;
-    return;
-  }
   element("preview-results").innerHTML = response.examples.map((example) => {
     const selectedNames = example.selected_path.map((item) => item.name).join(" → ");
     const negativeNames = (example.negative_selected_path || []).map((item) => item.name).join(" → ");
@@ -1239,19 +1343,249 @@ async function previewPrompt() {
   }).join("");
 }
 
-/** MiniMax 입력 이미지를 임시 업로드하고 식별자를 돌려줍니다. */
-async function uploadImages() {
-  const uploadIds = [];
-  for (const file of applicationState.selectedFiles) {
-    const formData = new FormData();
-    formData.append("file", file);
-    const uploaded = await apiRequest("/api/uploads", {
-      method: "POST",
-      body: formData,
+/** 상대 경로의 폴더 구분자는 유지하면서 파일명 특수문자를 URL에 안전하게 넣습니다. */
+function encodedOutputPath(relativePath) {
+  return relativePath.split("/").map(encodeURIComponent).join("/");
+}
+
+/** 선택을 초기화하고 이전 이미지 확인 응답을 무효화합니다. */
+function clearMinimaxInputs(resetAutomatic = false) {
+  applicationState.minimaxSelectionRevision += 1;
+  applicationState.minimaxInputImages = [];
+  applicationState.minimaxInputCandidates = [];
+  applicationState.minimaxInputDirectory = null;
+  applicationState.minimaxInputJob = null;
+  applicationState.minimaxInputLoading = false;
+  if (resetAutomatic) applicationState.minimaxResolutionManual = false;
+  renderMinimaxInputs();
+}
+
+/** 실제 첫 이미지의 크기를 자동 기본값으로 적용하되 직접 수정한 값은 보존합니다. */
+function applyMinimaxAutomaticResolution() {
+  const referenceImage = applicationState.minimaxInputImages[0];
+  if (!referenceImage || applicationState.minimaxResolutionManual) return;
+  element("minimax-width").value = referenceImage.width;
+  element("minimax-height").value = referenceImage.height;
+}
+
+/** 선택 이미지와 실제 크기·혼합 여부·최종 공통 해상도 및 제출 건수를 표시합니다. */
+function renderMinimaxInputs() {
+  const selectedImages = applicationState.minimaxInputImages;
+  const inputScope = element("minimax-input-scope").value;
+  const folderScope = inputScope === "folder";
+  const multipleImages = inputScope !== "single";
+  const sourceLabel = inputScope === "job" && applicationState.minimaxInputJob
+    ? `작업 ${applicationState.minimaxInputJob.description || applicationState.minimaxInputJob.job_id} · `
+    : folderScope ? `${applicationState.minimaxInputDirectory || "결과물"} · ` : "";
+  element("select-minimax-input").textContent = inputScope === "job" ? "작업 결과 선택" : folderScope ? "서버 폴더 선택" : "서버 이미지 선택";
+  element("selected-images").textContent = applicationState.minimaxInputLoading ? "입력 이미지의 실제 크기를 확인하는 중…"
+    : selectedImages.length ? `${sourceLabel}${selectedImages.length}개 이미지 선택됨 · 이미지마다 영상 한 개`
+      : "선택한 이미지가 없습니다.";
+  const selectedIdentifiers = new Set(selectedImages.map(image => image.output_id));
+  element("minimax-selected-images").innerHTML = applicationState.minimaxInputCandidates.map(image =>
+    `<label class="input-image-card"><img src="/api/outputs/preview/${encodedOutputPath(image.path)}" alt="" loading="lazy" />${multipleImages ? `<input type="checkbox" data-minimax-selected="${image.output_id}" aria-label="${escapeHtml(image.name)} 포함" ${selectedIdentifiers.has(image.output_id) ? "checked" : ""} />` : ""}<span>${escapeHtml(image.name)} · ${image.width} × ${image.height}</span></label>`,
+  ).join("");
+  const referenceImage = selectedImages[0];
+  const mixedDimensions = new Set(selectedImages.map(image => `${image.width}x${image.height}`)).size > 1;
+  const requestedWidth = Number(element("minimax-width").value);
+  const requestedHeight = Number(element("minimax-height").value);
+  const executionWidth = Math.ceil(requestedWidth / 32) * 32;
+  const executionHeight = Math.ceil(requestedHeight / 32) * 32;
+  const dimensionsAreValid = Number.isInteger(requestedWidth) && Number.isInteger(requestedHeight) &&
+    requestedWidth >= 16 && requestedHeight >= 16 && executionWidth <= 8192 && executionHeight <= 8192;
+  element("minimax-resolution-reference").textContent = referenceImage
+    ? `기준: ${referenceImage.name} · 원본 ${referenceImage.width} × ${referenceImage.height} · ${applicationState.minimaxResolutionManual ? "직접 입력" : "자동 입력"}${mixedDimensions ? " · 해상도가 다른 이미지가 섞여 있습니다." : ""} · ${dimensionsAreValid ? `제출 ${executionWidth} × ${executionHeight}` : "16~8192 범위의 해상도를 직접 입력해 주세요."}`
+    : "입력 이미지의 실제 크기로 해상도를 자동 입력합니다.";
+  element("minimax-automatic-resolution").disabled = !referenceImage || applicationState.minimaxInputLoading;
+  element("minimax-submit-summary").textContent = `${element("minimax-generation-mode").value} · 이미지 ${selectedImages.length}장 → 영상 ${selectedImages.length}개 · 공통 ${executionWidth} × ${executionHeight} · 각 ${element("minimax-duration").value}초`;
+}
+
+/** 공용 서버 탐색기에서 확정한 후보만 실제 해상도를 확인하여 입력으로 사용합니다. */
+async function selectMinimaxInputs() {
+  if (element("submit-button").disabled) return;
+  const inputScope = element("minimax-input-scope").value;
+  const selection = inputScope === "job" ? await chooseJobInput()
+    : await chooseOutputFolder(inputScope === "single" ? "영상에 사용할 이미지 한 장을 선택해 주세요." : "폴더의 직하위 이미지마다 영상 한 개를 생성합니다. 최대 100장을 선택해 주세요.", inputScope);
+  if (selection === null) return;
+  await applyMinimaxInputSelection(selection, inputScope);
+}
+
+/** 선택을 확정한 이미지의 현재 상태와 해상도를 검증하고 공통 Snapshot 입력을 준비합니다. */
+async function applyMinimaxInputSelection(selection, inputScope) {
+  const selectionRevision = ++applicationState.minimaxSelectionRevision;
+  applicationState.minimaxInputLoading = true;
+  applicationState.minimaxInputImages = [];
+  applicationState.minimaxInputCandidates = [];
+  applicationState.minimaxInputDirectory = null;
+  applicationState.minimaxInputJob = null;
+  renderMinimaxInputs();
+  try {
+    const inspection = await apiRequest("/api/outputs/input-images/inspect", {
+      method: "POST", body: JSON.stringify({ output_ids: selection.files.map(image => image.output_id), input_job_id: selection.job?.job_id || null }),
     });
-    uploadIds.push(uploaded.upload_id);
+    if (selectionRevision !== applicationState.minimaxSelectionRevision) return;
+    applicationState.minimaxInputImages = inspection.files;
+    applicationState.minimaxInputCandidates = inspection.files;
+    applicationState.minimaxInputDirectory = inputScope === "folder" ? selection.input_directory : null;
+    applicationState.minimaxInputJob = inputScope === "job" ? selection.job : null;
+    applyMinimaxAutomaticResolution();
+    showNotice(`입력 이미지 ${inspection.files.length}장을 선택했습니다.`);
+  } finally {
+    if (selectionRevision === applicationState.minimaxSelectionRevision) {
+      applicationState.minimaxInputLoading = false;
+      renderMinimaxInputs();
+    }
   }
-  return uploadIds;
+}
+
+/** 이력의 이미지 선택을 확정한 뒤 MiniMax로 이동하며 원본 Prompt는 복사하지 않습니다. */
+async function useJobResultsAsMinimaxInput(jobIdentifier) {
+  if (element("submit-button").disabled || applicationState.restoringJobId) return;
+  const selection = await chooseJobInput(jobIdentifier);
+  if (selection === null) return;
+  if (element("generate-workflow").value !== "minimax_h3") resetGenerationWorkflow("minimax_h3");
+  element("minimax-input-scope").value = "job";
+  clearMinimaxInputs();
+  switchView("generate", { resetScroll: true });
+  await applyMinimaxInputSelection(selection, "job");
+}
+
+/** 작업 선택 창의 상태와 선택 개수를 갱신하며 Checkbox의 Focus는 유지합니다. */
+function renderJobInputPicker(rebuildContents = true) {
+  const pickerState = jobInputPickerState;
+  const showingImages = pickerState.jobIdentifier !== null;
+  const selectedCount = pickerState.selectedImageIds.size;
+  element("job-input-back").classList.toggle("hidden", !showingImages);
+  element("job-input-source").textContent = pickerState.job
+    ? `${pickerState.job.workflow} · ${pickerState.job.description || "설명 없음"} · ${pickerState.job.job_id}` : "";
+  element("job-input-status").textContent = pickerState.error || (pickerState.loading ? "불러오는 중…"
+    : showingImages ? `이미지 ${pickerState.images.length}장 · 선택 ${selectedCount}장 / 최대 100장`
+      : pickerState.jobs.length ? "입력으로 사용할 작업을 선택해 주세요." : "사용할 수 있는 이미지가 있는 작업이 없습니다.");
+  element("job-input-retry").classList.toggle("hidden", !pickerState.error);
+  element("job-input-jobs").classList.toggle("hidden", showingImages);
+  element("job-input-pagination").classList.toggle("hidden", showingImages);
+  element("job-input-images").classList.toggle("hidden", !showingImages);
+  element("job-input-select-all").classList.toggle("hidden", !showingImages);
+  element("job-input-select-all").disabled = pickerState.loading || !pickerState.images.length;
+  element("job-input-select-all").textContent = selectedCount === pickerState.images.length ? "전체 해제" : "전체 선택";
+  element("job-input-page").textContent = `${pickerState.page} / ${pickerState.totalPages}`;
+  element("job-input-previous").disabled = pickerState.loading || pickerState.page <= 1;
+  element("job-input-next").disabled = pickerState.loading || pickerState.page >= pickerState.totalPages;
+  element("job-input-confirm").disabled = pickerState.loading || Boolean(pickerState.error) || !pickerState.job || selectedCount < 1 || selectedCount > 100;
+  if (!rebuildContents) return;
+  element("job-input-jobs").innerHTML = pickerState.jobs.map(job =>
+    `<li><button class="button subtle" type="button" data-pick-input-job="${escapeHtml(job.job_id)}" ${pickerState.loading ? "disabled" : ""}>${escapeHtml(job.description || "설명 없음")}<br>${escapeHtml(job.workflow)} · ${escapeHtml(formatKoreanTimestamp(job.created_at))} · 이미지 ${job.image_count}장<br>${escapeHtml(job.job_id)}</button></li>`).join("");
+  element("job-input-images").innerHTML = pickerState.images.map(image =>
+    `<label class="input-image-card"><img src="/api/outputs/preview/${encodedOutputPath(image.path)}" loading="lazy" alt="" /><input type="checkbox" data-pick-job-input="${image.output_id}" aria-label="${escapeHtml(image.name)} 포함" ${pickerState.selectedImageIds.has(image.output_id) ? "checked" : ""} /><span>${escapeHtml(image.path)}</span></label>`).join("");
+}
+
+/** 작은 작업 요약만 페이지 조회하며 닫히거나 다른 조회로 바뀐 응답은 무시합니다. */
+async function loadJobInputJobs(page = 1) {
+  const pickerState = jobInputPickerState;
+  const revision = ++pickerState.revision;
+  Object.assign(pickerState, { page, jobIdentifier: null, job: null, jobs: [], images: [], selectedImageIds: new Set(), loading: true, error: "" });
+  renderJobInputPicker();
+  try {
+    const result = await apiRequest(`/api/outputs/input-jobs?page=${page}&page_size=10`);
+    if (revision !== pickerState.revision) return;
+    Object.assign(pickerState, { jobs: result.items, totalPages: result.total_pages });
+  } catch (error) {
+    if (revision === pickerState.revision) pickerState.error = error.message;
+  } finally {
+    if (revision === pickerState.revision) {
+      pickerState.loading = false;
+      renderJobInputPicker();
+    }
+  }
+}
+
+/** 작업 소속의 현재 이미지 목록을 조회하고 전체 후보를 표시하여 임의로 100장만 자르지 않습니다. */
+async function loadJobInputImages(jobIdentifier) {
+  const pickerState = jobInputPickerState;
+  const revision = ++pickerState.revision;
+  Object.assign(pickerState, { jobIdentifier, job: null, images: [], selectedImageIds: new Set(), loading: true, error: "" });
+  renderJobInputPicker();
+  try {
+    const result = await apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}/input-images`);
+    if (revision !== pickerState.revision) return;
+    pickerState.job = result.job;
+    pickerState.images = result.files;
+    pickerState.selectedImageIds = new Set(result.files.map(image => image.output_id));
+  } catch (error) {
+    if (revision === pickerState.revision) pickerState.error = error.message;
+  } finally {
+    if (revision === pickerState.revision) {
+      pickerState.loading = false;
+      renderJobInputPicker();
+    }
+  }
+}
+
+/** 작업 결과 선택 창을 열고 확정된 명시적 이미지 목록 또는 취소 결과를 기다립니다. */
+function chooseJobInput(initialJobIdentifier = null) {
+  finishJobInputSelection(null, true);
+  const pickerState = jobInputPickerState;
+  pickerState.openingElement = document.activeElement;
+  pickerState.page = 1;
+  pickerState.totalPages = 1;
+  const selectionPromise = new Promise(resolve => { pickerState.resolveSelection = resolve; });
+  element("job-input-picker").showModal();
+  if (initialJobIdentifier) loadJobInputImages(initialJobIdentifier);
+  else loadJobInputJobs();
+  return selectionPromise;
+}
+
+/** 선택 창을 닫고 대기 중인 조회를 무효화하며 필요한 경우 원래 버튼으로 Focus를 돌립니다. */
+function finishJobInputSelection(selection, skipFocus = false) {
+  const pickerState = jobInputPickerState;
+  pickerState.revision += 1;
+  const resolveSelection = pickerState.resolveSelection;
+  pickerState.resolveSelection = null;
+  const openingElement = pickerState.openingElement;
+  pickerState.openingElement = null;
+  if (element("job-input-picker").open) element("job-input-picker").close();
+  if (resolveSelection) resolveSelection(selection);
+  if (!skipFocus && openingElement?.isConnected) openingElement.focus();
+}
+
+/** 작업 목록·이미지 선택·페이지 이동과 Escape 취소를 공용 선택 흐름에 연결합니다. */
+function bindJobInputPickerEvents() {
+  element("job-input-jobs").addEventListener("click", event => {
+    const jobButton = event.target.closest("[data-pick-input-job]");
+    if (jobButton && !jobButton.disabled) loadJobInputImages(jobButton.dataset.pickInputJob);
+  });
+  element("job-input-images").addEventListener("change", event => {
+    const checkbox = event.target.closest("[data-pick-job-input]");
+    if (!checkbox || jobInputPickerState.loading) return;
+    const outputIdentifier = Number(checkbox.dataset.pickJobInput);
+    if (checkbox.checked) jobInputPickerState.selectedImageIds.add(outputIdentifier);
+    else jobInputPickerState.selectedImageIds.delete(outputIdentifier);
+    renderJobInputPicker(false);
+  });
+  element("job-input-select-all").addEventListener("click", () => {
+    const pickerState = jobInputPickerState;
+    pickerState.selectedImageIds = pickerState.selectedImageIds.size === pickerState.images.length
+      ? new Set() : new Set(pickerState.images.map(image => image.output_id));
+    renderJobInputPicker();
+  });
+  element("job-input-back").addEventListener("click", () => loadJobInputJobs(jobInputPickerState.page));
+  element("job-input-previous").addEventListener("click", () => loadJobInputJobs(jobInputPickerState.page - 1));
+  element("job-input-next").addEventListener("click", () => loadJobInputJobs(jobInputPickerState.page + 1));
+  element("job-input-retry").addEventListener("click", () => jobInputPickerState.jobIdentifier
+    ? loadJobInputImages(jobInputPickerState.jobIdentifier) : loadJobInputJobs(jobInputPickerState.page));
+  element("job-input-cancel").addEventListener("click", () => finishJobInputSelection(null));
+  element("job-input-picker").addEventListener("cancel", event => {
+    event.preventDefault();
+    finishJobInputSelection(null);
+  });
+  element("job-input-picker").addEventListener("close", () => {
+    if (!element("job-input-picker").open) finishJobInputSelection(null);
+  });
+  element("job-input-confirm").addEventListener("click", () => {
+    if (element("job-input-confirm").disabled) return;
+    const pickerState = jobInputPickerState;
+    finishJobInputSelection({ job: pickerState.job, files: pickerState.images.filter(image => pickerState.selectedImageIds.has(image.output_id)) });
+  });
 }
 
 /** Batch를 서버에 제출합니다. */
@@ -1267,29 +1601,32 @@ async function submitBatch() {
   }
   if (
     workflow === "minimax_h3" &&
-    applicationState.selectedFiles.length === 0
+    applicationState.minimaxInputImages.length === 0
   ) {
     throw new Error("MiniMax 입력 이미지를 선택해 주세요.");
   }
+  if (workflow === "minimax_h3" && applicationState.minimaxInputLoading) throw new Error("입력 이미지 확인이 끝난 뒤 제출해 주세요.");
   const submitButton = element("submit-button");
   submitButton.disabled = true;
   submitButton.textContent = "제출 중...";
   try {
-    const uploadIds = workflow === "minimax_h3" ? await uploadImages() : [];
     const response = await apiRequest("/api/batches", {
       method: "POST",
       body: JSON.stringify({
         workflow,
         description: element("job-description").value,
         body: generateBody(),
-        selected_tag_ids: workflow === "anima" ? activeSelectedTagIds() : [],
+        selected_tag_ids: activeSelectedTagIds(),
         count: workflow === "anima" ? Number(element("generate-count").value) : 1,
         settings: generationSettings(),
         loras: applicationState.selectedLoras,
         prompt_preset_id: applicationState.currentPresetId,
         lora_preset_id: applicationState.currentLoraPresetId,
         lora_preset_name: generationLoraPresetName(),
-        upload_ids: uploadIds,
+        output_ids: workflow === "minimax_h3" ? applicationState.minimaxInputImages.map(image => image.output_id) : [],
+        input_scope: workflow === "minimax_h3" ? element("minimax-input-scope").value : null,
+        input_directory: workflow === "minimax_h3" ? applicationState.minimaxInputDirectory : null,
+        input_job_id: workflow === "minimax_h3" ? applicationState.minimaxInputJob?.job_id || null : null,
       }),
     });
     showNotice(
@@ -1311,6 +1648,7 @@ function jobLoraSummary(jobInputs) {
 
 /** 상위 작업에 속한 ComfyUI 요청의 상태와 조작 버튼을 표시합니다. */
 function requestCardMarkup(request, statusNames, commonInputs) {
+  const sourceImage = request.result.source_image;
   const promptText = request.result.prompt || "확정 전";
   const negativeText = request.result.negative ?? commonInputs.body?.negative ?? "";
   const selectedLoras = Array.isArray(commonInputs.loras) ? commonInputs.loras : [];
@@ -1324,18 +1662,23 @@ function requestCardMarkup(request, statusNames, commonInputs) {
   const selectedTagNames = selectedPath.map((item) => item.name).join(" → ");
   const negativeSelectedPath = request.result.negative_selected_path || [];
   const negativeTagNames = negativeSelectedPath.map((item) => item.name).join(" → ");
+  const promptIsExpanded = applicationState.expandedRequestPromptIds.has(request.request_id);
+  const requestPromptDetailsMarkup = [
+    `<div class="job-detail"><strong>Prompt</strong> ${escapeHtml(promptText)}</div>`,
+    selectedTagNames ? `<div class="job-detail"><strong>태그 경로</strong> ${escapeHtml(selectedTagNames)}</div>` : "",
+    negativeText ? `<div class="job-detail"><strong>Negative Prompt</strong> ${escapeHtml(negativeText)}</div>` : "",
+    negativeTagNames ? `<div class="job-detail"><strong>Negative 태그 경로</strong> ${escapeHtml(negativeTagNames)}</div>` : "",
+  ].join("");
   return `
-    <div class="job-request">
+    <div class="job-request" data-request-prompt-card="${escapeHtml(request.request_id)}">
       <div>
         <strong>요청 ${request.request_index} · ${escapeHtml(request.request_id)}</strong>
         <p>prompt_id ${escapeHtml(request.prompt_id || "대기 중")}</p>
       </div>
       <span class="status-badge ${escapeHtml(request.status)}">${escapeHtml(statusNames[request.status] || request.status)}</span>
-      <div class="job-detail"><strong>Prompt</strong> ${escapeHtml(promptText)}</div>
-      ${selectedTagNames ? `<div class="job-detail"><strong>태그 경로</strong> ${escapeHtml(selectedTagNames)}</div>` : ""}
-      ${negativeText ? `<div class="job-detail"><strong>Negative Prompt</strong> ${escapeHtml(negativeText)}</div>` : ""}
-      ${negativeTagNames ? `<div class="job-detail"><strong>Negative 태그 경로</strong> ${escapeHtml(negativeTagNames)}</div>` : ""}
+      <div class="job-prompts request-prompts" role="button" tabindex="0" data-toggle-request-prompt="${escapeHtml(request.request_id)}" aria-expanded="${promptIsExpanded}" title="${promptIsExpanded ? "하위 요청 카드를 눌러 Prompt·태그 경로 접기" : "하위 요청 카드를 눌러 전체 Prompt·태그 경로 보기"}">${requestPromptDetailsMarkup}</div>
       <div class="job-detail"><strong>LoRA</strong> ${escapeHtml(loraText)}</div>
+      ${sourceImage ? `<div class="job-detail"><strong>입력 이미지</strong> ${sourceImage.job_id ? `작업 ${escapeHtml(sourceImage.job_id)} · ` : ""}${escapeHtml(sourceImage.path)} · ${sourceImage.width} × ${sourceImage.height}</div>` : ""}
       ${request.error_message ? `<div class="job-detail"><strong>오류</strong> ${escapeHtml(request.error_message)}</div>` : ""}
       <div class="job-actions inline-actions">
         ${["submitting", "pending", "running"].includes(request.status) ? `<button class="button subtle small" data-cancel-request="${escapeHtml(request.request_id)}">요청 취소</button>` : ""}
@@ -1355,8 +1698,8 @@ function canDeleteJobHistory(job) {
 
 /** 선택·삭제·보호 설정을 변경 중인지 확인합니다. */
 function jobSelectionIsBusy() {
-  return applicationState.deletingSelectedJobs || applicationState.selectingEveryJob ||
-    applicationState.updatingJobProtectionId !== null;
+  return outputFolderPickerState.resolveSelection !== null || applicationState.deletingSelectedJobs || applicationState.selectingEveryJob ||
+    applicationState.updatingJobProtectionId !== null || applicationState.updatingJobDescriptionId !== null || applicationState.movingJobId !== null;
 }
 
 /** 선택 모드, 선택 건수와 삭제 처리 상태에 맞춰 일괄 조작 버튼을 갱신합니다. */
@@ -1429,6 +1772,87 @@ async function toggleEveryJobSelection() {
   }
 }
 
+/** 선택한 작업의 현재 설명을 독립된 Dialog에서 편집하여 Polling에 덮어쓰이지 않게 합니다. */
+function openJobDescriptionEditor(jobIdentifier, openingElement) {
+  if (jobSelectionIsBusy()) return;
+  const job = applicationState.visibleJobs.find(candidate => candidate.job_id === jobIdentifier);
+  if (!job) return;
+  closeJobDescriptionEditor(false);
+  jobDescriptionEditorState.jobIdentifier = jobIdentifier;
+  jobDescriptionEditorState.openingElement = openingElement;
+  element("job-description-input").value = job.description || "";
+  element("job-description-input").disabled = false;
+  element("job-description-save").disabled = false;
+  element("job-description-save").textContent = "저장";
+  element("job-description-status").textContent = "";
+  element("job-description-dialog").showModal();
+  element("job-description-input").select();
+}
+
+/** 편집을 닫고 늦은 저장 응답이 Dialog를 다시 조작하지 않도록 세대를 변경합니다. */
+function closeJobDescriptionEditor(restoreFocus = true) {
+  const editorState = jobDescriptionEditorState;
+  const jobIdentifier = editorState.jobIdentifier;
+  const openingElement = editorState.openingElement;
+  editorState.revision += 1;
+  editorState.jobIdentifier = null;
+  editorState.openingElement = null;
+  const dialog = element("job-description-dialog");
+  if (dialog.open) dialog.close();
+  if (!restoreFocus) return;
+  const currentButton = jobIdentifier ? document.querySelector(`[data-edit-job-description="${CSS.escape(jobIdentifier)}"]`) : null;
+  if (currentButton) currentButton.focus({ preventScroll: true });
+  else if (openingElement?.isConnected) openingElement.focus({ preventScroll: true });
+}
+
+/** 설명만 저장하고 현재 페이지·펼침·선택·생성 폼을 유지한 채 작업 목록을 갱신합니다. */
+async function saveJobDescription() {
+  const editorState = jobDescriptionEditorState;
+  const jobIdentifier = editorState.jobIdentifier;
+  if (!jobIdentifier || applicationState.updatingJobDescriptionId !== null) return;
+  const revision = editorState.revision;
+  let descriptionSaved = false;
+  applicationState.updatingJobDescriptionId = jobIdentifier;
+  applicationState.jobsLoadRevision += 1;
+  element("job-description-input").disabled = true;
+  element("job-description-save").disabled = true;
+  element("job-description-save").textContent = "저장 중…";
+  element("job-description-status").textContent = "";
+  renderJobsList();
+  try {
+    const result = await apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}/description`, {
+      method: "PATCH", body: JSON.stringify({ description: element("job-description-input").value }),
+    });
+    const job = applicationState.visibleJobs.find(candidate => candidate.job_id === jobIdentifier);
+    if (job) job.description = result.description;
+    const cachedJob = applicationState.jobDetails.get(jobIdentifier)?.job;
+    if (cachedJob) cachedJob.description = result.description;
+    if (applicationState.minimaxInputJob?.job_id === jobIdentifier) {
+      applicationState.minimaxInputJob.description = result.description;
+      renderMinimaxInputs();
+    }
+    applicationState.jobsRenderSignature = null;
+    await loadJobs();
+    descriptionSaved = true;
+    showNotice("작업 설명을 수정했습니다.");
+  } catch (error) {
+    if (revision === editorState.revision) element("job-description-status").textContent = error.message;
+    else showNotice(error.message, true);
+  } finally {
+    applicationState.updatingJobDescriptionId = null;
+    renderJobsList();
+    if (revision === editorState.revision) {
+      if (descriptionSaved) closeJobDescriptionEditor();
+      else {
+        element("job-description-input").disabled = false;
+        element("job-description-save").disabled = false;
+        element("job-description-save").textContent = "저장";
+        element("job-description-input").focus({ preventScroll: true });
+      }
+    }
+  }
+}
+
 /** 상위 작업의 삭제 보호를 변경하고 보호한 작업은 선택에서 제거합니다. */
 async function toggleJobDeletionProtection(jobIdentifier) {
   if (jobSelectionIsBusy()) return;
@@ -1441,6 +1865,7 @@ async function toggleJobDeletionProtection(jobIdentifier) {
       method: "PATCH", body: JSON.stringify({ deletion_protected: !job.deletion_protected }),
     });
     if (result.deletion_protected) applicationState.selectedJobIds.delete(jobIdentifier);
+    applicationState.outputsRenderSignature = null;
     await loadJobs();
     showNotice(result.deletion_protected ? "작업의 삭제 보호를 설정했습니다." : "작업의 삭제 보호를 해제했습니다.");
   } finally {
@@ -1514,6 +1939,9 @@ function restoreGenerationSettings(workflow, settings) {
     inputElement.value = settings[settingKey] ?? inputElement.defaultValue;
   }
   element("minimax-upscale").value = settings.upscale_mode || "off";
+  element("minimax-generation-mode").value = settings.generation_mode || "FL2VA";
+  element("minimax-input-scope").value = settings.input_scope || "single";
+  applicationState.minimaxResolutionManual = true;
 }
 
 /** 상위 작업의 공통 입력을 현재 목록에 맞춰 복원하며 새 요청은 제출하지 않습니다. */
@@ -1551,12 +1979,10 @@ async function restoreJobGeneration(jobIdentifier) {
 
     // 과거 정의는 되살리지 않고 현재 참조에서 체크할 수 있는 항목만 남깁니다.
     const currentTagIds = new Set(currentTags.entries.map((entry) => entry.tag_id));
-    if (job.workflow === "anima") {
-      for (const selectedTag of jobInputs.selected_tags || []) {
-        if (currentTagIds.has(selectedTag.tag_id)) applicationState.selectedTagIds.add(selectedTag.tag_id);
-      }
-      applicationState.selectedTagIds = new Set(activeSelectedTagIds());
+    for (const selectedTag of jobInputs.selected_tags || []) {
+      if (currentTagIds.has(selectedTag.tag_id)) applicationState.selectedTagIds.add(selectedTag.tag_id);
     }
+    applicationState.selectedTagIds = new Set(activeSelectedTagIds());
     applicationState.expandedTagGroupIds = new Set(
       currentTags.groups.filter((group) => group.default_expanded).map((group) => group.group_id),
     );
@@ -1565,10 +1991,7 @@ async function restoreJobGeneration(jobIdentifier) {
     restoreGenerationSettings(job.workflow, jobInputs.settings || {});
     element("generate-count").value = job.workflow === "anima" ? job.request_count : 1;
     element("job-description").value = job.description || "";
-    applicationState.selectedFiles = [];
-    element("minimax-images").value = "";
-    element("minimax-directory").value = "";
-    element("selected-images").textContent = "선택한 이미지가 없습니다.";
+    clearMinimaxInputs(false);
     element("preview-results").innerHTML = "";
     element("preview-results").classList.add("hidden");
     switchView("generate", { resetScroll: true });
@@ -1589,6 +2012,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
   const originalBody = summaryDetail.body || {};
   const originalPrompt = typeof originalBody.prompt === "string" ? originalBody.prompt : "기록 없음";
   const originalNegative = typeof originalBody.negative === "string" ? originalBody.negative : "";
+  const promptIsExpanded = applicationState.expandedJobPromptIds.has(job.job_id);
   const loraSummary = jobLoraSummary(summaryDetail);
   const requestSettings = { ...summaryDetail.settings, ...summaryDetail.resolved?.settings };
   const dimensions = formatDimensions(requestSettings.width, requestSettings.height);
@@ -1617,21 +2041,23 @@ function jobCardMarkup(job, statusNames, openJobIds) {
         ${!canDelete ? `title="${job.deletion_protected ? "삭제 보호된 작업은 선택할 수 없습니다." : "진행 중인 작업은 선택할 수 없습니다."}"` : ""}>`
     : "";
   return `
-    <article class="job-card">
+    <article class="job-card" data-job-prompt-card="${escapeHtml(job.job_id)}">
       <div class="job-selection-heading">
         ${selectionCheckbox}
         <div>
-        <h3>${escapeHtml(job.workflow)} · 작업 ${escapeHtml(job.job_id)}</h3>
-        <p>${escapeHtml(job.created_at)} · ${dimensions.ratio} · ${dimensions.resolution} · CFG ${escapeHtml(requestSettings.cfg ?? "—")} · Steps ${escapeHtml(requestSettings.steps ?? "—")} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
-        ${job.description ? `<p class="job-description">${escapeHtml(job.description)}</p>` : ""}
+        <h3>${escapeHtml(job.workflow)}${job.workflow === "minimax_h3" ? ` · ${escapeHtml(requestSettings.generation_mode || "FL2VA")} · ${requestSettings.input_scope === "job" ? "작업 결과 일괄" : requestSettings.input_scope === "folder" ? "폴더 일괄" : "이미지 입력"}` : ""} · 작업 ${escapeHtml(job.job_id)}</h3>
+        <p>${escapeHtml(formatKoreanTimestamp(job.created_at))} · ${dimensions.ratio} · ${dimensions.resolution} · CFG ${escapeHtml(requestSettings.cfg ?? "—")} · Steps ${escapeHtml(requestSettings.steps ?? "—")} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
+        <p class="job-description"><span class="job-description-text">${job.description ? escapeHtml(job.description) : "(작업 설명 없음)"}</span><button class="job-description-edit" type="button" data-edit-job-description="${escapeHtml(job.job_id)}" aria-label="작업 설명 수정" title="작업 설명 수정" ${jobSelectionIsBusy() ? "disabled" : ""}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m16 3 5 5-12 12-6 1 1-6Z"></path><path d="m14 5 5 5"></path></svg></button></p>
+        ${requestSettings.input_scope === "job" ? `<p class="hint">입력 출처: 작업 ${escapeHtml(requestSettings.input_job_id)}</p>` : ""}
         </div>
       </div>
       <span class="status-badge ${escapeHtml(job.status)}">${escapeHtml(statusNames[job.status] || job.status)}</span>
       ${job.deletion_protected ? '<span class="job-protection-badge">삭제 보호됨</span>' : ""}
-      <div class="job-detail job-original-prompt"><strong>입력 Prompt</strong> ${escapeHtml(originalPrompt)}</div>
-      ${originalNegative ? `<div class="job-detail job-original-negative-prompt"><strong>입력 Negative Prompt</strong> ${escapeHtml(originalNegative)}</div>` : ""}
+      <div class="job-prompts" role="button" tabindex="0" data-toggle-job-prompt="${escapeHtml(job.job_id)}" aria-expanded="${promptIsExpanded}" title="${promptIsExpanded ? "카드를 눌러 Prompt 접기" : "카드를 눌러 전체 Prompt 보기"}"><div class="job-detail job-original-prompt"><strong>입력 Prompt</strong> ${escapeHtml(originalPrompt)}</div>${originalNegative ? `<div class="job-detail job-original-negative-prompt"><strong>입력 Negative Prompt</strong> ${escapeHtml(originalNegative)}</div>` : ""}</div>
       <div class="job-actions inline-actions">
+        ${job.workflow === "anima" && completedCount > 0 ? `<button class="button subtle small" data-use-job-input="${escapeHtml(job.job_id)}" ${jobSelectionIsBusy() || applicationState.restoringJobId || element("submit-button").disabled ? "disabled" : ""}>MiniMax 입력으로 사용</button>` : ""}
         <a class="button subtle small" data-navigation data-show-job-results="${escapeHtml(job.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "outputs", pageNumber: 1, outputFilter: { type: "job", id: job.job_id } }))}">작업 결과 보기</a>
+        <button class="button subtle small" data-move-job-outputs="${escapeHtml(job.job_id)}" ${canCancel || jobSelectionIsBusy() || outputSelectionIsBusy() ? "disabled" : ""} ${canCancel ? 'title="생성이 끝난 뒤 결과물을 이동할 수 있습니다."' : ""}>${applicationState.movingJobId === job.job_id ? "결과물 이동 중…" : "결과물 폴더 이동"}</button>
         <button class="button ${job.deletion_protected ? "job-protected" : "subtle"} small" data-toggle-job-protection="${escapeHtml(job.job_id)}" aria-pressed="${Boolean(job.deletion_protected)}" ${jobSelectionIsBusy() ? "disabled" : ""}>${job.deletion_protected ? "보호 해제" : "삭제 보호"}</button>
         ${canCancel ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.job_id)}" ${cancellationIsBusy ? "disabled" : ""}>${cancellationIsBusy ? "취소 처리 중" : job.cancellation_requested ? "취소 재시도" : "작업 취소"}</button>` : ""}
         ${canDelete && !applicationState.jobSelectionMode ? `<button class="button subtle small" data-delete-job="${escapeHtml(job.job_id)}">이력만 삭제</button><button class="button danger small" data-delete-job-outputs="${escapeHtml(job.job_id)}">이력·결과물 삭제</button>` : ""}
@@ -1644,13 +2070,38 @@ function jobCardMarkup(job, statusNames, openJobIds) {
     </article>`;
 }
 
-/** 현재 작업 카드를 다시 그리면서 펼친 요청과 checkbox의 keyboard focus를 유지합니다. */
+/** 카드 전체를 다시 그리지 않고 원본 Positive·Negative Prompt의 공통 접힘 상태를 바꿉니다. */
+function toggleJobPromptExpansion(jobIdentifier) {
+  const promptContainer = document.querySelector(`[data-toggle-job-prompt="${CSS.escape(jobIdentifier)}"]`);
+  if (!promptContainer) return;
+  const promptIsExpanded = !applicationState.expandedJobPromptIds.has(jobIdentifier);
+  if (promptIsExpanded) applicationState.expandedJobPromptIds.add(jobIdentifier);
+  else applicationState.expandedJobPromptIds.delete(jobIdentifier);
+  promptContainer.setAttribute("aria-expanded", String(promptIsExpanded));
+  promptContainer.title = promptIsExpanded ? "카드를 눌러 Prompt 접기" : "카드를 눌러 전체 Prompt 보기";
+}
+
+/** 하위 요청의 Prompt·태그 경로를 상위 카드 및 다른 요청과 독립적으로 펼치거나 접습니다. */
+function toggleRequestPromptExpansion(requestIdentifier) {
+  const promptContainer = document.querySelector(`[data-toggle-request-prompt="${CSS.escape(requestIdentifier)}"]`);
+  if (!promptContainer) return;
+  const promptIsExpanded = !applicationState.expandedRequestPromptIds.has(requestIdentifier);
+  if (promptIsExpanded) applicationState.expandedRequestPromptIds.add(requestIdentifier);
+  else applicationState.expandedRequestPromptIds.delete(requestIdentifier);
+  promptContainer.setAttribute("aria-expanded", String(promptIsExpanded));
+  promptContainer.title = promptIsExpanded ? "하위 요청 카드를 눌러 Prompt·태그 경로 접기" : "하위 요청 카드를 눌러 전체 Prompt·태그 경로 보기";
+}
+
+/** 작업 카드를 다시 그리면서 상위·하위 Prompt의 펼침 상태와 Keyboard focus를 유지합니다. */
 function renderJobsList() {
   const statusNames = {
     submitting: "제출 중", pending: "대기", running: "실행 중", cancelling: "취소 중",
     completed: "완료", failed: "실패", partial: "일부 완료", cancelled: "취소", stopped: "중단",
   };
   const focusedJobId = document.activeElement?.dataset.selectJob;
+  const focusedPromptJobId = document.activeElement?.dataset.toggleJobPrompt;
+  const focusedPromptRequestId = document.activeElement?.dataset.toggleRequestPrompt;
+  const focusedDescriptionJobId = document.activeElement?.dataset.editJobDescription;
   const openJobIds = new Set();
   for (const details of element("jobs-list").querySelectorAll("details[open]")) {
     openJobIds.add(details.dataset.jobDetails);
@@ -1666,8 +2117,17 @@ function renderJobsList() {
       if (checkbox.dataset.selectJob === focusedJobId) checkbox.focus({ preventScroll: true });
     }
   }
+  if (focusedPromptJobId) {
+    document.querySelector(`[data-toggle-job-prompt="${CSS.escape(focusedPromptJobId)}"]`)?.focus({ preventScroll: true });
+  }
   updateJobSelectionControls();
   for (const jobIdentifier of openJobIds) loadJobDetails(jobIdentifier);
+  if (focusedPromptRequestId) {
+    document.querySelector(`[data-toggle-request-prompt="${CSS.escape(focusedPromptRequestId)}"]`)?.focus({ preventScroll: true });
+  }
+  if (focusedDescriptionJobId) {
+    document.querySelector(`[data-edit-job-description="${CSS.escape(focusedDescriptionJobId)}"]`)?.focus({ preventScroll: true });
+  }
 }
 
 /** 상태 집계가 바뀌었는지 확인할 작은 상세 갱신 기준을 만듭니다. */
@@ -1741,7 +2201,7 @@ function renderJobsPagination(page, totalPages) {
 
 /** 앱이 제출한 상위 작업과 하위 요청의 최신 상태를 표시합니다. */
 async function loadJobs({ refreshAfterCurrentRequest = true } = {}) {
-  if (element("application").classList.contains("hidden") || applicationState.deletingSelectedJobs || applicationState.selectingEveryJob) return;
+  if (element("application").classList.contains("hidden") || applicationState.deletingSelectedJobs || applicationState.selectingEveryJob || applicationState.movingJobId !== null) return;
   if (applicationState.jobsLoadPromise) {
     if (refreshAfterCurrentRequest) applicationState.jobsReloadRequested = true;
     return applicationState.jobsLoadPromise;
@@ -1867,6 +2327,7 @@ async function deleteSelectedJobHistory(deleteOutputs) {
 
 /** 선택한 작업의 이력과 요청한 경우 원래 위치의 결과물을 삭제합니다. */
 async function deleteJobHistory(jobId, deleteOutputs) {
+  if (jobSelectionIsBusy() || outputSelectionIsBusy()) return;
   const confirmation = deleteOutputs
     ? "이 작업의 이력과 원래 생성 위치에 남은 결과물을 영구 삭제하시겠습니까? 이동된 파일은 삭제하지 않습니다."
     : "이 작업의 이력만 삭제하시겠습니까? 결과물 파일은 유지됩니다.";
@@ -1904,22 +2365,44 @@ function renderOutputsPagination(page, totalPages) {
 
 /** 관리 폴더의 현재 결과물을 페이지 단위로 표시합니다. */
 async function loadOutputs() {
-  if (element("application").classList.contains("hidden")) return;
+  if (element("application").classList.contains("hidden") || outputSelectionIsBusy()) return;
   const loadRevision = ++applicationState.outputsLoadRevision;
   try {
     const outputFilter = applicationState.outputFilter;
-    const query = new URLSearchParams({ page: String(applicationState.outputsPage), page_size: "24" });
+    const selectionMode = applicationState.outputSelectionMode;
+    const selectionScope = JSON.stringify(outputFilter);
+    if (applicationState.outputSelectionScope !== selectionScope) {
+      applicationState.selectedOutputIds.clear();
+      applicationState.selectableOutputIds.clear();
+      applicationState.deletableOutputIds.clear();
+      applicationState.outputSelectionScope = selectionScope;
+      updateOutputSelectionControls();
+    }
+    const query = new URLSearchParams({ page: String(applicationState.outputsPage), page_size: "64" });
+    const candidateQuery = new URLSearchParams();
     if (outputFilter)
       query.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
-    const response = await apiRequest(`/api/outputs?${query}`);
+    if (outputFilter)
+      candidateQuery.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
+    const [response, candidates] = await Promise.all([
+      apiRequest(`/api/outputs?${query}`),
+      selectionMode ? apiRequest(`/api/outputs/selection-candidates?${candidateQuery}`) : Promise.resolve(null),
+    ]);
     if (loadRevision !== applicationState.outputsLoadRevision) return;
     if (applicationState.outputsPage > response.total_pages) {
       applicationState.outputsPage = response.total_pages;
       return loadOutputs();
     }
-    const renderSignature = JSON.stringify([response, query.toString()]);
+    applicationState.visibleOutputs = response.files;
+    applicationState.selectableOutputIds = new Set((candidates?.output_ids || []).map(String));
+    applicationState.deletableOutputIds = new Set((candidates?.deletable_output_ids || []).map(String));
+    for (const selectedOutputId of applicationState.selectedOutputIds) {
+      if (!applicationState.selectableOutputIds.has(selectedOutputId)) {
+        applicationState.selectedOutputIds.delete(selectedOutputId);
+      }
+    }
+    const renderSignature = JSON.stringify([response, candidates, query.toString(), selectionMode]);
     if (renderSignature === applicationState.outputsRenderSignature) return;
-    const visibleFiles = response.files;
     element("output-count").textContent = outputFilter
       ? `${outputFilter.type === "job" ? "이 작업" : "이 요청"}의 결과 ${response.total}개`
       : `${response.total}개 파일`;
@@ -1927,47 +2410,764 @@ async function loadOutputs() {
       "hidden",
       !outputFilter,
     );
-    element("outputs-grid").innerHTML = visibleFiles.length
-      ? visibleFiles
-          .map((file) => {
-            const url = `/media/${file.path.split("/").map(encodeURIComponent).join("/")}`;
-            const dimensions = formatDimensions(file.width, file.height);
-            const dimensionSource = file.dimensions_source === "settings" ? " (설정)" : "";
-            const media =
-              file.kind === "video"
-                ? `<span class="output-video-placeholder">영상 · 열기로 재생</span>`
-                : `<img src="/api/outputs/preview/${file.path.split("/").map(encodeURIComponent).join("/")}" alt="${escapeHtml(file.name)}" loading="lazy">`;
-            const jobButton = file.job_id
-              ? `<a class="button job-link" data-navigation data-output-job="${escapeHtml(file.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "jobs", pageNumber: 1, jobFilterId: file.job_id }))}" aria-label="작업 ${escapeHtml(file.job_id)} 보기">작업</a>`
-              : "";
-            return `<article class="output-card"><div class="output-preview">${media}</div><div class="output-info"><strong>${escapeHtml(file.name)}</strong><small>${escapeHtml(file.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(file.path)}">이동</button>${jobButton}</div></div></article>`;
-          })
-          .join("")
-      : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;
     renderOutputsPagination(response.page, response.total_pages);
+    renderOutputsList();
     applicationState.outputsRenderSignature = renderSignature;
   } catch (error) {
     if (loadRevision === applicationState.outputsLoadRevision) showNotice(error.message, true);
   }
 }
 
+/** 작업 상태·파일 종류와 무관하게 삭제 보호 여부로 단건·다중 삭제를 판단합니다. */
+function canDeleteOutput(outputFile) {
+  return !outputFile.deletion_protected;
+}
+
+/** 결과물 선택·삭제·이동 중 다른 조작을 잠글지 확인합니다. */
+function outputSelectionIsBusy() {
+  return outputFolderPickerState.resolveSelection !== null || applicationState.selectingEveryOutput || applicationState.deletingSelectedOutputs ||
+    applicationState.deletingOutputId !== null || applicationState.movingOutputPath !== null ||
+    applicationState.movingSelectedOutputs || applicationState.movingJobId !== null;
+}
+
+/** 현재 페이지와 전체 선택 상태에 맞춰 이동·삭제 조작부를 갱신합니다. */
+function updateOutputSelectionControls() {
+  const selectionIsBusy = outputSelectionIsBusy();
+  const selectableOutputs = applicationState.visibleOutputs;
+  const currentPageSelected = selectableOutputs.length > 0 && selectableOutputs.every(outputFile =>
+    applicationState.selectedOutputIds.has(String(outputFile.output_id)),
+  );
+  const everyOutputSelected = applicationState.selectableOutputIds.size > 0 &&
+    [...applicationState.selectableOutputIds].every(outputIdentifier => applicationState.selectedOutputIds.has(outputIdentifier));
+  element("toggle-output-selection").textContent = applicationState.outputSelectionMode ? "다중 선택 취소" : "다중 선택";
+  element("toggle-output-selection").setAttribute("aria-expanded", String(applicationState.outputSelectionMode));
+  element("toggle-output-selection").disabled = selectionIsBusy;
+  element("output-selection-actions").classList.toggle("hidden", !applicationState.outputSelectionMode);
+  element("select-all-outputs").textContent = currentPageSelected ? "현재 페이지 선택 해제" : "현재 페이지 선택";
+  element("select-all-outputs").disabled = selectionIsBusy || selectableOutputs.length === 0;
+  element("select-every-output").textContent = applicationState.selectingEveryOutput
+    ? "전체 결과물 조회 중…" : everyOutputSelected ? "전체 선택 해제" : "결과물 전체 선택";
+  element("select-every-output").disabled = selectionIsBusy || applicationState.selectableOutputIds.size === 0;
+  element("selected-output-count").textContent = applicationState.deletingSelectedOutputs
+    ? "삭제 중…" : applicationState.movingSelectedOutputs ? "이동 중…" : `${applicationState.selectedOutputIds.size}개 선택`;
+  const selectedDeletableOutputs = [...applicationState.selectedOutputIds].filter(outputIdentifier =>
+    applicationState.deletableOutputIds.has(outputIdentifier),
+  );
+  element("delete-selected-outputs").disabled = selectionIsBusy || selectedDeletableOutputs.length === 0;
+  element("move-selected-outputs").disabled = selectionIsBusy || applicationState.selectedOutputIds.size === 0;
+  element("refresh-outputs-button").disabled = selectionIsBusy;
+  element("outputs-pagination").toggleAttribute("inert", selectionIsBusy);
+  const clearOutputFilterLink = element("clear-output-filter");
+  clearOutputFilterLink.setAttribute("aria-disabled", String(selectionIsBusy));
+  if (selectionIsBusy) clearOutputFilterLink.removeAttribute("href");
+  else clearOutputFilterLink.href = navigationUrl({ viewName: "outputs", pageNumber: 1 });
+  for (const checkbox of element("outputs-grid").querySelectorAll("[data-select-output]")) {
+    checkbox.checked = applicationState.selectedOutputIds.has(checkbox.dataset.selectOutput);
+    checkbox.closest(".output-card").classList.toggle("output-selected", checkbox.checked);
+  }
+}
+
+/** 현재 결과물과 선택 상태를 표시하고 삭제 보호된 파일의 삭제 버튼을 비활성화합니다. */
+function renderOutputsList() {
+  const selectionIsBusy = outputSelectionIsBusy();
+  const visibleFiles = applicationState.visibleOutputs;
+  element("outputs-grid").innerHTML = visibleFiles.length
+      ? visibleFiles
+          .map((outputFile) => {
+            const url = `/media/${outputFile.path.split("/").map(encodeURIComponent).join("/")}`;
+            const dimensions = formatDimensions(outputFile.width, outputFile.height);
+            const dimensionSource = outputFile.dimensions_source === "settings" ? " (설정)" : "";
+            const media =
+              outputFile.kind === "video"
+                ? `<button type="button" class="video-preview-trigger" data-video-preview="${outputFile.output_id}" aria-label="${escapeHtml(outputFile.name)} 저용량 미리보기" ${selectionIsBusy ? "disabled" : ""}><img src="/api/outputs/preview/${outputFile.path.split("/").map(encodeURIComponent).join("/")}" alt="${escapeHtml(outputFile.name)}" loading="lazy"><span class="video-preview-play" aria-hidden="true">▶</span></button>`
+                : `<button type="button" class="image-preview-trigger" data-image-preview="${outputFile.output_id}" aria-label="${escapeHtml(outputFile.name)} 이미지 미리보기" ${selectionIsBusy ? "disabled" : ""}><img src="/api/outputs/preview/${encodedOutputPath(outputFile.path)}" alt="${escapeHtml(outputFile.name)}" loading="lazy"></button>`;
+            const jobButton = outputFile.job_id
+              ? `<a class="button job-link" data-navigation data-output-job="${escapeHtml(outputFile.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "jobs", pageNumber: 1, jobFilterId: outputFile.job_id }))}" aria-label="작업 ${escapeHtml(outputFile.job_id)} 보기">작업</a>`
+              : "";
+            const deleteButton = `<button class="button danger" data-delete-output="${outputFile.output_id}" data-output-path="${escapeHtml(outputFile.path)}" ${selectionIsBusy || !canDeleteOutput(outputFile) ? "disabled" : ""} ${outputFile.deletion_protected ? 'title="삭제 보호된 작업의 결과물입니다."' : ""}>삭제</button>`;
+            const isSelected = applicationState.selectedOutputIds.has(String(outputFile.output_id));
+            const selectionCheckbox = applicationState.outputSelectionMode
+              ? `<label class="output-selection-control"><input class="output-selection-checkbox" type="checkbox" data-select-output="${outputFile.output_id}" aria-label="결과물 ${escapeHtml(outputFile.name)} 선택" ${isSelected ? "checked" : ""} ${selectionIsBusy ? "disabled" : ""}>선택</label>`
+              : "";
+            const protectionLabel = outputFile.deletion_protected ? '<span class="output-protection-label">삭제 보호</span>' : "";
+            return `<article class="output-card${isSelected ? " output-selected" : ""}"><div class="output-preview">${media}${selectionCheckbox}</div><div class="output-info"><strong>${escapeHtml(outputFile.name)}</strong>${protectionLabel}<small>${escapeHtml(outputFile.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(outputFile.path)}" ${selectionIsBusy ? "disabled" : ""}>이동</button>${deleteButton}${jobButton}</div></div></article>`;
+          })
+          .join("")
+      : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;
+  updateOutputSelectionControls();
+}
+
+/** 재생 연결과 Polling만 해제하고 서버 Queue와 변환은 유지합니다. */
+function closeVideoPreview(restoreFocus = true, preserveNavigation = false) {
+  if (!preserveNavigation) resetOutputPreviewNavigation();
+  videoPreviewState.pointerStartedOutside = false;
+  videoPreviewState.revision += 1;
+  window.clearTimeout(videoPreviewState.timer);
+  videoPreviewState.controller?.abort();
+  videoPreviewState.controller = null;
+  videoPreviewState.outputId = null;
+  videoPreviewState.attachedIdentifier = null;
+  const video = element("video-preview-player");
+  video.pause();
+  video.removeAttribute("src");
+  video.removeAttribute("poster");
+  video.load();
+  element("video-preview-notice").classList.add("hidden");
+  const dialog = element("video-preview-dialog");
+  if (dialog.open) dialog.close();
+  if (restoreFocus && videoPreviewState.opener?.isConnected) videoPreviewState.opener.focus({ preventScroll: true });
+  videoPreviewState.opener = null;
+}
+
+/** 압축된 이미지 미리보기를 열고 원본은 별도 버튼으로만 연결합니다. */
+function openImagePreview(outputFile, opener) {
+  closeVideoPreview(false, true);
+  closeImagePreview(false, true);
+  imagePreviewState.outputId = outputFile.output_id;
+  imagePreviewState.opener = opener;
+  const encodedPath = encodedOutputPath(outputFile.path);
+  element("image-preview-title").textContent = outputFile.name;
+  element("image-preview-original").href = `/media/${encodedPath}`;
+  element("image-preview-status").textContent = "미리보기를 불러오는 중…";
+  element("image-preview-notice").classList.add("hidden");
+  const image = element("image-preview-content");
+  image.alt = outputFile.name;
+  image.src = `/api/outputs/preview/${encodedPath}`;
+  element("image-preview-dialog").showModal();
+}
+
+/** 이미지 연결과 표시 상태를 정리하고 원래 Thumbnail 버튼으로 Focus를 돌립니다. */
+function closeImagePreview(restoreFocus = true, preserveNavigation = false) {
+  if (!preserveNavigation) resetOutputPreviewNavigation();
+  imagePreviewState.pointerStartedOutside = false;
+  imagePreviewState.outputId = null;
+  const image = element("image-preview-content");
+  image.removeAttribute("src");
+  image.alt = "";
+  element("image-preview-original").removeAttribute("href");
+  element("image-preview-status").textContent = "";
+  element("image-preview-notice").classList.add("hidden");
+  const dialog = element("image-preview-dialog");
+  if (dialog.open) dialog.close();
+  if (restoreFocus && imagePreviewState.opener?.isConnected) imagePreviewState.opener.focus({ preventScroll: true });
+  imagePreviewState.opener = null;
+}
+
+/** 열린 목록 범위를 해제하고 늦게 도착한 인접 파일 응답을 무효화합니다. */
+function resetOutputPreviewNavigation() {
+  const navigationState = outputPreviewNavigationState;
+  navigationState.revision += 1;
+  navigationState.controller?.abort();
+  Object.assign(navigationState, { controller: null, outputId: null, currentFile: null, filter: null, opener: null, previous: null, next: null, loading: false, error: "" });
+  renderOutputPreviewNavigation();
+}
+
+/** 현재 범위와 인접 파일 상태를 이미지·영상의 공통 이동 버튼에 표시합니다. */
+function renderOutputPreviewNavigation() {
+  const navigationState = outputPreviewNavigationState;
+  const currentFile = navigationState.currentFile;
+  for (const mediaKind of ["image", "video"]) {
+    const deleteButton = element(`${mediaKind}-preview-delete`);
+    deleteButton.disabled = navigationState.loading || Boolean(navigationState.error) || outputSelectionIsBusy() ||
+      !currentFile || currentFile.deletion_protected !== false;
+    deleteButton.textContent = applicationState.deletingOutputId === String(navigationState.outputId) ? "삭제 중…" : "삭제";
+    deleteButton.title = currentFile?.deletion_protected ? "삭제 보호된 작업의 결과물입니다." : "";
+    element(`${mediaKind}-preview-previous`).disabled = navigationState.loading || outputSelectionIsBusy() || !navigationState.previous;
+    element(`${mediaKind}-preview-next`).disabled = navigationState.loading || outputSelectionIsBusy() || !navigationState.next;
+    element(`${mediaKind}-preview-navigation-status`).textContent = navigationState.error || (navigationState.loading
+      ? "이전·다음 결과물 확인 중…"
+      : navigationState.outputId === null ? "" : navigationState.filter?.type === "job" ? "이 작업의 결과물" : navigationState.filter ? "이 요청의 결과물" : "전체 결과물");
+  }
+}
+
+/** 현재 결과물 범위를 고정하여 열고 이미지·영상 전환에서도 원래 목록의 Focus를 유지합니다. */
+function openOutputPreview(outputFile, opener, preserveScope = false) {
+  const navigationState = outputPreviewNavigationState;
+  if (!preserveScope) {
+    resetOutputPreviewNavigation();
+    navigationState.filter = applicationState.outputFilter ? { ...applicationState.outputFilter } : null;
+    navigationState.opener = opener;
+  }
+  navigationState.controller?.abort();
+  navigationState.revision += 1;
+  navigationState.outputId = outputFile.output_id;
+  navigationState.currentFile = null;
+  navigationState.controller = new AbortController();
+  navigationState.previous = null;
+  navigationState.next = null;
+  navigationState.loading = true;
+  navigationState.error = "";
+  if (outputFile.kind === "video") runAction(() => openVideoPreview(outputFile, navigationState.opener));
+  else openImagePreview(outputFile, navigationState.opener);
+  renderOutputPreviewNavigation();
+  loadOutputPreviewNeighbors(outputFile.output_id, navigationState.revision);
+}
+
+/** 같은 작업·요청 필터 안의 인접 파일만 읽고 닫거나 이동한 뒤의 응답은 무시합니다. */
+async function loadOutputPreviewNeighbors(outputIdentifier, revision) {
+  const navigationState = outputPreviewNavigationState;
+  const query = new URLSearchParams();
+  if (navigationState.filter) query.set(navigationState.filter.type === "job" ? "job_id" : "request_id", navigationState.filter.id);
+  try {
+    const neighbors = await apiRequest(`/api/outputs/${outputIdentifier}/neighbors?${query}`, { signal: navigationState.controller.signal });
+    if (revision !== navigationState.revision) return;
+    navigationState.previous = neighbors.previous;
+    navigationState.next = neighbors.next;
+    navigationState.currentFile = neighbors.current;
+  } catch (error) {
+    if (revision !== navigationState.revision || error.name === "AbortError") return;
+    navigationState.error = "이전·다음 결과물을 불러올 수 없습니다. 닫은 뒤 다시 열어 주세요.";
+  } finally {
+    if (revision === navigationState.revision) {
+      navigationState.loading = false;
+      renderOutputPreviewNavigation();
+    }
+  }
+}
+
+/** 페이지 경계와 무관하게 현재 필터 안의 이전 또는 다음 결과물을 미리봅니다. */
+function navigateOutputPreview(direction) {
+  const navigationState = outputPreviewNavigationState;
+  if (navigationState.loading || outputSelectionIsBusy() || !navigationState[direction]) return;
+  openOutputPreview(navigationState[direction], navigationState.opener, true);
+}
+
+/** Dialog 자체로 전달된 Pointer가 실제 미리보기 바깥에 있는지 확인합니다. */
+function isPreviewBackdropEvent(event) {
+  if (event.target !== event.currentTarget) return false;
+  const dialogBounds = event.currentTarget.getBoundingClientRect();
+  return event.clientX < dialogBounds.left || event.clientX > dialogBounds.right ||
+    event.clientY < dialogBounds.top || event.clientY > dialogBounds.bottom;
+}
+
+/** 이미지·영상의 닫기·Escape·외부 클릭을 연결하며 내부에서 시작한 드래그는 유지합니다. */
+function bindPreviewDialogEvents(dialogIdentifier, closeButtonIdentifier, previewState, closePreview) {
+  const dialog = element(dialogIdentifier);
+  dialog.querySelector("[data-preview-previous]").addEventListener("click", () => navigateOutputPreview("previous"));
+  dialog.querySelector("[data-preview-next]").addEventListener("click", () => navigateOutputPreview("next"));
+  dialog.addEventListener("keydown", event => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.target.closest("video, input, textarea, select")) return;
+    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+    event.preventDefault();
+    navigateOutputPreview(event.key === "ArrowLeft" ? "previous" : "next");
+  });
+  element(closeButtonIdentifier).addEventListener("click", () => closePreview());
+  dialog.addEventListener("pointerdown", event => {
+    previewState.pointerStartedOutside = isPreviewBackdropEvent(event);
+  });
+  dialog.addEventListener("pointercancel", () => {
+    previewState.pointerStartedOutside = false;
+  });
+  dialog.addEventListener("click", event => {
+    const clickedBackdrop = previewState.pointerStartedOutside && isPreviewBackdropEvent(event);
+    previewState.pointerStartedOutside = false;
+    if (clickedBackdrop) closePreview();
+  });
+  dialog.addEventListener("cancel", event => {
+    event.preventDefault();
+    closePreview();
+  });
+  dialog.addEventListener("close", () => {
+    if (!dialog.open && previewState.outputId !== null) closePreview();
+  });
+}
+
+/** 공유 변환을 접수하고 완료 전에도 준비된 MP4부터 재생합니다. */
+async function openVideoPreview(outputFile, opener, retry = false) {
+  closeImagePreview(false, true);
+  closeVideoPreview(false, true);
+  const revision = videoPreviewState.revision;
+  videoPreviewState.outputId = outputFile.output_id;
+  videoPreviewState.opener = opener;
+  videoPreviewState.lastStatus = null;
+  videoPreviewState.controller = new AbortController();
+  const encodedPath = outputFile.path.split("/").map(encodeURIComponent).join("/");
+  element("video-preview-title").textContent = outputFile.name;
+  element("video-preview-original").href = `/media/${encodedPath}`;
+  element("video-preview-player").poster = `/api/outputs/preview/${encodedPath}`;
+  element("video-preview-dialog").showModal();
+  try {
+    const status = await apiRequest(`/api/outputs/${outputFile.output_id}/video-preview`, {
+      method: "POST", body: JSON.stringify({ retry }), signal: videoPreviewState.controller.signal,
+    });
+    if (revision !== videoPreviewState.revision) return;
+    updateVideoPreviewStatus(outputFile, status, revision);
+  } catch (error) {
+    if (revision === videoPreviewState.revision && error.name !== "AbortError") showNotice(error.message, true);
+  }
+}
+
+/** 활성 영상의 상태 전이에만 Toast를 띄우고 중복 재생 연결을 만들지 않습니다. */
+function updateVideoPreviewStatus(outputFile, status, revision) {
+  if (revision !== videoPreviewState.revision || !element("video-preview-dialog").open) return;
+  const messages = {
+    queued: "미리보기 변환 대기 중입니다.",
+    converting: "미리보기 변환 중입니다.",
+    retry_wait: "미리보기 변환에 실패해 재시도를 기다리고 있습니다.",
+    failed: "미리보기 변환에 실패했습니다.",
+    missing: "미리보기 파일이 없습니다. 다시 열어 주세요.",
+  };
+  if (videoPreviewState.lastStatus !== status.state && messages[status.state]) {
+    const retryAction = status.state === "failed" ? {
+      label: "재시도",
+      run: () => {
+        if (revision === videoPreviewState.revision) runAction(() => openVideoPreview(outputFile, videoPreviewState.opener, true));
+      },
+    } : null;
+    showNotice(messages[status.state], status.state === "failed", retryAction);
+  }
+  videoPreviewState.lastStatus = status.state;
+  if (["retry_wait", "failed"].includes(status.state) && videoPreviewState.attachedIdentifier) {
+    const video = element("video-preview-player");
+    video.pause();
+    video.removeAttribute("src");
+    video.load();
+    videoPreviewState.attachedIdentifier = null;
+  }
+  if ((status.stream_ready || status.state === "ready") && videoPreviewState.attachedIdentifier !== status.identifier) {
+    const video = element("video-preview-player");
+    videoPreviewState.attachedIdentifier = status.identifier;
+    video.src = `/api/outputs/${outputFile.output_id}/video-preview/stream?version=${encodeURIComponent(status.identifier)}`;
+    video.play().catch(() => {});
+  }
+  if (["queued", "converting", "retry_wait"].includes(status.state)) {
+    videoPreviewState.timer = window.setTimeout(() => pollVideoPreview(outputFile, revision), 750);
+  }
+}
+
+/** 한 번에 하나의 상태 조회만 수행하고 닫거나 교체한 영상의 늦은 응답을 무시합니다. */
+async function pollVideoPreview(outputFile, revision) {
+  if (revision !== videoPreviewState.revision) return;
+  try {
+    const status = await apiRequest(`/api/outputs/${outputFile.output_id}/video-preview`, {
+      signal: videoPreviewState.controller.signal,
+    });
+    updateVideoPreviewStatus(outputFile, status, revision);
+  } catch (error) {
+    if (revision === videoPreviewState.revision && error.name !== "AbortError") showNotice(error.message, true);
+  }
+}
+
+/** 현재 페이지의 결과물을 모두 선택하거나 해제합니다. */
+function toggleAllOutputSelections() {
+  if (!applicationState.outputSelectionMode || outputSelectionIsBusy()) return;
+  const selectableOutputs = applicationState.visibleOutputs;
+  const currentPageSelected = selectableOutputs.every(outputFile => applicationState.selectedOutputIds.has(String(outputFile.output_id)));
+  for (const outputFile of selectableOutputs) {
+    const outputIdentifier = String(outputFile.output_id);
+    if (currentPageSelected) applicationState.selectedOutputIds.delete(outputIdentifier);
+    else applicationState.selectedOutputIds.add(outputIdentifier);
+  }
+  updateOutputSelectionControls();
+}
+
+/** 현재 필터의 모든 페이지에서 이동할 결과물을 선택하거나 해제합니다. */
+async function toggleEveryOutputSelection() {
+  if (!applicationState.outputSelectionMode || outputSelectionIsBusy()) return;
+  const everyOutputSelected = applicationState.selectableOutputIds.size > 0 &&
+    [...applicationState.selectableOutputIds].every(outputIdentifier => applicationState.selectedOutputIds.has(outputIdentifier));
+  if (everyOutputSelected) {
+    applicationState.selectedOutputIds.clear();
+    updateOutputSelectionControls();
+    return;
+  }
+  applicationState.selectingEveryOutput = true;
+  applicationState.outputsLoadRevision += 1;
+  const selectionScope = JSON.stringify(applicationState.outputFilter);
+  renderOutputsList();
+  try {
+    const query = new URLSearchParams();
+    if (applicationState.outputFilter) {
+      const outputFilter = applicationState.outputFilter;
+      query.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
+    }
+    const candidates = await apiRequest(`/api/outputs/selection-candidates?${query}`);
+    if (selectionScope === JSON.stringify(applicationState.outputFilter)) {
+      applicationState.selectedOutputIds = new Set(candidates.output_ids.map(String));
+    }
+  } finally {
+    applicationState.selectingEveryOutput = false;
+    await loadOutputs();
+    renderOutputsList();
+  }
+}
+
+/** 한 번 확인한 결과물들을 개별 API로 삭제하고 실패한 선택만 재시도할 수 있게 남깁니다. */
+async function deleteSelectedOutputs() {
+  if (!applicationState.outputSelectionMode || outputSelectionIsBusy()) return;
+  const selectedOutputIds = [...applicationState.selectedOutputIds].filter(outputIdentifier =>
+    applicationState.deletableOutputIds.has(outputIdentifier),
+  );
+  if (selectedOutputIds.length === 0) return;
+  if (!window.confirm(`선택한 결과물 ${selectedOutputIds.length}개를 영구 삭제하시겠습니까? 삭제 보호 결과물은 제외됩니다. 작업 이력은 유지되며 파일은 복구할 수 없습니다.`)) return;
+  applicationState.deletingSelectedOutputs = true;
+  applicationState.outputsLoadRevision += 1;
+  renderOutputsList();
+  let deletedOutputsCount = 0;
+  const deletionFailures = [];
+  try {
+    for (const outputIdentifier of selectedOutputIds) {
+      try {
+        await apiRequest(`/api/outputs/${encodeURIComponent(outputIdentifier)}`, { method: "DELETE" });
+        deletedOutputsCount += 1;
+        applicationState.selectedOutputIds.delete(outputIdentifier);
+        applicationState.deletableOutputIds.delete(outputIdentifier);
+        applicationState.visibleOutputs = applicationState.visibleOutputs.filter(outputFile => String(outputFile.output_id) !== outputIdentifier);
+      } catch (error) {
+        deletionFailures.push(`결과물 ${outputIdentifier}: ${error.message}`);
+      }
+    }
+  } finally {
+    applicationState.deletingSelectedOutputs = false;
+    applicationState.outputsRenderSignature = null;
+    renderOutputsList();
+    await loadOutputs();
+  }
+  const deletionSummary = `결과물 ${deletedOutputsCount}개를 삭제했습니다.`;
+  showNotice(deletionFailures.length
+    ? `${deletionSummary} 삭제 실패 ${deletionFailures.length}개 · ${deletionFailures[0]}` : deletionSummary,
+    deletionFailures.length > 0);
+}
+
+/** 탐색기의 경로·하위 폴더·진행 상태를 표시하고 조작 가능 범위를 갱신합니다. */
+function renderOutputFolderPicker() {
+  const pickerState = outputFolderPickerState;
+  const directoryIsBusy = pickerState.loading || pickerState.creating;
+  const selectingImages = pickerState.selectionMode !== "move";
+  element("folder-picker-create-form").classList.toggle("hidden", selectingImages);
+  element("folder-picker-creation-hint").classList.toggle("hidden", selectingImages);
+  element("folder-picker-images").classList.toggle("hidden", !selectingImages);
+  const breadcrumbParts = [{ name: "결과물", path: "" }];
+  let breadcrumbPath = "";
+  for (const directoryName of pickerState.path.split("/").filter(Boolean)) {
+    breadcrumbPath = breadcrumbPath ? `${breadcrumbPath}/${directoryName}` : directoryName;
+    breadcrumbParts.push({ name: directoryName, path: breadcrumbPath });
+  }
+  element("folder-picker-breadcrumb").innerHTML = breadcrumbParts.map((directory, directoryIndex) =>
+    `${directoryIndex ? '<span aria-hidden="true">/</span>' : ""}<button type="button" class="button subtle small" data-folder-path="${escapeHtml(directory.path)}" ${directoryIsBusy ? "disabled" : ""} ${directory.path === pickerState.path ? 'aria-current="location"' : ""}>${escapeHtml(directory.name)}</button>`,
+  ).join("");
+  element("folder-picker-parent").disabled = directoryIsBusy || pickerState.parentPath === null;
+  element("folder-picker-directories").innerHTML = pickerState.directories.map(directory =>
+    `<li><button type="button" class="button subtle" data-folder-path="${escapeHtml(directory.path)}" ${directoryIsBusy ? "disabled" : ""}>▸ ${escapeHtml(directory.name)}</button></li>`,
+  ).join("");
+  const status = pickerState.loading ? "폴더를 불러오는 중…" : pickerState.creating ? "폴더를 만드는 중…"
+    : pickerState.error || (pickerState.directories.length ? "하위 폴더를 열거나 현재 폴더를 선택해 주세요." : "하위 폴더가 없습니다.");
+  element("folder-picker-status").textContent = status;
+  if (selectingImages && pickerState.loaded && !pickerState.error) {
+    element("folder-picker-status").textContent = `직하위 이미지 ${pickerState.images.length}장 · ${pickerState.selectedImageIds.size}장 선택 · 최대 100장${pickerState.selectionMode === "single" ? " · 한 장을 선택해 주세요." : " · 제외할 이미지를 해제해 주세요."}`;
+  }
+  element("folder-picker-images").innerHTML = pickerState.images.map(image =>
+    `<label class="input-image-card"><img src="/api/outputs/preview/${encodedOutputPath(image.path)}" alt="" loading="lazy" /><input type="${pickerState.selectionMode === "single" ? "radio" : "checkbox"}" name="picker-input-image" data-pick-input="${image.output_id}" ${pickerState.selectedImageIds.has(String(image.output_id)) ? "checked" : ""} ${directoryIsBusy ? "disabled" : ""} /><span>${escapeHtml(image.name)}</span></label>`,
+  ).join("");
+  element("folder-picker-retry").classList.toggle("hidden", directoryIsBusy || pickerState.loaded || !pickerState.error);
+  element("folder-picker-name").disabled = directoryIsBusy || !pickerState.loaded;
+  element("folder-picker-create").disabled = directoryIsBusy || !pickerState.loaded;
+  element("folder-picker-confirm").disabled = directoryIsBusy || !pickerState.loaded ||
+    (selectingImages && (pickerState.selectedImageIds.size === 0 || pickerState.selectedImageIds.size > 100));
+  element("folder-picker-cancel").disabled = pickerState.creating;
+}
+
+/** 직하위 폴더만 요청하고 닫힌 창이나 이전 요청의 응답은 무시합니다. */
+async function loadOutputFolder(directoryPath) {
+  const pickerState = outputFolderPickerState;
+  if (!pickerState.resolveSelection) return;
+  const loadRevision = ++pickerState.loadRevision;
+  pickerState.path = directoryPath;
+  pickerState.parentPath = directoryPath ? directoryPath.split("/").slice(0, -1).join("/") : null;
+  pickerState.directories = [];
+  pickerState.images = [];
+  pickerState.selectedImageIds.clear();
+  pickerState.loaded = false;
+  pickerState.loading = true;
+  pickerState.error = "";
+  renderOutputFolderPicker();
+  try {
+    const directoryQuery = new URLSearchParams({ path: directoryPath });
+    const [directoryListing, imageListing] = await Promise.all([
+      apiRequest(`/api/outputs/directories?${directoryQuery}`),
+      pickerState.selectionMode === "move" ? Promise.resolve({ files: [] }) : apiRequest(`/api/outputs/input-images?${directoryQuery}`),
+    ]);
+    if (loadRevision !== pickerState.loadRevision || !pickerState.resolveSelection) return;
+    pickerState.path = directoryListing.path;
+    pickerState.parentPath = directoryListing.parent_path;
+    pickerState.directories = directoryListing.directories;
+    pickerState.images = imageListing.files;
+    if (pickerState.selectionMode === "folder") pickerState.selectedImageIds = new Set(imageListing.files.map(image => String(image.output_id)));
+    pickerState.loaded = true;
+  } catch (error) {
+    if (loadRevision !== pickerState.loadRevision || !pickerState.resolveSelection) return;
+    pickerState.error = error.message;
+  } finally {
+    if (loadRevision === pickerState.loadRevision && pickerState.resolveSelection) {
+      pickerState.loading = false;
+      renderOutputFolderPicker();
+      if (!element("output-folder-picker").contains(document.activeElement)) element("folder-picker-cancel").focus();
+    }
+  }
+}
+
+/** 이동 목적지를 공용 Modal로 선택하며 취소는 null, 루트 선택은 빈 문자열로 반환합니다. */
+function chooseOutputFolder(description, selectionMode = "move") {
+  if (outputFolderPickerState.resolveSelection) return Promise.resolve(null);
+  outputFolderPickerState.sessionRevision += 1;
+  outputFolderPickerState.openingElement = document.activeElement;
+  outputFolderPickerState.creating = false;
+  outputFolderPickerState.selectionMode = selectionMode;
+  element("folder-picker-title").textContent = selectionMode === "move" ? "이동할 폴더 선택" : selectionMode === "single" ? "입력 이미지 선택" : "입력 폴더와 이미지 선택";
+  element("folder-picker-confirm").textContent = selectionMode === "move" ? "이 폴더로 이동" : "선택한 이미지 사용";
+  element("folder-picker-description").textContent = description;
+  element("folder-picker-name").value = "";
+  const selectionPromise = new Promise(resolve => { outputFolderPickerState.resolveSelection = resolve; });
+  element("output-folder-picker").showModal();
+  loadOutputFolder("");
+  element("folder-picker-cancel").focus();
+  return selectionPromise;
+}
+
+/** 선택을 한 번만 완료하고 진행 중인 폴더 조회 응답을 무효화합니다. */
+function finishOutputFolderSelection(directoryPath, forceClose = false) {
+  const pickerState = outputFolderPickerState;
+  if (!pickerState.resolveSelection || (pickerState.creating && !forceClose)) return;
+  if (directoryPath !== null && (pickerState.loading || !pickerState.loaded)) return;
+  const resolveSelection = pickerState.resolveSelection;
+  pickerState.resolveSelection = null;
+  pickerState.sessionRevision += 1;
+  pickerState.loadRevision += 1;
+  element("output-folder-picker").close();
+  // 조회 응답이 Modal 뒤에서 카드를 다시 그렸어도 취소 후 버튼이 잠긴 채 남지 않게 합니다.
+  renderJobsList();
+  renderOutputsList();
+  let openingElement = pickerState.openingElement;
+  if (openingElement?.id) openingElement = element(openingElement.id);
+  else {
+    for (const movementButton of document.querySelectorAll("[data-move-output], [data-move-job-outputs]")) {
+      if ((openingElement?.dataset.moveOutput && movementButton.dataset.moveOutput === openingElement.dataset.moveOutput) ||
+          (openingElement?.dataset.moveJobOutputs && movementButton.dataset.moveJobOutputs === openingElement.dataset.moveJobOutputs)) {
+        openingElement = movementButton;
+        break;
+      }
+    }
+  }
+  if (openingElement?.isConnected && !openingElement.disabled) openingElement.focus({ preventScroll: true });
+  resolveSelection(directoryPath);
+}
+
+/** 현재 위치에 폴더 하나를 만들고 명시적인 이동 확정 전에 새 폴더를 엽니다. */
+async function createOutputPickerDirectory(event) {
+  event.preventDefault();
+  const pickerState = outputFolderPickerState;
+  if (!pickerState.resolveSelection || !pickerState.loaded || pickerState.loading || pickerState.creating) return;
+  const loadRevision = pickerState.loadRevision;
+  const sessionRevision = pickerState.sessionRevision;
+  pickerState.creating = true;
+  pickerState.error = "";
+  renderOutputFolderPicker();
+  try {
+    const createdDirectory = await apiRequest("/api/outputs/directories", {
+      method: "POST", body: JSON.stringify({ parent_path: pickerState.path, name: element("folder-picker-name").value }),
+    });
+    if (loadRevision !== pickerState.loadRevision || !pickerState.resolveSelection) return;
+    element("folder-picker-name").value = "";
+    pickerState.creating = false;
+    await loadOutputFolder(createdDirectory.path);
+  } catch (error) {
+    if (loadRevision !== pickerState.loadRevision || !pickerState.resolveSelection) return;
+    pickerState.error = error.message;
+  } finally {
+    if (pickerState.resolveSelection && sessionRevision === pickerState.sessionRevision) {
+      pickerState.creating = false;
+      renderOutputFolderPicker();
+    }
+  }
+}
+
+/** 공용 탐색기의 키보드 취소·폴더 이동·새 폴더 생성 이벤트를 연결합니다. */
+function bindOutputFolderPickerEvents() {
+  const folderPicker = element("output-folder-picker");
+  folderPicker.addEventListener("cancel", event => { event.preventDefault(); finishOutputFolderSelection(null); });
+  folderPicker.addEventListener("close", () => { if (!folderPicker.open) finishOutputFolderSelection(null, true); });
+  folderPicker.addEventListener("click", event => {
+    const directoryButton = event.target.closest("[data-folder-path]");
+    if (directoryButton && !directoryButton.disabled) loadOutputFolder(directoryButton.dataset.folderPath);
+  });
+  element("folder-picker-images").addEventListener("change", event => {
+    const checkbox = event.target.closest("[data-pick-input]");
+    if (!checkbox) return;
+    if (outputFolderPickerState.selectionMode === "single") outputFolderPickerState.selectedImageIds.clear();
+    if (checkbox.checked) outputFolderPickerState.selectedImageIds.add(checkbox.dataset.pickInput);
+    else outputFolderPickerState.selectedImageIds.delete(checkbox.dataset.pickInput);
+    renderOutputFolderPicker();
+    element("folder-picker-images").querySelector(`[data-pick-input="${checkbox.dataset.pickInput}"]`)?.focus();
+  });
+  element("folder-picker-parent").addEventListener("click", () => loadOutputFolder(outputFolderPickerState.parentPath));
+  element("folder-picker-retry").addEventListener("click", () => loadOutputFolder(outputFolderPickerState.path));
+  element("folder-picker-create-form").addEventListener("submit", createOutputPickerDirectory);
+  element("folder-picker-cancel").addEventListener("click", () => finishOutputFolderSelection(null));
+  element("folder-picker-confirm").addEventListener("click", () => {
+    const pickerState = outputFolderPickerState;
+    if (pickerState.selectionMode === "move") finishOutputFolderSelection(pickerState.path);
+    else finishOutputFolderSelection({
+      input_directory: pickerState.path,
+      files: pickerState.images.filter(image => pickerState.selectedImageIds.has(String(image.output_id))),
+    });
+  });
+}
+
+/** 이동 결과의 성공·이미 같은 폴더·실패 건수를 사용자에게 알립니다. */
+function showOutputMoveSummary(movement) {
+  const failureCount = movement.failures.length;
+  const summary = `결과물 ${movement.moved_count}개를 이동했습니다. 같은 폴더 ${movement.skipped_count}개`;
+  showNotice(failureCount
+    ? `${summary} · 이동 실패 ${failureCount}개 · ${movement.failures[0].detail}` : summary,
+    failureCount > 0);
+}
+
+/** 선택한 결과물의 현재 경로를 서버에서 확인하여 한 목적지 폴더로 이동합니다. */
+async function moveSelectedOutputs() {
+  if (!applicationState.outputSelectionMode || outputSelectionIsBusy()) return;
+  const selectedOutputIds = [...applicationState.selectedOutputIds];
+  if (selectedOutputIds.length === 0) return;
+  const destinationFolder = await chooseOutputFolder(`선택한 결과물 ${selectedOutputIds.length}개를 이동할 위치를 선택해 주세요.`);
+  if (destinationFolder === null) return;
+  applicationState.movingSelectedOutputs = true;
+  applicationState.outputsLoadRevision += 1;
+  renderOutputsList();
+  try {
+    const movement = await apiRequest("/api/outputs/move-batch", {
+      method: "POST",
+      body: JSON.stringify({ output_ids: selectedOutputIds.map(Number), destination_folder: destinationFolder }),
+    });
+    for (const outputIdentifier of [...movement.moved_output_ids, ...movement.skipped_output_ids]) {
+      applicationState.selectedOutputIds.delete(String(outputIdentifier));
+    }
+    showOutputMoveSummary(movement);
+  } finally {
+    applicationState.movingSelectedOutputs = false;
+    applicationState.outputsRenderSignature = null;
+    await loadOutputs();
+    renderOutputsList();
+  }
+}
+
+/** 생성이 끝난 작업에 연결된 결과물 전체를 현재 위치에서 한 폴더로 이동합니다. */
+async function moveJobOutputs(jobIdentifier) {
+  if (jobSelectionIsBusy() || outputSelectionIsBusy()) return;
+  const destinationFolder = await chooseOutputFolder(`작업 ${jobIdentifier}의 결과물 전체를 이동할 위치를 선택해 주세요.`);
+  if (destinationFolder === null) return;
+  applicationState.movingJobId = jobIdentifier;
+  applicationState.jobsLoadRevision += 1;
+  applicationState.outputsLoadRevision += 1;
+  renderJobsList();
+  try {
+    const movement = await apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}/outputs/move`, {
+      method: "POST", body: JSON.stringify({ destination_folder: destinationFolder }),
+    });
+    showOutputMoveSummary(movement);
+  } finally {
+    applicationState.movingJobId = null;
+    applicationState.outputsRenderSignature = null;
+    await loadJobs();
+    renderJobsList();
+    if (applicationState.currentView === "outputs") await loadOutputs();
+  }
+}
+
 /** 관리 output 안에서 결과물을 다른 폴더로 이동합니다. */
 async function moveOutput(sourcePath) {
-  const destinationFolder = window.prompt(
-    "이동할 폴더를 from_home_server 기준 상대 경로로 입력하세요.",
-    "sorted",
-  );
-  if (!destinationFolder) return;
-  await apiRequest("/api/outputs/move", {
-    method: "POST",
-    body: JSON.stringify({
-      source: sourcePath,
-      destination_folder: destinationFolder,
-    }),
-  });
-  showNotice("파일을 이동했습니다.");
-  applicationState.outputsPage = 1;
-  await loadOutputs();
+  if (outputSelectionIsBusy()) return;
+  const destinationFolder = await chooseOutputFolder(`${sourcePath} 파일을 이동할 위치를 선택해 주세요.`);
+  if (destinationFolder === null) return;
+  applicationState.movingOutputPath = sourcePath;
+  applicationState.outputsLoadRevision += 1;
+  renderOutputsList();
+  try {
+    const movement = await apiRequest("/api/outputs/move", {
+      method: "POST",
+      body: JSON.stringify({
+        source: sourcePath,
+        destination_folder: destinationFolder,
+      }),
+    });
+    showNotice(movement.moved === false ? "이미 같은 폴더에 있는 파일입니다." : "파일을 이동했습니다.");
+    applicationState.outputsPage = 1;
+  } finally {
+    applicationState.movingOutputPath = null;
+    await loadOutputs();
+    renderOutputsList();
+  }
+}
+
+/** 영구 삭제할 실제 결과물 경로와 이력 유지 여부를 사용자에게 확인합니다. */
+function confirmOutputFileDeletion(outputPath) {
+  return window.confirm(`결과물 파일을 영구 삭제하시겠습니까?\n${outputPath}\n작업 이력은 유지되며 파일은 복구할 수 없습니다.`);
+}
+
+/** 미리보기의 현재 결과물만 삭제하고 같은 범위의 다음·이전 파일로 이동합니다. */
+async function deletePreviewOutput() {
+  const navigationState = outputPreviewNavigationState;
+  const currentFile = navigationState.currentFile;
+  if (!currentFile || element(`${currentFile.kind}-preview-delete`).disabled || outputSelectionIsBusy()) return;
+  if (!confirmOutputFileDeletion(currentFile.path)) return;
+  const revision = navigationState.revision;
+  const adjacentFile = navigationState.next || navigationState.previous;
+  const originalOpenerIdentifier = navigationState.opener?.dataset.imagePreview || navigationState.opener?.dataset.videoPreview;
+  let deletionSucceeded = false;
+  applicationState.deletingOutputId = String(currentFile.output_id);
+  applicationState.outputsLoadRevision += 1;
+  renderOutputsList();
+  renderOutputPreviewNavigation();
+  try {
+    await apiRequest(`/api/outputs/${currentFile.output_id}`, { method: "DELETE" });
+    applicationState.selectedOutputIds.delete(String(currentFile.output_id));
+    applicationState.visibleOutputs = applicationState.visibleOutputs.filter(output => output.output_id !== currentFile.output_id);
+    deletionSucceeded = true;
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    applicationState.deletingOutputId = null;
+    await loadOutputs();
+    renderOutputsList();
+    if (revision === navigationState.revision && navigationState.outputId === currentFile.output_id) {
+      if (deletionSucceeded) {
+        navigationState.opener = document.querySelector(`[data-image-preview="${CSS.escape(originalOpenerIdentifier || "")}"], [data-video-preview="${CSS.escape(originalOpenerIdentifier || "")}"]`) ||
+          element("outputs-grid").querySelector("[data-image-preview], [data-video-preview]") || element("refresh-outputs-button");
+        if (adjacentFile) openOutputPreview(adjacentFile, navigationState.opener, true);
+        else {
+          const focusTarget = navigationState.opener;
+          closeVideoPreview(false);
+          closeImagePreview(false);
+          focusTarget.focus({ preventScroll: true });
+        }
+      } else {
+        navigationState.loading = true;
+        await loadOutputPreviewNeighbors(currentFile.output_id, revision);
+      }
+    }
+    renderOutputPreviewNavigation();
+    if (deletionSucceeded) {
+      await Promise.resolve();
+      showNotice("결과물을 삭제했습니다.");
+    }
+  }
+}
+
+/** 확인한 결과물 하나를 삭제하고 현재 필터와 페이지의 목록을 다시 표시합니다. */
+async function deleteOutput(deleteButton) {
+  if (deleteButton.disabled || outputSelectionIsBusy()) return;
+  const outputPath = deleteButton.dataset.outputPath;
+  if (!confirmOutputFileDeletion(outputPath)) return;
+  applicationState.deletingOutputId = deleteButton.dataset.deleteOutput;
+  applicationState.outputsLoadRevision += 1;
+  renderOutputsList();
+  try {
+    await apiRequest(`/api/outputs/${encodeURIComponent(deleteButton.dataset.deleteOutput)}`, { method: "DELETE" });
+    showNotice("결과물을 삭제했습니다.");
+    applicationState.selectedOutputIds.delete(deleteButton.dataset.deleteOutput);
+  } finally {
+    applicationState.deletingOutputId = null;
+    await loadOutputs();
+    renderOutputsList();
+  }
 }
 
 /** 비동기 UI 동작에서 발생한 오류를 알림으로 표시합니다. */
@@ -1979,6 +3179,32 @@ function runAction(action) {
 
 /** 사용자 조작과 메뉴 이동을 연결합니다. */
 function bindEvents() {
+  element("job-description-form").addEventListener("submit", event => {
+    event.preventDefault();
+    runAction(saveJobDescription);
+  });
+  element("job-description-cancel").addEventListener("click", () => closeJobDescriptionEditor());
+  element("job-description-dialog").addEventListener("cancel", event => {
+    event.preventDefault();
+    closeJobDescriptionEditor();
+  });
+  element("job-description-dialog").addEventListener("close", () => {
+    if (!element("job-description-dialog").open && jobDescriptionEditorState.jobIdentifier !== null) closeJobDescriptionEditor();
+  });
+  bindPreviewDialogEvents("video-preview-dialog", "video-preview-close", videoPreviewState, closeVideoPreview);
+  bindPreviewDialogEvents("image-preview-dialog", "image-preview-close", imagePreviewState, closeImagePreview);
+  element("image-preview-delete").addEventListener("click", () => runAction(deletePreviewOutput));
+  element("video-preview-delete").addEventListener("click", () => runAction(deletePreviewOutput));
+  element("image-preview-content").addEventListener("load", () => {
+    if (imagePreviewState.outputId !== null) element("image-preview-status").textContent = "";
+  });
+  element("image-preview-content").addEventListener("error", () => {
+    if (imagePreviewState.outputId !== null)
+      element("image-preview-status").textContent = "이미지 미리보기를 불러올 수 없습니다. 원본 보기로 확인해 주세요.";
+  });
+  element("video-preview-player").addEventListener("error", () => {
+    if (videoPreviewState.outputId !== null) showNotice("미리보기를 재생하지 못했습니다. 닫은 뒤 다시 열어 주세요.", true);
+  });
   document.addEventListener("click", handleNavigationLinkClick);
   element("jobs-list").addEventListener("toggle", (event) => {
     saveCurrentNavigationEntry();
@@ -2024,6 +3250,7 @@ function bindEvents() {
   });
   element("generate-anima-prompt").addEventListener("input", renderGenerateTagGroups);
   element("generate-negative").addEventListener("input", renderGenerateTagGroups);
+  element("generate-minimax-prompt").addEventListener("input", renderGenerateTagGroups);
   element("expand-generate-tag-groups-button").addEventListener("click", () =>
     setTagGroupsExpanded("generate-tag-groups", applicationState.expandedTagGroupIds, true));
   element("collapse-generate-tag-groups-button").addEventListener("click", () =>
@@ -2174,14 +3401,32 @@ function bindEvents() {
       renderSelectedLoras();
     }
   });
-  for (const inputId of ["minimax-images", "minimax-directory"])
-    element(inputId).addEventListener("change", (event) => {
-      applicationState.selectedFiles = [...event.target.files].filter((file) =>
-        /\.(png|jpe?g|webp|bmp|tiff?)$/i.test(file.name),
-      );
-      element("selected-images").textContent =
-        `${applicationState.selectedFiles.length}개 이미지 선택됨`;
+  element("select-minimax-input").addEventListener("click", () => runAction(selectMinimaxInputs));
+  element("minimax-input-scope").addEventListener("change", () => clearMinimaxInputs());
+  element("minimax-selected-images").addEventListener("change", event => {
+    const checkbox = event.target.closest("[data-minimax-selected]");
+    if (!checkbox) return;
+    const selectedIdentifiers = new Set(applicationState.minimaxInputImages.map(image => String(image.output_id)));
+    if (checkbox.checked) selectedIdentifiers.add(checkbox.dataset.minimaxSelected);
+    else selectedIdentifiers.delete(checkbox.dataset.minimaxSelected);
+    applicationState.minimaxInputImages = applicationState.minimaxInputCandidates.filter(image => selectedIdentifiers.has(String(image.output_id)));
+    applyMinimaxAutomaticResolution();
+    renderMinimaxInputs();
+  });
+  for (const inputIdentifier of ["minimax-width", "minimax-height"]) {
+    element(inputIdentifier).addEventListener("input", () => {
+      applicationState.minimaxResolutionManual = true;
+      renderMinimaxInputs();
     });
+  }
+  element("minimax-automatic-resolution").addEventListener("click", () => {
+    applicationState.minimaxResolutionManual = false;
+    applyMinimaxAutomaticResolution();
+    renderMinimaxInputs();
+  });
+  for (const inputIdentifier of ["minimax-generation-mode", "minimax-duration"]) {
+    element(inputIdentifier).addEventListener("input", renderMinimaxInputs);
+  }
   element("preview-button").addEventListener("click", () =>
     runAction(previewPrompt),
   );
@@ -2212,12 +3457,28 @@ function bindEvents() {
     updateJobSelectionControls();
   });
   element("jobs-list").addEventListener("click", (event) => {
+    const promptCard = event.target.closest("[data-job-prompt-card]");
+    const requestPromptCard = event.target.closest("[data-request-prompt-card]");
+    const interactiveTarget = event.target.closest("a, button, input, select, textarea, label, summary");
+    if (!interactiveTarget && !window.getSelection()?.toString() && !jobSelectionIsBusy()) {
+      if (requestPromptCard) toggleRequestPromptExpansion(requestPromptCard.dataset.requestPromptCard);
+      else if (promptCard && !event.target.closest("details")) toggleJobPromptExpansion(promptCard.dataset.jobPromptCard);
+    }
+    const moveOutputsButton = event.target.closest("[data-move-job-outputs]");
+    if (moveOutputsButton && !moveOutputsButton.disabled)
+      runAction(() => moveJobOutputs(moveOutputsButton.dataset.moveJobOutputs));
+    const editDescriptionButton = event.target.closest("[data-edit-job-description]");
+    if (editDescriptionButton && !editDescriptionButton.disabled)
+      openJobDescriptionEditor(editDescriptionButton.dataset.editJobDescription, editDescriptionButton);
     const protectionButton = event.target.closest("[data-toggle-job-protection]");
     if (protectionButton && !protectionButton.disabled)
       runAction(() => toggleJobDeletionProtection(protectionButton.dataset.toggleJobProtection));
     const restoreJobButton = event.target.closest("[data-restore-job]");
     if (restoreJobButton && !restoreJobButton.disabled)
       runAction(() => restoreJobGeneration(restoreJobButton.dataset.restoreJob));
+    const useJobInputButton = event.target.closest("[data-use-job-input]");
+    if (useJobInputButton && !useJobInputButton.disabled)
+      runAction(() => useJobResultsAsMinimaxInput(useJobInputButton.dataset.useJobInput));
     const cancelButton = event.target.closest("[data-cancel-request]");
     const cancelJobButton = event.target.closest("[data-cancel-job]");
     const deleteJobButton = event.target.closest("[data-delete-job]");
@@ -2250,7 +3511,36 @@ function bindEvents() {
     if (deleteOutputsButton)
       runAction(() => deleteJobHistory(deleteOutputsButton.dataset.deleteJobOutputs, true));
   });
+  element("jobs-list").addEventListener("keydown", event => {
+    const promptContainer = event.target.closest("[data-toggle-job-prompt], [data-toggle-request-prompt]");
+    if (!promptContainer || !["Enter", " "].includes(event.key) || jobSelectionIsBusy()) return;
+    event.preventDefault();
+    if (promptContainer.hasAttribute("data-toggle-request-prompt")) toggleRequestPromptExpansion(promptContainer.dataset.toggleRequestPrompt);
+    else toggleJobPromptExpansion(promptContainer.dataset.toggleJobPrompt);
+  });
+  element("toggle-output-selection").addEventListener("click", () => {
+    if (outputSelectionIsBusy()) return;
+    applicationState.outputSelectionMode = !applicationState.outputSelectionMode;
+    applicationState.outputsLoadRevision += 1;
+    applicationState.selectedOutputIds.clear();
+    applicationState.selectableOutputIds.clear();
+    applicationState.deletableOutputIds.clear();
+    renderOutputsList();
+    runAction(loadOutputs);
+  });
+  element("select-all-outputs").addEventListener("click", toggleAllOutputSelections);
+  element("select-every-output").addEventListener("click", () => runAction(toggleEveryOutputSelection));
+  element("delete-selected-outputs").addEventListener("click", () => runAction(deleteSelectedOutputs));
+  element("move-selected-outputs").addEventListener("click", () => runAction(moveSelectedOutputs));
+  element("outputs-grid").addEventListener("change", (event) => {
+    const selectionCheckbox = event.target.closest("[data-select-output]");
+    if (!selectionCheckbox || selectionCheckbox.disabled || outputSelectionIsBusy()) return;
+    if (selectionCheckbox.checked) applicationState.selectedOutputIds.add(selectionCheckbox.dataset.selectOutput);
+    else applicationState.selectedOutputIds.delete(selectionCheckbox.dataset.selectOutput);
+    updateOutputSelectionControls();
+  });
   element("refresh-outputs-button").addEventListener("click", () => {
+    if (outputSelectionIsBusy()) return;
     applicationState.outputsPage = 1;
     saveCurrentNavigationEntry();
     runAction(async () => {
@@ -2259,8 +3549,22 @@ function bindEvents() {
     });
   });
   element("outputs-grid").addEventListener("click", (event) => {
+    const imagePreviewButton = event.target.closest("[data-image-preview]");
+    if (imagePreviewButton && !imagePreviewButton.disabled && !outputSelectionIsBusy()) {
+      const outputFile = applicationState.visibleOutputs.find(output => String(output.output_id) === imagePreviewButton.dataset.imagePreview);
+      if (outputFile) openOutputPreview(outputFile, imagePreviewButton);
+      return;
+    }
+    const previewButton = event.target.closest("[data-video-preview]");
+    if (previewButton && !previewButton.disabled && !outputSelectionIsBusy()) {
+      const outputFile = applicationState.visibleOutputs.find(output => String(output.output_id) === previewButton.dataset.videoPreview);
+      if (outputFile) openOutputPreview(outputFile, previewButton);
+      return;
+    }
     const button = event.target.closest("[data-move-output]");
-    if (button) runAction(() => moveOutput(button.dataset.moveOutput));
+    if (button && !button.disabled) runAction(() => moveOutput(button.dataset.moveOutput));
+    const deleteButton = event.target.closest("[data-delete-output]");
+    if (deleteButton && !deleteButton.disabled) runAction(() => deleteOutput(deleteButton));
   });
   bindLoraPresetEvents();
 }
@@ -2334,6 +3638,8 @@ function bindLoraPresetEvents() {
 
 /** 첫 화면을 준비하고 기존 session을 확인합니다. */
 async function initializeApplication() {
+  bindOutputFolderPickerEvents();
+  bindJobInputPickerEvents();
   bindEvents();
   initializeNavigationHistory();
   updateAnimaResolutionOptions();

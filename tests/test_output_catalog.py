@@ -76,7 +76,7 @@ def test_schema_nine_backfill_preserves_json_and_hides_missing_files(tmp_path: P
     assert listing["files"][0]["generated_at"] == datetime(2026, 10, 15, 9, 1, 2).timestamp()
     assert listing["files"][0]["dimensions_source"] == "settings"
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
         assert connection.execute("SELECT COUNT(*) FROM output_files").fetchone()[0] == 2
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -134,6 +134,7 @@ def test_catalog_queries_use_indexes_without_json_or_filesystem(tmp_path: Path, 
             assert listing["total"] == 3
             assert [output_file["seed"] for output_file in listing["files"]] == [18446744073709551615, 20]
             assert catalog.list_files(2, 2, **filters)["files"][0]["seed"] == 3
+            assert len(catalog.list_deletable_output_ids(**filters)) == 3
 
     with sqlite3.connect(database.database_path) as connection:
         for filter_sql, query_parameters, expected_index in (

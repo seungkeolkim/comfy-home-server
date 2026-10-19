@@ -49,10 +49,11 @@ function createRestorationFixtures() {
     job_id: "minimax-job", workflow: "minimax_h3", description: "영상 설명", request_count: 2,
     created_at: "2026-10-10", status: "completed", status_counts: { completed: 2 },
     inputs: {
-      body: { prompt: "plain video prompt" }, selected_tags: [],
+      body: { prompt: "video [CHR]" }, selected_tags: structuredClone(selectedTags),
       prompt_preset_id: "video-prompt", lora_preset_id: "video-lora", lora_preset_name: "영상 조합",
       loras: structuredClone(minimaxLoras),
-      settings: { width: 704, height: 512, duration: 3.5, frame_rate: 30, upscale_mode: "model", upscale_model_name: "saved-upscale.pth" },
+      settings: { width: 704, height: 512, duration: 3.5, frame_rate: 30, upscale_mode: "model", upscale_model_name: "saved-upscale.pth",
+        input_scope: "job", input_job_id: "deleted-source-job", input_output_ids: [100, 101] },
     }, requests: [],
   };
   for (let requestIndex = 1; requestIndex <= 2; requestIndex += 1) {
@@ -71,7 +72,7 @@ function createRestorationFixtures() {
     jobs: [animaJob, minimaxJob, legacyJob, missingBodyJob], tagGroups, tagEntries,
     promptPresets: [
       { preset_id: "anima-prompt", name: "이미지 Prompt", workflow: "anima", version: 1, body: structuredClone(originalAnimaBody) },
-      { preset_id: "video-prompt", name: "영상 Prompt", workflow: "minimax_h3", version: 1, body: { prompt: "plain video prompt" } },
+      { preset_id: "video-prompt", name: "영상 Prompt", workflow: "minimax_h3", version: 1, body: { prompt: "video [CHR]" } },
     ],
     loraPresets: [
       { preset_id: "anima-lora", name: "이미지 조합", workflow: "anima", loras: structuredClone(animaLoras) },
@@ -93,7 +94,7 @@ function createRestorationRequestHandler(fixtures) {
       await route.fulfill({ contentType: contentTypes[filename], body: filesystem.readFileSync(path.join(projectDirectory, "web", filename), "utf8") });
       return;
     }
-    if (request.method() !== "GET") fixtures.mutations.push(requestPath);
+    if (request.method() !== "GET" && requestPath !== "/api/outputs/input-images/inspect") fixtures.mutations.push(requestPath);
     let response;
     if (requestPath === "/api/session") response = { authenticated: true };
     else if (requestPath === "/api/jobs/activity") response = { active_count: 0 };
@@ -102,6 +103,14 @@ function createRestorationRequestHandler(fixtures) {
     }
     else if (requestPath === "/api/status") response = { comfy_connected: true, output_directory: "test-output" };
     else if (requestPath === "/api/outputs") response = { files: [], total: 0, total_pages: 1 };
+    else if (requestPath === "/api/outputs/directories") response = { path: "", parent_path: null, directories: [] };
+    else if (requestPath === "/api/outputs/input-images" || requestPath === "/api/outputs/input-images/inspect") {
+      response = { files: [{ output_id: 1, name: "previous.png", path: "previous.png", width: 640, height: 480 }] };
+    }
+    else if (requestPath.startsWith("/api/outputs/preview/")) {
+      await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48"/>' });
+      return;
+    }
     else if (requestPath === "/api/jobs") {
       const selectedJobId = requestUrl.searchParams.get("job_id");
       const matchingJobs = selectedJobId ? fixtures.jobs.filter(job => job.job_id === selectedJobId) : fixtures.jobs;
@@ -211,10 +220,13 @@ async function main() {
     assert.equal(fixtures.tagEntries.some(entry => entry.tag_id === "scene"), false);
 
     await browserPage.locator("#generate-workflow").selectOption("minimax_h3");
-    await browserPage.locator("#minimax-images").setInputFiles({ name: "previous.png", mimeType: "image/png", buffer: Buffer.from("fixture image") });
+    await browserPage.locator("#select-minimax-input").click();
+    await browserPage.locator('[data-pick-input="1"]').check();
+    await browserPage.locator("#folder-picker-confirm").click();
+    await browserPage.waitForFunction(() => document.getElementById("selected-images").textContent.includes("1개"));
     assert.match(await browserPage.locator("#selected-images").textContent(), /1개/);
     await restoreJobFromCard(browserPage, "minimax-job");
-    assert.equal(await browserPage.locator("#generate-minimax-prompt").inputValue(), "plain video prompt");
+    assert.equal(await browserPage.locator("#generate-minimax-prompt").inputValue(), "video [CHR]");
     assert.equal(await browserPage.locator("#generate-preset").inputValue(), "video-prompt");
     assert.equal(await browserPage.locator("#generate-lora-preset").inputValue(), "video-lora");
     assert.equal(await browserPage.locator('#selected-loras [data-lora-field="video_strength"]').inputValue(), "0.3");
@@ -225,10 +237,13 @@ async function main() {
     ]) {
       assert.equal(await browserPage.locator(`#${inputIdentifier}`).inputValue(), expectedValue);
     }
-    assert.equal(await browserPage.locator("#minimax-images").evaluate(input => input.files.length), 0);
-    assert.equal(await browserPage.locator("#minimax-directory").evaluate(input => input.files.length), 0);
+    assert.equal(await browserPage.locator("#minimax-selected-images .input-image-card").count(), 0);
+    assert.equal(await browserPage.locator("#minimax-input-scope").inputValue(), "job");
     assert.equal(await browserPage.locator("#selected-images").textContent(), "선택한 이미지가 없습니다.");
-    assert.equal(await browserPage.locator('[data-select-tag]:checked').count(), 0);
+    assert.equal(await browserPage.locator('[data-select-tag]:checked').count(), 1);
+    assert.equal(await browserPage.locator('[data-select-tag="character-a"]').isChecked(), true);
+    assert.equal(await browserPage.locator('[data-select-tag="character-b"]').count(), 0);
+    assert.equal(await browserPage.locator('[data-select-tag="moved-character"]').count(), 0);
     await browserPage.locator("#submit-button").click();
     await browserPage.waitForFunction(() => document.getElementById("notice").textContent === "MiniMax 입력 이미지를 선택해 주세요.");
     assert.equal(fixtures.submissions.length, 1);
@@ -239,7 +254,7 @@ async function main() {
     await browserPage.locator('[data-restore-job="anima-job"]').click();
     await browserPage.waitForFunction(() => document.getElementById("notice").textContent === "태그 목록 조회 실패");
     assert.equal(await browserPage.locator("#generate-workflow").inputValue(), "minimax_h3");
-    assert.equal(await browserPage.locator("#generate-minimax-prompt").inputValue(), "plain video prompt");
+    assert.equal(await browserPage.locator("#generate-minimax-prompt").inputValue(), "video [CHR]");
     fixtures.failTags = false;
     await browserPage.locator('[data-restore-job="missing-body-job"]').click();
     await browserPage.waitForFunction(() => document.getElementById("notice").textContent.includes("원본 Prompt 기록이 없습니다"));

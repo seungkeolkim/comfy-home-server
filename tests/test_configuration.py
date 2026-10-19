@@ -64,3 +64,25 @@ def test_thumbnail_cache_configuration(tmp_path: Path, output_settings: str, exp
         configuration = load_config(config_path)
         assert configuration.thumbnail_cache_max_entries == 3
         assert configuration.thumbnail_cache_warmup_enabled is True
+
+
+@pytest.mark.parametrize("setting_name,setting_value", [
+    ("video_preview_worker_count", "0"),
+    ("video_preview_encoder_threads", "true"),
+    ("video_preview_frame_rate", "-1"),
+    ("video_preview_queue_max_entries", "1.5"),
+    ("video_preview_warmup_enabled", "1"),
+    ("video_preview_on_completion_enabled", '"true"'),
+    ("video_preview_retry_max_attempts", "false"),
+])
+def test_video_preview_configuration_rejects_invalid_values(tmp_path, setting_name, setting_value):
+    """영상 병렬도·자동 접수·재시도 설정의 타입과 범위를 검증합니다."""
+
+    configuration_path = tmp_path / "config.toml"
+    configuration_path.write_text(
+        '[server]\nhost="127.0.0.1"\nport=8388\npassword="test"\n'
+        '[comfy]\nendpoint="http://example.test"\noutput_directory="output"\n'
+        f'managed_output_folder="managed"\n[outputs]\n{setting_name}={setting_value}\n', encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match=setting_name):
+        load_config(configuration_path)

@@ -35,9 +35,11 @@ class Database:
                 self._backup_before_schema_change(connection, "job_request_storage")
             elif schema_version == 9:
                 self._backup_before_schema_change(connection, "output_catalog")
+            elif schema_version == 10:
+                self._backup_before_schema_change(connection, "output_deletion")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -148,7 +150,7 @@ class Database:
             OutputCatalog.prepare_schema(connection)
             if schema_version < 10:
                 OutputCatalog.backfill_from_requests(connection)
-            connection.execute("PRAGMA user_version = 10")
+            connection.execute("PRAGMA user_version = 11")
 
     def _separate_request_detail(
         self, detail: dict[str, Any],
@@ -667,6 +669,15 @@ class Database:
             ).fetchall()
         return [job_row["job_id"] for job_row in job_rows]
 
+    def update_job_description(self, job_id: str, description: str) -> bool:
+        """작업의 설명 column만 갱신하며 생성 입력·요청 시각·정렬·보호 상태는 유지합니다."""
+
+        with self._connect() as connection:
+            result = connection.execute(
+                "UPDATE jobs SET description = ? WHERE job_id = ?", (description, job_id),
+            )
+        return result.rowcount > 0
+
     def set_job_deletion_protection(self, job_id: str, deletion_protected: bool) -> bool:
         """작업의 삭제 보호 설정을 저장하고 작업이 없으면 False를 반환합니다."""
 
@@ -910,7 +921,7 @@ class Database:
                 removed_paths = before_deletion()
                 if removed_paths:
                     connection.executemany(
-                        "UPDATE output_files SET is_available=0 WHERE relative_path=?",
+                        "UPDATE output_files SET is_available=0,is_deleted=1 WHERE relative_path=?",
                         [(relative_path,) for relative_path in removed_paths],
                     )
             connection.execute("DELETE FROM job_requests WHERE job_id = ?", (job_id,))

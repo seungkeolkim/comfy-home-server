@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import logging
+import random
 import re
 import secrets
 import shutil
@@ -16,7 +17,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -25,12 +26,19 @@ from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database
 from .image_dimension_cache import ImageDimensionCache
 from .logging_setup import configure_application_logging, shutdown_application_logging
+from .minimax_inputs import inspect_input_images, prepare_input_canvas, remove_input_snapshots, snapshot_input_images
 from .output_catalog import OutputCatalog
-from .output_listing import MEDIA_EXTENSIONS
+from .output_directories import create_output_directory, list_output_directories, resolve_output_directory
+from .output_listing import MEDIA_EXTENSIONS, VIDEO_OUTPUT_EXTENSIONS
 from .output_timing import OutputTimingRecorder, measure_output_step
-from .tag_builder import MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt, resolve_anima_prompts, validate_tag_selection
+from .tag_builder import (
+    MAX_PROMPT_LENGTH, MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt,
+    resolve_anima_prompts, resolve_tag_text, validate_tag_selection,
+)
 from .thumbnail_cache import PREVIEW_IMAGE_EXTENSIONS, PREVIEW_SIZE, ThumbnailCache, ThumbnailTooLargeError
-from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
+from .video_encoding import VideoEncodingError
+from .video_preview_cache import VideoPreviewCache, VideoPreviewQueueFull
+from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, minimax_execution_settings, prepare_anima, prepare_minimax
 
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
@@ -39,6 +47,12 @@ LOGGER = logging.getLogger(__name__)
 CANCEL_CONFIRMATION_SECONDS = 15
 MISSING_REQUEST_GRACE_SECONDS = 30
 IMAGE_DIMENSION_CACHE = ImageDimensionCache()
+
+
+class VideoPreviewInput(BaseModel):
+    """명시적 재시도와 일반 미리보기 접수를 구분합니다."""
+
+    retry: bool = False
 
 
 def image_dimensions(image_path: Path) -> tuple[int, int] | None:
@@ -79,12 +93,14 @@ def selected_tag_definitions(
     return selected_tags
 
 
-def plain_prompt(body: dict[str, Any]) -> str:
-    """MiniMax Prompt를 조립하거나 wildcard로 확장하지 않고 그대로 반환합니다."""
+def minimax_prompt_template(body: dict[str, Any]) -> str:
+    """태그 치환 전 MiniMax Prompt의 타입과 길이를 검증하고 원문을 반환합니다."""
 
     prompt_text = body.get("prompt")
     if not isinstance(prompt_text, str) or not prompt_text.strip():
         raise ValueError("MiniMax Prompt를 입력해 주세요.")
+    if len(prompt_text) > MAX_PROMPT_LENGTH:
+        raise ValueError("MiniMax Prompt 길이 제한을 초과했습니다.")
     return prompt_text
 
 
@@ -112,6 +128,14 @@ class PreviewInput(BaseModel):
     count: int = Field(default=5, ge=1, le=20)
 
 
+def normalize_job_description(value: str) -> str:
+    """생성·수정에서 같은 한 줄 설명과 앞뒤 공백 정리 규칙을 적용합니다."""
+
+    if "\n" in value or "\r" in value:
+        raise ValueError("작업 설명은 한 줄로 입력해 주세요.")
+    return value.strip()
+
+
 class BatchInput(BaseModel):
     """ComfyUI에 제출할 Batch의 공통 옵션입니다."""
 
@@ -126,15 +150,48 @@ class BatchInput(BaseModel):
     lora_preset_id: str | None = Field(default=None, max_length=64)
     lora_preset_name: str | None = Field(default=None, max_length=120)
     upload_ids: list[str] = Field(default_factory=list)
+    output_ids: list[int] = Field(default_factory=list, max_length=100)
+    input_scope: Literal["single", "folder", "job"] | None = None
+    input_directory: str | None = None
+    input_job_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+    @model_validator(mode="after")
+    def validate_job_input(self) -> BatchInput:
+        """작업 입력 출처를 MiniMax 서버 이미지 선택과 함께 명시적으로 전달하게 합니다."""
+
+        if self.input_scope == "job":
+            if self.workflow != "minimax_h3" or not self.input_job_id or not self.output_ids or self.upload_ids:
+                raise ValueError("작업 결과 입력에는 원본 작업과 서버 이미지 1~100장을 선택해 주세요.")
+        elif self.input_job_id is not None:
+            raise ValueError("작업 결과 선택에서만 원본 작업을 지정할 수 있습니다.")
+        return self
 
     @field_validator("description")
     @classmethod
     def validate_description(cls, value: str) -> str:
         """작업 설명의 공백을 정리하고 여러 줄 입력을 거부합니다."""
 
-        if "\n" in value or "\r" in value:
-            raise ValueError("작업 설명은 한 줄로 입력해 주세요.")
-        return value.strip()
+        return normalize_job_description(value)
+
+
+class JobDescriptionInput(BaseModel):
+    """이미 제출된 작업의 표시용 설명만 수정합니다."""
+
+    description: str = Field(max_length=200)
+
+    @field_validator("description")
+    @classmethod
+    def validate_description(cls, value: str) -> str:
+        """작업 생성과 같은 설명 검증을 재사용합니다."""
+
+        return normalize_job_description(value)
+
+
+class InputImageInspection(BaseModel):
+    """실제 해상도를 확인할 서버 이미지 ID를 제한합니다."""
+
+    output_ids: list[int] = Field(min_length=1, max_length=100)
+    input_job_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class JobProtectionInput(BaseModel):
@@ -185,6 +242,34 @@ class MoveInput(BaseModel):
 
     source: str
     destination_folder: str
+
+
+class MoveDestinationInput(BaseModel):
+    """여러 결과물을 이동할 관리 폴더 안의 목적지를 검증합니다."""
+
+    destination_folder: str
+
+
+class DirectoryCreationInput(BaseModel):
+    """결과물 루트 기준 부모 경로와 새 폴더 이름 하나를 전달받습니다."""
+
+    parent_path: str
+    name: str = Field(min_length=1, max_length=255)
+
+
+class BulkMoveInput(MoveDestinationInput):
+    """다중 이동할 결과물 ID를 전달받고 비어 있거나 잘못된 ID를 거부합니다."""
+
+    output_ids: list[int] = Field(min_length=1, max_length=10000)
+
+    @field_validator("output_ids")
+    @classmethod
+    def validate_output_ids(cls, output_ids: list[int]) -> list[int]:
+        """양수 ID만 허용하고 중복 선택은 입력 순서를 유지하여 한 번만 이동합니다."""
+
+        if any(output_id <= 0 for output_id in output_ids):
+            raise ValueError("결과물 ID는 양수여야 합니다.")
+        return list(dict.fromkeys(output_ids))
 
 
 class LoraProfileInput(BaseModel):
@@ -271,6 +356,7 @@ class HomeServer:
         self.database = Database(config.runtime_directory / "home_server.sqlite3")
         self.output_catalog = OutputCatalog(self.database.database_path)
         self.output_catalog.synchronize(config.managed_output_directory)
+        self.video_previews = VideoPreviewCache(config, self.output_catalog)
         self.comfy = ComfyClient(config.comfy_endpoint)
         self.sessions: dict[str, float] = {}
         self.login_failures: dict[str, list[float]] = {}
@@ -318,6 +404,92 @@ class HomeServer:
         return candidate
 
 
+def move_managed_output(
+    server: HomeServer, source_relative_path: str, destination_folder: str,
+    expected_output_id: int | None = None,
+) -> dict[str, Any]:
+    """단건·작업·다중 이동에 공통으로 파일 경계와 충돌을 검사하고 FS·DB 경로를 변경합니다."""
+
+    try:
+        source_path = server.managed_path(source_relative_path, must_exist=True)
+        destination_directory = resolve_output_directory(server.config.managed_output_directory, destination_folder, must_exist=False)
+    except (ValueError, FileNotFoundError) as exception:
+        raise HTTPException(422, str(exception)) from exception
+    except OSError as exception:
+        raise HTTPException(409, "결과물 또는 목적지 폴더에 접근할 수 없습니다.") from exception
+    normalized_source = source_relative_path.replace("\\", "/")
+    if source_path != server.config.managed_output_directory / normalized_source:
+        raise HTTPException(422, "symlink 경로의 결과물은 이동할 수 없습니다.")
+    if not source_path.is_file() or source_path.suffix.lower() not in MEDIA_EXTENSIONS:
+        raise HTTPException(422, "이동할 결과물 파일이 아닙니다.")
+    destination_path = destination_directory / source_path.name
+    source_relative_path = source_path.relative_to(server.config.managed_output_directory).as_posix()
+    destination_relative_path = destination_path.relative_to(server.config.managed_output_directory).as_posix()
+    file_was_moved = False
+
+    def move_physical_output() -> None:
+        """DB 잠금 안에서 목적지 충돌을 다시 확인하고 실제 파일을 이동합니다."""
+
+        nonlocal file_was_moved
+        resolve_output_directory(server.config.managed_output_directory, destination_folder, must_exist=False)
+        if destination_path.exists():
+            raise HTTPException(409, "목적지에 같은 이름의 파일이 있습니다.")
+        destination_directory.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(source_path), str(destination_path))
+        file_was_moved = True
+
+    try:
+        server.output_catalog.move_file(
+            source_relative_path, destination_relative_path, move_physical_output,
+            expected_output_id=expected_output_id,
+        )
+    except sqlite3.Error as exception:
+        if file_was_moved:
+            shutil.move(str(destination_path), str(source_path))
+        raise HTTPException(409, "결과물 경로를 DB에 반영하지 못했습니다.") from exception
+    except (OSError, ValueError) as exception:
+        raise HTTPException(409, f"파일을 이동할 수 없습니다: {exception}") from exception
+    if file_was_moved:
+        for changed_path in (source_path, destination_path):
+            IMAGE_DIMENSION_CACHE.invalidate(changed_path)
+            server.thumbnail_cache.invalidate(changed_path)
+    LOGGER.info("결과물 이동: source=%s destination=%s moved=%s", source_relative_path, destination_relative_path, file_was_moved)
+    return {"path": destination_relative_path, "moved": file_was_moved}
+
+
+def move_recorded_outputs(server: HomeServer, output_ids: list[int], destination_folder: str) -> dict[str, Any]:
+    """결과물별로 현재 경로에서 이동하고 충돌·누락 등 일부 실패를 성공한 이동과 구분합니다."""
+
+    try:
+        resolve_output_directory(server.config.managed_output_directory, destination_folder, must_exist=False)
+    except ValueError as exception:
+        raise HTTPException(422, str(exception)) from exception
+    except OSError as exception:
+        raise HTTPException(409, "목적지 폴더에 접근할 수 없습니다.") from exception
+    moved_output_ids = []
+    skipped_output_ids = []
+    failures = []
+    for output_id in output_ids:
+        try:
+            source_relative_path = server.output_catalog.get_output_path_for_move(output_id)
+            movement = move_managed_output(server, source_relative_path, destination_folder, output_id)
+            if movement["moved"]:
+                moved_output_ids.append(output_id)
+            else:
+                skipped_output_ids.append(output_id)
+        except (LookupError, ValueError) as exception:
+            failures.append({"output_id": output_id, "detail": str(exception)})
+        except HTTPException as exception:
+            failures.append({"output_id": output_id, "detail": exception.detail})
+        except sqlite3.Error:
+            LOGGER.exception("결과물 이동 DB 조회 실패: output_id=%s", output_id)
+            failures.append({"output_id": output_id, "detail": "결과물의 현재 경로를 DB에서 읽지 못했습니다."})
+    return {
+        "moved_count": len(moved_output_ids), "skipped_count": len(skipped_output_ids),
+        "moved_output_ids": moved_output_ids, "skipped_output_ids": skipped_output_ids, "failures": failures,
+    }
+
+
 def store_batch_requests(
     server: HomeServer, payload: BatchInput, selected_tags: list[dict[str, Any]],
 ) -> tuple[str, list[dict[str, Any]]]:
@@ -330,27 +502,61 @@ def store_batch_requests(
         if not any(server.upload_directory.glob(f"{upload_id}.*")):
             raise HTTPException(422, f"업로드 파일이 없습니다: {upload_id}")
 
-    job_id = uuid.uuid4().hex[:12]
-    request_settings = dict(payload.settings)
-    if payload.workflow == "anima":
-        request_settings.pop("batch_size", None)
-    submitted_requests = []
-    for upload_id in upload_ids:
-        request_id = uuid.uuid4().hex[:12]
-        output_stem = f"{server.config.managed_output_directory.name}/{payload.workflow}/{WORKFLOW_OUTPUT_NAMES[payload.workflow]}"
-        request = {
-            "request_id": request_id, "job_id": job_id, "workflow": payload.workflow,
-            "status": "submitting", "output_stem": output_stem,
-            "detail": {"upload_id": upload_id, "body": payload.body, "selected_tags": selected_tags,
-                       "settings": request_settings, "loras": payload.loras,
-                       "prompt_preset_id": payload.prompt_preset_id,
-                       "lora_preset_id": payload.lora_preset_id if payload.loras else None,
-                       "lora_preset_name": payload.lora_preset_name if payload.loras else None},
-        }
-        submitted_requests.append(request)
-
-    server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests)
-    return job_id, submitted_requests
+    image_snapshots = []
+    try:
+        request_settings = dict(payload.settings)
+        if payload.output_ids:
+            image_snapshots = snapshot_input_images(
+                server.config.managed_output_directory, server.output_catalog, server.upload_directory,
+                payload.output_ids, payload.input_scope, payload.input_directory, payload.input_job_id,
+            )
+            upload_ids = [image_record["upload_id"] for image_record in image_snapshots]
+            reference_image = image_snapshots[0]
+            request_settings.update({
+                "input_scope": payload.input_scope, "input_directory": payload.input_directory,
+                "resolution_reference": {key: reference_image[key] for key in ("output_id", "path", "width", "height")},
+                "resize_policy": "fit_pad",
+            })
+            if payload.input_scope == "job":
+                request_settings["input_job_id"] = payload.input_job_id
+                request_settings["input_output_ids"] = [image_record["output_id"] for image_record in image_snapshots]
+            resolution_mode = request_settings.get("resolution_mode", "automatic")
+            if resolution_mode not in {"automatic", "manual"}:
+                raise ValueError("해상도 설정은 자동 또는 직접 입력이어야 합니다.")
+            request_settings["resolution_mode"] = resolution_mode
+            if resolution_mode == "automatic":
+                request_settings.update({"width": reference_image["width"], "height": reference_image["height"]})
+        if payload.workflow == "anima":
+            request_settings.pop("batch_size", None)
+        else:
+            minimax_execution_settings(request_settings)
+        job_id = uuid.uuid4().hex[:12]
+        submitted_requests = []
+        for image_index, upload_id in enumerate(upload_ids):
+            request_id = uuid.uuid4().hex[:12]
+            output_stem = f"{server.config.managed_output_directory.name}/{payload.workflow}/{WORKFLOW_OUTPUT_NAMES[payload.workflow]}"
+            initial_result = {}
+            if image_snapshots:
+                initial_result["source_image"] = {
+                    key: image_snapshots[image_index][key] for key in ("output_id", "path", "name", "width", "height")
+                }
+                if payload.input_scope == "job":
+                    initial_result["source_image"]["job_id"] = payload.input_job_id
+            request = {
+                "request_id": request_id, "job_id": job_id, "workflow": payload.workflow,
+                "status": "submitting", "output_stem": output_stem,
+                "detail": {"upload_id": upload_id, "body": payload.body, "selected_tags": selected_tags,
+                           "settings": request_settings, "loras": payload.loras, "resolved": initial_result,
+                           "prompt_preset_id": payload.prompt_preset_id,
+                           "lora_preset_id": payload.lora_preset_id if payload.loras else None,
+                           "lora_preset_name": payload.lora_preset_name if payload.loras else None},
+            }
+            submitted_requests.append(request)
+        server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests)
+        return job_id, submitted_requests
+    except Exception:
+        remove_input_snapshots(image_snapshots)
+        raise
 
 
 def find_uploaded_image(upload_directory: Path, upload_id: str) -> Path:
@@ -384,11 +590,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         LOGGER.info("서버 시작: 로그 파일=%s", log_path)
         if server.config.thumbnail_cache_warmup_enabled:
             server.thumbnail_cache.start_warmup(server.config.managed_output_directory)
+        server.video_previews.start()
         monitor_task = asyncio.create_task(_monitor_requests(server))
         cancellation_task = asyncio.create_task(_monitor_cancellations(server))
         try:
             yield
         finally:
+            await asyncio.to_thread(server.video_previews.stop)
             monitor_task.cancel()
             cancellation_task.cancel()
             await asyncio.gather(monitor_task, cancellation_task, return_exceptions=True)
@@ -524,7 +732,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         body = dict(payload.body)
         try:
             if payload.workflow == "minimax_h3":
-                plain_prompt(body)
+                minimax_prompt_template(body)
             else:
                 prompt_text = anima_prompt(body)
                 negative_text = body.get("negative", "")
@@ -544,7 +752,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.get("/api/tags")
     def list_tags():
-        """Anima 태그 항목과 표시 그룹을 함께 반환합니다."""
+        """두 Workflow가 공유하는 태그 항목과 표시 그룹을 반환합니다."""
 
         return JSONResponse({"groups": server.database.list_tag_groups(), "entries": server.database.list_tag_entries()})
 
@@ -605,36 +813,37 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/prompts/preview")
     async def preview(payload: PreviewInput):
-        """Anima는 wildcard를 확장하고 MiniMax는 평문을 그대로 보여줍니다."""
+        """공통 태그를 요청별로 추첨하고 Anima의 경우에만 wildcard까지 확정해 보여줍니다."""
 
-        if payload.workflow == "minimax_h3":
-            if payload.selected_tag_ids:
-                raise HTTPException(422, "MiniMax에는 태그 선택을 사용할 수 없습니다.")
-            try:
-                prompt_text = plain_prompt(payload.body)
-            except ValueError as exception:
-                raise HTTPException(422, str(exception)) from exception
-            return await asyncio.to_thread(JSONResponse, {
-                "combined_prompt": prompt_text, "examples": [{"index": 1, "seed": None, "prompt": prompt_text}],
-            })
-        if payload.workflow != "anima":
+        if payload.workflow not in {"anima", "minimax_h3"}:
             raise HTTPException(422, "지원하지 않는 workflow입니다.")
         try:
-            prompt_text = anima_prompt(payload.body)
-            negative_text = anima_negative_prompt(payload.body)
+            if payload.workflow == "anima":
+                prompt_text = anima_prompt(payload.body)
+                negative_text = anima_negative_prompt(payload.body)
+            else:
+                prompt_text = minimax_prompt_template(payload.body)
+                negative_text = ""
             selected_tags = await asyncio.to_thread(
                 selected_tag_definitions, server.database, payload.selected_tag_ids, prompt_text, negative_text,
             )
             examples = []
             for example_index in range(payload.count):
-                wildcard_seed = secrets.randbelow(2**31)
-                template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
-                    resolve_anima_prompts, payload.body, selected_tags, wildcard_seed,
-                )
-                resolved = await server.comfy.populate_wildcards(template, wildcard_seed)
-                resolved_negative = await server.comfy.populate_wildcards(negative_template, wildcard_seed)
+                prompt_seed = secrets.randbelow(2**31)
+                if payload.workflow == "anima":
+                    template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
+                        resolve_anima_prompts, payload.body, selected_tags, prompt_seed,
+                    )
+                    resolved = await server.comfy.populate_wildcards(template, prompt_seed)
+                    resolved_negative = await server.comfy.populate_wildcards(negative_template, prompt_seed)
+                else:
+                    resolved, selected_path = await asyncio.to_thread(
+                        resolve_tag_text, prompt_text, selected_tags, random.Random(prompt_seed),
+                    )
+                    resolved_negative = ""
+                    negative_selected_path = []
                 examples.append({
-                    "index": example_index + 1, "seed": wildcard_seed,
+                    "index": example_index + 1, "seed": prompt_seed,
                     "prompt": resolved, "negative": resolved_negative, "selected_path": selected_path,
                     "negative_selected_path": negative_selected_path,
                 })
@@ -642,7 +851,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(422, str(exception)) from exception
         except Exception as exception:
             raise HTTPException(502, str(exception)) from exception
-        return await asyncio.to_thread(JSONResponse, {"combined_prompt": None, "examples": examples})
+        combined_prompt = examples[0]["prompt"] if payload.workflow == "minimax_h3" else None
+        return await asyncio.to_thread(JSONResponse, {"combined_prompt": combined_prompt, "examples": examples})
 
     @app.get("/api/loras")
     async def loras():
@@ -730,18 +940,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         if payload.workflow not in {"anima", "minimax_h3"}:
             raise HTTPException(422, "지원하지 않는 workflow입니다.")
-        if payload.workflow == "minimax_h3" and not payload.upload_ids:
+        if payload.workflow == "minimax_h3" and not (payload.upload_ids or payload.output_ids):
             raise HTTPException(422, "MiniMax에는 입력 이미지가 필요합니다.")
-        if payload.workflow == "anima" and payload.upload_ids:
+        if payload.workflow == "anima" and (payload.upload_ids or payload.output_ids):
             raise HTTPException(422, "Anima는 현재 입력 이미지를 사용하지 않습니다.")
+        if payload.upload_ids and payload.output_ids:
+            raise HTTPException(422, "업로드 입력과 서버 이미지 입력은 함께 제출할 수 없습니다.")
         if any(not re.fullmatch(r"[0-9a-f]{32}", upload_id) for upload_id in payload.upload_ids):
             raise HTTPException(422, "업로드 식별자 형식이 올바르지 않습니다.")
         selected_tags: list[dict[str, Any]] = []
         try:
             if payload.workflow == "minimax_h3":
-                if payload.selected_tag_ids:
-                    raise ValueError("MiniMax에는 태그 선택을 사용할 수 없습니다.")
-                plain_prompt(payload.body)
+                prompt_text = minimax_prompt_template(payload.body)
+                selected_tags = await asyncio.to_thread(
+                    selected_tag_definitions, server.database, payload.selected_tag_ids, prompt_text,
+                )
+                minimax_execution_settings(payload.settings)
             else:
                 prompt_text = anima_prompt(payload.body)
                 negative_text = anima_negative_prompt(payload.body)
@@ -758,7 +972,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception as exception:
             raise HTTPException(502, str(exception)) from exception
 
-        job_id, submitted_requests = await asyncio.to_thread(store_batch_requests, server, payload, selected_tags)
+        try:
+            job_id, submitted_requests = await asyncio.to_thread(store_batch_requests, server, payload, selected_tags)
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exception:
+            raise HTTPException(422, "입력 이미지를 읽거나 임시 저장할 수 없습니다. 다시 선택해 주세요.") from exception
         submission_task = asyncio.create_task(_submit_requests(server, submitted_requests))
         server.submission_tasks.add(submission_task)
         submission_task.add_done_callback(server.submission_tasks.discard)
@@ -799,6 +1018,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         return JSONResponse({"active_count": server.database.count_active_jobs()})
 
+    @app.get("/api/jobs/{job_id}/input-images")
+    def job_input_images(job_id: str):
+        """작업의 현재 이미지 후보와 작은 출처 요약만 제공하며 원본 Prompt는 복원하지 않습니다."""
+
+        try:
+            return server.output_catalog.list_job_input_images(job_id)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+
     @app.get("/api/jobs/{job_id}/inputs")
     def job_inputs(job_id: str):
         """생성 탭 복원에 필요한 작업 공통 입력을 반환합니다."""
@@ -816,6 +1044,14 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if job is None:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
         return JSONResponse(job)
+
+    @app.patch("/api/jobs/{job_id}/description")
+    def update_job_description(job_id: str, payload: JobDescriptionInput):
+        """작업 상태·삭제 보호와 무관하게 설명만 변경하고 생성 입력과 요청은 유지합니다."""
+
+        if not server.database.update_job_description(job_id, payload.description):
+            raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        return {"job_id": job_id, "description": payload.description}
 
     @app.patch("/api/jobs/{job_id}/protection")
     def update_job_protection(job_id: str, payload: JobProtectionInput):
@@ -855,6 +1091,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         server.cancellation_wakeup.set()
         LOGGER.info("작업 취소 접수: job_id=%s requested_count=%s", job_id, requested_count)
         return {"status": "cancelling", "requested_count": requested_count}
+
+    @app.post("/api/jobs/{job_id}/outputs/move")
+    def move_job_outputs(job_id: str, payload: MoveDestinationInput):
+        """생성이 끝난 작업의 남아 있는 결과물을 현재 경로에서 목적지 폴더로 이동합니다."""
+
+        try:
+            output_ids = server.output_catalog.list_job_output_ids_for_move(job_id)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except ValueError as exception:
+            raise HTTPException(409, str(exception)) from exception
+        return JSONResponse(move_recorded_outputs(server, output_ids, payload.destination_folder))
 
     @app.delete("/api/jobs/{job_id}")
     def delete_job(job_id: str, delete_outputs: bool = False):
@@ -908,6 +1156,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(409, str(exception)) from exception
         if not deleted:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        if delete_outputs:
+            server.video_previews.invalidate_missing()
         LOGGER.info("작업 이력 삭제: job_id=%s delete_outputs=%s deleted_files=%s missing_files=%s", job_id, delete_outputs, deleted_files, missing_files)
         return JSONResponse({"deleted": True, "deleted_files": deleted_files, "missing_files": missing_files})
 
@@ -915,7 +1165,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     def outputs(
         request: Request,
         page: int = Query(default=1, ge=1),
-        page_size: int = Query(default=24, ge=1, le=100),
+        page_size: int = Query(default=64, ge=1, le=100),
         prefix: str = "",
         job_id: str = "",
         request_id: str = "",
@@ -959,13 +1209,166 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         output_timing.record("handler_total", handler_started_at, emit=True)
         return response
 
+    @app.get("/api/outputs/{output_id}/neighbors")
+    def output_neighbors(output_id: int, job_id: str = "", request_id: str = "", prefix: str = ""):
+        """미리보기 현재 파일의 삭제 보호 상태와 같은 범위의 이전·다음 파일을 반환합니다."""
+
+        if job_id and request_id:
+            raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
+        normalized_prefix = prefix.replace("\\", "/")
+        if normalized_prefix:
+            try:
+                server.managed_path(normalized_prefix)
+            except ValueError as exception:
+                raise HTTPException(422, str(exception)) from exception
+        try:
+            return server.output_catalog.get_file_neighbors(output_id, job_id, request_id, normalized_prefix)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+
+    @app.get("/api/outputs/deletion-candidates")
+    def output_deletion_candidates(job_id: str = "", request_id: str = ""):
+        """현재 작업·요청 필터에서 삭제 보호되지 않은 결과물의 전체 선택용 ID를 반환합니다."""
+
+        if job_id and request_id:
+            raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
+        try:
+            output_ids = server.output_catalog.list_deletable_output_ids(job_id, request_id)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        return JSONResponse({"output_ids": output_ids})
+
+    @app.get("/api/outputs/selection-candidates")
+    def output_selection_candidates(job_id: str = "", request_id: str = ""):
+        """현재 필터의 전체 선택용 ID와 삭제 가능한 ID를 함께 반환합니다."""
+
+        if job_id and request_id:
+            raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
+        try:
+            candidates = server.output_catalog.list_selection_candidates(job_id, request_id)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        return JSONResponse(candidates)
+
+    @app.get("/api/outputs/directories")
+    def output_directories(path: str = ""):
+        """인증된 사용자에게 결과물 루트 안의 직하위 폴더만 반환합니다."""
+
+        try:
+            return list_output_directories(server.config.managed_output_directory, path)
+        except FileNotFoundError as exception:
+            raise HTTPException(404, "폴더를 찾을 수 없습니다.") from exception
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except OSError as exception:
+            raise HTTPException(403, "폴더 목록을 읽을 수 없습니다. 서버의 접근 권한을 확인해 주세요.") from exception
+
+    @app.post("/api/outputs/directories", status_code=201)
+    def create_output_subdirectory(payload: DirectoryCreationInput):
+        """현재 폴더 안에 새 폴더 하나를 만들며 catalog와 생성 이력은 변경하지 않습니다."""
+
+        try:
+            return create_output_directory(server.config.managed_output_directory, payload.parent_path, payload.name)
+        except FileNotFoundError as exception:
+            raise HTTPException(404, "부모 폴더를 찾을 수 없습니다.") from exception
+        except FileExistsError as exception:
+            raise HTTPException(409, "같은 이름의 폴더 또는 파일이 이미 있습니다.") from exception
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except OSError as exception:
+            raise HTTPException(403, "폴더를 만들 수 없습니다. 서버의 접근 권한을 확인해 주세요.") from exception
+
+    @app.get("/api/outputs/input-images")
+    def input_image_candidates(path: str = ""):
+        """관리 루트의 현재 폴더에 속한 전체 이미지 후보를 반환하고 전체 동기화는 하지 않습니다."""
+
+        try:
+            directory_path = resolve_output_directory(server.config.managed_output_directory, path)
+            relative_path = directory_path.relative_to(server.config.managed_output_directory).as_posix()
+            return {"files": server.output_catalog.list_input_images("" if relative_path == "." else relative_path)}
+        except (ValueError, OSError) as exception:
+            raise HTTPException(422, "입력 폴더를 읽을 수 없습니다. 다시 선택해 주세요.") from exception
+
+    @app.get("/api/outputs/input-jobs")
+    def input_image_jobs(page: int = Query(default=1, ge=1), page_size: int = Query(default=10, ge=1, le=100)):
+        """사용 가능한 이미지 결과물이 있는 작업을 페이지별로 반환합니다."""
+
+        return server.output_catalog.list_input_jobs(page, page_size)
+
+    @app.post("/api/outputs/input-images/inspect")
+    def inspect_input_image_selection(payload: InputImageInspection):
+        """선택한 이미지의 실제 크기를 표시 방향에 맞춰 확인합니다."""
+
+        try:
+            return {"files": inspect_input_images(
+                server.config.managed_output_directory, server.output_catalog, payload.output_ids, payload.input_job_id,
+            )}
+        except (ValueError, OSError) as exception:
+            raise HTTPException(422, str(exception) if isinstance(exception, ValueError) else "입력 이미지를 확인할 수 없습니다.") from exception
+
     @app.post("/api/outputs/sync")
     def synchronize_outputs(request: Request):
         """수동 새로고침에서 현재 파일 목록만 대조하고 실제 크기·해상도는 수집하지 않습니다."""
 
         output_timing = getattr(request.state, "output_timing", None)
         with measure_output_step(output_timing, "catalog_sync", emit=True):
-            return server.output_catalog.synchronize(server.config.managed_output_directory)
+            result = server.output_catalog.synchronize(server.config.managed_output_directory)
+        server.video_previews.invalidate_missing()
+        if server.config.video_preview_warmup_enabled:
+            server.video_previews.request_scan(priority=2, cleanup=True)
+        return result
+
+    def video_preview_source(output_id: int):
+        """미리보기 API에서 동일한 현재 원본 검증과 HTTP 오류를 사용합니다."""
+
+        try:
+            return server.video_previews.source(output_id)
+        except FileNotFoundError as exception:
+            server.video_previews.invalidate_missing()
+            raise HTTPException(404, "원본 영상을 찾을 수 없습니다.") from exception
+        except (ValueError, OSError) as exception:
+            raise HTTPException(422, "영상 경로나 접근 권한을 확인해 주세요.") from exception
+
+    @app.post("/api/outputs/{output_id}/video-preview")
+    def request_video_preview(output_id: int, payload: VideoPreviewInput):
+        """Cache·공유 Task를 반환하며 클릭 종료와 독립된 변환을 접수합니다."""
+
+        video_preview_source(output_id)
+        try:
+            return server.video_previews.enqueue(output_id, retry=payload.retry)
+        except VideoPreviewQueueFull as exception:
+            raise HTTPException(429, "영상 변환 대기열이 가득 찼습니다. 잠시 후 다시 시도해 주세요.") from exception
+        except VideoEncodingError as exception:
+            raise HTTPException(503, str(exception)) from exception
+        except (OSError, ValueError) as exception:
+            raise HTTPException(422, "미리보기 저장소에 접근할 수 없습니다.") from exception
+
+    @app.get("/api/outputs/{output_id}/video-preview")
+    def video_preview_status(output_id: int):
+        """진행 상태만 확인하고 실패 제한이나 재시도 대기를 초기화하지 않습니다."""
+
+        return server.video_previews.describe(video_preview_source(output_id))
+
+    @app.get("/api/outputs/{output_id}/video-preview/stream")
+    def stream_video_preview(output_id: int, request: Request, version: str):
+        """완료본에는 Range를, 진행 중 출력에는 독립적인 점진 Streaming을 제공합니다."""
+
+        source = video_preview_source(output_id)
+        if version != source.identifier:
+            raise HTTPException(409, "원본 영상이 변경되었습니다. 미리보기를 다시 열어 주세요.")
+        complete_path = server.video_previews.complete_file(source)
+        if complete_path is not None:
+            preview_stat = complete_path.stat()
+            headers = {"Cache-Control": "private, max-age=0, must-revalidate",
+                       "ETag": f'"{source.identifier}-{preview_stat.st_mtime_ns:x}-{preview_stat.st_size:x}"'}
+            if request.headers.get("if-none-match") == headers["ETag"]:
+                return Response(status_code=304, headers=headers)
+            return FileResponse(complete_path, media_type="video/mp4", headers=headers)
+        state = server.video_previews.describe(source)
+        if state["state"] != "converting":
+            raise HTTPException(409, "미리보기 변환이 아직 준비되지 않았습니다.")
+        return StreamingResponse(server.video_previews.stream(source), media_type="video/mp4",
+                                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
     @app.get("/api/outputs/preview/{relative_path:path}")
     def output_preview(relative_path: str, request: Request):
@@ -975,9 +1378,29 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         output_timing.record("worker_dispatch", output_timing.started_at, emit=True)
         try:
             with measure_output_step(output_timing, "preview_path_resolve", relative_path, emit=True):
-                file_path = server.managed_path(relative_path, must_exist=True)
+                file_path = server.managed_path(relative_path)
         except (ValueError, FileNotFoundError) as exception:
             raise HTTPException(404, str(exception)) from exception
+        if server.output_catalog.is_deleted(file_path.relative_to(server.config.managed_output_directory).as_posix()):
+            raise HTTPException(404, "삭제된 결과물입니다.")
+        if file_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS:
+            try:
+                output_id = server.output_catalog.video_output_id(relative_path)
+                source = server.video_previews.source(output_id)
+                etag = f'"video-poster-{source.identifier}"'
+                cache_headers = {"Cache-Control": "private, max-age=0, must-revalidate", "ETag": etag}
+                if request.headers.get("if-none-match") == etag:
+                    return Response(status_code=304, headers=cache_headers)
+                thumbnail_bytes, _ = server.video_previews.thumbnail(output_id)
+                return Response(thumbnail_bytes, media_type="image/webp", headers=cache_headers)
+            except FileNotFoundError as exception:
+                server.video_previews.invalidate_missing()
+                raise HTTPException(404, "원본 영상을 찾을 수 없습니다.") from exception
+            except VideoEncodingError as exception:
+                raise HTTPException(422, str(exception)) from exception
+            except (OSError, ValueError) as exception:
+                LOGGER.warning("VIDEO_PREVIEW event=thumbnail_access_failed path=%s error=%r", relative_path, exception)
+                raise HTTPException(422, "영상 Thumbnail을 만들 수 없습니다.") from exception
         with measure_output_step(output_timing, "preview_file_type_check", relative_path, emit=True):
             is_preview_image = file_path.is_file() and file_path.suffix.lower() in PREVIEW_IMAGE_EXTENSIONS
         if not is_preview_image:
@@ -1012,44 +1435,67 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """인증된 브라우저에 관리 폴더 안의 생성물을 제공합니다."""
 
         try:
-            file_path = server.managed_path(relative_path, must_exist=True)
+            file_path = server.managed_path(relative_path)
         except (ValueError, FileNotFoundError) as exception:
             raise HTTPException(404, str(exception)) from exception
+        if server.output_catalog.is_deleted(file_path.relative_to(server.config.managed_output_directory).as_posix()):
+            raise HTTPException(404, "삭제된 결과물입니다.")
         if not file_path.is_file() or file_path.suffix.lower() not in MEDIA_EXTENSIONS:
             raise HTTPException(404, "지원하지 않는 결과물입니다.")
         return FileResponse(file_path)
 
-    @app.post("/api/outputs/move")
-    def move_output(payload: MoveInput):
-        """결과물을 관리 폴더 안의 다른 폴더로 이동합니다."""
+    @app.delete("/api/outputs/{output_id}")
+    def delete_output(output_id: int):
+        """작업 상태와 무관하게 보호되지 않은 결과물만 지우고 이력과 삭제 표시는 보존합니다."""
+
+        def remove_output_file(relative_path: str) -> bool:
+            """관리 폴더의 이미지·영상 파일만 삭제하며 이미 없으면 삭제 표시만 남깁니다."""
+
+            try:
+                output_path = server.managed_path(relative_path)
+            except ValueError as exception:
+                raise HTTPException(422, str(exception)) from exception
+            if output_path != server.config.managed_output_directory / relative_path:
+                raise HTTPException(422, "symlink 경로의 결과물은 삭제할 수 없습니다.")
+            if output_path.suffix.lower() not in MEDIA_EXTENSIONS:
+                raise HTTPException(422, "지원하는 이미지·영상 결과물만 삭제할 수 있습니다.")
+            try:
+                output_path.unlink()
+            except FileNotFoundError:
+                return False
+            except OSError as exception:
+                raise HTTPException(409, "결과물 파일을 삭제할 수 없습니다.") from exception
+            return True
 
         try:
-            source_path = server.managed_path(payload.source, must_exist=True)
-            destination_directory = server.managed_path(payload.destination_folder)
-        except (ValueError, FileNotFoundError) as exception:
-            raise HTTPException(422, str(exception)) from exception
-        if not source_path.is_file() or source_path.suffix.lower() not in MEDIA_EXTENSIONS:
-            raise HTTPException(422, "이동할 결과물 파일이 아닙니다.")
-        destination_path = destination_directory / source_path.name
-        if destination_path.exists():
-            raise HTTPException(409, "목적지에 같은 이름의 파일이 있습니다.")
-        try:
-            destination_directory.mkdir(parents=True, exist_ok=True)
-            shutil.move(str(source_path), str(destination_path))
-        except OSError as exception:
-            raise HTTPException(409, f"파일을 이동할 수 없습니다: {exception}") from exception
-        try:
-            server.output_catalog.move_file(
-                source_path.relative_to(server.config.managed_output_directory).as_posix(),
-                destination_path.relative_to(server.config.managed_output_directory).as_posix(),
-            )
+            deletion_result = server.output_catalog.delete_file(output_id, remove_output_file)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except ValueError as exception:
+            raise HTTPException(409, str(exception)) from exception
         except sqlite3.Error as exception:
-            shutil.move(str(destination_path), str(source_path))
-            raise HTTPException(409, "결과물 경로를 DB에 반영하지 못했습니다.") from exception
-        LOGGER.info("결과물 이동: source=%s destination=%s", payload.source, destination_path)
-        IMAGE_DIMENSION_CACHE.invalidate(source_path)
-        IMAGE_DIMENSION_CACHE.invalidate(destination_path)
-        return JSONResponse({"path": destination_path.relative_to(server.config.managed_output_directory).as_posix()})
+            LOGGER.exception("결과물 삭제 DB 오류: output_id=%s", output_id)
+            raise HTTPException(409, "결과물 삭제 상태를 DB에 반영하지 못했습니다.") from exception
+        output_path = server.config.managed_output_directory / deletion_result["path"]
+        IMAGE_DIMENSION_CACHE.invalidate(output_path)
+        server.thumbnail_cache.invalidate(output_path)
+        if output_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS:
+            server.video_previews.invalidate_missing()
+        LOGGER.info("결과물 삭제: output_id=%s path=%s deleted_files=%s", output_id,
+                    deletion_result["path"], deletion_result["deleted_files"])
+        return JSONResponse(deletion_result)
+
+    @app.post("/api/outputs/move")
+    def move_output(payload: MoveInput):
+        """결과물 하나를 관리 폴더 안의 다른 폴더로 이동합니다."""
+
+        return JSONResponse(move_managed_output(server, payload.source, payload.destination_folder))
+
+    @app.post("/api/outputs/move-batch")
+    def move_selected_outputs(payload: BulkMoveInput):
+        """선택한 결과물들을 이동하고 성공·동일 폴더·실패 항목을 구분하여 반환합니다."""
+
+        return JSONResponse(move_recorded_outputs(server, payload.output_ids, payload.destination_folder))
 
     return app
 
@@ -1119,6 +1565,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                     continue
                 if request["workflow"] == "anima":
                     wildcard_seed = secrets.randbelow(2**31)
+                    tag_seed = wildcard_seed
                     prompt_template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
                         resolve_anima_prompts,
                         detail["body"], detail["selected_tags"], wildcard_seed,
@@ -1129,9 +1576,11 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                     )
                 else:
                     wildcard_seed = None
-                    selected_path = []
+                    tag_seed = secrets.randbelow(2**31)
+                    prompt_text, selected_path = await asyncio.to_thread(
+                        resolve_tag_text, minimax_prompt_template(detail["body"]), detail["selected_tags"], random.Random(tag_seed),
+                    )
                     negative_selected_path = []
-                    prompt_text = plain_prompt(detail["body"])
                     negative_text = ""
                 if request["workflow"] not in workflow_templates:
                     workflow_templates[request["workflow"]] = await asyncio.to_thread(
@@ -1147,9 +1596,13 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                         request_settings, detail["loras"], request["output_stem"],
                     )
                 else:
-                    request_settings = detail["settings"]
+                    request_settings = minimax_execution_settings(detail["settings"])
                     upload_id = detail["upload_id"]
                     upload_path = await asyncio.to_thread(find_uploaded_image, server.upload_directory, upload_id)
+                    if detail.get("resolved", {}).get("source_image"):
+                        upload_path = await asyncio.to_thread(
+                            prepare_input_canvas, upload_path, request_settings["width"], request_settings["height"],
+                        )
                     uploaded_name = f"{request_id}_{upload_path.name}"
                     uploaded_reference = await server.comfy.upload_image(upload_path, uploaded_name)
                     request_workflow, metadata_workflow = await asyncio.to_thread(
@@ -1164,8 +1617,9 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                         "prompt": prompt_text, "negative": negative_text,
                         "selected_path": selected_path,
                         "negative_selected_path": negative_selected_path,
-                        "wildcard_seed": wildcard_seed, "settings": request_settings,
+                        "wildcard_seed": wildcard_seed, "tag_seed": tag_seed, "settings": request_settings,
                         "loras": detail["loras"],
+                        "source_image": detail.get("resolved", {}).get("source_image"),
                     },
                 }
                 if await _skip_cancelled_submission(server, request_id):
@@ -1174,10 +1628,10 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                 prompt_id = await server.comfy.submit(request_workflow, metadata)
                 await asyncio.to_thread(
                     server.database.set_request_accepted,
-                    request_id, prompt_id, {"prompt": prompt_text, "negative": negative_text,
+                    request_id, prompt_id, {**detail.get("resolved", {}), "prompt": prompt_text, "negative": negative_text,
                                             "selected_path": selected_path,
                                             "negative_selected_path": negative_selected_path,
-                                            "wildcard_seed": wildcard_seed, "settings": request_settings},
+                                            "wildcard_seed": wildcard_seed, "tag_seed": tag_seed, "settings": request_settings},
                 )
                 server.cancellation_wakeup.set()
                 LOGGER.info("요청 접수: request_id=%s prompt_id=%s", request_id, prompt_id)
@@ -1271,6 +1725,12 @@ async def _refresh_requests(server: HomeServer) -> None:
         applied_updates = await asyncio.to_thread(server.database.apply_request_states, updates)
         for update in applied_updates:
             LOGGER.info("요청 상태 갱신: request_id=%s status=%s", update["request_id"], update["status"])
+            if update["status"] == "completed":
+                try:
+                    await asyncio.to_thread(server.video_previews.completed_request, update["request_id"])
+                except Exception:
+                    LOGGER.exception("영상 미리보기 접수 실패: request_id=%s", update["request_id"])
+                    server.video_previews.request_scan()
 
 
 async def _monitor_requests(server: HomeServer) -> None:

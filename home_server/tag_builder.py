@@ -1,4 +1,4 @@
-"""Anima Prompt 본문에 적힌 태그 참조를 검증하고 확정합니다."""
+"""모델별 Prompt 본문에 적힌 공통 태그 참조를 검증하고 확정합니다."""
 
 from __future__ import annotations
 

@@ -6,16 +6,23 @@ import json
 import logging
 import sqlite3
 import time
+from collections.abc import Callable
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from .output_listing import MEDIA_EXTENSIONS, iterate_output_directory_entries, output_filename_metadata
+from .output_listing import (
+    IMAGE_OUTPUT_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_OUTPUT_EXTENSIONS,
+    iterate_output_directory_entries, output_filename_metadata,
+)
 from .output_timing import OutputTimingRecorder, measure_output_step
 
 
 OUTPUT_SORT_ORDER = "generated_at DESC, length(seed) DESC, seed DESC, relative_path DESC"
 LOGGER = logging.getLogger(__name__)
+INPUT_IMAGE_FILTER = "(" + " OR ".join(
+    "lower(relative_path) LIKE '%" + extension + "'" for extension in sorted(IMAGE_OUTPUT_EXTENSIONS)
+) + ")"
 
 
 def normalized_output_path(relative_path: str) -> str | None:
@@ -43,6 +50,32 @@ def requested_dimensions(settings: dict[str, Any]) -> tuple[int | None, int | No
     except (KeyError, TypeError, ValueError):
         return None, None
     return (width, height) if min(width, height) > 0 else (None, None)
+
+
+def output_neighbor_condition(current_row: sqlite3.Row, direction: str) -> tuple[str, list[Any]]:
+    """목록의 내림차순과 NULL 순서를 유지하는 인접 Cursor 조건을 구성합니다."""
+
+    cursor_columns = ("generated_at", "length(seed)", "seed", "relative_path")
+    cursor_values = (current_row["generated_at"], current_row["seed_length"], current_row["seed"], current_row["relative_path"])
+    alternatives = []
+    parameters = []
+    equal_conditions = []
+    equal_values = []
+    for column, value in zip(cursor_columns, cursor_values):
+        comparison = None
+        comparison_values = []
+        if value is None:
+            if direction == "previous":
+                comparison = f"{column} IS NOT NULL"
+        else:
+            comparison = f"{column} > ?" if direction == "previous" else f"({column} < ? OR {column} IS NULL)"
+            comparison_values.append(value)
+        if comparison is not None:
+            alternatives.append("(" + " AND ".join([*equal_conditions, comparison]) + ")")
+            parameters.extend([*equal_values, *comparison_values])
+        equal_conditions.append(f"{column} IS ?")
+        equal_values.append(value)
+    return "(" + " OR ".join(alternatives) + ")", parameters
 
 
 class OutputCatalog:
@@ -81,8 +114,19 @@ class OutputCatalog:
                 seed TEXT,
                 requested_width INTEGER,
                 requested_height INTEGER,
-                is_available INTEGER NOT NULL DEFAULT 1
+                is_available INTEGER NOT NULL DEFAULT 1,
+                is_deleted INTEGER NOT NULL DEFAULT 0 CHECK (is_deleted IN (0, 1))
             )"""
+        )
+        output_columns = {column[1] for column in connection.execute("PRAGMA table_info(output_files)")}
+        if "is_deleted" not in output_columns:
+            connection.execute(
+                "ALTER TABLE output_files ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0 "
+                "CHECK (is_deleted IN (0, 1))"
+            )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS output_files_deleted_original "
+            "ON output_files (request_id, original_relative_path) WHERE is_deleted=1"
         )
         # Seed는 unsigned 64-bit도 보존하도록 decimal 문자열과 길이로 정렬합니다.
         for index_name, filter_column in (
@@ -113,7 +157,7 @@ class OutputCatalog:
             "ON CONFLICT(relative_path) DO UPDATE SET original_relative_path=excluded.original_relative_path,"
             "request_id=excluded.request_id,job_id=excluded.job_id,generated_at=excluded.generated_at,"
             "seed=excluded.seed,requested_width=excluded.requested_width,"
-            "requested_height=excluded.requested_height,is_available=1",
+            "requested_height=excluded.requested_height,is_available=1 WHERE output_files.is_deleted=0",
             (
                 relative_path, relative_path, request_id, job_id, generated_at,
                 str(generation_seed) if generation_seed is not None else None, width, height,
@@ -142,6 +186,12 @@ class OutputCatalog:
         for output_path in resolved_result.get("output_paths", []):
             relative_path = normalized_output_path(output_path)
             if relative_path is not None:
+                deleted_original = connection.execute(
+                    "SELECT 1 FROM output_files WHERE request_id=? AND original_relative_path=? AND is_deleted=1",
+                    (request_id, relative_path),
+                ).fetchone()
+                if deleted_original is not None:
+                    continue
                 OutputCatalog._store_output(
                     connection, relative_path, request_id, request_row["job_id"], width, height,
                 )
@@ -176,13 +226,17 @@ class OutputCatalog:
         scan_elapsed_ms = (time.perf_counter() - scan_started_at) * 1000
         synchronization_started_at = time.perf_counter()
         with self._connect() as connection:
-            recorded_rows = connection.execute("SELECT relative_path,is_available FROM output_files").fetchall()
+            connection.execute("BEGIN IMMEDIATE")
+            recorded_rows = connection.execute("SELECT relative_path,is_available,is_deleted FROM output_files").fetchall()
             known_paths = set()
+            deleted_paths = set()
             availability_updates = []
             for recorded_row in recorded_rows:
                 relative_path = recorded_row["relative_path"]
                 known_paths.add(relative_path)
-                is_available = int(relative_path in physical_paths)
+                if recorded_row["is_deleted"]:
+                    deleted_paths.add(relative_path)
+                is_available = int(relative_path in physical_paths and not recorded_row["is_deleted"])
                 if is_available != recorded_row["is_available"]:
                     availability_updates.append((is_available, relative_path))
             connection.executemany(
@@ -192,14 +246,14 @@ class OutputCatalog:
             for relative_path in sorted(new_paths):
                 self._store_output(connection, relative_path)
         synchronization_result = {
-            "available": len(physical_paths),
+            "available": len(physical_paths - deleted_paths),
             "added": len(new_paths),
             "availability_changes": len(availability_updates),
         }
         LOGGER.info(
             "OUTPUT_CATALOG event=sync available=%s added=%s availability_changes=%s "
             "scan_ms=%.3f database_ms=%.3f",
-            len(physical_paths), len(new_paths), len(availability_updates), scan_elapsed_ms,
+            synchronization_result["available"], len(new_paths), len(availability_updates), scan_elapsed_ms,
             (time.perf_counter() - synchronization_started_at) * 1000,
         )
         return synchronization_result
@@ -215,7 +269,7 @@ class OutputCatalog:
     ) -> dict[str, Any]:
         """JSON을 읽지 않고 index에서 필터·정렬·pagination 및 요청 해상도를 조회합니다."""
 
-        conditions = ["is_available = 1"]
+        conditions = ["is_available = 1", "is_deleted = 0"]
         query_values = []
         if job_id:
             conditions.append("job_id = ?")
@@ -240,7 +294,9 @@ class OutputCatalog:
                 ).fetchone()[0]
             with measure_output_step(output_timing, "catalog_page_query", emit=True):
                 page_rows = connection.execute(
-                    "SELECT relative_path,generated_at,seed,job_id,requested_width,requested_height "
+                    "SELECT output_id,relative_path,generated_at,seed,job_id,requested_width,requested_height,"
+                    "COALESCE((SELECT deletion_protected FROM jobs WHERE jobs.job_id=output_files.job_id),0) "
+                    "AS deletion_protected "
                     f"FROM output_files WHERE {filter_clause} ORDER BY {OUTPUT_SORT_ORDER} LIMIT ? OFFSET ?",
                     (*query_values, page_size, (page - 1) * page_size),
                 ).fetchall()
@@ -248,15 +304,17 @@ class OutputCatalog:
         for page_row in page_rows:
             output_path = Path(page_row["relative_path"])
             width, height = page_row["requested_width"], page_row["requested_height"]
-            is_video = output_path.suffix.lower() in {".mp4", ".webm", ".mkv", ".mov"}
+            is_video = output_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS
             generation_seed = int(page_row["seed"]) if page_row["seed"] is not None else None
             page_files.append({
+                "output_id": page_row["output_id"],
                 "path": page_row["relative_path"],
                 "name": output_path.name,
                 "generated_at": page_row["generated_at"],
                 "seed": generation_seed,
                 "kind": "video" if is_video else "image",
                 "job_id": page_row["job_id"],
+                "deletion_protected": bool(page_row["deletion_protected"]),
                 "width": width,
                 "height": height,
                 "dimensions_source": "settings" if width and height else None,
@@ -266,17 +324,307 @@ class OutputCatalog:
             "total_pages": max(1, (total + page_size - 1) // page_size),
         }
 
-    def move_file(self, source_relative_path: str, destination_relative_path: str) -> None:
+    def get_file_neighbors(
+        self, output_id: int, job_id: str = "", request_id: str = "", prefix: str = "",
+    ) -> dict[str, dict[str, Any] | None]:
+        """현재 파일의 보호 상태와 같은 범위의 인접 파일을 페이지·FS·이력 JSON 없이 읽습니다."""
+
+        conditions = ["is_available=1", "is_deleted=0"]
+        parameters = []
+        if job_id:
+            conditions.append("job_id=?")
+            parameters.append(job_id)
+        if request_id:
+            conditions.append("request_id=?")
+            parameters.append(request_id)
+        if prefix:
+            conditions.append("substr(relative_path,1,?)=?")
+            parameters.extend((len(prefix), prefix))
+        filter_clause = " AND ".join(conditions)
+        neighbors = {"previous": None, "next": None}
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            current_row = connection.execute(
+                "SELECT generated_at,length(seed) AS seed_length,seed,relative_path,"
+                "COALESCE((SELECT deletion_protected FROM jobs WHERE jobs.job_id=output_files.job_id),0) AS deletion_protected "
+                f"FROM output_files WHERE {filter_clause} AND output_id=?",
+                [*parameters, output_id],
+            ).fetchone()
+            if current_row is None:
+                raise LookupError("현재 조회 범위에서 결과물을 찾을 수 없습니다. 목록을 새로고침해 주세요.")
+            current_path = Path(current_row["relative_path"])
+            neighbors["current"] = {
+                "output_id": output_id, "path": current_row["relative_path"], "name": current_path.name,
+                "kind": "video" if current_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS else "image",
+                "deletion_protected": bool(current_row["deletion_protected"]),
+            }
+            for direction in ("previous", "next"):
+                cursor_condition, cursor_parameters = output_neighbor_condition(current_row, direction)
+                sort_order = OUTPUT_SORT_ORDER.replace("DESC", "ASC") if direction == "previous" else OUTPUT_SORT_ORDER
+                neighbor_row = connection.execute(
+                    f"SELECT output_id,relative_path FROM output_files WHERE {filter_clause} AND {cursor_condition} ORDER BY {sort_order} LIMIT 1",
+                    [*parameters, *cursor_parameters],
+                ).fetchone()
+                if neighbor_row is not None:
+                    output_path = Path(neighbor_row["relative_path"])
+                    neighbors[direction] = {
+                        "output_id": neighbor_row["output_id"], "path": neighbor_row["relative_path"], "name": output_path.name,
+                        "kind": "video" if output_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS else "image",
+                    }
+        return neighbors
+
+    def get_video_source(self, output_id: int) -> dict[str, Any]:
+        """영상의 최신 현재 경로를 조회하고 삭제·미등록·다른 종류의 결과물을 거부합니다."""
+
+        with self._connect() as connection:
+            output_row = connection.execute(
+                "SELECT output_id,relative_path,is_deleted FROM output_files WHERE output_id=?", (output_id,),
+            ).fetchone()
+        if output_row is None or output_row["is_deleted"]:
+            raise FileNotFoundError("영상을 찾을 수 없습니다.")
+        if Path(output_row["relative_path"]).suffix.lower() not in VIDEO_OUTPUT_EXTENSIONS:
+            raise ValueError("영상 결과물만 미리보기를 지원합니다.")
+        return dict(output_row)
+
+    def video_output_id(self, relative_path: str) -> int:
+        """정지 Thumbnail 경로를 현재 영상 식별자로 변환합니다."""
+
+        with self._connect() as connection:
+            output_row = connection.execute(
+                "SELECT output_id FROM output_files WHERE relative_path=? AND is_deleted=0", (relative_path,),
+            ).fetchone()
+        if output_row is None:
+            raise FileNotFoundError("영상을 찾을 수 없습니다.")
+        return output_row["output_id"]
+
+    def iter_video_sources(self, request_id: str | None = None) -> Iterator[dict[str, Any]]:
+        """현재 영상 후보를 ID Keyset으로 페이지 조회하며 전체 목록을 메모리에 올리지 않습니다."""
+
+        previous_identifier = 9223372036854775807
+        while True:
+            with self._connect() as connection:
+                query = (
+                    "SELECT output_id,relative_path FROM output_files WHERE output_id<? "
+                    "AND is_available=1 AND is_deleted=0 AND "
+                    "(lower(relative_path) LIKE '%.mp4' OR lower(relative_path) LIKE '%.webm' "
+                    "OR lower(relative_path) LIKE '%.mkv' OR lower(relative_path) LIKE '%.mov')"
+                )
+                query_values: list[Any] = [previous_identifier]
+                if request_id is not None:
+                    query += " AND request_id=?"
+                    query_values.append(request_id)
+                output_rows = connection.execute(query + " ORDER BY output_id DESC LIMIT 100", query_values).fetchall()
+            if not output_rows:
+                return
+            for output_row in output_rows:
+                yield dict(output_row)
+            previous_identifier = output_rows[-1]["output_id"]
+
+    def list_input_images(self, directory_path: str) -> list[dict[str, Any]]:
+        """현재 폴더 직하위의 사용 가능한 이미지 ID와 현재 경로만 파일명순으로 반환합니다."""
+
+        directory_prefix = f"{directory_path}/" if directory_path else ""
+        with self._connect() as connection:
+            image_rows = connection.execute(
+                "SELECT output_id,relative_path FROM output_files WHERE is_available=1 AND is_deleted=0 "
+                "AND substr(relative_path,1,?)=? AND instr(substr(relative_path,?),'/')=0",
+                (len(directory_prefix), directory_prefix, len(directory_prefix) + 1),
+            ).fetchall()
+        image_files = []
+        for image_row in image_rows:
+            image_path = Path(image_row["relative_path"])
+            if image_path.suffix.lower() in IMAGE_OUTPUT_EXTENSIONS:
+                image_files.append({"output_id": image_row["output_id"], "path": image_row["relative_path"], "name": image_path.name})
+        image_files.sort(key=lambda image: (image["name"].casefold(), image["name"], image["path"]))
+        return image_files
+
+    def list_input_jobs(self, page: int, page_size: int) -> dict[str, Any]:
+        """이미지가 남은 작업의 작은 요약만 페이지 조회하고 Prompt·하위 이력은 읽지 않습니다."""
+
+        image_counts_query = (
+            "WITH image_counts AS (SELECT job_id,COUNT(*) AS image_count FROM output_files "
+            f"WHERE is_available=1 AND is_deleted=0 AND {INPUT_IMAGE_FILTER} GROUP BY job_id) "
+        )
+        with self._connect() as connection:
+            total = connection.execute(
+                image_counts_query + "SELECT COUNT(*) FROM jobs JOIN image_counts USING(job_id)"
+            ).fetchone()[0]
+            job_rows = connection.execute(
+                image_counts_query + "SELECT jobs.job_id,jobs.workflow,jobs.description,jobs.created_at,image_count "
+                "FROM jobs JOIN image_counts USING(job_id) ORDER BY jobs.created_at DESC,jobs.rowid DESC LIMIT ? OFFSET ?",
+                (page_size, (page - 1) * page_size),
+            ).fetchall()
+        return {"items": [dict(job_row) for job_row in job_rows], "page": page, "total": total,
+                "total_pages": max(1, (total + page_size - 1) // page_size)}
+
+    def list_job_input_images(self, job_id: str) -> dict[str, Any]:
+        """작업의 현재 이미지 경로를 폴더와 무관하게 조회하고 영상·삭제 결과물은 제외합니다."""
+
+        with self._connect() as connection:
+            job_row = connection.execute(
+                "SELECT job_id,workflow,description,created_at FROM jobs WHERE job_id=?", (job_id,),
+            ).fetchone()
+            if job_row is None:
+                raise LookupError("입력 작업을 찾을 수 없습니다.")
+            image_rows = connection.execute(
+                "SELECT output_id,relative_path FROM output_files "
+                f"WHERE job_id=? AND is_available=1 AND is_deleted=0 AND {INPUT_IMAGE_FILTER}", (job_id,),
+            ).fetchall()
+        image_files = []
+        for image_row in image_rows:
+            image_path = Path(image_row["relative_path"])
+            image_files.append({"output_id": image_row["output_id"], "path": image_row["relative_path"], "name": image_path.name})
+        image_files.sort(key=lambda image: (image["name"].casefold(), image["name"], image["path"]))
+        return {"job": {**dict(job_row), "image_count": len(image_files)}, "files": image_files}
+
+    def get_input_images(self, output_ids: list[int], input_job_id: str | None = None) -> list[dict[str, Any]]:
+        """삭제·누락·영상 입력을 거부하고 선택 이미지의 최신 경로를 같은 조회에서 확인합니다."""
+
+        if not output_ids or len(output_ids) > 100 or len(set(output_ids)) != len(output_ids) or any(identifier <= 0 for identifier in output_ids):
+            raise ValueError("입력 이미지는 중복 없이 1~100장을 선택해 주세요.")
+        placeholders = ",".join("?" for _ in output_ids)
+        with self._connect() as connection:
+            if input_job_id is not None and connection.execute("SELECT 1 FROM jobs WHERE job_id=?", (input_job_id,)).fetchone() is None:
+                raise ValueError("입력 작업이 삭제되었거나 더 이상 사용할 수 없습니다.")
+            image_rows = connection.execute(
+                f"SELECT output_id,relative_path,job_id FROM output_files WHERE output_id IN ({placeholders}) AND is_available=1 AND is_deleted=0",
+                output_ids,
+            ).fetchall()
+        if len(image_rows) != len(output_ids):
+            raise ValueError("선택한 이미지가 삭제되었거나 더 이상 사용할 수 없습니다. 다시 선택해 주세요.")
+        image_files = []
+        for image_row in image_rows:
+            if input_job_id is not None and image_row["job_id"] != input_job_id:
+                raise ValueError("선택한 작업에 속한 이미지만 함께 제출할 수 있습니다. 다시 선택해 주세요.")
+            image_path = Path(image_row["relative_path"])
+            if image_path.suffix.lower() not in IMAGE_OUTPUT_EXTENSIONS:
+                raise ValueError("영상은 MiniMax 입력 이미지로 사용할 수 없습니다.")
+            image_files.append({"output_id": image_row["output_id"], "path": image_row["relative_path"], "name": image_path.name})
+        image_files.sort(key=lambda image: (image["name"].casefold(), image["name"], image["path"]))
+        return image_files
+
+    def list_deletable_output_ids(self, job_id: str = "", request_id: str = "") -> list[int]:
+        """현재 필터의 모든 페이지에서 삭제 보호되지 않은 결과물 ID만 조회합니다."""
+
+        return self.list_selection_candidates(job_id, request_id)["deletable_output_ids"]
+
+    def list_selection_candidates(self, job_id: str = "", request_id: str = "") -> dict[str, list[int]]:
+        """작업 상태와 무관하게 현재 필터의 전체 결과물과 삭제 보호되지 않은 ID를 조회합니다."""
+
+        conditions = ["is_available=1", "is_deleted=0"]
+        query_values = []
+        if job_id:
+            conditions.append("job_id=?")
+            query_values.append(job_id)
+        if request_id:
+            conditions.append("request_id=?")
+            query_values.append(request_id)
+        with self._connect() as connection:
+            if job_id and connection.execute("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)).fetchone() is None:
+                raise LookupError("작업을 찾을 수 없습니다.")
+            if request_id and connection.execute("SELECT 1 FROM job_requests WHERE request_id=?", (request_id,)).fetchone() is None:
+                raise LookupError("요청을 찾을 수 없습니다.")
+            candidate_rows = connection.execute(
+                "SELECT output_id,relative_path,"
+                "COALESCE((SELECT deletion_protected FROM jobs WHERE jobs.job_id=output_files.job_id),0) "
+                "AS deletion_protected FROM output_files WHERE " + " AND ".join(conditions),
+                query_values,
+            ).fetchall()
+        output_ids = []
+        deletable_output_ids = []
+        for candidate_row in candidate_rows:
+            output_extension = Path(candidate_row["relative_path"]).suffix.lower()
+            if output_extension in MEDIA_EXTENSIONS:
+                output_ids.append(candidate_row["output_id"])
+            if output_extension in MEDIA_EXTENSIONS and not candidate_row["deletion_protected"]:
+                deletable_output_ids.append(candidate_row["output_id"])
+        return {"output_ids": output_ids, "deletable_output_ids": deletable_output_ids}
+
+    def list_job_output_ids_for_move(self, job_id: str) -> list[int]:
+        """생성이 끝난 작업에서 삭제되지 않고 현재 사용 가능한 결과물 ID를 조회합니다."""
+
+        with self._connect() as connection:
+            if connection.execute("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)).fetchone() is None:
+                raise LookupError("작업을 찾을 수 없습니다.")
+            active_request = connection.execute(
+                "SELECT 1 FROM job_requests WHERE job_id=? "
+                "AND status IN ('submitting','pending','running','cancelling') LIMIT 1", (job_id,),
+            ).fetchone()
+            if active_request is not None:
+                raise ValueError("진행 중인 작업은 생성이 끝난 뒤 결과물을 이동해 주세요.")
+            output_rows = connection.execute(
+                "SELECT output_id FROM output_files WHERE job_id=? AND is_available=1 AND is_deleted=0 "
+                "ORDER BY output_id", (job_id,),
+            ).fetchall()
+        return [output_row["output_id"] for output_row in output_rows]
+
+    def get_output_path_for_move(self, output_id: int) -> str:
+        """이동할 결과물의 현재 경로를 조회하고 삭제된 결과물은 거부합니다."""
+
+        with self._connect() as connection:
+            output_row = connection.execute(
+                "SELECT relative_path,is_deleted FROM output_files WHERE output_id=?", (output_id,),
+            ).fetchone()
+        if output_row is None:
+            raise LookupError("결과물을 찾을 수 없습니다.")
+        if output_row["is_deleted"]:
+            raise ValueError("삭제된 결과물은 이동할 수 없습니다.")
+        return output_row["relative_path"]
+
+    def is_deleted(self, relative_path: str) -> bool:
+        """삭제 표시된 경로인지 확인하여 원본과 썸네일 접근을 차단합니다."""
+
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT 1 FROM output_files WHERE relative_path=? AND is_deleted=1", (relative_path,),
+            ).fetchone() is not None
+
+    def delete_file(self, output_id: int, remove_file: Callable[[str], bool]) -> dict[str, Any]:
+        """삭제 보호·이동과 경합하지 않도록 잠근 뒤 파일을 지우고 삭제 표시를 보존합니다."""
+
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            output_row = connection.execute(
+                "SELECT output_files.relative_path,output_files.is_deleted,jobs.deletion_protected "
+                "FROM output_files LEFT JOIN jobs USING(job_id) WHERE output_id=?", (output_id,),
+            ).fetchone()
+            if output_row is None:
+                raise LookupError("결과물을 찾을 수 없습니다.")
+            if output_row["is_deleted"]:
+                return {"deleted": True, "path": output_row["relative_path"], "deleted_files": 0}
+            if output_row["deletion_protected"]:
+                raise ValueError("삭제 보호된 작업입니다. 보호를 해제한 뒤 삭제해 주세요.")
+            # DB 변경 실패를 파일 삭제보다 먼저 확인하고, 파일 삭제 실패 시 transaction을 되돌립니다.
+            connection.execute(
+                "UPDATE output_files SET is_deleted=1,is_available=0 WHERE output_id=?", (output_id,),
+            )
+            removed_file = remove_file(output_row["relative_path"])
+        return {"deleted": True, "path": output_row["relative_path"], "deleted_files": int(removed_file)}
+
+    def move_file(
+        self, source_relative_path: str, destination_relative_path: str,
+        move_physical_file: Callable[[], None] | None = None,
+        *, expected_output_id: int | None = None,
+    ) -> None:
         """현재 경로만 변경하고 원래 생성 경로·요청 metadata·작업 연결은 보존합니다."""
 
         with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
             source_row = connection.execute(
-                "SELECT output_id FROM output_files WHERE relative_path=?", (source_relative_path,),
+                "SELECT output_id,is_deleted FROM output_files WHERE relative_path=?", (source_relative_path,),
             ).fetchone()
+            if expected_output_id is not None and (source_row is None or source_row["output_id"] != expected_output_id):
+                raise ValueError("결과물 경로가 변경되었습니다. 목록을 새로고침한 뒤 다시 이동해 주세요.")
+            if source_row is not None and source_row["is_deleted"]:
+                raise ValueError("삭제된 결과물은 이동할 수 없습니다.")
             if source_row is None:
                 self._store_output(connection, source_relative_path)
+            if source_relative_path == destination_relative_path:
+                return
             connection.execute("DELETE FROM output_files WHERE relative_path=?", (destination_relative_path,))
             connection.execute(
                 "UPDATE output_files SET relative_path=?,is_available=1 WHERE relative_path=?",
                 (destination_relative_path, source_relative_path),
             )
+            if move_physical_file is not None:
+                move_physical_file()

@@ -19,7 +19,7 @@ function createNavigationFixtures() {
       request_count: 1, inputs: { body: { prompt: `original prompt ${jobNumber}` }, settings: {}, loras: [] },
       requests: [{ request_id: `${jobIdentifier}-request`, request_index: 1, status: "completed", result: {} }],
     });
-    for (let outputNumber = 1; outputNumber <= 2; outputNumber += 1) {
+    for (let outputNumber = 1; outputNumber <= 6; outputNumber += 1) {
       const filename = `${jobIdentifier}-${outputNumber}.mp4`;
       outputs.push({ path: `anima/${filename}`, name: filename, kind: "video", job_id: jobIdentifier });
     }
@@ -89,6 +89,9 @@ function createNavigationRequestHandler(fixtures) {
       response = fixtures.jobs.find(job => job.job_id === requestPath.split("/").at(-1));
     } else if (requestPath === "/api/batches") {
       response = { job_id: "submitted-job", request_ids: ["submitted-request"] };
+    } else if (requestPath.startsWith("/api/outputs/preview/")) {
+      await route.fulfill({ contentType: "image/svg+xml", body: '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="black"/></svg>' });
+      return;
     } else if (requestPath === "/favicon.ico") {
       await route.fulfill({ status: 204 });
       return;
@@ -136,7 +139,7 @@ async function verifyNavigation(browser, viewport) {
     const jobsScrollPosition = await browserPage.evaluate(() => window.scrollY);
     assert.ok(jobsScrollPosition > 300);
     await resultsButton.click();
-    await browserPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 작업의 결과 2개");
+    await browserPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 작업의 결과 6개");
     await assertScrollPosition(browserPage, 0);
 
     await clickNavigationTab(browserPage, "jobs");
@@ -149,9 +152,9 @@ async function verifyNavigation(browser, viewport) {
     await assertScrollPosition(browserPage, jobsScrollPosition);
 
     await clickNavigationTab(browserPage, "outputs");
-    assert.equal(await browserPage.locator("#output-count").textContent(), "이 작업의 결과 2개");
+    assert.equal(await browserPage.locator("#output-count").textContent(), "이 작업의 결과 6개");
     await browserPage.locator("#clear-output-filter").click();
-    await browserPage.waitForFunction(() => document.getElementById("output-count").textContent === "60개 파일");
+    await browserPage.waitForFunction(() => document.getElementById("output-count").textContent === "180개 파일");
     await browserPage.locator('[data-outputs-page="2"]').first().click();
     await browserPage.locator('.output-info strong').filter({ hasText: "navigation-job-13-1.mp4" }).waitFor();
     await browserPage.evaluate(() => {
@@ -255,7 +258,7 @@ async function verifyBrowserHistory(browser, viewport) {
     await browserPage.waitForFunction(() => !applicationState.jobsLoading);
     const filteredJobsEntry = await currentNavigationEntry(browserPage);
     await traverseNavigationHistory(browserPage, "back", jobResultsEntry);
-    assert.equal(await browserPage.locator("#output-count").textContent(), "이 작업의 결과 2개");
+    assert.equal(await browserPage.locator("#output-count").textContent(), "이 작업의 결과 6개");
     await traverseNavigationHistory(browserPage, "back", secondJobsEntry);
     assert.equal(await browserPage.locator('[data-jobs-page="2"][aria-current="page"]').count(), 1);
     assert.equal(await browserPage.locator('[data-job-details="navigation-job-14"]').getAttribute("open"), "");
@@ -327,10 +330,10 @@ async function verifyBrowserHistory(browser, viewport) {
     await browserPage.locator('[data-show-request-results="navigation-job-1-request"]').click();
     await browserPage.waitForFunction(() => !applicationState.pendingNavigationScroll);
     const requestResultsEntry = await currentNavigationEntry(browserPage);
-    assert.equal(await browserPage.locator("#output-count").textContent(), "이 요청의 결과 2개");
+    assert.equal(await browserPage.locator("#output-count").textContent(), "이 요청의 결과 6개");
     await traverseNavigationHistory(browserPage, "back", unfilteredJobsEntry);
     await traverseNavigationHistory(browserPage, "forward", requestResultsEntry);
-    assert.equal(await browserPage.locator("#output-count").textContent(), "이 요청의 결과 2개");
+    assert.equal(await browserPage.locator("#output-count").textContent(), "이 요청의 결과 6개");
     await traverseNavigationHistory(browserPage, "back", unfilteredJobsEntry);
 
     await browserPage.locator('[data-restore-job="navigation-job-1"]').click();
@@ -422,7 +425,7 @@ async function verifyNewTabNavigation(browser, viewport) {
 
     const jobOutputsPage = await openNavigationInNewTab(secondJobsPage,
       secondJobsPage.locator('[data-show-job-results="navigation-job-14"]'));
-    await jobOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 작업의 결과 2개");
+    await jobOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 작업의 결과 6개");
     assert.equal(new URL(jobOutputsPage.url()).searchParams.get("job_id"), "navigation-job-14");
     const linkedJobPage = await openNavigationInNewTab(jobOutputsPage,
       jobOutputsPage.locator('[data-output-job="navigation-job-14"]').first());
@@ -436,13 +439,13 @@ async function verifyNewTabNavigation(browser, viewport) {
     await secondJobsPage.locator('[data-job-details="navigation-job-14"] > summary').click();
     const requestOutputsPage = await openNavigationInNewTab(secondJobsPage,
       secondJobsPage.locator('[data-show-request-results="navigation-job-14-request"]'));
-    await requestOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 요청의 결과 2개");
+    await requestOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 요청의 결과 6개");
     assert.equal(new URL(requestOutputsPage.url()).searchParams.get("request_id"), "navigation-job-14-request");
     await requestOutputsPage.reload();
-    await requestOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 요청의 결과 2개");
+    await requestOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 요청의 결과 6개");
 
     const allOutputsPage = await openNavigationInNewTab(jobOutputsPage, jobOutputsPage.locator("#clear-output-filter"));
-    await allOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "60개 파일");
+    await allOutputsPage.waitForFunction(() => document.getElementById("output-count").textContent === "180개 파일");
     const secondOutputsPage = await openNavigationInNewTab(allOutputsPage,
       allOutputsPage.locator('[data-outputs-page="2"]').first());
     await secondOutputsPage.locator('[data-outputs-page="2"][aria-current="page"]').waitFor();
@@ -473,7 +476,7 @@ async function verifyNewTabNavigation(browser, viewport) {
     assert.equal(fixtures.queries.filter(query => query.path === "/api/outputs").length, outputQueriesBeforeLogin);
     await loginPage.locator("#login-password").fill("test-password");
     await loginPage.locator('#login-form button[type="submit"]').click();
-    await loginPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 작업의 결과 2개");
+    await loginPage.waitForFunction(() => document.getElementById("output-count").textContent === "이 작업의 결과 6개");
     assert.deepEqual(fixtures.mutations, ["/api/login"]);
     assert.deepEqual(pageErrors, []);
   } finally {
