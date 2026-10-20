@@ -42,6 +42,7 @@ const tagManagerState = {
   mobilePane: "groups", groupScrollPosition: 0, entryScrollPositions: new Map(),
   editorKind: null, editorFingerprint: null, editorOpener: null, editorRevision: 0,
   editorBusy: false,
+  listHistoryIndex: null, editorParentHistoryIndex: null,
 };
 const promptEditorState = {
   selectedPresetId: null, sourceVersion: null, sourceBody: { prompt: "", negative: "" },
@@ -49,7 +50,11 @@ const promptEditorState = {
   activeTab: "edit", mobilePane: "list", listScrollPosition: 0,
   versions: [], versionsPresetId: null, previewVersion: null,
   versionsLoading: false, versionsError: "", versionsRevision: 0,
-  saving: false, editorRevision: 0,
+  saving: false, editorRevision: 0, navigationLoading: false,
+  contextId: null, listHistoryIndex: null,
+};
+const managerHistoryState = {
+  restoring: false, traversalPending: false, rejectedEntry: null,
 };
 
 const applicationState = {
@@ -81,6 +86,7 @@ const applicationState = {
   currentView: "generate",
   viewScrollPositions: new Map(),
   navigationEntryId: null,
+  navigationEntryIndex: 0,
   navigationEntrySequence: 0,
   navigationRevision: 0,
   pendingNavigationScroll: null,
@@ -339,6 +345,33 @@ function scheduleJobsPolling() {
   }, applicationState.currentView === "jobs" ? 1000 : 5000);
 }
 
+/** Prompt의 탐색 위치만 기록하며 편집 중인 본문은 History에 넣지 않습니다. */
+function capturePromptNavigation() {
+  return {
+    pane: promptEditorState.mobilePane, presetId: promptEditorState.selectedPresetId,
+    sourceVersion: promptEditorState.sourceVersion, contextId: promptEditorState.contextId,
+    workflow: promptEditorState.workflow, tab: promptEditorState.activeTab,
+    previewVersion: promptEditorState.previewVersion,
+    search: promptEditorState.search, workflowFilter: promptEditorState.workflowFilter,
+    listScrollTop: element("preset-list").scrollTop, listHistoryIndex: promptEditorState.listHistoryIndex,
+  };
+}
+
+/** 태그 관리의 그룹·Dialog·검색 위치만 기록하고 편집 입력은 제외합니다. */
+function captureTagNavigation() {
+  const editorKind = tagManagerState.editorKind;
+  return {
+    pane: tagManagerState.mobilePane, groupId: tagManagerState.selectedGroupId,
+    groupSearch: tagManagerState.groupSearch, referenceFilter: tagManagerState.referenceFilter,
+    entrySearch: tagManagerState.entrySearch,
+    groupScrollTop: element("tag-group-list").scrollTop, entryScrollTop: element("tag-entry-list").scrollTop,
+    editorKind, editorId: editorKind === "group" ? applicationState.editingTagGroupId
+      : editorKind === "entry" ? applicationState.editingTagEntryId : null,
+    dialogScrollTop: editorKind ? element(`tag-${editorKind}-dialog`).scrollTop : 0,
+    listHistoryIndex: tagManagerState.listHistoryIndex, editorParentHistoryIndex: tagManagerState.editorParentHistoryIndex,
+  };
+}
+
 /** 현재 화면의 이동 조건과 스크롤만 기록하며 입력값이나 목록 데이터는 복사하지 않습니다. */
 function captureNavigationState() {
   const viewName = applicationState.currentView;
@@ -351,6 +384,7 @@ function captureNavigationState() {
   return {
     version: 1,
     entryId: applicationState.navigationEntryId,
+    entryIndex: applicationState.navigationEntryIndex,
     viewName,
     pageNumber: viewName === "jobs" ? applicationState.jobsPage : applicationState.outputsPage,
     jobFilterId: viewName === "jobs" ? applicationState.jobFilterId : null,
@@ -359,6 +393,8 @@ function captureNavigationState() {
     outputFilter: viewName === "outputs" ? applicationState.outputFilter : null,
     scrollPosition: window.scrollY,
     openJobIds,
+    promptNavigation: viewName === "prompts" ? capturePromptNavigation() : null,
+    tagNavigation: viewName === "tags" ? captureTagNavigation() : null,
   };
 }
 
@@ -366,6 +402,8 @@ function captureNavigationState() {
 function isNavigationStateValid(navigationState) {
   if (!navigationState || navigationState.version !== 1 ||
       typeof navigationState.entryId !== "string" || !NAVIGATION_VIEW_NAMES.includes(navigationState.viewName)) return false;
+  if (navigationState.entryIndex !== undefined && !Number.isSafeInteger(navigationState.entryIndex)) return false;
+  if (!isManagerNavigationValid(navigationState)) return false;
   if (!Number.isSafeInteger(navigationState.pageNumber) || navigationState.pageNumber < 1 ||
       !Number.isFinite(navigationState.scrollPosition) || navigationState.scrollPosition < 0) return false;
   if (navigationState.jobFilterId !== null && typeof navigationState.jobFilterId !== "string") return false;
@@ -466,16 +504,112 @@ function navigationRoutesMatch(previousState, nextState) {
       previousState.outputFilter?.type === nextState.outputFilter?.type &&
       previousState.outputFilter?.id === nextState.outputFilter?.id;
   }
+  if (["prompts", "tags"].includes(nextState.viewName)) {
+    return JSON.stringify(managerNavigationRoute(previousState)) === JSON.stringify(managerNavigationRoute(nextState));
+  }
   return true;
 }
 
 /** 현재 항목만 갱신하여 스크롤이나 Polling이 새 History를 만들지 않게 합니다. */
 function saveCurrentNavigationEntry() {
-  if (applicationState.pendingNavigationScroll ||
+  if (applicationState.pendingNavigationScroll || managerHistoryState.restoring || managerHistoryState.traversalPending ||
       window.history.state?.homeServerNavigation?.entryId !== applicationState.navigationEntryId) return;
   const navigationState = captureNavigationState();
   window.history.replaceState({ homeServerNavigation: navigationState }, "", navigationUrl(navigationState));
   updateNavigationLinks();
+}
+
+/** Prompt의 조회 상태만 복원하며 같은 편집 대상의 현재 입력은 그대로 둡니다. */
+async function restorePromptNavigation(navigationState, navigationRevision) {
+  const target = navigationState.promptNavigation;
+  if (!target) return;
+  if (target.pane === "detail" && !promptEditorMatchesNavigation(target)) {
+    const preset = applicationState.presets.find(item => item.preset_id === target.presetId);
+    let body = preset?.body;
+    if (preset && target.sourceVersion !== preset.version) {
+      promptEditorState.navigationLoading = true;
+      renderPromptEditorStatus();
+      try {
+        const versions = await apiRequest(`/api/presets/${encodeURIComponent(preset.preset_id)}/versions`);
+        if (navigationRevision !== applicationState.navigationRevision) return;
+        body = versions.find(version => version.version === target.sourceVersion)?.body;
+        if (!body) throw new Error("이전 Prompt 버전을 찾을 수 없습니다.");
+      } catch (error) {
+        if (navigationRevision !== applicationState.navigationRevision) return;
+        promptEditorState.mobilePane = "list";
+        element("prompt-manager-layout").dataset.mobilePane = "list";
+        throw error;
+      } finally {
+        if (navigationRevision === applicationState.navigationRevision) {
+          promptEditorState.navigationLoading = false;
+          renderPromptEditorStatus();
+        }
+      }
+    }
+    if (navigationRevision !== applicationState.navigationRevision) return;
+    managerHistoryState.restoring = true;
+    try {
+      if (preset || !target.presetId) {
+        configurePromptEditor(preset || null, { workflow: target.workflow, body, sourceVersion: target.sourceVersion, showDetail: false });
+        if (!target.presetId) promptEditorState.contextId = target.contextId;
+      } else target.pane = "list";
+    } finally {
+      managerHistoryState.restoring = false;
+    }
+  }
+  promptEditorState.search = target.search;
+  promptEditorState.workflowFilter = target.workflowFilter;
+  promptEditorState.listHistoryIndex = target.listHistoryIndex;
+  promptEditorState.mobilePane = target.pane;
+  element("preset-search").value = target.search;
+  element("preset-workflow-filter").value = target.workflowFilter;
+  element("prompt-manager-layout").dataset.mobilePane = target.pane;
+  renderPromptManagerList();
+  element("preset-list").scrollTop = target.listScrollTop;
+  showPromptDetailTab(target.tab);
+  promptEditorState.previewVersion = target.previewVersion;
+  if (target.tab === "history" && target.pane === "detail" && promptEditorState.selectedPresetId) {
+    await showPresetVersions(promptEditorState.selectedPresetId, { recordHistory: false });
+  } else renderPromptVersionHistory();
+}
+
+/** 태그 관리의 목록·그룹·Dialog를 복원하고 사라진 대상은 다시 열지 않습니다. */
+function restoreTagNavigation(navigationState) {
+  const target = navigationState.viewName === "tags" ? navigationState.tagNavigation : null;
+  const closingEditorKind = tagManagerState.editorKind;
+  const closingEditorId = closingEditorKind === "entry" ? applicationState.editingTagEntryId : applicationState.editingTagGroupId;
+  const sameEditor = target?.editorKind && target.editorKind === tagManagerState.editorKind &&
+    target.editorId === (target.editorKind === "group" ? applicationState.editingTagGroupId : applicationState.editingTagEntryId);
+  managerHistoryState.restoring = true;
+  try {
+    if (tagManagerState.editorKind && !sameEditor) closeTagEditor({ discard: true, restoreFocus: false, force: true, historyMode: "none" });
+    if (!target) return;
+    tagManagerState.selectedGroupId = target.groupId;
+    tagManagerState.mobilePane = target.pane;
+    tagManagerState.groupSearch = target.groupSearch;
+    tagManagerState.referenceFilter = target.referenceFilter;
+    tagManagerState.entrySearch = target.entrySearch;
+    tagManagerState.listHistoryIndex = target.listHistoryIndex;
+    tagManagerState.editorParentHistoryIndex = target.editorParentHistoryIndex;
+    element("tag-manager-group-search").value = target.groupSearch;
+    renderTagManager();
+    element("tag-group-list").scrollTop = target.groupScrollTop;
+    element("tag-entry-list").scrollTop = target.entryScrollTop;
+    if (target.editorKind && !sameEditor) {
+      if (target.editorKind === "group") editTagGroup(target.editorId);
+      else editTagEntry(target.editorId);
+      tagManagerState.editorParentHistoryIndex = target.editorParentHistoryIndex;
+    }
+    if (tagManagerState.editorKind) element(`tag-${tagManagerState.editorKind}-dialog`).scrollTop = target.dialogScrollTop;
+    else if (closingEditorKind) {
+      const entryButton = closingEditorKind === "entry" && closingEditorId
+        ? element("tag-entry-list").querySelector(`[data-edit-tag-entry="${CSS.escape(closingEditorId)}"]`) : null;
+      const groupButton = closingEditorId ? element("edit-selected-tag-group") : element("new-tag-group-button");
+      (entryButton || (closingEditorKind === "entry" ? element("new-tag-entry-button") : groupButton)).focus({ preventScroll: true });
+    }
+  } finally {
+    managerHistoryState.restoring = false;
+  }
 }
 
 /** 조회 조건과 탭 표시를 바꾸며 생성 입력이나 변경 요청은 실행하지 않습니다. */
@@ -531,10 +665,14 @@ async function loadNavigationState(navigationState, restoreOpenJobs) {
   applicationState.pendingNavigationScroll = pendingScroll;
   applicationState.outputsLoadRevision += 1;
   applicationState.jobsLoadRevision += 1;
+  promptEditorState.navigationLoading = false;
   displayNavigationState(navigationState);
   window.scrollTo({ top: navigationState.scrollPosition, behavior: "instant" });
   scheduleJobsPolling();
   try {
+    restoreTagNavigation(navigationState);
+    if (navigationState.viewName === "prompts") await restorePromptNavigation(navigationState, navigationRevision);
+    if (navigationRevision !== applicationState.navigationRevision) return;
     if (navigationState.viewName === "jobs") {
       await loadJobs();
       if (navigationRevision !== applicationState.navigationRevision) return;
@@ -558,6 +696,7 @@ async function loadNavigationState(navigationState, restoreOpenJobs) {
 
 /** 탭·페이지·필터 이동을 기록하고 일반 탭 이동은 마지막 위치를 유지합니다. */
 function switchView(viewName, { resetScroll = false, pageNumber, jobFilterId, outputFilter, jobFolderId, jobSearch } = {}) {
+  if (managerHistoryState.traversalPending) return;
   const previousState = captureNavigationState();
   const nextState = {
     ...previousState,
@@ -569,16 +708,20 @@ function switchView(viewName, { resetScroll = false, pageNumber, jobFilterId, ou
     outputFilter: viewName === "outputs" ? (outputFilter === undefined ? applicationState.outputFilter : outputFilter) : null,
     scrollPosition: resetScroll ? 0 : (applicationState.viewScrollPositions.get(viewName) || 0),
     openJobIds: [],
+    promptNavigation: viewName === "prompts" ? capturePromptNavigation() : null,
+    tagNavigation: viewName === "tags" ? captureTagNavigation() : null,
   };
   const sameRoute = navigationRoutesMatch(previousState, nextState);
   if (sameRoute && !resetScroll) return;
+  if (!canNavigateToState(nextState)) return;
   saveCurrentNavigationEntry();
   applicationState.viewScrollPositions.set(previousState.viewName, window.scrollY);
-  applicationState.navigationEntrySequence += 1;
-  nextState.entryId = `${Date.now()}-${applicationState.navigationEntrySequence}`;
-  applicationState.navigationEntryId = nextState.entryId;
+  if (previousState.viewName !== viewName) {
+    if (viewName === "prompts") nextState.promptNavigation.listHistoryIndex = promptEditorState.listHistoryIndex = null;
+    if (viewName === "tags") nextState.tagNavigation.listHistoryIndex = tagManagerState.listHistoryIndex = null;
+  }
   if (sameRoute) window.history.replaceState({ homeServerNavigation: nextState }, "", navigationUrl(nextState));
-  else window.history.pushState({ homeServerNavigation: nextState }, "", navigationUrl(nextState));
+  else pushNavigationEntry(nextState);
   loadNavigationState(nextState, false).catch(error => showNotice(error.message, true));
 }
 
@@ -598,17 +741,39 @@ function initializeNavigationHistory() {
   window.addEventListener("popstate", (event) => {
     const navigationState = event.state?.homeServerNavigation;
     if (!isNavigationStateValid(navigationState)) return;
+    managerHistoryState.traversalPending = false;
+    const rejectedEntry = managerHistoryState.rejectedEntry;
+    if (rejectedEntry) {
+      if (navigationState.entryId === rejectedEntry.entryId) {
+        managerHistoryState.rejectedEntry = null;
+        saveCurrentNavigationEntry();
+      } else {
+        managerHistoryState.traversalPending = true;
+        window.history.go(rejectedEntry.entryIndex - (navigationState.entryIndex || 0));
+      }
+      return;
+    }
+    if (!canNavigateToState(navigationState)) {
+      rejectNavigationTraversal(navigationState);
+      return;
+    }
     applicationState.viewScrollPositions.set(applicationState.currentView, window.scrollY);
     applicationState.navigationEntryId = navigationState.entryId;
+    applicationState.navigationEntryIndex = navigationState.entryIndex || 0;
     loadNavigationState(navigationState, true).catch(error => showNotice(error.message, true));
   });
-  window.addEventListener("scroll", () => {
+  /** 화면과 내부 목록의 연속 스크롤은 한 Frame에 한 번만 History에 반영합니다. */
+  const scheduleNavigationStateSave = () => {
     if (applicationState.navigationScrollFrame !== null) return;
     applicationState.navigationScrollFrame = window.requestAnimationFrame(() => {
       applicationState.navigationScrollFrame = null;
       saveCurrentNavigationEntry();
     });
-  }, { passive: true });
+  };
+  window.addEventListener("scroll", scheduleNavigationStateSave, { passive: true });
+  for (const identifier of ["preset-list", "tag-group-list", "tag-entry-list", "tag-group-dialog", "tag-entry-dialog"]) {
+    element(identifier).addEventListener("scroll", scheduleNavigationStateSave, { passive: true });
+  }
   for (const eventName of ["wheel", "touchstart", "pointerdown"]) {
     window.addEventListener(eventName, cancelNavigationScrollRestoration, { passive: true });
   }
@@ -657,6 +822,130 @@ function formatResourceMemory(usedBytes, totalBytes) {
   if (!Number.isFinite(usedBytes) || !Number.isFinite(totalBytes) || totalBytes <= 0) return "—";
   const bytesPerGibibyte = 1024 ** 3;
   return `${(usedBytes / bytesPerGibibyte).toFixed(1)} / ${(totalBytes / bytesPerGibibyte).toFixed(1)} GiB`;
+}
+
+/** History의 관리 화면 상태가 예상한 ID·화면·스크롤 형식인지 검사합니다. */
+function isManagerNavigationValid(navigationState) {
+  const promptNavigation = navigationState.promptNavigation;
+  if (promptNavigation) {
+    if (!["list", "detail"].includes(promptNavigation.pane) || !["edit", "history"].includes(promptNavigation.tab) ||
+        !["anima", "minimax_h3"].includes(promptNavigation.workflow)) return false;
+    for (const field of ["presetId", "contextId"]) {
+      if (promptNavigation[field] !== null && typeof promptNavigation[field] !== "string") return false;
+    }
+    for (const field of ["search", "workflowFilter"]) if (typeof promptNavigation[field] !== "string") return false;
+    for (const field of ["sourceVersion", "previewVersion", "listHistoryIndex"]) {
+      if (promptNavigation[field] !== null && !Number.isSafeInteger(promptNavigation[field])) return false;
+    }
+    if (!Number.isFinite(promptNavigation.listScrollTop) || promptNavigation.listScrollTop < 0) return false;
+  }
+  const tagNavigation = navigationState.tagNavigation;
+  if (tagNavigation) {
+    if (!["groups", "entries"].includes(tagNavigation.pane) || ![null, "group", "entry"].includes(tagNavigation.editorKind)) return false;
+    for (const field of ["groupId", "editorId"]) {
+      if (tagNavigation[field] !== null && typeof tagNavigation[field] !== "string") return false;
+    }
+    for (const field of ["groupSearch", "referenceFilter", "entrySearch"]) if (typeof tagNavigation[field] !== "string") return false;
+    for (const field of ["groupScrollTop", "entryScrollTop", "dialogScrollTop"]) {
+      if (!Number.isFinite(tagNavigation[field]) || tagNavigation[field] < 0) return false;
+    }
+    for (const field of ["listHistoryIndex", "editorParentHistoryIndex"]) {
+      if (tagNavigation[field] !== null && !Number.isSafeInteger(tagNavigation[field])) return false;
+    }
+  }
+  return true;
+}
+
+/** 입력을 건드리지 않고 비교할 수 있도록 관리 화면의 이동 대상을 추립니다. */
+function managerNavigationRoute(navigationState) {
+  if (navigationState.viewName === "prompts") {
+    const target = navigationState.promptNavigation;
+    if (!target || target.pane === "list") return ["list"];
+    return [target.pane, target.presetId, target.sourceVersion, target.presetId ? null : target.contextId,
+      target.tab, target.tab === "history" ? target.previewVersion : null];
+  }
+  const target = navigationState.tagNavigation;
+  return target ? [target.pane, target.pane === "entries" ? target.groupId : null, target.editorKind, target.editorId] : ["groups"];
+}
+
+/** 관리 화면 변경 전에 현재 검색·스크롤과 이동 출발점을 보관합니다. */
+function beginManagerNavigation() {
+  if (managerHistoryState.restoring || managerHistoryState.traversalPending ||
+      !["prompts", "tags"].includes(applicationState.currentView)) return null;
+  saveCurrentNavigationEntry();
+  return captureNavigationState();
+}
+
+/** 선택·상세·Dialog 이동만 새 History로 기록하고 같은 대상은 중복하지 않습니다. */
+function finishManagerNavigation(previousState) {
+  if (!previousState || managerHistoryState.restoring) return;
+  const nextState = captureNavigationState();
+  if (navigationRoutesMatch(previousState, nextState)) {
+    saveCurrentNavigationEntry();
+    return;
+  }
+  if (nextState.viewName === "prompts" && previousState.promptNavigation?.pane === "list") {
+    promptEditorState.listHistoryIndex = previousState.entryIndex;
+    nextState.promptNavigation.listHistoryIndex = previousState.entryIndex;
+  }
+  if (nextState.viewName === "tags" && previousState.tagNavigation?.pane === "groups" && !previousState.tagNavigation.editorKind) {
+    tagManagerState.listHistoryIndex = previousState.entryIndex;
+    nextState.tagNavigation.listHistoryIndex = previousState.entryIndex;
+  }
+  pushNavigationEntry(nextState);
+}
+
+/** 새 History 항목에 순서를 부여하여 취소한 Back·Forward를 정확히 되돌립니다. */
+function pushNavigationEntry(navigationState) {
+  applicationState.navigationEntrySequence += 1;
+  applicationState.navigationEntryIndex += 1;
+  navigationState.entryId = `${Date.now()}-${applicationState.navigationEntrySequence}`;
+  navigationState.entryIndex = applicationState.navigationEntryIndex;
+  applicationState.navigationEntryId = navigationState.entryId;
+  window.history.pushState({ homeServerNavigation: navigationState }, "", navigationUrl(navigationState));
+}
+
+/** 목록·닫기 버튼도 해당 화면을 연 History로 돌아가도록 연결합니다. */
+function returnToManagerHistory(entryIndex) {
+  if (managerHistoryState.restoring || managerHistoryState.traversalPending ||
+      !Number.isSafeInteger(entryIndex) || entryIndex >= applicationState.navigationEntryIndex) return false;
+  managerHistoryState.traversalPending = true;
+  window.history.go(entryIndex - applicationState.navigationEntryIndex);
+  return true;
+}
+
+/** 목적지가 현재 편집 입력을 다시 불러올 필요 없이 표시할 수 있는지 확인합니다. */
+function promptEditorMatchesNavigation(target) {
+  if (target.presetId !== promptEditorState.selectedPresetId) return false;
+  return target.presetId ? target.sourceVersion === promptEditorState.sourceVersion : target.contextId === promptEditorState.contextId;
+}
+
+/** 닫히는 Dialog나 교체되는 Prompt의 미저장 변경만 확인합니다. */
+function canNavigateToState(navigationState) {
+  if (promptEditorState.saving || tagManagerState.editorBusy) return false;
+  const tagTarget = navigationState.viewName === "tags" ? navigationState.tagNavigation : null;
+  const sameTagEditor = tagTarget?.editorKind === tagManagerState.editorKind &&
+    tagTarget?.editorId === (tagManagerState.editorKind === "group" ? applicationState.editingTagGroupId : applicationState.editingTagEntryId);
+  if (tagManagerState.editorKind && !sameTagEditor && tagEditorHasChanges() &&
+      !window.confirm("저장하지 않은 태그 변경 내용을 버리고 이동하시겠습니까?")) return false;
+  const promptTarget = navigationState.viewName === "prompts" ? navigationState.promptNavigation : null;
+  if (promptTarget?.pane === "detail" && !promptEditorMatchesNavigation(promptTarget) && promptEditorHasChanges() &&
+      !window.confirm("저장하지 않은 Prompt 변경 내용을 버리고 이동하시겠습니까?")) return false;
+  return true;
+}
+
+/** 취소되거나 저장 중인 History 이동을 원래 항목으로 되돌립니다. */
+function rejectNavigationTraversal(targetState) {
+  const currentState = { ...captureNavigationState(), entryId: applicationState.navigationEntryId };
+  const distance = currentState.entryIndex - targetState.entryIndex;
+  if (Number.isSafeInteger(distance) && distance !== 0) {
+    managerHistoryState.rejectedEntry = currentState;
+    managerHistoryState.traversalPending = true;
+    window.history.go(distance);
+  } else {
+    pushNavigationEntry(currentState);
+    managerHistoryState.traversalPending = false;
+  }
 }
 
 /** 서버 상태 숫자와 작은 Bar만 갱신하며 열어 둔 상세 패널은 유지합니다. */
@@ -794,7 +1083,7 @@ function promptEditorHasChanges() {
 
 /** 입력을 대체하는 동작에만 미저장 내용 버리기를 확인합니다. */
 function canReplacePromptEditor() {
-  if (promptEditorState.saving) return false;
+  if (promptEditorState.saving || promptEditorState.navigationLoading || managerHistoryState.traversalPending) return false;
   return !promptEditorHasChanges() || window.confirm("저장하지 않은 Prompt 변경 내용을 버리고 계속하시겠습니까?");
 }
 
@@ -864,11 +1153,12 @@ function renderPromptEditorStatus() {
   }
   if (changed) status += " · 변경됨";
   if (promptEditorState.saving) status += " · 저장 중…";
+  if (promptEditorState.navigationLoading) status += " · 이전 화면 불러오는 중…";
   element("preset-version").textContent = status;
   const sameAsLatest = preset && JSON.stringify(snapshot) === JSON.stringify({
     name: preset.name, workflow: preset.workflow, body: normalizedPromptBody(preset.body, preset.workflow),
   });
-  const saving = promptEditorState.saving;
+  const saving = promptEditorState.saving || promptEditorState.navigationLoading;
   for (const identifier of ["preset-name", "preset-anima-prompt", "preset-negative", "preset-minimax-prompt",
     "new-preset-button", "new-preset-detail-button", "copy-preset-button", "prompt-list-back", "preset-edit-tab"]) {
     element(identifier).disabled = saving;
@@ -906,6 +1196,7 @@ function configurePromptEditor(preset, options = {}) {
   const body = normalizedPromptBody(options.body || preset?.body || {}, workflow);
   const previousPresetId = promptEditorState.selectedPresetId;
   promptEditorState.editorRevision += 1;
+  promptEditorState.contextId = `${Date.now()}-prompt-${promptEditorState.editorRevision}`;
   promptEditorState.versionsRevision += 1;
   promptEditorState.selectedPresetId = preset?.preset_id || null;
   promptEditorState.sourceVersion = preset ? options.sourceVersion || preset.version : null;
@@ -937,7 +1228,9 @@ function configurePromptEditor(preset, options = {}) {
 function loadPresetIntoEditor(presetId) {
   const preset = applicationState.presets.find(item => item.preset_id === presetId);
   if (!preset || !canReplacePromptEditor()) return false;
+  const previousState = beginManagerNavigation();
   configurePromptEditor(preset);
+  finishManagerNavigation(previousState);
   return true;
 }
 
@@ -945,9 +1238,11 @@ function loadPresetIntoEditor(presetId) {
 function startNewPrompt(copyCurrent = false) {
   const snapshot = promptEditorSnapshot();
   if (promptEditorState.saving || (!copyCurrent && !canReplacePromptEditor())) return;
+  const previousState = beginManagerNavigation();
   configurePromptEditor(null, copyCurrent ? {
     name: `${snapshot.name || "Prompt"} 복사`, workflow: snapshot.workflow, body: snapshot.body,
   } : { workflow: snapshot.workflow });
+  finishManagerNavigation(previousState);
   element("preset-name").focus({ preventScroll: true });
 }
 
@@ -968,9 +1263,11 @@ function showPromptDetail() {
 /** 목록의 검색 조건과 이전 스크롤을 보존하여 모바일 목록으로 돌아갑니다. */
 function showPromptList() {
   if (promptEditorState.saving) return;
+  if (returnToManagerHistory(promptEditorState.listHistoryIndex)) return;
   promptEditorState.mobilePane = "list";
   element("prompt-manager-layout").dataset.mobilePane = "list";
   window.scrollTo(0, promptEditorState.listScrollPosition);
+  saveCurrentNavigationEntry();
 }
 
 /** 선택 Prompt의 편집 화면과 버전 기록 화면을 전환합니다. */
@@ -982,6 +1279,13 @@ function showPromptDetailTab(tabName) {
     element(`preset-${name}-panel`).classList.toggle("hidden", !selected);
   }
   renderPromptEditorStatus();
+}
+
+/** 사용자가 선택한 편집·버전 화면 전환을 History에 기록합니다. */
+function navigatePromptDetailTab(tabName) {
+  const previousState = beginManagerNavigation();
+  showPromptDetailTab(tabName);
+  finishManagerNavigation(previousState);
 }
 
 /** 현재 Prompt에 속한 버전과 선택한 버전의 읽기 전용 본문을 표시합니다. */
@@ -1004,11 +1308,17 @@ function renderPromptVersionHistory() {
 }
 
 /** 선택한 Prompt의 버전을 불러오고 늦게 도착한 다른 대상의 응답은 버립니다. */
-async function showPresetVersions(presetId) {
+async function showPresetVersions(presetId, { recordHistory = true } = {}) {
   if (promptEditorState.saving) return;
   if (promptEditorState.selectedPresetId !== presetId && !loadPresetIntoEditor(presetId)) return;
-  if (promptEditorState.mobilePane !== "detail") showPromptDetail();
+  if (recordHistory && promptEditorState.mobilePane !== "detail") {
+    const previousState = beginManagerNavigation();
+    showPromptDetail();
+    finishManagerNavigation(previousState);
+  }
+  const previousState = recordHistory ? beginManagerNavigation() : null;
   showPromptDetailTab("history");
+  finishManagerNavigation(previousState);
   if (promptEditorState.versionsLoading) return;
   const revision = ++promptEditorState.versionsRevision;
   promptEditorState.versionsLoading = true;
@@ -1028,6 +1338,7 @@ async function showPresetVersions(presetId) {
     if (revision === promptEditorState.versionsRevision) {
       promptEditorState.versionsLoading = false;
       renderPromptVersionHistory();
+      saveCurrentNavigationEntry();
     }
   }
 }
@@ -1037,7 +1348,9 @@ function loadPresetVersion() {
   const preset = applicationState.presets.find(item => item.preset_id === promptEditorState.selectedPresetId);
   const version = promptEditorState.versions.find(item => item.version === promptEditorState.previewVersion);
   if (!preset || !version || promptEditorState.versionsPresetId !== preset.preset_id || !canReplacePromptEditor()) return;
+  const previousState = beginManagerNavigation();
   configurePromptEditor(preset, { body: version.body, sourceVersion: version.version });
+  finishManagerNavigation(previousState);
 }
 
 /** 명시적으로 선택한 Prompt만 생성 화면에 적용합니다. */
@@ -1284,6 +1597,8 @@ function updateTagEntryGroupOptions(selectedGroupId = tagManagerState.selectedGr
 /** 그룹을 선택하고 모바일에서는 마지막 항목 목록 위치를 복원합니다. */
 function selectManagedTagGroup(groupId) {
   if (!applicationState.tagGroups.some(group => group.group_id === groupId)) return;
+  if (managerHistoryState.traversalPending) return;
+  const previousState = beginManagerNavigation();
   const mobileLayout = window.matchMedia("(max-width: 800px)").matches;
   if (mobileLayout && tagManagerState.mobilePane === "groups") tagManagerState.groupScrollPosition = window.scrollY;
   const groupChanged = tagManagerState.selectedGroupId !== groupId;
@@ -1295,15 +1610,18 @@ function selectManagedTagGroup(groupId) {
     const managerTop = element("tag-manager-layout").getBoundingClientRect().top + window.scrollY - 12;
     window.scrollTo({ top: tagManagerState.entryScrollPositions.get(groupId) ?? managerTop, behavior: "instant" });
   } else if (groupChanged) element("tag-entry-list").scrollTop = 0;
+  finishManagerNavigation(previousState);
 }
 
 /** 모바일의 그룹 탐색 조건과 이전 목록 위치로 돌아갑니다. */
 function showManagedTagGroups() {
+  if (returnToManagerHistory(tagManagerState.listHistoryIndex)) return;
   tagManagerState.entryScrollPositions.set(tagManagerState.selectedGroupId, window.scrollY);
   tagManagerState.mobilePane = "groups";
   element("tag-manager-layout").dataset.mobilePane = "groups";
   window.scrollTo({ top: tagManagerState.groupScrollPosition, behavior: "instant" });
   element("tag-group-list").querySelector(`[data-select-managed-group="${CSS.escape(tagManagerState.selectedGroupId || "")}"]`)?.focus({ preventScroll: true });
+  saveCurrentNavigationEntry();
 }
 
 /** 편집 입력을 API payload와 변경 감지에 공통으로 사용합니다. */
@@ -1318,6 +1636,8 @@ function tagEditorValues(kind) {
 
 /** 이미 채운 편집 양식의 초기 상태와 Focus 복귀 대상을 보관합니다. */
 function openTagEditor(kind) {
+  const previousState = beginManagerNavigation();
+  tagManagerState.editorParentHistoryIndex = previousState?.entryIndex ?? tagManagerState.editorParentHistoryIndex;
   tagManagerState.editorKind = kind;
   tagManagerState.editorRevision += 1;
   tagManagerState.editorOpener = document.activeElement;
@@ -1325,13 +1645,20 @@ function openTagEditor(kind) {
   element(`tag-${kind}-editor-status`).textContent = "";
   element(`tag-${kind}-dialog`).showModal();
   element(`tag-${kind}-name`).focus();
+  finishManagerNavigation(previousState);
+}
+
+/** 열려 있는 태그 편집기의 입력이 초기 값과 다른지 확인합니다. */
+function tagEditorHasChanges() {
+  return Boolean(tagManagerState.editorKind) &&
+    JSON.stringify(tagEditorValues(tagManagerState.editorKind)) !== tagManagerState.editorFingerprint;
 }
 
 /** 변경된 입력만 버리기 확인을 하고 저장 중에는 닫지 않습니다. */
-function closeTagEditor({ discard = false, restoreFocus = true, force = false } = {}) {
+function closeTagEditor({ discard = false, restoreFocus = true, force = false, historyMode = "back" } = {}) {
   const kind = tagManagerState.editorKind;
   if (!kind || (tagManagerState.editorBusy && !force)) return false;
-  const changed = JSON.stringify(tagEditorValues(kind)) !== tagManagerState.editorFingerprint;
+  const changed = tagEditorHasChanges();
   if (!discard && changed && !window.confirm("저장하지 않은 변경 사항을 버리고 닫으시겠습니까?")) return false;
   element(`tag-${kind}-dialog`).close();
   tagManagerState.editorKind = null;
@@ -1347,6 +1674,9 @@ function closeTagEditor({ discard = false, restoreFocus = true, force = false } 
         ? element("tag-entry-list").querySelector(`[data-edit-tag-entry="${CSS.escape(entryId)}"]`) : null;
       (entryButton || element(kind === "group" ? "new-tag-group-button" : "new-tag-entry-button")).focus({ preventScroll: true });
     }
+  }
+  if (historyMode !== "none" && !force && !managerHistoryState.restoring) {
+    if (discard || historyMode === "replace" || !returnToManagerHistory(tagManagerState.editorParentHistoryIndex)) saveCurrentNavigationEntry();
   }
   return true;
 }
@@ -1499,6 +1829,7 @@ async function savePreset() {
     configurePromptEditor(result, { invalidateVersions: true, showDetail: false });
     renderPresetList();
     element("preset-save-message").textContent = `${result.name} v${result.version}을 저장했습니다.`;
+    saveCurrentNavigationEntry();
   } catch (error) {
     if (revision === promptEditorState.editorRevision) element("preset-editor-error").textContent = error.message;
   } finally {
@@ -3864,7 +4195,7 @@ function bindEvents() {
     element("preset-list").scrollTop = 0;
     renderPromptManagerList();
   });
-  element("preset-edit-tab").addEventListener("click", () => showPromptDetailTab("edit"));
+  element("preset-edit-tab").addEventListener("click", () => navigatePromptDetailTab("edit"));
   element("preset-history-tab").addEventListener("click", () => runAction(() => showPresetVersions(promptEditorState.selectedPresetId)));
   element("retry-preset-versions").addEventListener("click", () => runAction(() => showPresetVersions(promptEditorState.selectedPresetId)));
   element("load-preset-version-button").addEventListener("click", loadPresetVersion);
@@ -3898,11 +4229,13 @@ function bindEvents() {
   element("preset-version-history").addEventListener("click", (event) => {
     const button = event.target.closest("[data-preview-version]");
     if (!button) return;
+    const previousState = beginManagerNavigation();
     promptEditorState.previewVersion = Number(button.dataset.previewVersion);
     renderPromptVersionHistory();
+    finishManagerNavigation(previousState);
   });
   window.addEventListener("beforeunload", event => {
-    if (!promptEditorHasChanges() && !promptEditorState.saving) return;
+    if (!promptEditorHasChanges() && !promptEditorState.saving && !tagEditorHasChanges() && !tagManagerState.editorBusy) return;
     event.preventDefault();
     event.returnValue = "";
   });
