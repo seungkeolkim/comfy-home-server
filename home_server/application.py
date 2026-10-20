@@ -17,6 +17,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from PIL import Image, UnidentifiedImageError
@@ -732,6 +733,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             queue_count = None
             server.record_comfy_connection(False, type(exception).__name__)
         return {"comfy_connected": connected, "queue_pending": queue_count, "output_directory": str(server.config.managed_output_directory)}
+
+    @app.post("/api/comfy/free-memory")
+    async def free_comfy_memory():
+        """인증된 사용자의 요청으로 ComfyUI model과 cache 해제를 접수합니다."""
+
+        try:
+            await server.comfy.free_memory()
+        except (httpx.HTTPError, RuntimeError) as exception:
+            LOGGER.warning("ComfyUI VRAM 해제 요청 실패: %s", type(exception).__name__)
+            raise HTTPException(502, "ComfyUI에 VRAM 비우기를 요청하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.") from exception
+        LOGGER.info("ComfyUI model 및 cache 해제 요청 접수")
+        return {"accepted": True}
 
     @app.get("/api/presets")
     def presets():

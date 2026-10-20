@@ -3244,6 +3244,24 @@ async function deleteOutput(deleteButton) {
   }
 }
 
+/** 경고 확인 후 ComfyUI model과 cache 해제를 요청하고 중복 전송을 막습니다. */
+async function freeComfyMemory() {
+  const freeMemoryButton = element("free-vram-button");
+  if (freeMemoryButton.disabled) return;
+  const confirmationMessage = "ComfyUI의 model과 cache를 모두 비우시겠습니까?\n\n다음 생성 시 model 로딩과 cache 재계산으로 시간이 더 걸릴 수 있습니다.\n생성 중인 작업은 중단하지 않으며, 현재 작업 이후에 해제됩니다.";
+  if (!window.confirm(confirmationMessage)) return;
+
+  freeMemoryButton.disabled = true;
+  freeMemoryButton.textContent = "요청 중…";
+  try {
+    await apiRequest("/api/comfy/free-memory", { method: "POST" });
+    showNotice("VRAM 비우기를 요청했습니다. 생성 중이면 현재 작업 이후 model과 cache가 해제됩니다.");
+  } finally {
+    freeMemoryButton.disabled = false;
+    freeMemoryButton.textContent = "VRAM 비우기";
+  }
+}
+
 /** 비동기 UI 동작에서 발생한 오류를 알림으로 표시합니다. */
 function runAction(action) {
   Promise.resolve()
@@ -3318,6 +3336,7 @@ function bindEvents() {
       showNotice("새로고침했습니다.");
     }),
   );
+  element("free-vram-button").addEventListener("click", () => runAction(freeComfyMemory));
   element("generate-workflow").addEventListener("change", () => {
     resetGenerationWorkflow(element("generate-workflow").value);
     runAction(loadLoras);
