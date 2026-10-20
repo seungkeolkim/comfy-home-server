@@ -124,6 +124,7 @@
               <select id="generate-preset">
                 <option value="">직접 작성</option>
               </select>
+              <p id="generate-prompt-status" class="hint" role="status">직접 작성</p>
               <div class="inline-actions">
                 <button
                   id="edit-preset-button"
@@ -420,14 +421,35 @@
 
         <section id="view-prompts" class="view hidden">
           <div class="section-intro">
-            <h2>Prompt builder</h2>
-            <p id="preset-form-description">공통 문구와 선택한 태그 조합을 버전으로 저장합니다.</p>
+            <h2>Prompt 관리</h2>
+            <p>Prompt를 편집하고 버전으로 보관합니다. 생성 화면에는 ‘생성에서 사용’으로 적용합니다.</p>
           </div>
-          <div class="panel stack">
+          <div id="prompt-manager-layout" class="prompt-manager-layout" data-mobile-pane="list">
+          <section class="panel prompt-manager-list" aria-labelledby="prompt-list-title">
+            <div class="panel-heading"><h3 id="prompt-list-title">저장된 Prompt</h3><button id="new-preset-button" class="button primary small" type="button">＋ 새 Prompt</button></div>
+            <label for="preset-search">Prompt 검색</label>
+            <input id="preset-search" type="search" placeholder="이름 또는 본문 검색" />
+            <label for="preset-workflow-filter">Workflow 필터</label>
+            <select id="preset-workflow-filter"><option value="">모든 Workflow</option><option value="anima">Anima Turbo V9</option><option value="minimax_h3">MiniMax H3</option></select>
+            <p id="preset-list-count" class="hint"></p>
+            <div id="preset-list" class="preset-list prompt-list"></div>
+          </section>
+          <section class="panel prompt-manager-detail" aria-labelledby="prompt-editor-title">
+            <button id="prompt-list-back" class="button subtle prompt-list-back" type="button">← Prompt 목록</button>
+            <div class="prompt-editor-heading">
+              <div><h3 id="prompt-editor-title">새 Prompt</h3><p id="preset-version" class="prompt-editor-status" role="status">새 Prompt · 아직 저장하지 않음</p></div>
+              <div class="inline-actions"><button id="new-preset-detail-button" class="button subtle small" type="button">＋ 새 Prompt</button><button id="copy-preset-button" class="button subtle small" type="button">복제해서 새로 만들기</button></div>
+            </div>
+            <div class="prompt-detail-tabs" role="tablist" aria-label="Prompt 상세">
+              <button id="preset-edit-tab" class="button subtle" type="button" role="tab" aria-selected="true" aria-controls="preset-edit-panel">편집</button>
+              <button id="preset-history-tab" class="button subtle" type="button" role="tab" aria-selected="false" aria-controls="preset-history-panel">버전 기록</button>
+            </div>
+            <div id="preset-edit-panel" role="tabpanel" aria-labelledby="preset-edit-tab" class="stack">
+            <p id="preset-form-description" class="hint">태그 참조가 포함된 Prompt 텍스트를 버전으로 저장합니다.</p>
             <div class="field-row">
               <div>
-                <label for="preset-name">Preset 이름</label
-                ><input id="preset-name" placeholder="예: 캐릭터 이미지 실험" />
+                <label for="preset-name">Prompt 이름</label
+                ><input id="preset-name" maxlength="120" placeholder="예: 캐릭터 이미지 실험" />
               </div>
               <div>
                 <label for="preset-workflow">Workflow</label
@@ -453,20 +475,26 @@
               ></textarea>
               <p class="hint">[TAG] 참조가 포함된 원문을 저장합니다. 생성 화면에서 태그를 선택하면 이미지마다 독립 치환합니다.</p>
             </div>
-            <div class="inline-actions">
-              <button
-                id="save-preset-button"
-                class="button primary"
-                type="button"
-              >
-                새 버전 저장</button
-              ><span id="preset-version" class="hint"></span>
+            <p id="preset-editor-error" class="form-error" role="alert"></p>
+            <p id="preset-save-message" class="prompt-editor-status" role="status"></p>
+            <div class="prompt-editor-actions">
+              <p id="preset-save-target" class="hint">새 Prompt로 저장합니다.</p>
+              <div class="inline-actions"><button id="save-preset-button" class="button primary" type="button">새 Prompt 저장</button><button id="use-preset-button" class="button subtle" type="button">생성에서 사용</button></div>
             </div>
-          </div>
-          <div class="panel stack">
-            <div class="panel-heading"><h3>저장된 preset</h3></div>
-            <div id="preset-list" class="preset-list"></div>
-            <div id="preset-version-history" class="preset-list"></div>
+            </div>
+            <div id="preset-history-panel" role="tabpanel" aria-labelledby="preset-history-tab" class="stack hidden">
+              <p id="preset-history-title" class="hint">선택한 Prompt의 버전 기록</p>
+              <p id="preset-history-status" class="hint" role="status"></p>
+              <button id="retry-preset-versions" class="button subtle small hidden" type="button">버전 다시 불러오기</button>
+              <div id="preset-version-history" class="preset-list prompt-version-list"></div>
+              <section id="preset-version-preview" class="prompt-version-preview hidden" aria-labelledby="preset-preview-title">
+                <h4 id="preset-preview-title"></h4><p class="hint">저장된 본문 미리보기입니다. 현재 편집 내용과 생성 화면은 바뀌지 않습니다.</p>
+                <h5>Prompt</h5><pre id="preset-preview-prompt"></pre>
+                <div id="preset-preview-negative-section"><h5>Negative Prompt</h5><pre id="preset-preview-negative"></pre></div>
+                <button id="load-preset-version-button" class="button primary" type="button">이 버전으로 편집 시작</button>
+              </section>
+            </div>
+          </section>
           </div>
         </section>
         <section id="view-tags" class="view hidden">

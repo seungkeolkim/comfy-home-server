@@ -604,7 +604,7 @@ async function main() {
     assert.equal(await tagPage.locator("#preset-anima-prompt").inputValue(), "[ACTION]");
     await tagPage.locator("#preset-name").fill("태그 조합 preset");
     await tagPage.locator("#save-preset-button").click();
-    await tagPage.waitForFunction(() => document.getElementById("preset-version").textContent === "현재 v1");
+    await tagPage.waitForFunction(() => document.getElementById("preset-version").textContent === "v1 편집 중");
     assert.deepEqual(savedPromptPresets.at(-1).body, { prompt: "[ACTION]", negative: "" });
     await tagPage.setViewportSize({ width: 390, height: 844 });
     assert.equal(await tagPage.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
@@ -619,7 +619,9 @@ async function main() {
       tagPage.locator('#tag-entry-form button[type="submit"]').click(),
     ]);
     await tagPage.locator('.sidebar [data-view="generate"]').click();
-    assert.match(await tagPage.locator("#tag-selection-status").textContent(), /\[ACTION\] 선택 필요/);
+    assert.match(await tagPage.locator("#tag-selection-status").textContent(), /\[ACTION\] 선택됨/);
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-1"]').isChecked(), true);
+    assert.equal(await tagPage.locator('[data-select-tag="tag-entry-2"]').isChecked(), true);
     await tagPage.locator('[data-select-tag="tag-entry-1"]').check();
     await tagPage.locator('[data-tag-group-open="tag-group-2"] summary').click();
     await tagPage.locator('[data-select-tag="tag-entry-2"]').check();

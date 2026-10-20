@@ -156,7 +156,12 @@ async function main() {
     await browserPage.route("**/*", createRestorationRequestHandler(fixtures));
     await browserPage.goto("http://home-server.test/");
     await browserPage.locator('#generate-preset option[value="anima-prompt"]').waitFor({ state: "attached" });
+    await browserPage.locator('[data-view="prompts"]:visible').click();
+    await browserPage.locator("#preset-name").fill("관리 화면 미저장 초안");
+    await browserPage.locator("#preset-anima-prompt").fill("이 내용은 작업 복원으로 바뀌면 안 됩니다.");
     await restoreJobFromCard(browserPage, "anima-job");
+    assert.equal(await browserPage.locator("#preset-name").inputValue(), "관리 화면 미저장 초안");
+    assert.equal(await browserPage.locator("#preset-anima-prompt").inputValue(), "이 내용은 작업 복원으로 바뀌면 안 됩니다.");
     assert.equal(await browserPage.locator("#generate-workflow").inputValue(), "anima");
     assert.equal(await browserPage.locator("#generate-anima-prompt").inputValue(), "[SCENE], {morning|evening}");
     assert.equal(await browserPage.locator("#generate-negative").inputValue(), "blurry [CHR]");

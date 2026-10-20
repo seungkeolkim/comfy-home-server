@@ -1229,6 +1229,167 @@ body:has(.image-preview-dialog[open]) { overflow: hidden; }
   display: grid;
   gap: 8px;
 }
+.prompt-manager-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
+}
+.prompt-manager-layout > .panel {
+  min-width: 0;
+  margin: 0;
+  padding: 20px;
+}
+.prompt-manager-list label {
+  display: block;
+  margin: 12px 0 6px;
+}
+.prompt-manager-list .panel-heading {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.prompt-list {
+  max-height: max(280px, calc(100dvh - 410px));
+  overflow-y: auto;
+  align-content: start;
+  scrollbar-gutter: stable;
+}
+.prompt-list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid #2b394f;
+  border-radius: 10px;
+  background: #101827;
+}
+.prompt-list-row[aria-current="true"] {
+  border-color: #4a9edb;
+  background: #17334a;
+}
+.prompt-list-open {
+  min-width: 0;
+  flex: 1;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #e0e9f5;
+  text-align: left;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.prompt-list-open strong {
+  display: block;
+  font-size: 14px;
+}
+.prompt-list-open small {
+  display: block;
+  margin-top: 5px;
+  color: #98abc5;
+  font-size: 11px;
+}
+.prompt-list-row > .button {
+  flex-shrink: 0;
+}
+.prompt-editor-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.prompt-editor-heading > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.prompt-editor-heading h3 {
+  margin: 0;
+  font-size: 20px;
+  scroll-margin-top: 20px;
+}
+.prompt-editor-status {
+  color: #8bd6ca;
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.prompt-detail-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 20px 0;
+  border-bottom: 1px solid #2b394f;
+  padding-bottom: 12px;
+}
+.prompt-detail-tabs [aria-selected="true"] {
+  background: #25413f;
+  border-color: #4b8b81;
+  color: #aff1e4;
+}
+.prompt-editor-actions {
+  position: sticky;
+  bottom: 12px;
+  background: #161d2c;
+  border-top: 1px solid #2b394f;
+  padding: 12px 0 0;
+  z-index: 1;
+}
+.prompt-editor-actions p {
+  margin: 0 0 10px;
+  overflow-wrap: anywhere;
+}
+#preset-editor-error:empty,
+#preset-save-message:empty {
+  display: none;
+}
+.prompt-version-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.prompt-version-button {
+  background: #101827;
+  color: #c3cee0;
+  border: 1px solid #2b394f;
+  border-radius: 10px;
+  padding: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.prompt-version-button[aria-pressed="true"] {
+  border-color: #4b8b81;
+  background: #25413f;
+}
+.prompt-version-button small {
+  display: block;
+  margin-top: 5px;
+  font-size: 11px;
+}
+.prompt-version-preview {
+  min-width: 0;
+  padding: 16px;
+  background: #101827;
+  border: 1px solid #2b394f;
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+.prompt-version-preview h4 {
+  margin: 0;
+}
+.prompt-version-preview h5 {
+  margin: 18px 0 8px;
+}
+.prompt-version-preview pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  max-height: 40dvh;
+  overflow-y: auto;
+}
+.prompt-list-back {
+  display: none;
+}
 .preset-row {
   display: flex;
   justify-content: space-between;
@@ -1349,6 +1510,34 @@ body:has(.image-preview-dialog[open]) { overflow: hidden; }
   }
   .tag-manager-layout {
     display: block;
+  }
+  .prompt-manager-layout {
+    display: block;
+  }
+  .prompt-manager-layout > .panel {
+    padding: 16px;
+  }
+  .prompt-manager-layout[data-mobile-pane="list"] .prompt-manager-detail,
+  .prompt-manager-layout[data-mobile-pane="detail"] .prompt-manager-list {
+    display: none;
+  }
+  .prompt-list {
+    max-height: none;
+    overflow: visible;
+    scrollbar-gutter: auto;
+  }
+  .prompt-list-back {
+    display: inline-block;
+    margin-bottom: 16px;
+  }
+  .prompt-editor-actions {
+    bottom: 78px;
+  }
+  .prompt-manager-detail .field-row {
+    flex-direction: column;
+  }
+  .prompt-manager-layout button {
+    min-height: 44px;
   }
   .tag-manager-layout .panel {
     padding: 16px;

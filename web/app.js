@@ -43,11 +43,19 @@ const tagManagerState = {
   editorKind: null, editorFingerprint: null, editorOpener: null, editorRevision: 0,
   editorBusy: false,
 };
+const promptEditorState = {
+  selectedPresetId: null, sourceVersion: null, sourceBody: { prompt: "", negative: "" },
+  baselineFingerprint: null, workflow: "anima", search: "", workflowFilter: "",
+  activeTab: "edit", mobilePane: "list", listScrollPosition: 0,
+  versions: [], versionsPresetId: null, previewVersion: null,
+  versionsLoading: false, versionsError: "", versionsRevision: 0,
+  saving: false, editorRevision: 0,
+};
 
 const applicationState = {
   presets: [],
-  presetVersions: [],
   currentPresetId: null,
+  currentPresetVersion: null,
   currentBody: { prompt: "", negative: "" },
   availableLoras: [],
   loraProfiles: [],
@@ -267,6 +275,11 @@ function showNotice(message, isError = false, action = null) {
 
 /** 로그인 화면만 표시합니다. */
 function showLogin() {
+  promptEditorState.editorRevision += 1;
+  promptEditorState.versionsRevision += 1;
+  promptEditorState.saving = false;
+  promptEditorState.versionsLoading = false;
+  renderPromptEditorStatus();
   closeTagEditor({ discard: true, restoreFocus: false, force: true });
   window.clearInterval(applicationState.resourcePollingTimer);
   applicationState.resourcePollingTimer = null;
@@ -610,6 +623,7 @@ function initializeNavigationHistory() {
 function resetGenerationWorkflow(workflow) {
   element("generate-workflow").value = workflow;
   applicationState.currentPresetId = null;
+  applicationState.currentPresetVersion = null;
   applicationState.currentLoraPresetId = null;
   applicationState.currentBody = { prompt: "", negative: "" };
   applicationState.selectedLoras = [];
@@ -761,96 +775,300 @@ async function loadPresets() {
   }
 }
 
-/** 생성 화면과 Prompt 화면에 preset 목록을 표시합니다. */
-function renderPresetList() {
-  const workflow = element("generate-workflow").value;
-  const options = applicationState.presets
-    .filter((preset) => preset.workflow === workflow)
-    .map(
-      (preset) =>
-        `<option value="${escapeHtml(preset.preset_id)}">${escapeHtml(preset.name)} · v${preset.version}</option>`,
-    )
-    .join("");
-  element("generate-preset").innerHTML =
-    `<option value="">직접 작성</option>${options}`;
-  if (
-    applicationState.currentPresetId &&
-    applicationState.presets.some(
-      (preset) =>
-        preset.preset_id === applicationState.currentPresetId &&
-        preset.workflow === workflow,
-    )
-  ) {
-    element("generate-preset").value = applicationState.currentPresetId;
-  }
-  element("preset-list").innerHTML = applicationState.presets.length
-    ? applicationState.presets
-        .map(
-          (preset) =>
-            `<div class="preset-row"><div><strong>${escapeHtml(preset.name)}</strong><small>${escapeHtml(preset.workflow)} · v${preset.version} · ${escapeHtml(formatKoreanTimestamp(preset.updated_at))}</small></div><div class="inline-actions"><button class="button subtle small" data-load-preset="${escapeHtml(preset.preset_id)}">열기</button><button class="button subtle small" data-show-versions="${escapeHtml(preset.preset_id)}">버전</button></div></div>`,
-        )
-        .join("")
-    : `<p class="empty-state">저장된 preset이 없습니다.</p>`;
+/** Workflow별 저장 대상만 비교할 수 있도록 Prompt 본문 형식을 맞춥니다. */
+function normalizedPromptBody(body, workflow) {
+  if (workflow === "minimax_h3") return { prompt: body.prompt || "" };
+  return { prompt: body.prompt || "", negative: body.negative || "" };
 }
 
-/** 같은 Prompt 본문을 생성 화면과 편집 화면에 채웁니다. */
-function fillPromptFields(body, resetSelectedTags = false) {
+/** 생성 화면과 독립된 편집기의 현재 값을 비교 가능한 형태로 읽습니다. */
+function promptEditorSnapshot() {
+  return { name: element("preset-name").value.trim(), workflow: element("preset-workflow").value, body: editorBody() };
+}
+
+/** 편집기를 연 뒤 저장하지 않은 변경이 있는지 확인합니다. */
+function promptEditorHasChanges() {
+  return promptEditorState.baselineFingerprint !== null &&
+    JSON.stringify(promptEditorSnapshot()) !== promptEditorState.baselineFingerprint;
+}
+
+/** 입력을 대체하는 동작에만 미저장 내용 버리기를 확인합니다. */
+function canReplacePromptEditor() {
+  if (promptEditorState.saving) return false;
+  return !promptEditorHasChanges() || window.confirm("저장하지 않은 Prompt 변경 내용을 버리고 계속하시겠습니까?");
+}
+
+/** 생성 화면에는 실제 불러온 버전과 원본 대비 수정 여부를 표시합니다. */
+function renderGenerationPromptStatus() {
+  const workflow = element("generate-workflow").value;
+  const preset = applicationState.presets.find(item => item.preset_id === applicationState.currentPresetId && item.workflow === workflow);
+  let description = "직접 작성";
+  if (preset) {
+    const versionNumber = applicationState.currentPresetVersion || preset.version;
+    const modified = JSON.stringify(normalizedPromptBody(generateBody(), workflow)) !==
+      JSON.stringify(normalizedPromptBody(applicationState.currentBody, workflow));
+    description = `${preset.name} · v${versionNumber}${modified ? "에서 수정됨" : " 사용 중"}`;
+    if (versionNumber !== preset.version) description += ` · 최신 v${preset.version}`;
+  }
+  element("generate-prompt-status").textContent = description;
+}
+
+/** 생성 선택 목록과 Prompt 관리 목록을 각자의 선택 상태로 표시합니다. */
+function renderPresetList() {
+  const workflow = element("generate-workflow").value;
+  const options = applicationState.presets.filter(preset => preset.workflow === workflow).map(preset => {
+    const selectedVersion = preset.preset_id === applicationState.currentPresetId
+      ? applicationState.currentPresetVersion || preset.version : preset.version;
+    const latestLabel = selectedVersion !== preset.version ? ` 사용 중 · 최신 v${preset.version}` : "";
+    return `<option value="${escapeHtml(preset.preset_id)}">${escapeHtml(preset.name)} · v${selectedVersion}${latestLabel}</option>`;
+  }).join("");
+  element("generate-preset").innerHTML = `<option value="">직접 작성</option>${options}`;
+  element("generate-preset").value = applicationState.currentPresetId || "";
+  renderGenerationPromptStatus();
+  renderPromptManagerList();
+  renderPromptEditorStatus();
+}
+
+/** 검색 조건과 선택 상태를 보존하며 Prompt 목록을 갱신합니다. */
+function renderPromptManagerList() {
+  const list = element("preset-list");
+  const previousScrollPosition = list.scrollTop;
+  const searchText = tagSearchText(promptEditorState.search.trim());
+  const filteredPresets = applicationState.presets.filter(preset => {
+    if (promptEditorState.workflowFilter && preset.workflow !== promptEditorState.workflowFilter) return false;
+    return !searchText || tagSearchText(`${preset.name}\n${preset.body.prompt || ""}\n${preset.body.negative || ""}`).includes(searchText);
+  });
+  list.innerHTML = filteredPresets.length ? filteredPresets.map(preset => {
+    const selected = promptEditorState.selectedPresetId === preset.preset_id;
+    const workflowLabel = preset.workflow === "anima" ? "Anima Turbo V9" : "MiniMax H3";
+    return `<article class="prompt-list-row"${selected ? ' aria-current="true"' : ""}>
+      <button type="button" class="prompt-list-open" data-load-preset="${escapeHtml(preset.preset_id)}"${promptEditorState.saving ? " disabled" : ""}>
+        <strong>${escapeHtml(preset.name)}</strong><small>${workflowLabel} · v${preset.version}${selected ? " · 편집 대상" : ""}</small>
+        <small>${escapeHtml(formatKoreanTimestamp(preset.updated_at))}</small></button>
+      <button type="button" class="button subtle small" data-show-versions="${escapeHtml(preset.preset_id)}" aria-label="${escapeHtml(preset.name)} 버전 기록"${promptEditorState.saving ? " disabled" : ""}>버전</button></article>`;
+  }).join("") : '<p class="empty-state">조건에 맞는 Prompt가 없습니다.</p>';
+  list.scrollTop = previousScrollPosition;
+  element("preset-list-count").textContent = `${filteredPresets.length} / ${applicationState.presets.length}개 Prompt`;
+}
+
+/** 저장 상태와 다음 버전의 대상 이름을 편집기 위아래에 표시합니다. */
+function renderPromptEditorStatus() {
+  const snapshot = promptEditorSnapshot();
+  const preset = applicationState.presets.find(item => item.preset_id === promptEditorState.selectedPresetId);
+  const changed = promptEditorHasChanges();
+  element("prompt-editor-title").textContent = preset?.name || "새 Prompt";
+  let status = "새 Prompt · 아직 저장하지 않음";
+  if (preset) {
+    status = promptEditorState.sourceVersion === preset.version
+      ? `v${preset.version} 편집 중` : `v${promptEditorState.sourceVersion}에서 시작 · 최신 v${preset.version}`;
+  }
+  if (changed) status += " · 변경됨";
+  if (promptEditorState.saving) status += " · 저장 중…";
+  element("preset-version").textContent = status;
+  const sameAsLatest = preset && JSON.stringify(snapshot) === JSON.stringify({
+    name: preset.name, workflow: preset.workflow, body: normalizedPromptBody(preset.body, preset.workflow),
+  });
+  const saving = promptEditorState.saving;
+  for (const identifier of ["preset-name", "preset-anima-prompt", "preset-negative", "preset-minimax-prompt",
+    "new-preset-button", "new-preset-detail-button", "copy-preset-button", "prompt-list-back", "preset-edit-tab"]) {
+    element(identifier).disabled = saving;
+  }
+  element("preset-workflow").disabled = saving || Boolean(preset);
+  element("preset-history-tab").disabled = saving || !preset;
+  element("save-preset-button").disabled = saving || !snapshot.name || !snapshot.body.prompt.trim() || Boolean(sameAsLatest);
+  element("save-preset-button").textContent = saving ? "저장 중…" : preset ? `v${preset.version + 1}으로 저장` : "새 Prompt 저장";
+  element("use-preset-button").disabled = saving || !snapshot.body.prompt.trim();
+  element("copy-preset-button").disabled = saving || !snapshot.body.prompt.trim();
+  element("preset-save-target").textContent = preset
+    ? `‘${preset.name}’의 v${preset.version + 1}로 저장합니다.${snapshot.name !== preset.name ? ` 이름: ${snapshot.name || "미입력"}` : ""}`
+    : `‘${snapshot.name || "이름 미입력"}’을 새 Prompt v1으로 저장합니다.`;
+  element("preset-history-title").textContent = preset ? `‘${preset.name}’의 버전 기록 · 최신 v${preset.version}` : "먼저 Prompt를 저장해 주세요.";
+}
+
+/** 생성 화면에만 Prompt를 채우고 필요한 경우 태그 선택을 초기화합니다. */
+function fillGenerationPromptFields(body, resetSelectedTags = false) {
   if (resetSelectedTags) applicationState.selectedTagIds.clear();
-  element("preset-anima-prompt").value = body.prompt || "";
-  element("preset-negative").value = body.negative || "";
-  element("preset-minimax-prompt").value = body.prompt || "";
   element("generate-anima-prompt").value = body.prompt || "";
   element("generate-negative").value = body.negative || "";
   element("generate-minimax-prompt").value = body.prompt || "";
 }
 
-/** 선택한 preset을 생성 화면과 편집 화면에 불러옵니다. */
+/** 편집기 입력만 채우고 생성 화면과 태그 선택은 유지합니다. */
+function fillPromptEditorFields(body) {
+  element("preset-anima-prompt").value = body.prompt || "";
+  element("preset-negative").value = body.negative || "";
+  element("preset-minimax-prompt").value = body.prompt || "";
+}
+
+/** 확인을 마친 대상을 편집기에 설정하고 이전 버전 응답을 무효화합니다. */
+function configurePromptEditor(preset, options = {}) {
+  const workflow = preset?.workflow || options.workflow || element("generate-workflow").value;
+  const body = normalizedPromptBody(options.body || preset?.body || {}, workflow);
+  const previousPresetId = promptEditorState.selectedPresetId;
+  promptEditorState.editorRevision += 1;
+  promptEditorState.versionsRevision += 1;
+  promptEditorState.selectedPresetId = preset?.preset_id || null;
+  promptEditorState.sourceVersion = preset ? options.sourceVersion || preset.version : null;
+  promptEditorState.sourceBody = normalizedPromptBody(options.sourceBody || body, workflow);
+  promptEditorState.workflow = workflow;
+  promptEditorState.versionsLoading = false;
+  promptEditorState.versionsError = "";
+  if (previousPresetId !== promptEditorState.selectedPresetId || options.invalidateVersions) {
+    promptEditorState.versions = [];
+    promptEditorState.versionsPresetId = null;
+    promptEditorState.previewVersion = null;
+  }
+  element("preset-name").value = preset?.name || options.name || "";
+  element("preset-workflow").value = workflow;
+  fillPromptEditorFields(body);
+  element("preset-editor-error").textContent = "";
+  element("preset-save-message").textContent = "";
+  promptEditorState.baselineFingerprint = JSON.stringify(preset ? {
+    name: preset.name, workflow, body: promptEditorState.sourceBody,
+  } : { name: "", workflow, body: normalizedPromptBody({}, workflow) });
+  updatePresetWorkflowOptions();
+  showPromptDetailTab("edit");
+  renderPromptManagerList();
+  renderPromptVersionHistory();
+  if (options.showDetail !== false) showPromptDetail();
+}
+
+/** 미저장 입력을 보호하면서 기존 Prompt의 최신 본문을 엽니다. */
 function loadPresetIntoEditor(presetId) {
-  const preset = applicationState.presets.find(
-    (item) => item.preset_id === presetId,
-  );
-  if (!preset) return;
-  if (element("generate-workflow").value !== preset.workflow)
-    resetGenerationWorkflow(preset.workflow);
-  applicationState.currentPresetId = preset.preset_id;
-  applicationState.currentBody = structuredClone(preset.body);
-  element("preset-name").value = preset.name;
-  element("preset-workflow").value = preset.workflow;
-  element("preset-version").textContent = `현재 v${preset.version}`;
-  element("generate-workflow").value = preset.workflow;
-  element("generate-preset").value = preset.preset_id;
-  fillPromptFields(preset.body, true);
-  updateWorkflowOptions();
-  updatePresetWorkflowOptions();
+  const preset = applicationState.presets.find(item => item.preset_id === presetId);
+  if (!preset || !canReplacePromptEditor()) return false;
+  configurePromptEditor(preset);
+  return true;
 }
 
-/** 저장된 이전 버전을 목록으로 보여줍니다. */
+/** 기존 연결이 없는 새 Prompt를 빈 내용 또는 현재 편집 내용의 복제로 시작합니다. */
+function startNewPrompt(copyCurrent = false) {
+  const snapshot = promptEditorSnapshot();
+  if (promptEditorState.saving || (!copyCurrent && !canReplacePromptEditor())) return;
+  configurePromptEditor(null, copyCurrent ? {
+    name: `${snapshot.name || "Prompt"} 복사`, workflow: snapshot.workflow, body: snapshot.body,
+  } : { workflow: snapshot.workflow });
+  element("preset-name").focus({ preventScroll: true });
+}
+
+/** 모바일에서 상세 화면을 열고 Desktop에서는 편집기 위치로 이동합니다. */
+function showPromptDetail() {
+  const mobileLayout = window.matchMedia("(max-width: 800px)").matches;
+  if (mobileLayout && promptEditorState.mobilePane === "list") {
+    promptEditorState.listScrollPosition = window.scrollY;
+  }
+  promptEditorState.mobilePane = "detail";
+  element("prompt-manager-layout").dataset.mobilePane = "detail";
+  if (applicationState.currentView === "prompts") {
+    const scrollTarget = mobileLayout ? element("prompt-list-back") : element("prompt-editor-title");
+    scrollTarget.scrollIntoView({ block: "start" });
+  }
+}
+
+/** 목록의 검색 조건과 이전 스크롤을 보존하여 모바일 목록으로 돌아갑니다. */
+function showPromptList() {
+  if (promptEditorState.saving) return;
+  promptEditorState.mobilePane = "list";
+  element("prompt-manager-layout").dataset.mobilePane = "list";
+  window.scrollTo(0, promptEditorState.listScrollPosition);
+}
+
+/** 선택 Prompt의 편집 화면과 버전 기록 화면을 전환합니다. */
+function showPromptDetailTab(tabName) {
+  promptEditorState.activeTab = tabName;
+  for (const name of ["edit", "history"]) {
+    const selected = name === tabName;
+    element(`preset-${name}-tab`).setAttribute("aria-selected", String(selected));
+    element(`preset-${name}-panel`).classList.toggle("hidden", !selected);
+  }
+  renderPromptEditorStatus();
+}
+
+/** 현재 Prompt에 속한 버전과 선택한 버전의 읽기 전용 본문을 표시합니다. */
+function renderPromptVersionHistory() {
+  const preset = applicationState.presets.find(item => item.preset_id === promptEditorState.selectedPresetId);
+  const versions = promptEditorState.versionsPresetId === preset?.preset_id ? promptEditorState.versions : [];
+  element("preset-history-status").textContent = promptEditorState.versionsLoading ? "버전 기록을 불러오는 중…"
+    : promptEditorState.versionsError || (versions.length ? `${versions.length}개 버전 · 본문을 미리본 뒤 편집을 시작하세요.` : "저장된 버전이 없습니다.");
+  element("retry-preset-versions").classList.toggle("hidden", !promptEditorState.versionsError);
+  element("preset-version-history").innerHTML = versions.map(version =>
+    `<button type="button" class="prompt-version-button" data-preview-version="${version.version}" aria-pressed="${version.version === promptEditorState.previewVersion}">
+      <strong>v${version.version}${version.version === preset.version ? " · 최신" : ""}</strong><small>${escapeHtml(formatKoreanTimestamp(version.saved_at))}</small></button>`).join("");
+  const preview = versions.find(version => version.version === promptEditorState.previewVersion);
+  element("preset-version-preview").classList.toggle("hidden", !preview);
+  if (!preview) return;
+  element("preset-preview-title").textContent = `${preset.name} · v${preview.version}`;
+  element("preset-preview-prompt").textContent = preview.body.prompt || "";
+  element("preset-preview-negative").textContent = preview.body.negative || "";
+  element("preset-preview-negative-section").classList.toggle("hidden", preset.workflow !== "anima");
+}
+
+/** 선택한 Prompt의 버전을 불러오고 늦게 도착한 다른 대상의 응답은 버립니다. */
 async function showPresetVersions(presetId) {
-  applicationState.presetVersions = await apiRequest(
-    `/api/presets/${encodeURIComponent(presetId)}/versions`,
-  );
-  element("preset-version-history").innerHTML = applicationState.presetVersions
-    .map(
-      (version) => `
-    <div class="preset-row"><div><strong>v${version.version}</strong><small>${escapeHtml(formatKoreanTimestamp(version.saved_at))}</small></div>
-    <button class="button subtle small" data-load-version="${version.version}" data-preset-id="${escapeHtml(presetId)}">이 버전 열기</button></div>`,
-    )
-    .join("");
+  if (promptEditorState.saving) return;
+  if (promptEditorState.selectedPresetId !== presetId && !loadPresetIntoEditor(presetId)) return;
+  if (promptEditorState.mobilePane !== "detail") showPromptDetail();
+  showPromptDetailTab("history");
+  if (promptEditorState.versionsLoading) return;
+  const revision = ++promptEditorState.versionsRevision;
+  promptEditorState.versionsLoading = true;
+  promptEditorState.versionsError = "";
+  renderPromptVersionHistory();
+  try {
+    const versions = await apiRequest(`/api/presets/${encodeURIComponent(presetId)}/versions`);
+    if (revision !== promptEditorState.versionsRevision || presetId !== promptEditorState.selectedPresetId) return;
+    promptEditorState.versions = versions;
+    promptEditorState.versionsPresetId = presetId;
+    if (!versions.some(version => version.version === promptEditorState.previewVersion)) {
+      promptEditorState.previewVersion = versions[0]?.version || null;
+    }
+  } catch (error) {
+    if (revision === promptEditorState.versionsRevision) promptEditorState.versionsError = error.message;
+  } finally {
+    if (revision === promptEditorState.versionsRevision) {
+      promptEditorState.versionsLoading = false;
+      renderPromptVersionHistory();
+    }
+  }
 }
 
-/** 이전 버전의 본문을 편집기에 복원합니다. 저장 시 새 버전이 됩니다. */
-function loadPresetVersion(presetId, versionNumber) {
-  loadPresetIntoEditor(presetId);
-  const version = applicationState.presetVersions.find(
-    (item) => item.version === versionNumber,
-  );
-  if (!version) return;
-  applicationState.currentBody = structuredClone(version.body);
-  fillPromptFields(version.body, true);
-  element("preset-version").textContent =
-    `v${versionNumber} 열림 · 저장하면 새 버전이 됩니다.`;
+/** 미리본 버전을 편집 시작점으로 가져오며 저장 대상은 같은 Prompt로 유지합니다. */
+function loadPresetVersion() {
+  const preset = applicationState.presets.find(item => item.preset_id === promptEditorState.selectedPresetId);
+  const version = promptEditorState.versions.find(item => item.version === promptEditorState.previewVersion);
+  if (!preset || !version || promptEditorState.versionsPresetId !== preset.preset_id || !canReplacePromptEditor()) return;
+  configurePromptEditor(preset, { body: version.body, sourceVersion: version.version });
+}
+
+/** 명시적으로 선택한 Prompt만 생성 화면에 적용합니다. */
+function applyPromptToGeneration(workflow, body, preset = null, sourceVersion = null, sourceBody = body) {
+  if (element("generate-workflow").value !== workflow) resetGenerationWorkflow(workflow);
+  applicationState.currentPresetId = preset?.preset_id || null;
+  applicationState.currentPresetVersion = preset ? sourceVersion || preset.version : null;
+  applicationState.currentBody = structuredClone(sourceBody);
+  fillGenerationPromptFields(body, true);
+  renderPresetList();
   updateWorkflowOptions();
-  updatePresetWorkflowOptions();
+}
+
+/** 생성 화면의 현재 본문을 기존 수정 또는 새 Prompt 작성으로 가져옵니다. */
+function editGenerationPrompt(copyAsNew = false) {
+  if (!canReplacePromptEditor()) return;
+  const workflow = element("generate-workflow").value;
+  const preset = copyAsNew ? null : applicationState.presets.find(item =>
+    item.preset_id === applicationState.currentPresetId && item.workflow === workflow);
+  configurePromptEditor(preset, { workflow, body: generateBody(),
+    sourceVersion: applicationState.currentPresetVersion, sourceBody: applicationState.currentBody });
+  switchView("prompts", { resetScroll: true });
+}
+
+/** 편집기 내용을 저장과 별개로 생성 화면에 명시적으로 적용합니다. */
+function usePromptEditorInGeneration() {
+  if (promptEditorState.saving) return;
+  const preset = applicationState.presets.find(item => item.preset_id === promptEditorState.selectedPresetId);
+  applyPromptToGeneration(element("preset-workflow").value, editorBody(), preset,
+    promptEditorState.sourceVersion, promptEditorState.sourceBody);
+  switchView("generate", { resetScroll: true });
 }
 
 /** Prompt 편집 화면의 현재 입력값을 객체로 만듭니다. */
@@ -1262,20 +1480,34 @@ async function deleteTagEntry(tagId) {
 
 /** 현재 Prompt를 새 버전으로 저장합니다. */
 async function savePreset() {
-  const name = element("preset-name").value.trim();
-  if (!name) throw new Error("Preset 이름을 입력해 주세요.");
-  const result = await apiRequest("/api/presets", {
-    method: "POST",
-    body: JSON.stringify({
-      preset_id: applicationState.currentPresetId,
-      name,
-      workflow: element("preset-workflow").value,
-      body: editorBody(),
-    }),
-  });
-  await loadPresets();
-  loadPresetIntoEditor(result.preset_id);
-  showNotice(`${name} v${result.version}을 저장했습니다.`);
+  if (promptEditorState.saving || element("save-preset-button").disabled) return;
+  const snapshot = promptEditorSnapshot();
+  const revision = promptEditorState.editorRevision;
+  promptEditorState.saving = true;
+  element("preset-editor-error").textContent = "";
+  renderPromptEditorStatus();
+  renderPromptManagerList();
+  try {
+    const result = await apiRequest("/api/presets", {
+      method: "POST", body: JSON.stringify({ preset_id: promptEditorState.selectedPresetId, ...snapshot }),
+    });
+    if (revision !== promptEditorState.editorRevision) return;
+    const previousIndex = applicationState.presets.findIndex(preset => preset.preset_id === result.preset_id);
+    if (previousIndex >= 0) applicationState.presets.splice(previousIndex, 1);
+    applicationState.presets.unshift(result);
+    promptEditorState.saving = false;
+    configurePromptEditor(result, { invalidateVersions: true, showDetail: false });
+    renderPresetList();
+    element("preset-save-message").textContent = `${result.name} v${result.version}을 저장했습니다.`;
+  } catch (error) {
+    if (revision === promptEditorState.editorRevision) element("preset-editor-error").textContent = error.message;
+  } finally {
+    if (revision === promptEditorState.editorRevision) {
+      promptEditorState.saving = false;
+      renderPromptEditorStatus();
+      renderPromptManagerList();
+    }
+  }
 }
 
 /** ComfyUI의 현재 LoRA 목록을 읽습니다. */
@@ -2200,14 +2432,10 @@ async function restoreJobGeneration(jobIdentifier) {
     applicationState.tagEntries = currentTags.entries;
     resetGenerationWorkflow(job.workflow);
     applicationState.currentBody = structuredClone(jobInputs.body);
-    fillPromptFields(jobInputs.body, true);
+    fillGenerationPromptFields(jobInputs.body, true);
     const promptPreset = matchingJobPromptPreset(job.workflow, jobInputs);
     applicationState.currentPresetId = promptPreset?.preset_id || null;
-    element("preset-workflow").value = job.workflow;
-    element("preset-name").value = promptPreset?.name || "";
-    element("preset-version").textContent = promptPreset ? `현재 v${promptPreset.version}` : "새 preset";
-    applicationState.presetVersions = [];
-    element("preset-version-history").innerHTML = "";
+    applicationState.currentPresetVersion = promptPreset?.version || null;
     renderPresetList();
     const loraPreset = matchingJobLoraPreset(job.workflow, jobInputs);
     applyLoraCombination(job.workflow, jobInputs.loras || [], loraPreset?.preset_id || null);
@@ -3531,6 +3759,9 @@ function bindEvents() {
   element("generate-anima-prompt").addEventListener("input", renderGenerateTagGroups);
   element("generate-negative").addEventListener("input", renderGenerateTagGroups);
   element("generate-minimax-prompt").addEventListener("input", renderGenerateTagGroups);
+  for (const identifier of ["generate-anima-prompt", "generate-negative", "generate-minimax-prompt"]) {
+    element(identifier).addEventListener("input", renderGenerationPromptStatus);
+  }
   element("expand-generate-tag-groups-button").addEventListener("click", () =>
     setTagGroupsExpanded("generate-tag-groups", applicationState.expandedTagGroupIds, true));
   element("collapse-generate-tag-groups-button").addEventListener("click", () =>
@@ -3608,30 +3839,51 @@ function bindEvents() {
     });
   }
   element("generate-preset").addEventListener("change", (event) => {
-    if (event.target.value) loadPresetIntoEditor(event.target.value);
-    else applicationState.currentPresetId = null;
+    const preset = applicationState.presets.find(item => item.preset_id === event.target.value);
+    if (preset) applyPromptToGeneration(preset.workflow, preset.body, preset);
+    else {
+      applicationState.currentPresetId = null;
+      applicationState.currentPresetVersion = null;
+      renderGenerationPromptStatus();
+    }
   });
-  element("edit-preset-button").addEventListener("click", () => {
-    applicationState.currentBody = generateBody();
-    element("preset-workflow").value = element("generate-workflow").value;
-    fillPromptFields(applicationState.currentBody);
-    updatePresetWorkflowOptions();
-    switchView("prompts", { resetScroll: true });
+  element("edit-preset-button").addEventListener("click", () => editGenerationPrompt());
+  element("save-current-preset-button").addEventListener("click", () => editGenerationPrompt(true));
+  for (const identifier of ["new-preset-button", "new-preset-detail-button"]) {
+    element(identifier).addEventListener("click", () => startNewPrompt());
+  }
+  element("copy-preset-button").addEventListener("click", () => startNewPrompt(true));
+  element("prompt-list-back").addEventListener("click", showPromptList);
+  element("preset-search").addEventListener("input", event => {
+    promptEditorState.search = event.target.value;
+    element("preset-list").scrollTop = 0;
+    renderPromptManagerList();
   });
-  element("save-current-preset-button").addEventListener("click", () => {
-    applicationState.currentPresetId = null;
-    applicationState.currentBody = generateBody();
-    element("preset-name").value = "";
-    element("preset-version").textContent = "새 preset";
-    element("preset-workflow").value = element("generate-workflow").value;
-    fillPromptFields(applicationState.currentBody);
-    updatePresetWorkflowOptions();
-    switchView("prompts", { resetScroll: true });
+  element("preset-workflow-filter").addEventListener("change", event => {
+    promptEditorState.workflowFilter = event.target.value;
+    element("preset-list").scrollTop = 0;
+    renderPromptManagerList();
   });
+  element("preset-edit-tab").addEventListener("click", () => showPromptDetailTab("edit"));
+  element("preset-history-tab").addEventListener("click", () => runAction(() => showPresetVersions(promptEditorState.selectedPresetId)));
+  element("retry-preset-versions").addEventListener("click", () => runAction(() => showPresetVersions(promptEditorState.selectedPresetId)));
+  element("load-preset-version-button").addEventListener("click", loadPresetVersion);
+  element("use-preset-button").addEventListener("click", usePromptEditorInGeneration);
+  for (const identifier of ["preset-name", "preset-anima-prompt", "preset-negative", "preset-minimax-prompt"]) {
+    element(identifier).addEventListener("input", () => {
+      element("preset-editor-error").textContent = "";
+      element("preset-save-message").textContent = "";
+      renderPromptEditorStatus();
+    });
+  }
   element("preset-workflow").addEventListener("change", () => {
-    applicationState.currentPresetId = null;
-    element("preset-version").textContent = "새 preset";
+    const previousPrompt = promptEditorState.workflow === "anima"
+      ? element("preset-anima-prompt").value : element("preset-minimax-prompt").value;
+    element("preset-anima-prompt").value = previousPrompt;
+    element("preset-minimax-prompt").value = previousPrompt;
+    promptEditorState.workflow = element("preset-workflow").value;
     updatePresetWorkflowOptions();
+    renderPromptEditorStatus();
   });
   element("save-preset-button").addEventListener("click", () =>
     runAction(savePreset),
@@ -3644,12 +3896,15 @@ function bindEvents() {
       runAction(() => showPresetVersions(versionsButton.dataset.showVersions));
   });
   element("preset-version-history").addEventListener("click", (event) => {
-    const button = event.target.closest("[data-load-version]");
-    if (button)
-      loadPresetVersion(
-        button.dataset.presetId,
-        Number(button.dataset.loadVersion),
-      );
+    const button = event.target.closest("[data-preview-version]");
+    if (!button) return;
+    promptEditorState.previewVersion = Number(button.dataset.previewVersion);
+    renderPromptVersionHistory();
+  });
+  window.addEventListener("beforeunload", event => {
+    if (!promptEditorHasChanges() && !promptEditorState.saving) return;
+    event.preventDefault();
+    event.returnValue = "";
   });
   element("refresh-loras-button").addEventListener("click", () =>
     runAction(loadLoras),
@@ -4218,6 +4473,7 @@ async function initializeApplication() {
   bindOutputFolderPickerEvents();
   bindJobInputPickerEvents();
   bindEvents();
+  configurePromptEditor(null, { workflow: "anima", showDetail: false });
   initializeNavigationHistory();
   updateAnimaResolutionOptions();
   try {
