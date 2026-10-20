@@ -33,6 +33,7 @@ from .output_catalog import OutputCatalog
 from .output_directories import create_output_directory, list_output_directories, resolve_output_directory
 from .output_listing import MEDIA_EXTENSIONS, VIDEO_OUTPUT_EXTENSIONS
 from .output_timing import OutputTimingRecorder, measure_output_step
+from .system_resources import RESOURCE_POLL_INTERVAL_SECONDS, SystemResourceMonitor
 from .tag_builder import (
     MAX_PROMPT_LENGTH, MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt,
     resolve_anima_prompts, resolve_tag_text, validate_tag_selection,
@@ -375,6 +376,7 @@ class HomeServer:
         self.output_catalog.synchronize(config.managed_output_directory)
         self.video_previews = VideoPreviewCache(config, self.output_catalog)
         self.comfy = ComfyClient(config.comfy_endpoint)
+        self.system_resources = SystemResourceMonitor()
         self.sessions: dict[str, float] = {}
         self.login_failures: dict[str, list[float]] = {}
         self.comfy_queue_available: bool | None = None
@@ -610,13 +612,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         server.video_previews.start()
         monitor_task = asyncio.create_task(_monitor_requests(server))
         cancellation_task = asyncio.create_task(_monitor_cancellations(server))
+        resource_monitor_task = asyncio.create_task(_monitor_system_resources(server))
         try:
             yield
         finally:
             await asyncio.to_thread(server.video_previews.stop)
             monitor_task.cancel()
             cancellation_task.cancel()
-            await asyncio.gather(monitor_task, cancellation_task, return_exceptions=True)
+            resource_monitor_task.cancel()
+            await asyncio.gather(monitor_task, cancellation_task, resource_monitor_task, return_exceptions=True)
             for submission_task in list(server.submission_tasks):
                 submission_task.cancel()
             if server.submission_tasks:
@@ -733,6 +737,12 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             queue_count = None
             server.record_comfy_connection(False, type(exception).__name__)
         return {"comfy_connected": connected, "queue_pending": queue_count, "output_directory": str(server.config.managed_output_directory)}
+
+    @app.get("/api/system-resources")
+    async def system_resources():
+        """2초 간격의 공통 Snapshot을 반환하며 브라우저 조회마다 추가 수집하지 않습니다."""
+
+        return JSONResponse(server.system_resources.snapshot, headers={"Cache-Control": "no-store"})
 
     @app.post("/api/comfy/free-memory")
     async def free_comfy_memory():
@@ -1734,6 +1744,16 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                 LOGGER.error("요청 제출 실패: request_id=%s error_type=%s", request_id, type(exception).__name__)
     finally:
         await asyncio.to_thread(clear_batch_uploads, server.upload_directory, requests)
+
+
+async def _monitor_system_resources(server: HomeServer) -> None:
+    """접속자 수·작업 상태에 관계없이 2초 간격으로 한 번씩 순차 수집합니다."""
+
+    while True:
+        collection_started = time.monotonic()
+        await server.system_resources.refresh(server.comfy)
+        elapsed_seconds = time.monotonic() - collection_started
+        await asyncio.sleep(max(0, RESOURCE_POLL_INTERVAL_SECONDS - elapsed_seconds))
 
 
 async def _refresh_requests(server: HomeServer) -> None:

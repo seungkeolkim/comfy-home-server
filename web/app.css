@@ -183,7 +183,7 @@ a[aria-disabled="true"] {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 35px;
+  margin-bottom: 16px;
   gap: 15px;
 }
 .topbar h1 {
@@ -197,6 +197,89 @@ a[aria-disabled="true"] {
   justify-content: flex-end;
   flex-wrap: wrap;
   gap: 12px;
+}
+.system-resources {
+  margin-bottom: 26px;
+  border: 1px solid #29364a;
+  border-radius: 12px;
+  background: #121c2b;
+}
+.system-resources summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  list-style: none;
+}
+.system-resources summary::-webkit-details-marker {
+  display: none;
+}
+.resource-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  flex: 1;
+  min-width: 0;
+}
+.resource-metric {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  color: #98abc5;
+  font-size: 11px;
+}
+.resource-reading {
+  position: relative;
+  padding-bottom: 4px;
+  text-align: right;
+  background: linear-gradient(#2a374a, #2a374a) bottom / 100% 2px no-repeat;
+}
+.resource-reading::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  width: var(--resource-percent, 0%);
+  background: #85d9c2;
+}
+.resource-high .resource-reading::after {
+  background: #edac78;
+}
+.resource-metric strong {
+  color: #e4ecf7;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.resource-expand-indicator {
+  color: #98abc5;
+}
+.system-resources[open] .resource-expand-indicator {
+  transform: rotate(180deg);
+}
+.resource-details {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 14px;
+  border-top: 1px solid #29364a;
+}
+.resource-details p {
+  margin: 0;
+  color: #98abc5;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+.resource-details p + p {
+  margin-top: 5px;
+}
+.system-resources.resource-unavailable .resource-metric strong {
+  color: #98abc5;
 }
 .eyebrow {
   text-transform: uppercase;
@@ -1088,7 +1171,24 @@ body:has(.image-preview-dialog[open]) { overflow: hidden; }
     padding: 22px 16px 95px;
   }
   .topbar {
-    margin-bottom: 23px;
+    margin-bottom: 14px;
+  }
+  .topbar .eyebrow {
+    display: none;
+  }
+  .system-resources {
+    margin-bottom: 20px;
+  }
+  .resource-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 12px;
+  }
+  .system-resources summary {
+    gap: 8px;
+    padding: 8px 10px;
+  }
+  .resource-metric strong {
+    font-size: 11px;
   }
   .topbar h1 {
     font-size: 25px;

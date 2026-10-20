@@ -15,6 +15,7 @@ const KOREAN_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
   hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
 });
 const NAVIGATION_VIEW_NAMES = ["generate", "jobs", "outputs", "prompts", "tags", "lora-presets"];
+const RESOURCE_POLL_INTERVAL_MILLISECONDS = 2000;
 const videoPreviewState = {
   revision: 0, outputId: null, timer: null, controller: null,
   opener: null, lastStatus: null, attachedIdentifier: null,
@@ -116,6 +117,9 @@ const applicationState = {
   restoringJobId: null,
   noticeHideTimer: null,
   pollingTimer: null,
+  resourcePollingTimer: null,
+  resourceLoadPromise: null,
+  resourceSessionRevision: 0,
 };
 
 const outputFolderPickerState = {
@@ -258,6 +262,9 @@ function showNotice(message, isError = false, action = null) {
 
 /** 로그인 화면만 표시합니다. */
 function showLogin() {
+  window.clearInterval(applicationState.resourcePollingTimer);
+  applicationState.resourcePollingTimer = null;
+  applicationState.resourceSessionRevision += 1;
   closeJobHistoryFolderDialogs();
   closeJobDescriptionEditor(false);
   closeVideoPreview(false);
@@ -274,7 +281,11 @@ function showLogin() {
 async function showApplication() {
   element("login-screen").classList.add("hidden");
   element("application").classList.remove("hidden");
+  if (!applicationState.resourcePollingTimer) {
+    applicationState.resourcePollingTimer = window.setInterval(loadSystemResources, RESOURCE_POLL_INTERVAL_MILLISECONDS);
+  }
   await Promise.allSettled([
+    loadSystemResources(),
     loadPresets(),
     loadTags(),
     loadLoras(),
@@ -619,6 +630,54 @@ async function loadStatus() {
   } catch (error) {
     showNotice(error.message, true);
   }
+}
+
+/** Memory 용량을 같은 GiB 단위와 고정 소수 자릿수로 표시합니다. */
+function formatResourceMemory(usedBytes, totalBytes) {
+  if (!Number.isFinite(usedBytes) || !Number.isFinite(totalBytes) || totalBytes <= 0) return "—";
+  const bytesPerGibibyte = 1024 ** 3;
+  return `${(usedBytes / bytesPerGibibyte).toFixed(1)} / ${(totalBytes / bytesPerGibibyte).toFixed(1)} GiB`;
+}
+
+/** 서버 상태 숫자와 작은 Bar만 갱신하며 열어 둔 상세 패널은 유지합니다. */
+function renderSystemResources(snapshot = {}) {
+  const metrics = [
+    { name: "cpu", percent: snapshot.cpu_percent, text: Number.isFinite(snapshot.cpu_percent) ? `${Math.round(snapshot.cpu_percent)}%` : "—" },
+    { name: "ram", percent: snapshot.ram_percent, text: formatResourceMemory(snapshot.ram_used_bytes, snapshot.ram_total_bytes) },
+    { name: "gpu", percent: snapshot.gpu_percent, text: Number.isFinite(snapshot.gpu_percent) ? `${Math.round(snapshot.gpu_percent)}%` : "—" },
+    { name: "vram", percent: snapshot.vram_percent, text: formatResourceMemory(snapshot.vram_used_bytes, snapshot.vram_total_bytes) },
+  ];
+  for (const metric of metrics) {
+    element(`resource-${metric.name}-value`).textContent = metric.text;
+    const metricElement = element(`resource-${metric.name}`);
+    metricElement.style.setProperty("--resource-percent", `${Number.isFinite(metric.percent) ? Math.max(0, Math.min(100, metric.percent)) : 0}%`);
+    metricElement.classList.toggle("resource-high", metric.percent >= 90);
+  }
+  element("system-resources").classList.toggle("resource-unavailable", snapshot.status === "unavailable" || !snapshot.status);
+  element("resource-host-description").textContent = `ComfyUI host · ${snapshot.gpu_name || "GPU 확인 불가"} · 2초 간격`;
+  const statusMessage = snapshot.status === "ready" ? "CPU·GPU는 사용률, RAM·VRAM은 사용량 / 전체 용량입니다."
+    : snapshot.status === "partial" ? "일부 지표를 확인할 수 없습니다. 확인되지 않은 값은 —로 표시합니다."
+      : "서버 상태를 확인할 수 없습니다. ComfyUI 연결과 DaSiWa System Monitor를 확인해 주세요.";
+  element("resource-status").textContent = statusMessage;
+}
+
+/** 화면·작업·해제 상태와 관계없이 동일한 주기로 공통 Snapshot을 읽으며 중복 요청은 합칩니다. */
+async function loadSystemResources() {
+  if (applicationState.resourceLoadPromise) return applicationState.resourceLoadPromise;
+  const sessionRevision = applicationState.resourceSessionRevision;
+  applicationState.resourceLoadPromise = (async () => {
+    try {
+      const snapshot = await apiRequest("/api/system-resources", {
+        signal: AbortSignal.timeout(RESOURCE_POLL_INTERVAL_MILLISECONDS),
+      });
+      if (sessionRevision === applicationState.resourceSessionRevision) renderSystemResources(snapshot);
+    } catch (error) {
+      if (sessionRevision === applicationState.resourceSessionRevision) renderSystemResources();
+    } finally {
+      applicationState.resourceLoadPromise = null;
+    }
+  })();
+  return applicationState.resourceLoadPromise;
 }
 
 /** Workflow별 입력 영역을 전환합니다. */

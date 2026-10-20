@@ -2,7 +2,9 @@
 async function handleJobFolderReadRequest(route, jobs = []) {
   const requestUrl = new URL(route.request().url());
   let response;
-  if (requestUrl.pathname === "/api/job-folders") {
+  if (requestUrl.pathname === "/api/system-resources") {
+    response = { status: "unavailable" };
+  } else if (requestUrl.pathname === "/api/job-folders") {
     response = { items: [], total_count: jobs.length, unassigned_count: jobs.length };
   } else if (requestUrl.pathname === "/api/jobs/selection-candidates") {
     const jobIdentifier = requestUrl.searchParams.get("job_id");

@@ -38,6 +38,7 @@ async function verifyMemoryRelease(browser, viewport) {
       responseBody = rejectMemoryRequest ? { detail: "ComfyUI에 VRAM 비우기를 요청하지 못했습니다." } : { accepted: true };
     } else if (requestPath === "/api/session") responseBody = { authenticated: true };
     else if (requestPath === "/api/status") responseBody = { comfy_connected: true };
+    else if (requestPath === "/api/system-resources") responseBody = { status: "unavailable" };
     else if (requestPath === "/api/jobs/activity") responseBody = { active_count: 0 };
     else if (requestPath === "/api/jobs") responseBody = { items: [], page: 1, page_size: 10, total: 0, total_pages: 1, active_count: 0 };
     else if (requestPath === "/api/job-folders") responseBody = { items: [], total_count: 0, unassigned_count: 0 };
@@ -54,9 +55,10 @@ async function verifyMemoryRelease(browser, viewport) {
 
   try {
     await page.goto("http://comfy-memory.test/");
+    await page.locator("#system-resources summary").click();
     const freeMemoryButton = page.locator("#free-vram-button");
     await freeMemoryButton.waitFor();
-    assert.equal(await freeMemoryButton.evaluate(button => button.closest(".topbar-right") !== null && button.classList.contains("danger")), true);
+    assert.equal(await freeMemoryButton.evaluate(button => button.closest(".resource-details") !== null && button.classList.contains("danger")), true);
     const originalUrl = page.url();
     await page.locator("#job-description").fill("다음 작업 설명 유지");
 

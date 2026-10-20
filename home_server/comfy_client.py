@@ -120,6 +120,11 @@ class ComfyClient:
         )
         response.raise_for_status()
 
+    async def system_resources(self) -> dict[str, Any]:
+        """설치된 DaSiWa API에서 Docker가 아닌 ComfyUI host의 자원 상태를 읽습니다."""
+
+        return await self.request_json("GET", "/dasiwa/system-monitor", timeout=2)
+
     async def cancel_prompt(self, prompt_id: str) -> bool:
         """ComfyUI에서 지정한 대기·실행 요청만 취소합니다."""
 

@@ -37,6 +37,11 @@ class FakeComfyClient:
 
         return ["example.safetensors"]
 
+    async def system_resources(self) -> dict:
+        """자원 수집이 실제 ComfyUI나 테스트 실행 장비를 조회하지 않게 합니다."""
+
+        return {"cpu_percent": 0, "ram": {"used": 1024, "total": 2048}, "gpus": []}
+
     async def populate_wildcards(self, prompt: str, seed: int) -> str:
         """테스트에서는 입력 Prompt를 그대로 확정합니다."""
 
