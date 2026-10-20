@@ -470,46 +470,24 @@
           </div>
         </section>
         <section id="view-tags" class="view hidden">
-          <div class="section-intro">
-            <h2>표시 그룹 관리</h2>
-            <p>그룹의 공통 참조 태그와 기본 펼침 상태를 관리합니다.</p>
-          </div>
-          <div class="panel stack">
-            <div class="panel-heading"><h3>표시 그룹</h3><button id="new-tag-group-button" class="button subtle small" type="button">새 그룹</button></div>
-            <form id="tag-group-form" class="stack">
-              <label for="tag-group-name">그룹 이름</label>
-              <input id="tag-group-name" maxlength="120" required placeholder="예: 캐릭터" />
-              <label for="tag-group-key">참조 태그</label>
-              <input id="tag-group-key" maxlength="64" required placeholder="CHR" pattern="[A-Z][A-Z0-9_]*" />
-              <p class="hint">그룹의 모든 항목에 적용됩니다. 여러 그룹에서 같은 참조 태그를 사용할 수 있습니다.</p>
-              <label class="tag-inline-check"><input id="tag-group-default-expanded" type="checkbox" checked /> 생성 화면에서 기본으로 펼치기</label>
-              <button class="button primary" type="submit">그룹 저장</button>
-            </form>
-            <div id="tag-group-list" class="preset-list"></div>
-          </div>
-          <div class="section-intro tag-entry-section-intro">
-            <h2>태그 항목 관리</h2>
-            <p>Prompt에 사용할 태그 항목의 본문과 선택 weight를 관리합니다.</p>
-          </div>
-          <div class="panel stack">
-            <div class="panel-heading"><h3>태그 항목</h3><button id="new-tag-entry-button" class="button subtle small" type="button">새 항목</button></div>
-            <form id="tag-entry-form" class="stack">
-              <label for="tag-entry-group">표시 그룹</label>
-              <select id="tag-entry-group" required></select>
-              <p id="tag-entry-reference" class="hint"></p>
-              <label for="tag-entry-name">항목 이름</label>
-              <input id="tag-entry-name" maxlength="120" required placeholder="예: 1인 a or b" />
-              <label for="tag-entry-content">본문</label>
-              <textarea id="tag-entry-content" rows="5" required placeholder="예: {캐릭터a|캐릭터b} 또는 [CHR], fight"></textarea>
-              <label for="tag-entry-weight">선택 weight</label>
-              <input id="tag-entry-weight" type="number" min="0.01" step="any" value="1" required />
-              <button class="button primary" type="submit">항목 저장</button>
-            </form>
-            <div class="inline-actions">
-              <button id="expand-managed-tag-groups-button" class="button tag-expand small" type="button" aria-controls="tag-entry-list">태그 전부 펼치기</button>
-              <button id="collapse-managed-tag-groups-button" class="button subtle small" type="button" aria-controls="tag-entry-list">태그 전부 접기</button>
-            </div>
-            <div id="tag-entry-list" class="preset-list"></div>
+          <div id="tag-manager-layout" class="tag-manager-layout" data-mobile-pane="groups">
+            <section class="panel tag-manager-groups" aria-labelledby="tag-manager-groups-title">
+              <div class="panel-heading"><h3 id="tag-manager-groups-title">그룹 탐색</h3><button id="new-tag-group-button" class="button subtle small" type="button">새 그룹</button></div>
+              <label for="tag-manager-group-search">그룹 찾기</label>
+              <input id="tag-manager-group-search" type="search" placeholder="그룹 이름 또는 참조 태그" />
+              <label for="tag-manager-reference-filter">참조 태그</label>
+              <select id="tag-manager-reference-filter"><option value="">전체 참조 태그</option></select>
+              <p id="tag-manager-group-count" class="hint"></p>
+              <div id="tag-group-list" class="tag-manager-group-list" aria-label="표시 그룹 목록"></div>
+            </section>
+            <section class="panel tag-manager-entries" aria-labelledby="tag-manager-selected-name">
+              <button id="tag-manager-back" class="button subtle small tag-manager-back" type="button">← 그룹 목록</button>
+              <div class="tag-manager-entry-heading"><div><h3 id="tag-manager-selected-name">그룹을 선택해 주세요.</h3><p id="tag-manager-selected-reference" class="hint"></p></div><div class="inline-actions"><button id="edit-selected-tag-group" class="button subtle small" type="button" disabled>그룹 설정</button><button id="new-tag-entry-button" class="button primary small" type="button" disabled>새 항목</button></div></div>
+              <label for="tag-manager-entry-search">이 그룹에서 항목 찾기</label>
+              <input id="tag-manager-entry-search" type="search" placeholder="항목 이름 또는 본문" disabled />
+              <p id="tag-manager-entry-count" class="hint"></p>
+              <div id="tag-entry-list" class="tag-manager-entry-list"></div>
+            </section>
           </div>
         </section>
         <section id="view-lora-presets" class="view hidden">
@@ -557,6 +535,29 @@
         ><a data-navigation data-view="lora-presets" href="?view=lora-presets">◇<span>LoRA 조합</span></a>
       </nav>
     </div>
+    <dialog id="tag-group-dialog" class="folder-picker tag-editor-dialog" aria-labelledby="tag-group-dialog-title">
+      <h2 id="tag-group-dialog-title">새 그룹</h2>
+      <form id="tag-group-form" class="stack">
+        <label for="tag-group-name">그룹 이름</label><input id="tag-group-name" maxlength="120" required placeholder="예: 캐릭터" />
+        <label for="tag-group-key">참조 태그</label><input id="tag-group-key" maxlength="64" required placeholder="CHR" pattern="[A-Z][A-Z0-9_]*" />
+        <p class="hint">이 그룹의 모든 항목에 적용됩니다. 여러 그룹이 같은 참조 태그를 사용할 수 있습니다.</p>
+        <label class="tag-inline-check"><input id="tag-group-default-expanded" type="checkbox" checked /> 생성 화면에서 기본으로 펼치기</label>
+        <p id="tag-group-editor-status" class="form-error" role="alert"></p>
+        <div class="tag-editor-actions"><button id="delete-selected-tag-group" class="button danger" type="button" hidden>그룹 삭제</button><span></span><button id="tag-group-cancel" class="button subtle" type="button">취소</button><button class="button primary" type="submit">그룹 저장</button></div>
+      </form>
+    </dialog>
+    <dialog id="tag-entry-dialog" class="folder-picker tag-editor-dialog" aria-labelledby="tag-entry-dialog-title">
+      <h2 id="tag-entry-dialog-title">새 항목</h2>
+      <form id="tag-entry-form" class="stack">
+        <label for="tag-entry-group">표시 그룹</label><select id="tag-entry-group" required></select>
+        <p id="tag-entry-reference" class="hint"></p>
+        <label for="tag-entry-name">항목 이름</label><input id="tag-entry-name" maxlength="120" required placeholder="항목 이름" />
+        <label for="tag-entry-content">본문</label><textarea id="tag-entry-content" rows="9" required placeholder="예: [CHR], walking"></textarea>
+        <label for="tag-entry-weight">선택 weight</label><input id="tag-entry-weight" type="number" min="0.01" step="any" value="1" required />
+        <p id="tag-entry-editor-status" class="form-error" role="alert"></p>
+        <div class="tag-editor-actions"><button id="delete-selected-tag-entry" class="button danger" type="button" hidden>항목 삭제</button><span></span><button id="tag-entry-cancel" class="button subtle" type="button">취소</button><button class="button primary" type="submit">항목 저장</button></div>
+      </form>
+    </dialog>
     <dialog id="output-folder-picker" class="folder-picker" aria-labelledby="folder-picker-title" aria-describedby="folder-picker-description">
       <h2 id="folder-picker-title">파일을 옮길 폴더 선택</h2>
       <p id="folder-picker-description" class="hint"></p>

@@ -546,34 +546,33 @@ async function main() {
     await tagPage.route("**/*", handleBrowserRequest);
     await tagPage.goto("http://home-server.test/");
     await tagPage.locator('.sidebar [data-view="tags"]').click();
+    await tagPage.locator("#new-tag-group-button").click();
     await tagPage.locator("#tag-group-name").fill("장면");
     await tagPage.locator("#tag-group-key").fill("ACTION");
     await tagPage.locator('#tag-group-form button[type="submit"]').click();
-    await tagPage.locator('[data-edit-tag-group="tag-group-1"]').waitFor();
+    await tagPage.locator('[data-select-managed-group="tag-group-1"]').waitFor();
     await tagPage.locator("#new-tag-group-button").click();
     await tagPage.locator("#tag-group-name").fill("캐릭터");
     await tagPage.locator("#tag-group-key").fill("CHR");
     await tagPage.locator("#tag-group-default-expanded").uncheck();
     await tagPage.locator('#tag-group-form button[type="submit"]').click();
-    await tagPage.locator('[data-edit-tag-group="tag-group-2"]').waitFor();
+    await tagPage.locator('[data-select-managed-group="tag-group-2"]').waitFor();
+    await tagPage.locator("#new-tag-entry-button").click();
     await tagPage.locator("#tag-entry-group").selectOption("tag-group-1");
     await tagPage.locator("#tag-entry-name").fill("몬스터 공격");
     await tagPage.locator("#tag-entry-content").fill("[CHR], attacking monster");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
     await tagPage.locator('[data-edit-tag-entry="tag-entry-1"]').waitFor({ state: "attached" });
+    await tagPage.locator("#new-tag-entry-button").click();
     await tagPage.locator("#tag-entry-group").selectOption("tag-group-2");
     await tagPage.locator("#tag-entry-name").fill("1인 a");
     await tagPage.locator("#tag-entry-content").fill("character A");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
     await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').waitFor({ state: "attached" });
-    assert.equal(await tagPage.locator('[data-manage-tag-group-open]').count(), 2);
-    assert.equal(await tagPage.locator('[data-manage-tag-group-open="tag-group-1"]').evaluate(group => group.open), false);
-    assert.equal(await tagPage.locator('[data-manage-tag-group-open="tag-group-2"]').evaluate(group => group.open), false);
-    assert.match(await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').textContent(), /1개 항목/);
-    assert.equal(await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').isVisible(), false);
-    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').click();
+    assert.equal(await tagPage.locator('[data-select-managed-group]').count(), 2);
+    assert.equal(await tagPage.locator('[data-edit-tag-entry="tag-entry-1"]').count(), 0);
     assert.equal(await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').isVisible(), true);
-    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').click();
+    assert.equal(await tagPage.locator("#tag-manager-entry-count").textContent(), "1 / 1개 항목");
     await tagPage.locator('.sidebar [data-view="generate"]').click();
     await tagPage.locator("#generate-anima-prompt").fill("[ACTION]");
     assert.match(await tagPage.locator("#tag-selection-status").textContent(), /\[ACTION\] 선택 필요/);
@@ -612,7 +611,7 @@ async function main() {
     await tagPage.screenshot({ path: path.join(screenshotDirectory, "tag-preset-mobile.png"), fullPage: true });
     await tagPage.setViewportSize({ width: 1280, height: 950 });
     await tagPage.locator('.sidebar [data-view="tags"]').click();
-    await tagPage.locator('[data-manage-tag-group-open="tag-group-2"] summary').click();
+    await tagPage.locator('[data-select-managed-group="tag-group-2"]').click();
     await tagPage.locator('[data-edit-tag-entry="tag-entry-2"]').click();
     await tagPage.locator("#tag-entry-content").fill("character B");
     await Promise.all([
@@ -635,27 +634,27 @@ async function main() {
     await tagPage.locator("#tag-group-name").fill("가장 앞");
     await tagPage.locator("#tag-group-key").fill("ACTION");
     await tagPage.locator('#tag-group-form button[type="submit"]').click();
-    await tagPage.locator('[data-manage-tag-group-open="tag-group-3"]').waitFor();
+    await tagPage.locator('[data-select-managed-group="tag-group-3"]').waitFor();
+    await tagPage.locator("#new-tag-entry-button").click();
     await tagPage.locator("#tag-entry-group").selectOption("tag-group-1");
     await tagPage.locator("#tag-entry-name").fill("걷기");
     await tagPage.locator("#tag-entry-content").fill("walking");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
     await tagPage.locator('[data-edit-tag-entry="tag-entry-3"]').waitFor({ state: "attached" });
+    await tagPage.locator("#new-tag-entry-button").click();
     await tagPage.locator("#tag-entry-group").selectOption("tag-group-3");
     await tagPage.locator("#tag-entry-name").fill("새 장면");
     await tagPage.locator("#tag-entry-content").fill("new action");
     await tagPage.locator('#tag-entry-form button[type="submit"]').click();
     await tagPage.locator('[data-edit-tag-entry="tag-entry-4"]').waitFor({ state: "attached" });
-    assert.deepEqual(await tagPage.locator("[data-manage-tag-group-open]").evaluateAll(
-      groups => groups.map(group => group.dataset.manageTagGroupOpen),
-    ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
-    assert.deepEqual(await tagPage.locator("#tag-group-list [data-edit-tag-group]").evaluateAll(
-      buttons => buttons.map(button => button.dataset.editTagGroup),
+    assert.deepEqual(await tagPage.locator("#tag-group-list [data-select-managed-group]").evaluateAll(
+      buttons => buttons.map(button => button.dataset.selectManagedGroup),
     ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
     assert.deepEqual(await tagPage.locator("#tag-entry-group option").evaluateAll(
       options => options.map(option => option.value),
     ), ["tag-group-3", "tag-group-1", "tag-group-2"]);
-    assert.deepEqual(await tagPage.locator('[data-manage-tag-group-open="tag-group-1"] .tag-entry-row strong').allTextContents(),
+    await tagPage.locator('[data-select-managed-group="tag-group-1"]').click();
+    assert.deepEqual(await tagPage.locator('#tag-entry-list .tag-manager-entry-title strong').allTextContents(),
       ["걷기", "몬스터 공격"]);
     await tagPage.locator('.sidebar [data-view="generate"]').click();
     assert.deepEqual(await tagPage.locator("[data-tag-group-open]").evaluateAll(
@@ -686,7 +685,8 @@ async function main() {
     assert.equal(savedTagEntries.every(entry => !Object.hasOwn(entry, "tag_key")), true);
     assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-3"] [data-select-tag="tag-entry-4"]').count(), 1);
     await tagPage.locator('.sidebar [data-view="tags"]').click();
-    await tagPage.locator('[data-edit-tag-group="tag-group-3"]').click();
+    await tagPage.locator('[data-select-managed-group="tag-group-3"]').click();
+    await tagPage.locator('#edit-selected-tag-group').click();
     assert.equal(await tagPage.locator("#tag-group-key").inputValue(), "ACTION");
     await tagPage.locator("#tag-group-key").fill("SIDE");
     await Promise.all([
@@ -694,8 +694,10 @@ async function main() {
       tagPage.locator('#tag-group-form button[type="submit"]').click(),
     ]);
     await tagPage.waitForFunction(() => document.querySelector('#tag-entry-group option[value="tag-group-3"]').textContent.includes("[SIDE]"));
+    await tagPage.locator("#new-tag-entry-button").click();
     await tagPage.locator("#tag-entry-group").selectOption("tag-group-3");
     assert.match(await tagPage.locator("#tag-entry-reference").textContent(), /\[SIDE\]/);
+    await tagPage.locator("#tag-entry-cancel").click();
     await tagPage.locator('.sidebar [data-view="generate"]').click();
     assert.equal(await tagPage.locator('[data-tag-group-open="tag-group-3"]').count(), 0);
     await tagPage.locator("#generate-anima-prompt").fill("[SIDE]");
