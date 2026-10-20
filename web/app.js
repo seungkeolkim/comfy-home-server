@@ -3769,9 +3769,10 @@ function renderJobHistoryFolders() {
   const currentFolder = state.folders.find(folder => folder.folder_id === applicationState.jobFolderId);
   const currentLabel = applicationState.jobFolderId === "unassigned" ? "미분류"
     : currentFolder?.path || "전체 작업";
+  const currentIcon = applicationState.jobFolderId === "unassigned" ? "📥" : currentFolder ? "📁" : "📋";
   const count = currentFolder?.job_count ?? (applicationState.jobFolderId === "unassigned" ? state.unassignedCount : state.totalCount);
   element("jobs-folder-location").textContent = currentLabel;
-  element("jobs-folder-panel-title").textContent = window.matchMedia("(max-width: 800px)").matches ? `📁 ${currentLabel}` : "작업 분류";
+  element("jobs-folder-panel-title").textContent = window.matchMedia("(max-width: 800px)").matches ? `${currentIcon} ${currentLabel}` : "작업 분류";
   element("jobs-folder-count").textContent = state.loaded
     ? `${count}개 작업${currentFolder?.descendant_folder_count ? " · 하위 분류 포함" : ""}${applicationState.jobSearch ? ` · 검색 결과 ${applicationState.jobsMatchedCount}개` : ""}` : "";
   element("jobs-folder-menu").classList.toggle("hidden", !currentFolder);
@@ -3783,12 +3784,12 @@ function renderJobHistoryFolders() {
     applicationState.jobFolderId, [...state.collapsedFolderIds]]);
   if (signature === state.renderSignature) return;
   state.renderSignature = signature;
-  const systemFolders = [{ identifier: "", name: "전체 작업", count: state.totalCount },
-    { identifier: "unassigned", name: "미분류", count: state.unassignedCount }];
+  const systemFolders = [{ identifier: "", icon: "📋", name: "전체 작업", count: state.totalCount },
+    { identifier: "unassigned", icon: "📥", name: "미분류", count: state.unassignedCount }];
   element("jobs-folder-tree").innerHTML = `<ul>${systemFolders.map(folder => {
     const selected = applicationState.jobFolderId === folder.identifier;
     const folderUrl = navigationUrl({ viewName: "jobs", pageNumber: 1, jobFolderId: folder.identifier });
-    return `<li><div class="job-folder-row system-folder ${selected ? "active" : ""}"><a data-navigation data-history-folder="${folder.identifier}" href="${escapeHtml(folderUrl)}" ${selected ? 'aria-current="location"' : ""}><span>${folder.name}</span><small>${folder.count}</small></a></div></li>`;
+    return `<li><div class="job-folder-row system-folder ${selected ? "active" : ""}"><a data-navigation data-history-folder="${folder.identifier}" href="${escapeHtml(folderUrl)}" ${selected ? 'aria-current="location"' : ""}><span>${folder.icon} ${folder.name}</span><small>${folder.count}</small></a></div></li>`;
   }).join("")}${jobHistoryFolderTreeMarkup()}</ul>`;
 }
 
