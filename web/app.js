@@ -1395,6 +1395,16 @@ function editorBody() {
   };
 }
 
+/** 현재 Workflow의 Prompt 본문만 비우고 바로 붙여넣을 수 있도록 입력란에 초점을 둡니다. */
+function clearGenerationPrompt() {
+  const promptFieldIdentifier = element("generate-workflow").value === "minimax_h3"
+    ? "generate-minimax-prompt" : "generate-anima-prompt";
+  const promptField = element(promptFieldIdentifier);
+  promptField.value = "";
+  promptField.dispatchEvent(new Event("input", { bubbles: true }));
+  promptField.focus();
+}
+
 /** 생성 화면의 현재 Prompt를 객체로 만듭니다. */
 function generateBody() {
   if (element("generate-workflow").value === "minimax_h3") {
@@ -4180,6 +4190,7 @@ function bindEvents() {
   });
   element("edit-preset-button").addEventListener("click", () => editGenerationPrompt());
   element("save-current-preset-button").addEventListener("click", () => editGenerationPrompt(true));
+  element("clear-generation-prompt-button").addEventListener("click", clearGenerationPrompt);
   for (const identifier of ["new-preset-button", "new-preset-detail-button"]) {
     element(identifier).addEventListener("click", () => startNewPrompt());
   }
