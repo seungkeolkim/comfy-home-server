@@ -355,13 +355,15 @@
             <div class="jobs-workspace-content">
               <div class="jobs-location-heading">
                 <div><strong id="jobs-folder-location">전체 작업</strong><p id="jobs-folder-count" class="hint"></p></div>
-                <details id="jobs-folder-menu" class="jobs-folder-menu hidden">
-                  <summary aria-label="선택 분류 관리">⋯</summary>
-                  <div class="stack">
-                    <button id="edit-job-folder" class="button subtle small" type="button">이름·위치 변경</button>
-                    <button id="delete-job-folder" class="button danger small" type="button">분류 삭제</button>
-                  </div>
-                </details>
+                <div class="jobs-folder-actions">
+                  <button id="edit-job-folder" class="button subtle small hidden" type="button">이름 변경</button>
+                  <details id="jobs-folder-menu" class="jobs-folder-menu hidden">
+                    <summary aria-label="선택 분류 관리">⋯</summary>
+                    <div class="stack">
+                      <button id="delete-job-folder" class="button danger small" type="button">분류 삭제</button>
+                    </div>
+                  </details>
+                </div>
               </div>
               <form id="jobs-search-form" class="jobs-search-form" role="search">
                 <input id="jobs-search" type="search" maxlength="200" placeholder="현재 분류에서 작업 설명 검색" aria-label="작업 설명 검색" />

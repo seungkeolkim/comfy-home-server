@@ -143,7 +143,8 @@ async function verifyJobHistoryFolders(browser, width) {
     const created = folders.items.find(folder => folder.name === "새 후보");
     assert.equal(created.depth, 3);
     await navigateHistoryFolder(page, created.folder_id);
-    await page.locator("#jobs-folder-menu summary").click();
+    assert.equal(await page.locator("#jobs-folder-menu").evaluate(menu => menu.open), false);
+    assert.equal(await page.locator("#edit-job-folder").isVisible(), true);
     await page.locator("#edit-job-folder").click();
     await page.locator("#job-folder-name").fill("이름 변경");
     await page.locator("#job-folder-parent").selectOption(background.folder_id);

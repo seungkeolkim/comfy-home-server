@@ -872,6 +872,8 @@ input[type="file"] {
 .job-folder-row.system-folder a { padding-left: 26px; font-weight: 600; }
 .job-folder-expand { display: inline-flex; align-items: center; justify-content: center; width: 24px; min-width: 24px; min-height: 38px; border: none; background: none; color: #a3b4ce; padding: 0; }
 .jobs-location-heading { display: flex; justify-content: space-between; align-items: start; gap: 12px; margin-bottom: 12px; }
+.jobs-location-heading > div:first-child { min-width: 0; flex: 1; }
+.jobs-folder-actions { display: flex; align-items: start; gap: 8px; flex-shrink: 0; }
 #jobs-folder-location { display: block; font-size: 17px; overflow-wrap: anywhere; }
 #jobs-folder-count { margin: 3px 0 0; }
 .jobs-folder-menu { position: relative; flex-shrink: 0; }

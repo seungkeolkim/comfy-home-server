@@ -4655,6 +4655,8 @@ function renderJobHistoryFolders() {
   element("jobs-folder-count").textContent = state.loaded
     ? `${count}개 작업${currentFolder?.descendant_folder_count ? " · 하위 분류 포함" : ""}${applicationState.jobSearch ? ` · 검색 결과 ${applicationState.jobsMatchedCount}개` : ""}` : "";
   element("jobs-folder-menu").classList.toggle("hidden", !currentFolder);
+  element("edit-job-folder").classList.toggle("hidden", !currentFolder);
+  element("edit-job-folder").disabled = jobSelectionIsBusy() || !state.loaded;
   element("create-job-folder").disabled = jobSelectionIsBusy() || !state.loaded || currentFolder?.depth === 3;
   element("create-job-folder").title = currentFolder?.depth === 3 ? "최대 3단계입니다. 상위 분류를 선택해 주세요." : "선택한 분류 아래에 새 분류 만들기";
   element("clear-jobs-search").classList.toggle("hidden", !applicationState.jobSearch);
