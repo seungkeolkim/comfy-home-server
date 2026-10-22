@@ -1977,7 +1977,7 @@ function renderLoraPresetList() {
   element("lora-preset-list").innerHTML = applicationState.loraPresets.length
     ? applicationState.loraPresets.map((preset) => `
       <article class="preset-row lora-preset-row"><div><strong>${escapeHtml(preset.name)}</strong><small>${preset.workflow === "anima" ? "Anima Turbo V9" : "MiniMax H3"} · ${preset.loras.length} LoRA</small><small>${escapeHtml(preset.loras.map((lora) => lora.name).join(" · "))}</small></div>
-      <div class="inline-actions"><button class="button subtle small" type="button" data-edit-lora-preset="${escapeHtml(preset.preset_id)}">열기</button><button class="button subtle small" type="button" data-use-lora-preset="${escapeHtml(preset.preset_id)}">생성에서 사용</button><button class="button subtle small" type="button" data-copy-lora-preset="${escapeHtml(preset.preset_id)}">복제</button><button class="button subtle small" type="button" data-delete-lora-preset="${escapeHtml(preset.preset_id)}">삭제</button></div></article>`).join("")
+      <div class="inline-actions"><button class="button subtle small" type="button" data-edit-lora-preset="${escapeHtml(preset.preset_id)}">열기</button><button class="button subtle small" type="button" data-rename-lora-preset="${escapeHtml(preset.preset_id)}">이름 변경</button><button class="button subtle small" type="button" data-use-lora-preset="${escapeHtml(preset.preset_id)}">생성에서 사용</button><button class="button subtle small" type="button" data-copy-lora-preset="${escapeHtml(preset.preset_id)}">복제</button><button class="button subtle small" type="button" data-delete-lora-preset="${escapeHtml(preset.preset_id)}">삭제</button></div></article>`).join("")
     : '<p class="empty-state">저장된 LoRA 조합이 없습니다.</p>';
 }
 
@@ -2087,6 +2087,28 @@ async function saveLoraPresetEditor(updateExisting) {
   loadLoraPresetEditor(preset.preset_id);
   renderGenerationLoraPresetStatus();
   showNotice(`${preset.name} 조합을 ${updateExisting ? "갱신" : "저장"}했습니다.`);
+}
+
+/** 저장된 구성과 편집 중인 강도를 보존하면서 조합 이름을 변경합니다. */
+async function renameLoraPreset(presetIdentifier) {
+  const preset = applicationState.loraPresets.find(item => item.preset_id === presetIdentifier);
+  if (!preset) return;
+  const enteredName = window.prompt("LoRA 조합의 새 이름을 입력해 주세요.", preset.name);
+  if (enteredName === null) return;
+  const presetName = enteredName.trim();
+  if (!presetName) throw new Error("LoRA preset 이름을 입력해 주세요.");
+  if (presetName.length > 120) throw new Error("LoRA preset 이름은 120자 이내로 입력해 주세요.");
+  if (presetName === preset.name) return;
+
+  const renamedPreset = await apiRequest(`/api/loras/presets/${encodeURIComponent(presetIdentifier)}`, {
+    method: "PUT",
+    body: JSON.stringify({ name: presetName, workflow: preset.workflow, loras: preset.loras }),
+  });
+  if (applicationState.loraEditorPresetId === presetIdentifier && element("lora-preset-name").value === preset.name) {
+    element("lora-preset-name").value = renamedPreset.name;
+  }
+  await loadLoraPresets();
+  showNotice(`${renamedPreset.name} 조합으로 이름을 변경했습니다.`);
 }
 
 /** 선택한 저장 조합을 삭제하고 사용 중인 카드 복사본은 유지합니다. */
@@ -4550,10 +4572,12 @@ function bindLoraPresetEvents() {
   });
   element("lora-preset-list").addEventListener("click", (event) => {
     const editButton = event.target.closest("[data-edit-lora-preset]");
+    const renameButton = event.target.closest("[data-rename-lora-preset]");
     const useButton = event.target.closest("[data-use-lora-preset]");
     const copyButton = event.target.closest("[data-copy-lora-preset]");
     const deleteButton = event.target.closest("[data-delete-lora-preset]");
     if (editButton) loadLoraPresetEditor(editButton.dataset.editLoraPreset);
+    if (renameButton) runAction(() => renameLoraPreset(renameButton.dataset.renameLoraPreset));
     if (copyButton) loadLoraPresetEditor(copyButton.dataset.copyLoraPreset, true);
     if (useButton) {
       const preset = applicationState.loraPresets.find((item) => item.preset_id === useButton.dataset.useLoraPreset);
