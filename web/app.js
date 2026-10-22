@@ -1395,6 +1395,14 @@ function editorBody() {
   };
 }
 
+/** 현재 화면 경로를 유지하며 새로운 주소로 HTML과 화면 파일을 다시 요청합니다. */
+function reloadWebAssets() {
+  const reloadUrl = new URL(window.location.href);
+  reloadUrl.searchParams.set("reload_assets", "true");
+  reloadUrl.searchParams.set("reload_request", `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  window.location.replace(reloadUrl.href);
+}
+
 /** 현재 Workflow의 Prompt 본문만 비우고 바로 붙여넣을 수 있도록 입력란에 초점을 둡니다. */
 function clearGenerationPrompt() {
   const promptFieldIdentifier = element("generate-workflow").value === "minimax_h3"
@@ -4093,6 +4101,7 @@ function bindEvents() {
     }),
   );
   element("free-vram-button").addEventListener("click", () => runAction(freeComfyMemory));
+  element("reload-web-assets-button").addEventListener("click", reloadWebAssets);
   element("generate-workflow").addEventListener("change", () => {
     resetGenerationWorkflow(element("generate-workflow").value);
     runAction(loadLoras);

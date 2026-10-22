@@ -159,6 +159,48 @@ def create_processing_test_app(tmp_path: Path, comfy_client: FakeComfyClient):
     return app
 
 
+def test_web_asset_reload_changes_urls_without_clearing_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """다시 받기는 HTML·JS·CSS 캐시를 우회하고 로그인 쿠키와 다른 사이트 데이터는 유지합니다."""
+
+    app = create_processing_test_app(tmp_path, FakeComfyClient())
+    isolated_web_directory = tmp_path / "web"
+    isolated_web_directory.mkdir()
+    for file_name in ("index.html", "app.js", "app.css"):
+        source_file = PROJECT_DIRECTORY / "web" / file_name
+        (isolated_web_directory / file_name).write_bytes(source_file.read_bytes())
+    monkeypatch.setattr("home_server.application.PROJECT_DIRECTORY", tmp_path)
+
+    with TestClient(app) as client:
+        client.post("/api/login", json={"password": "test"}).raise_for_status()
+        session_cookie = client.cookies.get("home_session")
+        normal_page = client.get("/")
+        repeated_page = client.get("/")
+        reload_page = client.get("/?reload_assets=true&reload_request=first")
+        repeated_reload_page = client.get("/?reload_assets=true&reload_request=first")
+        assert normal_page.text == repeated_page.text
+        assert reload_page.text != normal_page.text
+        assert repeated_reload_page.text != reload_page.text
+
+        for page_response in (normal_page, reload_page, repeated_reload_page):
+            assert page_response.status_code == 200
+            assert page_response.headers["cache-control"] == "no-cache"
+            assert "clear-site-data" not in page_response.headers
+            assert "set-cookie" not in page_response.headers
+            for asset_name in ("app.js", "app.css"):
+                asset_url = page_response.text.split(f'"/{asset_name}?v=', 1)[1].split('"', 1)[0]
+                asset_response = client.get(f"/{asset_name}?v={asset_url}")
+                assert asset_response.status_code == 200
+                assert asset_response.headers["cache-control"] == "no-cache"
+                assert "clear-site-data" not in asset_response.headers
+                assert "set-cookie" not in asset_response.headers
+
+        assert client.cookies.get("home_session") == session_cookie
+        assert client.get("/api/session").json() == {"authenticated": True}
+        with (isolated_web_directory / "app.js").open("a", encoding="utf-8") as script_file:
+            script_file.write("\n// updated asset\n")
+        assert client.get("/").text != normal_page.text
+
+
 def test_selected_tag_snapshot_uses_one_join_and_preserves_selection_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """체크한 항목과 그룹을 한 번만 조회하며 미체크 후보와 선택 순서를 혼동하지 않습니다."""
 

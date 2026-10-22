@@ -256,6 +256,22 @@ async function verifyPromptManager(browser, viewport) {
     assert.deepEqual(fixtures.versions.get("portrait").map(version => version.version), [3, 2, 1]);
     assert.equal(await page.locator("#generate-anima-prompt").inputValue(), "portrait, edited generation");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    const reloadRequestIdentifiers = [];
+    for (let reloadIndex = 0; reloadIndex < 2; reloadIndex += 1) {
+      const reloadRequestPromise = page.waitForRequest(request => request.isNavigationRequest() &&
+        new URL(request.url()).searchParams.get("reload_assets") === "true");
+      const documentLoadedPromise = page.waitForEvent("domcontentloaded");
+      await page.locator("#reload-web-assets-button").click();
+      const reloadRequestUrl = new URL((await reloadRequestPromise).url());
+      reloadRequestIdentifiers.push(reloadRequestUrl.searchParams.get("reload_request"));
+      assert.equal(reloadRequestUrl.searchParams.get("view"), "prompts");
+      await documentLoadedPromise;
+      await page.locator('[data-load-preset="portrait"]').waitFor();
+      assert.equal(await page.locator("#application").isVisible(), true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    }
+    assert.ok(reloadRequestIdentifiers.every(Boolean));
+    assert.notEqual(reloadRequestIdentifiers[0], reloadRequestIdentifiers[1]);
     assert.deepEqual(pageErrors, []);
   } finally {
     await context.close();
@@ -269,7 +285,7 @@ async function main() {
   try {
     await verifyPromptManager(browser, { width: 1440, height: 1000 });
     await verifyPromptManager(browser, { width: 320, height: 844 });
-    console.log("Passed: prompt create/update/copy, contextual version preview, stale response protection, dirty/failure/pending safety, independent generation state and mobile navigation.");
+    console.log("Passed: prompt create/update/copy, contextual version preview, stale response protection, dirty/failure/pending safety, independent generation state, mobile navigation and repeated web asset reload.");
   } finally {
     await browser.close();
   }

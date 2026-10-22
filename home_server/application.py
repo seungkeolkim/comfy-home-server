@@ -667,22 +667,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return response
 
     @app.get("/")
-    async def home_page():
-        """반응형 웹 앱의 첫 화면을 제공합니다."""
+    async def home_page(reload_assets: bool = False):
+        """화면 파일 버전을 포함한 HTML을 제공하고 명시적 다시 받기는 캐시를 우회합니다."""
 
-        return FileResponse(PROJECT_DIRECTORY / "web" / "index.html")
+        web_directory = PROJECT_DIRECTORY / "web"
+        if reload_assets:
+            asset_version = secrets.token_hex(16)
+        else:
+            modified_timestamps = []
+            for file_name in ("index.html", "app.js", "app.css"):
+                modified_timestamps.append((web_directory / file_name).stat().st_mtime_ns)
+            asset_version = str(max(modified_timestamps))
+        page_content = (web_directory / "index.html").read_text(encoding="utf-8")
+        for asset_name in ("app.js", "app.css"):
+            page_content = page_content.replace(f'"/{asset_name}"', f'"/{asset_name}?v={asset_version}"')
+        return Response(page_content, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/app.css")
     async def style_sheet():
         """웹 앱 CSS를 제공합니다."""
 
-        return FileResponse(PROJECT_DIRECTORY / "web" / "app.css", media_type="text/css")
+        return FileResponse(PROJECT_DIRECTORY / "web" / "app.css", media_type="text/css",
+                            headers={"Cache-Control": "no-cache"})
 
     @app.get("/app.js")
     async def javascript():
         """웹 앱 JavaScript를 제공합니다."""
 
-        return FileResponse(PROJECT_DIRECTORY / "web" / "app.js", media_type="text/javascript")
+        return FileResponse(PROJECT_DIRECTORY / "web" / "app.js", media_type="text/javascript",
+                            headers={"Cache-Control": "no-cache"})
 
     @app.post("/api/login")
     async def login(request: Request, payload: LoginInput):
