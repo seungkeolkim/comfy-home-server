@@ -2502,6 +2502,21 @@ function canDeleteJobHistory(job) {
   return !job.deletion_protected && !hasActiveRequests;
 }
 
+/** 선택 모드의 카드 본문·썸네일 클릭을 기존 Checkbox 동작으로 연결합니다. */
+function toggleSelectionFromCardClick(event, cardSelector, checkboxSelector, previewSelector, selectionIsBusy) {
+  const selectionCard = event.target.closest(cardSelector);
+  const selectionCheckbox = selectionCard?.querySelector(checkboxSelector);
+  if (!selectionCheckbox) return;
+  const interactiveTarget = event.target.closest("a, button, input, select, textarea, label, summary");
+  if (interactiveTarget && !interactiveTarget.matches(previewSelector)) return;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (!selectionIsBusy && !selectionCheckbox.disabled && !window.getSelection()?.toString()) {
+    selectionCheckbox.click();
+  }
+}
+
 /** 선택·삭제·보호 설정을 변경 중인지 확인합니다. */
 function jobSelectionIsBusy() {
   return jobHistoryFolderState.busy || outputFolderPickerState.resolveSelection !== null || applicationState.deletingSelectedJobs || applicationState.selectingEveryJob ||
@@ -2547,6 +2562,10 @@ function updateJobSelectionControls() {
   const scopeIsChanging = applicationState.jobsSelectionScope !== null && applicationState.jobsSelectionScope !== currentJobHistoryScope();
   element("jobs-list").toggleAttribute("inert", scopeIsChanging);
   element("job-selection-actions").toggleAttribute("inert", scopeIsChanging);
+  for (const checkbox of element("jobs-list").querySelectorAll("[data-select-job]")) {
+    checkbox.checked = applicationState.selectedJobIds.has(checkbox.dataset.selectJob);
+    checkbox.closest(".job-card").classList.toggle("job-selected", checkbox.checked);
+  }
   renderJobHistoryFolders();
 }
 
@@ -4348,6 +4367,11 @@ function bindEvents() {
   element("delete-selected-job-outputs").addEventListener("click", () =>
     runAction(() => deleteSelectedJobHistory(true)),
   );
+  element("jobs-list").addEventListener("click", (event) => {
+    toggleSelectionFromCardClick(
+      event, ".job-card", "[data-select-job]", "[data-job-result-preview]", jobSelectionIsBusy(),
+    );
+  }, { capture: true });
   element("jobs-list").addEventListener("change", (event) => {
     const selectionCheckbox = event.target.closest("[data-select-job]");
     if (!selectionCheckbox || selectionCheckbox.disabled || jobSelectionIsBusy()) return;
@@ -4432,6 +4456,11 @@ function bindEvents() {
   element("select-every-output").addEventListener("click", () => runAction(toggleEveryOutputSelection));
   element("delete-selected-outputs").addEventListener("click", () => runAction(deleteSelectedOutputs));
   element("move-selected-outputs").addEventListener("click", () => runAction(moveSelectedOutputs));
+  element("outputs-grid").addEventListener("click", (event) => {
+    toggleSelectionFromCardClick(
+      event, ".output-card", "[data-select-output]", "[data-image-preview], [data-video-preview]", outputSelectionIsBusy(),
+    );
+  }, { capture: true });
   element("outputs-grid").addEventListener("change", (event) => {
     const selectionCheckbox = event.target.closest("[data-select-output]");
     if (!selectionCheckbox || selectionCheckbox.disabled || outputSelectionIsBusy()) return;

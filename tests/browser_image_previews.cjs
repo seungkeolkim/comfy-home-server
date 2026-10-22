@@ -275,8 +275,14 @@ async function verifyImagePreviews(browser, width) {
     await page.locator('[data-select-output="2"]').check();
     assert.equal(await imageDialog.evaluate(dialog => dialog.open), false);
     await page.locator('[data-image-preview="2"]').click();
-    await waitForPreviewImage(page);
+    assert.equal(await page.locator('[data-select-output="2"]').isChecked(), false);
+    assert.equal(await imageDialog.evaluate(dialog => dialog.open), false);
+    await page.locator('[data-image-preview="2"]').click();
     assert.equal(await page.locator('[data-select-output="2"]').isChecked(), true);
+    assert.equal(await imageDialog.evaluate(dialog => dialog.open), false);
+    await page.locator("#toggle-output-selection").click();
+    await page.locator('[data-image-preview="2"]').click();
+    await waitForPreviewImage(page);
     assert.equal(await imageDialog.evaluate(dialog => dialog.scrollWidth <= dialog.clientWidth), true);
     const portraitBounds = await page.locator("#image-preview-content").boundingBox();
     assert.ok(portraitBounds.y >= 0 && portraitBounds.y + portraitBounds.height <= 900);
@@ -324,6 +330,7 @@ async function verifyPreviewDeletion(browser, width) {
     await page.goto("http://image-preview.test/?view=outputs&job_id=first-job");
     await page.locator("#toggle-output-selection").click();
     await page.locator('[data-select-output="1"]').check();
+    await page.locator("#toggle-output-selection").click();
     await page.locator('[data-image-preview="1"]').click();
     await page.locator("#image-preview-delete:not([disabled])").waitFor();
     const originalBounds = await page.locator("#image-preview-original").boundingBox();

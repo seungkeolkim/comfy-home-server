@@ -127,6 +127,7 @@ async function verifyVideoPreviews(browser, width) {
       const states = await Promise.all(identifiers.map(async identifier => (await fetch(`${baseUrl}/api/outputs/${identifier}/video-preview`)).json()));
       return states.every(status => status.state === "ready");
     }, { baseUrl, identifiers: [sources.progressive, sources.failed] }, { timeout: 15000 });
+    await selectionButton.click();
     await page.locator(`[data-video-preview="${sources.ready}"]`).click();
     await page.locator("#video-preview-delete:not([disabled])").waitFor();
     page.once("dialog", dialog => dialog.accept());

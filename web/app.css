@@ -1195,6 +1195,11 @@ body:has(.image-preview-dialog[open]) { overflow: hidden; }
   background: #161d2c;
   font-size: 12px;
 }
+.job-card:has([data-select-job]:enabled),
+.output-card:has([data-select-output]:enabled) {
+  cursor: pointer;
+}
+.job-card.job-selected,
 .output-card.output-selected {
   border-color: #85d9c2;
 }
