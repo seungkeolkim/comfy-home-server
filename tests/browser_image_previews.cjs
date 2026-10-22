@@ -15,7 +15,7 @@ function createImagePreviewFixtures() {
     width: index === 1 ? 512 : 768, height: index === 1 ? 768 : 512,
     deletion_protected: index === 1,
   }));
-  return { files, originalRequests: [], mutations: [], neighborQueries: [], neighborGate: null, rejectNeighbors: false,
+  return { files, originalRequests: [], mutations: [], neighborQueries: [], neighborGate: null, rejectNeighbors: false, videoPreviewGate: null,
     deletionRequests: [], rejectDeletion: false, protectOnDelete: false, deletionGate: null };
 }
 
@@ -50,7 +50,7 @@ function createImagePreviewHandler(fixtures) {
     if (requestPath === "/api/session") response = { authenticated: true };
     else if (requestPath === "/api/status") response = { comfy_connected: true, output_directory: "test-output" };
     else if (requestPath === "/api/jobs/activity") response = { active_count: 0 };
-    else if (requestPath === "/api/jobs") response = { items: [], page: 1, total: 0, total_pages: 1, active_count: 0 };
+    else if (requestPath === "/api/jobs") response = { items: fixtures.jobs || [], page: 1, total: fixtures.jobs?.length || 0, total_pages: 1, active_count: 0 };
     else if (["/api/presets", "/api/loras/presets"].includes(requestPath)) response = [];
     else if (requestPath === "/api/loras") response = { files: [], profiles: [] };
     else if (requestPath === "/api/tags") response = { groups: [], entries: [] };
@@ -96,7 +96,15 @@ function createImagePreviewHandler(fixtures) {
       fixtures.files = fixtures.files.filter(output => output.output_id !== outputIdentifier);
       response = { deleted: true, deleted_files: 1 };
     }
-    else if (/^\/api\/outputs\/\d+\/video-preview$/.test(requestPath)) response = { state: "failed" };
+    else if (/^\/api\/outputs\/\d+\/video-preview$/.test(requestPath)) {
+      if (fixtures.videoPreviewGate) {
+        const videoPreviewGate = fixtures.videoPreviewGate;
+        fixtures.videoPreviewGate = null;
+        videoPreviewGate.markStarted();
+        await videoPreviewGate.promise;
+      }
+      response = { state: "failed" };
+    }
     else if (requestPath === "/favicon.ico") {
       await route.fulfill({ status: 204 });
       return;
@@ -207,6 +215,91 @@ async function verifyPreviewNavigation(browser, width) {
     assert.equal(await page.locator("#image-preview-original").isVisible(), true);
     await page.keyboard.press("Escape");
     assert.deepEqual(fixtures.originalRequests, []);
+    assert.deepEqual(pageErrors, []);
+  } finally {
+    await context.close();
+  }
+}
+
+/** 원본 파일의 Network 요청·혼합 이동·작업 범위·늦은 영상 응답과 기본값 복원을 확인합니다. */
+async function verifyOriginalPreviewMode(browser, width) {
+  const context = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width < 600 });
+  const fixtures = createImagePreviewFixtures();
+  fixtures.files.push({ output_id: 5, name: "last.png", path: "results/last.png", kind: "image" });
+  for (const outputFile of fixtures.files) outputFile.job_id = "original-job";
+  fixtures.files.push({ output_id: 6, name: "outside.png", path: "results/outside.png", kind: "image", job_id: "other-job" });
+  fixtures.jobs = [{
+    job_id: "original-job", workflow: "anima", request_count: 5, status: "completed", created_at: "2026-10-23",
+    status_counts: { completed: 5 }, inputs: { body: { prompt: "original preview" }, settings: {}, loras: [] },
+    preview_files: [{ output_id: 1, path: fixtures.files[0].path }],
+  }];
+  await context.route("**/*", createImagePreviewHandler(fixtures));
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  try {
+    await page.goto("http://image-preview.test/?view=jobs");
+    await page.locator('[data-job-result-preview="1"]').click();
+    await waitForPreviewImage(page);
+    const imageToggle = page.locator("#image-preview-original-toggle");
+    const videoToggle = page.locator("#video-preview-original-toggle");
+    assert.equal(await imageToggle.isChecked(), false);
+    assert.deepEqual(fixtures.originalRequests, []);
+    await imageToggle.check();
+    await waitForPreviewImage(page);
+    assert.match(await page.locator("#image-preview-content").getAttribute("src"), /^\/media\//);
+    assert.equal(await imageToggle.evaluate(toggle => toggle === document.activeElement), true);
+    await page.locator("#image-preview-next:not([disabled])").click();
+    await waitForPreviewImage(page);
+    assert.equal(await imageToggle.isChecked(), true);
+    assert.equal(await page.locator("#image-preview-title").textContent(), fixtures.files[1].name);
+    assert.match(await page.locator("#image-preview-content").getAttribute("src"), /^\/media\//);
+    await page.locator("#image-preview-previous:not([disabled])").click();
+    await waitForPreviewImage(page);
+    assert.equal(await page.locator("#image-preview-title").textContent(), fixtures.files[0].name);
+    await imageToggle.uncheck();
+    await waitForPreviewImage(page);
+    assert.match(await page.locator("#image-preview-content").getAttribute("src"), /^\/api\/outputs\/preview\//);
+    await imageToggle.check();
+    await page.locator("#image-preview-next:not([disabled])").click();
+    await page.locator("#image-preview-next:not([disabled])").click();
+    await page.locator("#image-preview-status").filter({ hasText: "원본 이미지를 불러올 수 없습니다" }).waitFor();
+    await page.locator("#image-preview-next:not([disabled])").click();
+    await page.waitForFunction(() => document.getElementById("video-preview-player").getAttribute("src")?.startsWith("/media/"));
+    assert.equal(await videoToggle.isChecked(), true);
+    assert.equal(fixtures.mutations.includes("/api/outputs/4/video-preview"), false);
+    await page.locator("#video-preview-next:not([disabled])").click();
+    await waitForPreviewImage(page);
+    assert.equal(await imageToggle.isChecked(), true);
+    assert.equal(await page.locator("#image-preview-next").isDisabled(), true);
+    await page.locator("#image-preview-previous:not([disabled])").click();
+    await videoToggle.waitFor({ state: "visible" });
+    let markStarted;
+    let releaseVideoPreview;
+    const videoPreviewStarted = new Promise(resolve => { markStarted = resolve; });
+    fixtures.videoPreviewGate = { markStarted, promise: new Promise(resolve => { releaseVideoPreview = resolve; }) };
+    await videoToggle.uncheck();
+    await videoPreviewStarted;
+    await videoToggle.check();
+    await page.waitForFunction(() => document.getElementById("video-preview-player").getAttribute("src")?.startsWith("/media/"));
+    releaseVideoPreview();
+    await page.locator("#video-preview-previous:not([disabled])").click();
+    await page.locator("#image-preview-status").filter({ hasText: "원본 이미지를 불러올 수 없습니다" }).waitFor();
+    assert.equal(await imageToggle.isChecked(), true);
+    assert.ok(fixtures.neighborQueries.every(query => query.job_id === "original-job"));
+    assert.ok(fixtures.originalRequests.includes(`/media/${fixtures.files[0].path}`));
+    assert.ok(fixtures.originalRequests.includes(`/media/${fixtures.files[1].path}`));
+    assert.ok(fixtures.originalRequests.includes("/media/results/last.png"));
+    assert.equal(fixtures.originalRequests.includes("/media/results/outside.png"), false);
+    await page.keyboard.press("Escape");
+    await page.locator('[data-job-result-preview="1"]').click();
+    await waitForPreviewImage(page);
+    assert.equal(await imageToggle.isChecked(), false);
+    assert.match(await page.locator("#image-preview-content").getAttribute("src"), /^\/api\/outputs\/preview\//);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await imageToggle.check();
+    await waitForPreviewImage(page);
+    await page.screenshot({ path: path.join(projectDirectory, "runtime", "browser-check", `original-preview-${width}.png`) });
     assert.deepEqual(pageErrors, []);
   } finally {
     await context.close();
@@ -518,11 +611,13 @@ async function main() {
     await verifyImagePreviews(browser, 390);
     await verifyPreviewNavigation(browser, 1280);
     await verifyPreviewNavigation(browser, 390);
+    await verifyOriginalPreviewMode(browser, 1280);
+    await verifyOriginalPreviewMode(browser, 390);
     await verifyPreviewDeletion(browser, 1280);
     await verifyPreviewDeletion(browser, 390);
     await verifyAnyStateOutputDeletion(browser, 1280);
     await verifyAnyStateOutputDeletion(browser, 390);
-    console.log("Passed: image/video deletion in every job state, protection/cancel/failure, scoped cross-page navigation, close during delete, stale responses and desktop/mobile layout.");
+    console.log("Passed: original/preview toggles, scoped image/video navigation, late responses, deletion, protection and desktop/mobile layout.");
   } finally {
     await browser.close();
   }

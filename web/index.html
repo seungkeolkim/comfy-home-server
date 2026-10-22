@@ -692,7 +692,10 @@
         <button id="image-preview-next" class="button subtle" type="button" data-preview-next disabled>다음 →</button>
       </div>
       <div class="preview-actions">
-        <a id="image-preview-original" class="button subtle" target="_blank" rel="noopener">원본 보기</a>
+        <div class="preview-source-actions">
+          <a id="image-preview-original" class="button subtle" target="_blank" rel="noopener">원본 새 탭으로 보기</a>
+          <label class="preview-original-toggle"><input id="image-preview-original-toggle" type="checkbox" role="switch" data-preview-original-toggle /><span>원본 보기</span></label>
+        </div>
         <button id="image-preview-delete" class="button danger" type="button" disabled>삭제</button>
       </div>
       <div id="image-preview-notice" class="notice hidden" role="status" aria-live="polite"></div>
@@ -709,7 +712,10 @@
         <button id="video-preview-next" class="button subtle" type="button" data-preview-next disabled>다음 →</button>
       </div>
       <div class="preview-actions">
-        <a id="video-preview-original" class="button subtle" target="_blank" rel="noopener">원본 열기</a>
+        <div class="preview-source-actions">
+          <a id="video-preview-original" class="button subtle" target="_blank" rel="noopener">원본 새 탭으로 보기</a>
+          <label class="preview-original-toggle"><input id="video-preview-original-toggle" type="checkbox" role="switch" data-preview-original-toggle /><span>원본 보기</span></label>
+        </div>
         <button id="video-preview-delete" class="button danger" type="button" disabled>삭제</button>
       </div>
       <div id="video-preview-notice" class="notice hidden" role="status" aria-live="polite"></div>
