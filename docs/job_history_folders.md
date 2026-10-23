@@ -1,6 +1,6 @@
 # 작업 분류
 
-2026-10-19. 구현 브랜치: `feat/job-history-folders`. SQLite Schema: **12**.
+2026-10-19. 구현 브랜치: `feat/job-history-folders`. 작업 분류 도입 Schema: **12**. 현재 Schema **13**의 추가 변경은 [작업 경과시간](job_elapsed_time.md)을 참고하세요.
 
 ## 화면과 동작
 
@@ -53,6 +53,8 @@
 | `POST /api/batches` | optional `folder_id`로 제출 시 소속 지정 |
 
 ## Rollback
+
+아래 SQL은 Schema 12 기준입니다. Schema 13에서는 먼저 [작업 경과시간의 Rollback](job_elapsed_time.md)으로 시작 시각 Column만 제거해 Schema 12로 전환해야 합니다.
 
 이전 코드는 Schema 12를 읽지 않으므로 코드만 되돌리면 서버가 기동되지 않습니다. 서버를 중지하고 **현재 DB도 추가 백업한 뒤** 다음 Transaction으로 분류 정보만 제거하면 기존 Schema 11 코드로 복귀할 수 있습니다. 이 방식은 시험 사용 중 새로 제출한 작업과 결과물도 보존합니다. 실제 DB 경로는 `runtime/` 아래 운영 DB를 확인해서 사용합니다.
 

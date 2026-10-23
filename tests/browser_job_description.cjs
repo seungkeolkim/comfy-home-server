@@ -104,7 +104,8 @@ async function verifyJobDescription(browser, viewport) {
     await page.waitForFunction(() => !document.getElementById("job-description-dialog").open);
     assert.equal(await jobCard.locator(".job-description-text").textContent(), updatedDescription);
     assert.equal(await jobCard.locator("escaped").count(), 0);
-    assert.deepEqual(await jobCard.locator(".job-description").evaluate(description => ({ fontSize: getComputedStyle(description).fontSize, fontWeight: getComputedStyle(description).fontWeight })), { fontSize: "13px", fontWeight: "700" });
+    const expectedDescriptionFontSize = viewport.width >= 1100 ? "15px" : "13px";
+    assert.deepEqual(await jobCard.locator(".job-description").evaluate(description => ({ fontSize: getComputedStyle(description).fontSize, fontWeight: getComputedStyle(description).fontWeight })), { fontSize: expectedDescriptionFontSize, fontWeight: "700" });
     assert.equal(page.url(), originalUrl);
     assert.equal(await page.locator('[data-select-job="job-10"]').isChecked(), true);
     assert.equal(await jobCard.locator("details").getAttribute("open"), "");
@@ -171,7 +172,7 @@ async function main() {
   try {
     await verifyJobDescription(browser, { width: 1280, height: 950 });
     await verifyJobDescription(browser, { width: 390, height: 844 });
-    console.log("Passed: description edit/save/clear/cancel/failure, polling and pending-close safety, protected/running jobs, page/filter/selection/focus preservation and 13px bold desktop/mobile display.");
+    console.log("Passed: description edit/save/clear/cancel/failure, polling and pending-close safety, protected/running jobs, page/filter/selection/focus preservation and responsive bold desktop/mobile display.");
   } finally {
     await browser.close();
   }

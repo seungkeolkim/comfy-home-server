@@ -111,7 +111,7 @@ def test_schema_ten_migration_preserves_catalog_and_json(tmp_path: Path) -> None
 
     Database(database_path)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 12
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
         migrated_catalog = connection.execute("SELECT * FROM output_files ORDER BY output_id").fetchall()
         assert [catalog_row[:-1] for catalog_row in migrated_catalog] == original_catalog
         assert [catalog_row[-1] for catalog_row in migrated_catalog] == [0, 0]

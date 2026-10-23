@@ -14,6 +14,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -25,7 +26,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .comfy_client import ComfyClient
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
-from .database import Database
+from .database import Database, current_timestamp
 from .image_dimension_cache import ImageDimensionCache
 from .logging_setup import configure_application_logging, shutdown_application_logging
 from .minimax_inputs import inspect_input_images, prepare_input_canvas, remove_input_snapshots, snapshot_input_images
@@ -1059,6 +1060,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 response = read_jobs(page=page, page_size=page_size, job_id=job_id, folder_id=folder_id, search=search)
             except LookupError as exception:
                 raise HTTPException(404, str(exception)) from exception
+            response["server_time"] = current_timestamp()
             return JSONResponse(response)
 
         return await asyncio.to_thread(read_job_page_response)
@@ -1150,6 +1152,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         job = server.database.get_job(job_id)
         if job is None:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        job["server_time"] = current_timestamp()
         return JSONResponse(job)
 
     @app.patch("/api/jobs/{job_id}/description")
@@ -1772,6 +1775,24 @@ async def _monitor_system_resources(server: HomeServer) -> None:
         await asyncio.sleep(max(0, RESOURCE_POLL_INTERVAL_SECONDS - elapsed_seconds))
 
 
+def comfy_execution_started_at(status_info: dict[str, Any]) -> str | None:
+    """ComfyUI 실행 시작의 millisecond Timestamp를 timezone이 명시된 UTC 시각으로 변환합니다."""
+
+    for message in status_info.get("messages", []):
+        if not isinstance(message, (list, tuple)) or len(message) < 2 or message[0] != "execution_start":
+            continue
+        if not isinstance(message[1], dict):
+            continue
+        timestamp_milliseconds = message[1].get("timestamp")
+        if isinstance(timestamp_milliseconds, bool) or not isinstance(timestamp_milliseconds, (int, float)):
+            continue
+        try:
+            return datetime.fromtimestamp(timestamp_milliseconds / 1000, timezone.utc).isoformat(timespec="seconds")
+        except (ValueError, OverflowError, OSError):
+            continue
+    return None
+
+
 async def _refresh_requests(server: HomeServer) -> None:
     """중복 감시를 막고 작은 상태 조회와 묶음 DB 갱신으로 진행 상태를 확인합니다."""
 
@@ -1800,8 +1821,9 @@ async def _refresh_requests(server: HomeServer) -> None:
             if request["prompt_id"] in running_ids or request["prompt_id"] in pending_ids:
                 server.missing_request_since.pop(request["request_id"], None)
                 next_status = "running" if request["prompt_id"] in running_ids else "pending"
-                if request["status"] not in {next_status, "cancelling"}:
-                    updates.append({"request_id": request["request_id"], "status": next_status})
+                started_at = current_timestamp() if next_status == "running" and not request["started_at"] else None
+                if request["status"] not in {next_status, "cancelling"} or started_at:
+                    updates.append({"request_id": request["request_id"], "status": next_status, "started_at": started_at})
             else:
                 history_requests.append(request)
         history_semaphore = asyncio.Semaphore(4)
@@ -1826,10 +1848,12 @@ async def _refresh_requests(server: HomeServer) -> None:
                 return {"request_id": request["request_id"], "status": next_status, "error_message": error_message}
             server.missing_request_since.pop(request["request_id"], None)
             status_info = record.get("status", {})
+            started_at = comfy_execution_started_at(status_info)
             status_name = str(status_info.get("status_str", ""))
             if status_name == "success":
                 output_paths = await asyncio.to_thread(_history_output_paths, server, record, request["workflow"])
-                return {"request_id": request["request_id"], "status": "completed", "output_paths": output_paths}
+                return {"request_id": request["request_id"], "status": "completed", "output_paths": output_paths,
+                        "started_at": started_at}
             interruption_recorded = any(
                 isinstance(message, (list, tuple)) and message and message[0] == "execution_interrupted"
                 for message in status_info.get("messages", [])
@@ -1837,6 +1861,7 @@ async def _refresh_requests(server: HomeServer) -> None:
             if status_name in {"error", "interrupted"}:
                 next_status = "cancelled" if status_name == "interrupted" or interruption_recorded else "failed"
                 return {"request_id": request["request_id"], "status": next_status,
+                        "started_at": started_at,
                         "error_message": None if next_status == "cancelled" else status_name}
             return None
 

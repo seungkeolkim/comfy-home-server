@@ -40,9 +40,11 @@ class Database:
                 self._backup_before_schema_change(connection, "output_deletion")
             elif schema_version == 11:
                 self._backup_before_schema_change(connection, "job_folders")
+            elif schema_version == 12:
+                self._backup_before_schema_change(connection, "request_started_at")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -105,9 +107,13 @@ class Database:
                     error_message TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
+                    started_at TEXT,
                     UNIQUE (job_id, request_index)
                 )"""
             )
+            request_columns = {column[1] for column in connection.execute("PRAGMA table_info(job_requests)")}
+            if "started_at" not in request_columns:
+                connection.execute("ALTER TABLE job_requests ADD COLUMN started_at TEXT")
             connection.execute("CREATE INDEX IF NOT EXISTS jobs_created_at ON jobs(created_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS job_requests_job_id ON job_requests(job_id, request_index)")
             connection.execute("CREATE INDEX IF NOT EXISTS job_requests_status ON job_requests(status)")
@@ -154,7 +160,7 @@ class Database:
             if schema_version < 10:
                 OutputCatalog.backfill_from_requests(connection)
             JobFolderStore.prepare_schema(connection)
-            connection.execute("PRAGMA user_version = 12")
+            connection.execute("PRAGMA user_version = 13")
         self.job_folders = JobFolderStore(self._connect)
 
     def _separate_request_detail(
@@ -613,7 +619,7 @@ class Database:
             items = []
             for job_row in job_rows:
                 status_rows = connection.execute(
-                    "SELECT status, COUNT(*) AS request_count, MAX(updated_at) AS updated_at, "
+                    "SELECT status, COUNT(*) AS request_count, MAX(updated_at) AS updated_at, MIN(started_at) AS started_at, "
                     "SUM(CASE WHEN status = 'cancelling' AND error_message IS NOT NULL THEN 1 ELSE 0 END) "
                     "AS cancellation_failures FROM job_requests WHERE job_id = ? GROUP BY status",
                     (job_row["job_id"],),
@@ -641,6 +647,7 @@ class Database:
                     "folder_id": job_row["folder_id"],
                     "preview_files": self._job_preview_files(connection, job_row["job_id"]),
                     "created_at": job_row["created_at"],
+                    "started_at": min((row["started_at"] for row in status_rows if row["started_at"]), default=None),
                     "updated_at": max((row["updated_at"] for row in status_rows), default=job_row["created_at"]),
                     "deletion_protected": bool(job_row["deletion_protected"]),
                     "cancellation_requested": bool(job_row["cancellation_requested"]),
@@ -813,7 +820,7 @@ class Database:
             if limit is not None:
                 query_values.append(limit)
             rows = connection.execute(
-                "SELECT request_id, job_id, prompt_id, status, updated_at, jobs.workflow "
+                "SELECT request_id, job_id, prompt_id, status, updated_at, started_at, jobs.workflow "
                 "FROM job_requests JOIN jobs USING (job_id) "
                 "WHERE status IN ('submitting', 'pending', 'running', 'cancelling') "
                 + filter_clause + " ORDER BY job_requests.created_at DESC" + limit_clause,
@@ -878,6 +885,12 @@ class Database:
         applied_updates = []
         with self._connect() as connection:
             for update in updates:
+                if update.get("started_at"):
+                    connection.execute(
+                        "UPDATE job_requests SET started_at = ? WHERE request_id = ? "
+                        "AND status IN ('pending', 'running', 'cancelling')",
+                        (update["started_at"], update["request_id"]),
+                    )
                 if update["status"] in {"pending", "running"}:
                     change_result = connection.execute(
                         "UPDATE job_requests SET status = ?, updated_at = ? WHERE request_id = ? "
@@ -1021,6 +1034,7 @@ class Database:
             "upload_id": row["upload_id"], "result": json.loads(row["result_json"]),
             "error_message": row["error_message"],
             "created_at": row["created_at"], "updated_at": row["updated_at"],
+            "started_at": row["started_at"],
         }
 
     def _job_from_row(self, row: sqlite3.Row, requests: list[dict[str, Any]]) -> dict[str, Any]:
@@ -1038,6 +1052,7 @@ class Database:
             "deletion_protected": bool(row["deletion_protected"]),
             "cancellation_requested": bool(row["cancellation_requested"]),
             "request_count": row["request_count"], "created_at": row["created_at"],
+            "started_at": min((request["started_at"] for request in requests if request["started_at"]), default=None),
             "updated_at": max((request["updated_at"] for request in requests), default=row["created_at"]),
             "status": self._job_status(status_counts, len(requests)), "status_counts": status_counts, "requests": requests,
         }

@@ -121,6 +121,7 @@ const applicationState = {
   jobsMatchedCount: 0,
   jobsLoadError: null,
   jobsRenderSignature: null,
+  jobsServerTime: null,
   jobDetails: new Map(),
   cancellingJobIds: new Set(),
   jobsSelectionScope: null,
@@ -2504,7 +2505,10 @@ function requestCardMarkup(request, statusNames, commonInputs) {
         <strong>요청 ${request.request_index} · ${escapeHtml(request.request_id)}</strong>
         <p>prompt_id ${escapeHtml(request.prompt_id || "대기 중")}</p>
       </div>
-      <span class="status-badge ${escapeHtml(request.status)}">${escapeHtml(statusNames[request.status] || request.status)}</span>
+      <div class="job-status-heading">
+        <span class="status-badge ${escapeHtml(request.status)}">${escapeHtml(statusNames[request.status] || request.status)}</span>
+        <span class="job-elapsed-time" data-request-elapsed-time="${escapeHtml(request.request_id)}">${jobElapsedTimeLabel(request)}</span>
+      </div>
       <div class="job-prompts request-prompts" role="button" tabindex="0" data-toggle-request-prompt="${escapeHtml(request.request_id)}" aria-expanded="${promptIsExpanded}" title="${promptIsExpanded ? "하위 요청 카드를 눌러 Prompt·태그 경로 접기" : "하위 요청 카드를 눌러 전체 Prompt·태그 경로 보기"}">${requestPromptDetailsMarkup}</div>
       <div class="job-detail"><strong>LoRA</strong> ${escapeHtml(loraText)}</div>
       ${sourceImage ? `<div class="job-detail"><strong>입력 이미지</strong> ${sourceImage.job_id ? `작업 ${escapeHtml(sourceImage.job_id)} · ` : ""}${escapeHtml(sourceImage.path)} · ${sourceImage.width} × ${sourceImage.height}</div>` : ""}
@@ -2906,7 +2910,10 @@ function jobCardMarkup(job, statusNames, openJobIds) {
         ${requestSettings.input_scope === "job" ? `<p class="hint">입력 출처: 작업 ${escapeHtml(requestSettings.input_job_id)}</p>` : ""}
         </div>
       </div>
-      <span class="status-badge ${escapeHtml(job.status)}">${escapeHtml(statusNames[job.status] || job.status)}</span>
+      <div class="job-status-heading">
+        <span class="status-badge ${escapeHtml(job.status)}">${escapeHtml(statusNames[job.status] || job.status)}</span>
+        <span class="job-elapsed-time" data-job-elapsed-time="${escapeHtml(job.job_id)}">${jobElapsedTimeLabel(job)}</span>
+      </div>
       ${job.deletion_protected ? '<span class="job-protection-badge">삭제 보호됨</span>' : ""}
       ${jobHistoryPreviewMarkup(job)}
       <div class="job-prompts" role="button" tabindex="0" data-toggle-job-prompt="${escapeHtml(job.job_id)}" aria-expanded="${promptIsExpanded}" title="${promptIsExpanded ? "카드를 눌러 Prompt 접기" : "카드를 눌러 전체 Prompt 보기"}"><div class="job-detail job-original-prompt"><strong>입력 Prompt</strong> ${escapeHtml(originalPrompt)}</div>${originalNegative ? `<div class="job-detail job-original-negative-prompt"><strong>입력 Negative Prompt</strong> ${escapeHtml(originalNegative)}</div>` : ""}</div>
@@ -2988,7 +2995,34 @@ function renderJobsList() {
 
 /** 상태 집계가 바뀌었는지 확인할 작은 상세 갱신 기준을 만듭니다. */
 function jobDetailsSignature(job) {
-  return JSON.stringify([job.updated_at, job.status_counts, job.cancellation_failures]);
+  return JSON.stringify([job.updated_at, job.started_at, job.status_counts, job.cancellation_failures]);
+}
+
+/** 서버의 UTC 기준 현재 시각 또는 마지막 상태 변경 시각으로 경과시간을 표시합니다. */
+function jobElapsedTimeLabel(jobOrRequest) {
+  const hasActiveStatus = ["submitting", "pending", "running", "cancelling"].includes(jobOrRequest.status);
+  if (!jobOrRequest.started_at) return hasActiveStatus ? "대기중" : "N/A";
+  const startedMilliseconds = Date.parse(jobOrRequest.started_at);
+  const endMilliseconds = Date.parse(hasActiveStatus ? applicationState.jobsServerTime : jobOrRequest.updated_at);
+  if (!Number.isFinite(startedMilliseconds) || !Number.isFinite(endMilliseconds)) return "N/A";
+  const elapsedSeconds = Math.max(0, Math.floor((endMilliseconds - startedMilliseconds) / 1000));
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  return `${elapsedMinutes}분 ${elapsedSeconds % 60}초 작업됨`;
+}
+
+/** 상태가 그대로인 Polling에서는 카드와 펼친 상세를 보존하고 시간 문구만 갱신합니다. */
+function updateJobElapsedTimeLabels() {
+  for (const job of applicationState.visibleJobs) {
+    const jobCard = document.querySelector(`[data-job-prompt-card="${CSS.escape(job.job_id)}"]`);
+    if (!jobCard) continue;
+    const jobElapsedLabel = jobCard.querySelector("[data-job-elapsed-time]");
+    if (jobElapsedLabel) jobElapsedLabel.textContent = jobElapsedTimeLabel(job);
+    const requests = job.requests || applicationState.jobDetails.get(job.job_id)?.job?.requests || [];
+    for (const request of requests) {
+      const requestElapsedLabel = jobCard.querySelector(`[data-request-elapsed-time="${CSS.escape(request.request_id)}"]`);
+      if (requestElapsedLabel) requestElapsedLabel.textContent = jobElapsedTimeLabel(request);
+    }
+  }
 }
 
 /** 펼친 작업만 상세를 조회하고 동일 작업의 중복 요청은 합칩니다. */
@@ -3013,6 +3047,7 @@ async function loadJobDetails(jobIdentifier) {
   try {
     details.loadPromise = apiRequest(`/api/jobs/${encodeURIComponent(jobIdentifier)}`);
     details.job = await details.loadPromise;
+    applicationState.jobsServerTime = details.job.server_time || applicationState.jobsServerTime;
   } catch (error) {
     details.error = error.message;
   } finally {
@@ -3116,6 +3151,7 @@ async function refreshJobPages() {
       applicationState.jobsLoadedOnce = true;
       applicationState.jobsLoadError = null;
       applicationState.jobsMatchedCount = response.total;
+      applicationState.jobsServerTime = response.server_time || applicationState.jobsServerTime;
       applyJobHistoryFolders(folders);
       element("active-count").textContent = `작업 ${response.active_count}`;
       element("jobs-filter").classList.toggle("hidden", !jobFilterId);
@@ -3138,6 +3174,7 @@ async function refreshJobPages() {
         renderJobsPagination(response.page, response.total_pages);
         renderJobsList();
       }
+      updateJobElapsedTimeLabels();
     } while (applicationState.jobsReloadRequested && !applicationState.deletingSelectedJobs && !applicationState.selectingEveryJob);
   } catch (error) {
     if (loadRevision === applicationState.jobsLoadRevision) {
