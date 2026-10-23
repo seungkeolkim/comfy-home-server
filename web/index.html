@@ -400,6 +400,14 @@
               from_home_server의 현재 파일 상태를 보여줍니다.
             </p>
           </div>
+          <div class="output-folder-filter">
+            <label for="output-job-folder">작업 분류</label>
+            <select id="output-job-folder" aria-describedby="output-job-folder-description">
+              <option value="">📋 전체 결과물</option>
+              <option value="unassigned">📥 미분류</option>
+            </select>
+            <p id="output-job-folder-description" class="hint">선택한 분류와 모든 하위 분류의 결과물을 표시합니다. 미분류에는 작업 이력이 없는 파일도 포함됩니다.</p>
+          </div>
           <div class="toolbar">
             <div class="inline-actions">
               <span id="output-count" class="hint"></span

@@ -11,6 +11,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from .job_folders import JobFolderStore
 from .output_listing import (
     IMAGE_OUTPUT_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_OUTPUT_EXTENSIONS,
     iterate_output_directory_entries, output_filename_metadata,
@@ -258,6 +259,20 @@ class OutputCatalog:
         )
         return synchronization_result
 
+    @staticmethod
+    def build_output_folder_filter(connection: sqlite3.Connection, folder_id: str) -> tuple[str, list[str]]:
+        """작업 분류의 하위 범위를 재사용하며 이력 없는 결과물도 미분류에 포함합니다."""
+
+        if not folder_id:
+            return "", []
+        if folder_id == "unassigned":
+            return (
+                " AND NOT EXISTS (SELECT 1 FROM job_folder_assignments "
+                "WHERE job_folder_assignments.job_id=output_files.job_id)", []
+            )
+        job_filter, parameters = JobFolderStore.build_job_filter(connection, folder_id=folder_id)
+        return " AND output_files.job_id IN (SELECT jobs.job_id FROM jobs" + job_filter + ")", parameters
+
     def list_files(
         self,
         page: int,
@@ -266,6 +281,7 @@ class OutputCatalog:
         job_id: str = "",
         request_id: str = "",
         output_timing: OutputTimingRecorder | None = None,
+        folder_id: str = "",
     ) -> dict[str, Any]:
         """JSON을 읽지 않고 index에서 필터·정렬·pagination 및 요청 해상도를 조회합니다."""
 
@@ -283,6 +299,10 @@ class OutputCatalog:
             query_values.extend((len(prefix), prefix))
         filter_clause = " AND ".join(conditions)
         with self._connect() as connection:
+            connection.execute("BEGIN")
+            folder_condition, folder_parameters = self.build_output_folder_filter(connection, folder_id)
+            filter_clause += folder_condition
+            query_values.extend(folder_parameters)
             with measure_output_step(output_timing, "catalog_filter_validation", emit=True):
                 if job_id and connection.execute("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)).fetchone() is None:
                     raise LookupError("작업을 찾을 수 없습니다.")
@@ -326,6 +346,7 @@ class OutputCatalog:
 
     def get_file_neighbors(
         self, output_id: int, job_id: str = "", request_id: str = "", prefix: str = "",
+        folder_id: str = "",
     ) -> dict[str, dict[str, Any] | None]:
         """현재 파일의 보호 상태와 같은 범위의 인접 파일을 페이지·FS·이력 JSON 없이 읽습니다."""
 
@@ -344,6 +365,9 @@ class OutputCatalog:
         neighbors = {"previous": None, "next": None}
         with self._connect() as connection:
             connection.execute("BEGIN")
+            folder_condition, folder_parameters = self.build_output_folder_filter(connection, folder_id)
+            filter_clause += folder_condition
+            parameters.extend(folder_parameters)
             current_row = connection.execute(
                 "SELECT generated_at,length(seed) AS seed_length,seed,relative_path,"
                 "COALESCE((SELECT deletion_protected FROM jobs WHERE jobs.job_id=output_files.job_id),0) AS deletion_protected "
@@ -503,12 +527,14 @@ class OutputCatalog:
         image_files.sort(key=lambda image: (image["name"].casefold(), image["name"], image["path"]))
         return image_files
 
-    def list_deletable_output_ids(self, job_id: str = "", request_id: str = "") -> list[int]:
+    def list_deletable_output_ids(self, job_id: str = "", request_id: str = "", folder_id: str = "") -> list[int]:
         """현재 필터의 모든 페이지에서 삭제 보호되지 않은 결과물 ID만 조회합니다."""
 
-        return self.list_selection_candidates(job_id, request_id)["deletable_output_ids"]
+        return self.list_selection_candidates(job_id, request_id, folder_id)["deletable_output_ids"]
 
-    def list_selection_candidates(self, job_id: str = "", request_id: str = "") -> dict[str, list[int]]:
+    def list_selection_candidates(
+        self, job_id: str = "", request_id: str = "", folder_id: str = "",
+    ) -> dict[str, list[int]]:
         """작업 상태와 무관하게 현재 필터의 전체 결과물과 삭제 보호되지 않은 ID를 조회합니다."""
 
         conditions = ["is_available=1", "is_deleted=0"]
@@ -520,6 +546,9 @@ class OutputCatalog:
             conditions.append("request_id=?")
             query_values.append(request_id)
         with self._connect() as connection:
+            connection.execute("BEGIN")
+            folder_condition, folder_parameters = self.build_output_folder_filter(connection, folder_id)
+            query_values.extend(folder_parameters)
             if job_id and connection.execute("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)).fetchone() is None:
                 raise LookupError("작업을 찾을 수 없습니다.")
             if request_id and connection.execute("SELECT 1 FROM job_requests WHERE request_id=?", (request_id,)).fetchone() is None:
@@ -527,7 +556,7 @@ class OutputCatalog:
             candidate_rows = connection.execute(
                 "SELECT output_id,relative_path,"
                 "COALESCE((SELECT deletion_protected FROM jobs WHERE jobs.job_id=output_files.job_id),0) "
-                "AS deletion_protected FROM output_files WHERE " + " AND ".join(conditions),
+                "AS deletion_protected FROM output_files WHERE " + " AND ".join(conditions) + folder_condition,
                 query_values,
             ).fetchall()
         output_ids = []

@@ -1276,8 +1276,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         prefix: str = "",
         job_id: str = "",
         request_id: str = "",
+        folder_id: str = "",
     ):
-        """결과물 index에서 요청 해상도와 정렬된 페이지를 조회합니다."""
+        """작업 분류·작업·요청 범위의 결과물을 index에서 페이지 조회합니다."""
 
         output_timing = request.state.output_timing
         handler_started_at = time.perf_counter()
@@ -1297,7 +1298,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         try:
             with measure_output_step(output_timing, "catalog_listing", emit=True):
                 listing = server.output_catalog.list_files(
-                    page, page_size, normalized_prefix, job_id, request_id, output_timing,
+                    page, page_size, normalized_prefix, job_id, request_id, output_timing, folder_id=folder_id,
                 )
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
@@ -1317,7 +1318,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return response
 
     @app.get("/api/outputs/{output_id}/neighbors")
-    def output_neighbors(output_id: int, job_id: str = "", request_id: str = "", prefix: str = ""):
+    def output_neighbors(
+        output_id: int, job_id: str = "", request_id: str = "", prefix: str = "", folder_id: str = "",
+    ):
         """미리보기 현재 파일의 삭제 보호 상태와 같은 범위의 이전·다음 파일을 반환합니다."""
 
         if job_id and request_id:
@@ -1329,30 +1332,30 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             except ValueError as exception:
                 raise HTTPException(422, str(exception)) from exception
         try:
-            return server.output_catalog.get_file_neighbors(output_id, job_id, request_id, normalized_prefix)
+            return server.output_catalog.get_file_neighbors(output_id, job_id, request_id, normalized_prefix, folder_id)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
 
     @app.get("/api/outputs/deletion-candidates")
-    def output_deletion_candidates(job_id: str = "", request_id: str = ""):
-        """현재 작업·요청 필터에서 삭제 보호되지 않은 결과물의 전체 선택용 ID를 반환합니다."""
+    def output_deletion_candidates(job_id: str = "", request_id: str = "", folder_id: str = ""):
+        """현재 작업 분류·작업·요청 범위에서 삭제 보호되지 않은 전체 결과물 ID를 반환합니다."""
 
         if job_id and request_id:
             raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
         try:
-            output_ids = server.output_catalog.list_deletable_output_ids(job_id, request_id)
+            output_ids = server.output_catalog.list_deletable_output_ids(job_id, request_id, folder_id)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
         return JSONResponse({"output_ids": output_ids})
 
     @app.get("/api/outputs/selection-candidates")
-    def output_selection_candidates(job_id: str = "", request_id: str = ""):
+    def output_selection_candidates(job_id: str = "", request_id: str = "", folder_id: str = ""):
         """현재 필터의 전체 선택용 ID와 삭제 가능한 ID를 함께 반환합니다."""
 
         if job_id and request_id:
             raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
         try:
-            candidates = server.output_catalog.list_selection_candidates(job_id, request_id)
+            candidates = server.output_catalog.list_selection_candidates(job_id, request_id, folder_id)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
         return JSONResponse(candidates)

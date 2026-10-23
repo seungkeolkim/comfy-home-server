@@ -553,6 +553,7 @@ async function verifyAnyStateOutputDeletion(browser, width) {
     await page.goto("http://image-preview.test/?view=outputs");
     for (const outputFile of fixtures.files) {
       const listDeleteButton = page.locator(`[data-delete-output="${outputFile.output_id}"]`);
+      await listDeleteButton.waitFor({ state: "visible" });
       assert.equal(await listDeleteButton.isVisible(), true);
       assert.equal(await listDeleteButton.isDisabled(), outputFile.deletion_protected);
       await page.locator(`[data-${outputFile.kind}-preview="${outputFile.output_id}"]`).click();

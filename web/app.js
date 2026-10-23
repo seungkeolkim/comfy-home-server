@@ -410,7 +410,7 @@ function isNavigationStateValid(navigationState) {
   if (navigationState.jobFolderId !== undefined && typeof navigationState.jobFolderId !== "string") return false;
   if (navigationState.jobSearch !== undefined && typeof navigationState.jobSearch !== "string") return false;
   const outputFilter = navigationState.outputFilter;
-  if (outputFilter !== null && (!outputFilter || !["job", "request"].includes(outputFilter.type) ||
+  if (outputFilter !== null && (!outputFilter || !["job", "request", "folder"].includes(outputFilter.type) ||
       typeof outputFilter.id !== "string")) return false;
   return Array.isArray(navigationState.openJobIds) &&
     navigationState.openJobIds.every(jobIdentifier => typeof jobIdentifier === "string");
@@ -431,7 +431,7 @@ function navigationUrl(navigationState) {
   }
   if (navigationState.viewName === "outputs" && navigationState.outputFilter) {
     const outputFilter = navigationState.outputFilter;
-    query.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
+    query.set(outputFilterParameterName(outputFilter.type), outputFilter.id);
   }
   return `${window.location.pathname}?${query}`;
 }
@@ -449,6 +449,7 @@ function navigationStateFromUrl(url) {
   if (viewName === "outputs") {
     if (jobIdentifier) outputFilter = { type: "job", id: jobIdentifier };
     else if (requestIdentifier) outputFilter = { type: "request", id: requestIdentifier };
+    else if (query.get("folder_id")) outputFilter = { type: "folder", id: query.get("folder_id") };
   }
   return { viewName, pageNumber, jobFilterId: viewName === "jobs" ? jobIdentifier : null, outputFilter,
     jobFolderId: viewName === "jobs" ? (query.get("folder_id") || "") : "",
@@ -3237,7 +3238,37 @@ function renderOutputsPagination(page, totalPages) {
     ${paginationLinkMarkup("outputs", page + 1, "다음", { disabled: page === totalPages })}`;
 }
 
-/** 관리 폴더의 현재 결과물을 페이지 단위로 표시합니다. */
+/** 결과물 조회 종류를 목록·History·전체 선택·미리보기의 같은 API parameter로 변환합니다. */
+function outputFilterParameterName(filterType) {
+  return { job: "job_id", request: "request_id", folder: "folder_id" }[filterType];
+}
+
+/** 현재 결과물 범위의 표시 이름을 작업 분류 경로와 함께 반환합니다. */
+function outputScopeLabel(outputFilter) {
+  if (!outputFilter) return "전체 결과물";
+  if (outputFilter.type === "folder") {
+    return outputFilter.id === "unassigned" ? "미분류" : jobHistoryFolderLabel(outputFilter.id);
+  }
+  return outputFilter.type === "job" ? "이 작업의 결과물" : "이 요청의 결과물";
+}
+
+/** 결과물 분류 선택지를 갱신하고 개별 작업·요청 조회는 별도 선택지로 표시합니다. */
+function renderOutputFolderFilter() {
+  const outputFilter = applicationState.outputFilter;
+  const folderSelect = element("output-job-folder");
+  let optionMarkup = '<option value="">📋 전체 결과물</option><option value="unassigned">📥 미분류</option>';
+  for (const folder of jobHistoryFolderState.folders) {
+    optionMarkup += `<option value="${escapeHtml(folder.folder_id)}">📁 ${escapeHtml(folder.path)}</option>`;
+  }
+  if (outputFilter && outputFilter.type !== "folder") {
+    optionMarkup += `<option value="current-output-scope" disabled>${outputScopeLabel(outputFilter)}</option>`;
+  }
+  if (folderSelect.innerHTML !== optionMarkup) folderSelect.innerHTML = optionMarkup;
+  folderSelect.value = outputFilter ? (outputFilter.type === "folder" ? outputFilter.id : "current-output-scope") : "";
+  folderSelect.disabled = outputSelectionIsBusy();
+}
+
+/** 작업 분류 또는 개별 작업·요청 범위의 현재 결과물을 페이지 단위로 표시합니다. */
 async function loadOutputs() {
   if (element("application").classList.contains("hidden") || outputSelectionIsBusy()) return;
   const loadRevision = ++applicationState.outputsLoadRevision;
@@ -3255,14 +3286,29 @@ async function loadOutputs() {
     const query = new URLSearchParams({ page: String(applicationState.outputsPage), page_size: "64" });
     const candidateQuery = new URLSearchParams();
     if (outputFilter)
-      query.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
+      query.set(outputFilterParameterName(outputFilter.type), outputFilter.id);
     if (outputFilter)
-      candidateQuery.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
-    const [response, candidates] = await Promise.all([
-      apiRequest(`/api/outputs?${query}`),
-      selectionMode ? apiRequest(`/api/outputs/selection-candidates?${candidateQuery}`) : Promise.resolve(null),
+      candidateQuery.set(outputFilterParameterName(outputFilter.type), outputFilter.id);
+    const [listingResult, candidates, folders] = await Promise.all([
+      apiRequest(`/api/outputs?${query}`).then(response => ({ response }), error => ({ error })),
+      selectionMode ? apiRequest(`/api/outputs/selection-candidates?${candidateQuery}`).catch(error => ({ error })) : Promise.resolve(null),
+      apiRequest("/api/job-folders"),
     ]);
     if (loadRevision !== applicationState.outputsLoadRevision) return;
+    applyJobHistoryFolders(folders);
+    if (outputFilter?.type === "folder" && outputFilter.id !== "unassigned" &&
+        !folders.items.some(folder => folder.folder_id === outputFilter.id)) {
+      applicationState.outputFilter = { type: "folder", id: "unassigned" };
+      applicationState.outputsPage = 1;
+      saveCurrentNavigationEntry();
+      updateNavigationLinks();
+      showNotice("선택한 작업 분류가 삭제되어 미분류 결과물을 표시합니다.");
+      return loadOutputs();
+    }
+    if (listingResult.error) throw listingResult.error;
+    if (candidates?.error) throw candidates.error;
+    const response = listingResult.response;
+    renderOutputFolderFilter();
     if (applicationState.outputsPage > response.total_pages) {
       applicationState.outputsPage = response.total_pages;
       return loadOutputs();
@@ -3275,11 +3321,15 @@ async function loadOutputs() {
         applicationState.selectedOutputIds.delete(selectedOutputId);
       }
     }
-    const renderSignature = JSON.stringify([response, candidates, query.toString(), selectionMode]);
+    const renderSignature = JSON.stringify([response, candidates, query.toString(), selectionMode, outputScopeLabel(outputFilter)]);
     if (renderSignature === applicationState.outputsRenderSignature) return;
-    element("output-count").textContent = outputFilter
-      ? `${outputFilter.type === "job" ? "이 작업" : "이 요청"}의 결과 ${response.total}개`
-      : `${response.total}개 파일`;
+    if (outputFilter?.type === "folder") {
+      element("output-count").textContent = `${outputScopeLabel(outputFilter)} · 결과 ${response.total}개`;
+    } else {
+      element("output-count").textContent = outputFilter
+        ? `${outputFilter.type === "job" ? "이 작업" : "이 요청"}의 결과 ${response.total}개`
+        : `${response.total}개 파일`;
+    }
     element("clear-output-filter").classList.toggle(
       "hidden",
       !outputFilter,
@@ -3330,6 +3380,7 @@ function updateOutputSelectionControls() {
   element("delete-selected-outputs").disabled = selectionIsBusy || selectedDeletableOutputs.length === 0;
   element("move-selected-outputs").disabled = selectionIsBusy || applicationState.selectedOutputIds.size === 0;
   element("refresh-outputs-button").disabled = selectionIsBusy;
+  element("output-job-folder").disabled = selectionIsBusy;
   element("outputs-pagination").toggleAttribute("inert", selectionIsBusy);
   const clearOutputFilterLink = element("clear-output-filter");
   clearOutputFilterLink.setAttribute("aria-disabled", String(selectionIsBusy));
@@ -3467,7 +3518,7 @@ function renderOutputPreviewNavigation() {
     element(`${mediaKind}-preview-next`).disabled = navigationState.loading || outputSelectionIsBusy() || !navigationState.next;
     element(`${mediaKind}-preview-navigation-status`).textContent = navigationState.error || (navigationState.loading
       ? "이전·다음 결과물 확인 중…"
-      : navigationState.outputId === null ? "" : navigationState.filter?.type === "job" ? "이 작업의 결과물" : navigationState.filter ? "이 요청의 결과물" : "전체 결과물");
+      : navigationState.outputId === null ? "" : outputScopeLabel(navigationState.filter));
   }
 }
 
@@ -3494,11 +3545,11 @@ function openOutputPreview(outputFile, opener, preserveScope = false, scopeFilte
   loadOutputPreviewNeighbors(outputFile.output_id, navigationState.revision);
 }
 
-/** 같은 작업·요청 필터 안의 인접 파일만 읽고 닫거나 이동한 뒤의 응답은 무시합니다. */
+/** 같은 작업 분류·작업·요청 범위의 인접 파일만 읽고 닫거나 이동한 뒤의 응답은 무시합니다. */
 async function loadOutputPreviewNeighbors(outputIdentifier, revision) {
   const navigationState = outputPreviewNavigationState;
   const query = new URLSearchParams();
-  if (navigationState.filter) query.set(navigationState.filter.type === "job" ? "job_id" : "request_id", navigationState.filter.id);
+  if (navigationState.filter) query.set(outputFilterParameterName(navigationState.filter.type), navigationState.filter.id);
   try {
     const neighbors = await apiRequest(`/api/outputs/${outputIdentifier}/neighbors?${query}`, { signal: navigationState.controller.signal });
     if (revision !== navigationState.revision) return;
@@ -3701,7 +3752,7 @@ async function toggleEveryOutputSelection() {
     const query = new URLSearchParams();
     if (applicationState.outputFilter) {
       const outputFilter = applicationState.outputFilter;
-      query.set(outputFilter.type === "job" ? "job_id" : "request_id", outputFilter.id);
+      query.set(outputFilterParameterName(outputFilter.type), outputFilter.id);
     }
     const candidates = await apiRequest(`/api/outputs/selection-candidates?${query}`);
     if (selectionScope === JSON.stringify(applicationState.outputFilter)) {
@@ -4515,6 +4566,14 @@ function bindEvents() {
     event.preventDefault();
     if (promptContainer.hasAttribute("data-toggle-request-prompt")) toggleRequestPromptExpansion(promptContainer.dataset.toggleRequestPrompt);
     else toggleJobPromptExpansion(promptContainer.dataset.toggleJobPrompt);
+  });
+  element("output-job-folder").addEventListener("change", event => {
+    if (outputSelectionIsBusy()) return;
+    const folderIdentifier = event.target.value;
+    switchView("outputs", {
+      resetScroll: true, pageNumber: 1,
+      outputFilter: folderIdentifier ? { type: "folder", id: folderIdentifier } : null,
+    });
   });
   element("toggle-output-selection").addEventListener("click", () => {
     if (outputSelectionIsBusy()) return;

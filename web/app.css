@@ -1109,6 +1109,15 @@ input[type="file"] {
   align-items: center;
   margin-bottom: 15px;
 }
+.output-folder-filter {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.output-folder-filter select {
+  width: 100%;
+  min-width: 0;
+}
 .outputs-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(205px, 1fr));

@@ -20,6 +20,18 @@
 
 화면에서는 작업 정리를 `분류 변경`, 실제 저장 위치 변경을 `파일 이동`으로 구분합니다. 기존 API·DB 식별자 `folder_id`와 테이블 이름은 유지하며, 이 용어 변경으로 데이터 Migration을 추가하지 않습니다.
 
+## 결과물의 작업 분류 조회
+
+- 결과물 화면 상단의 `작업 분류`에서 `📋 전체 결과물`, `📥 미분류`, 기존 `📁 작업 분류 경로`를 선택합니다. 상위 분류는 모든 하위 분류의 결과물을 포함합니다.
+- 실제 파일 경로와 무관하게 작업의 현재 소속으로 조회합니다. 작업 분류 변경은 다음 조회에 반영되며, 파일 이동 후에도 같은 작업 분류로 조회됩니다.
+- 미분류에는 소속 없는 작업의 결과물과 외부 추가·이력 삭제로 작업 연결이 없는 파일도 포함됩니다. 선택한 분류가 삭제되면 다음 조회에서 미분류로 전환합니다.
+- 페이지 이동·탭 이동·Browser History·URL 복사·새로고침에서 분류 조건을 유지합니다. 분류를 바꾸면 첫 페이지로 이동하고 기존 선택은 초기화합니다.
+- 결과물 전체 선택과 미리보기의 이전·다음 이동도 현재 분류 범위에 적용합니다. 기존 단일 작업·요청 결과 보기는 유지하며, 분류 선택으로 조회 범위를 바꿀 수 있습니다.
+- `GET /api/outputs`, `/api/outputs/selection-candidates`, `/api/outputs/deletion-candidates`, `/api/outputs/{output_id}/neighbors`에 optional `folder_id`를 지원합니다. 빈 값은 전체, `unassigned`는 미분류입니다. 없는 분류는 404를 반환합니다.
+- 기존 분류·소속 테이블과 결과물 Catalog의 작업 연결을 사용하며 추가 Schema Migration이나 실제 파일 변경은 필요하지 않습니다.
+
+`tests/test_output_job_folders.py`와 `tests/browser_output_job_folders.cjs`에서 하위 분류·미분류·영상·보호 결과물·페이지 경계·전체 선택·미리보기·소속/파일 이동·이력/분류 삭제 및 Desktop/Mobile History 복원을 검증합니다.
+
 ## 저장소와 API
 
 - `job_folders(folder_id, name, parent_id)`: ID 기반 트리, 부모 삭제는 하위 분류에 Cascade 적용.
