@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const filesystem = require("node:fs");
 const path = require("node:path");
 const { chromium } = require("playwright");
+const { handleJobFolderReadRequest } = require("./browser_job_folder_mock.cjs");
 
 const projectDirectory = path.resolve(__dirname, "..");
 
@@ -31,6 +32,7 @@ function createPerformanceHandler(mockState) {
     const request = route.request();
     const requestUrl = new URL(request.url());
     const requestPath = requestUrl.pathname;
+    if (await handleJobFolderReadRequest(route, mockState.jobs || [])) return;
     if (["/", "/app.js", "/app.css"].includes(requestPath)) {
       const filename = requestPath === "/" ? "index.html" : requestPath.slice(1);
       await route.fulfill({ contentType: filename.endsWith("html") ? "text/html" : filename.endsWith("js")

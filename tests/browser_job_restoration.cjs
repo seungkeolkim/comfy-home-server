@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const filesystem = require("node:fs");
 const path = require("node:path");
 const { chromium } = require("playwright");
+const { handleJobFolderReadRequest } = require("./browser_job_folder_mock.cjs");
 
 const projectDirectory = path.resolve(__dirname, "..");
 
@@ -88,6 +89,7 @@ function createRestorationRequestHandler(fixtures) {
     const request = route.request();
     const requestUrl = new URL(request.url());
     const requestPath = requestUrl.pathname;
+    if (await handleJobFolderReadRequest(route, fixtures.jobs || [])) return;
     if (["/", "/app.css", "/app.js"].includes(requestPath)) {
       const filename = requestPath === "/" ? "index.html" : requestPath.slice(1);
       const contentTypes = { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css" };
@@ -154,7 +156,12 @@ async function main() {
     await browserPage.route("**/*", createRestorationRequestHandler(fixtures));
     await browserPage.goto("http://home-server.test/");
     await browserPage.locator('#generate-preset option[value="anima-prompt"]').waitFor({ state: "attached" });
+    await browserPage.locator('[data-view="prompts"]:visible').click();
+    await browserPage.locator("#preset-name").fill("관리 화면 미저장 초안");
+    await browserPage.locator("#preset-anima-prompt").fill("이 내용은 작업 복원으로 바뀌면 안 됩니다.");
     await restoreJobFromCard(browserPage, "anima-job");
+    assert.equal(await browserPage.locator("#preset-name").inputValue(), "관리 화면 미저장 초안");
+    assert.equal(await browserPage.locator("#preset-anima-prompt").inputValue(), "이 내용은 작업 복원으로 바뀌면 안 됩니다.");
     assert.equal(await browserPage.locator("#generate-workflow").inputValue(), "anima");
     assert.equal(await browserPage.locator("#generate-anima-prompt").inputValue(), "[SCENE], {morning|evening}");
     assert.equal(await browserPage.locator("#generate-negative").inputValue(), "blurry [CHR]");

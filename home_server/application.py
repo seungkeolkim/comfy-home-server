@@ -13,9 +13,12 @@ import sqlite3
 import time
 import uuid
 from contextlib import asynccontextmanager
+from collections.abc import Callable
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
+import httpx
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from PIL import Image, UnidentifiedImageError
@@ -23,7 +26,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .comfy_client import ComfyClient
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
-from .database import Database
+from .database import Database, current_timestamp
 from .image_dimension_cache import ImageDimensionCache
 from .logging_setup import configure_application_logging, shutdown_application_logging
 from .minimax_inputs import inspect_input_images, prepare_input_canvas, remove_input_snapshots, snapshot_input_images
@@ -31,6 +34,7 @@ from .output_catalog import OutputCatalog
 from .output_directories import create_output_directory, list_output_directories, resolve_output_directory
 from .output_listing import MEDIA_EXTENSIONS, VIDEO_OUTPUT_EXTENSIONS
 from .output_timing import OutputTimingRecorder, measure_output_step
+from .system_resources import RESOURCE_POLL_INTERVAL_SECONDS, SystemResourceMonitor
 from .tag_builder import (
     MAX_PROMPT_LENGTH, MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt,
     resolve_anima_prompts, resolve_tag_text, validate_tag_selection,
@@ -141,6 +145,7 @@ class BatchInput(BaseModel):
 
     workflow: str
     description: str = Field(default="", max_length=200)
+    folder_id: str | None = Field(default=None, min_length=1, max_length=64)
     body: dict[str, Any]
     selected_tag_ids: list[str] = Field(default_factory=list)
     count: int = Field(default=1, ge=1, le=100)
@@ -185,6 +190,26 @@ class JobDescriptionInput(BaseModel):
         """작업 생성과 같은 설명 검증을 재사용합니다."""
 
         return normalize_job_description(value)
+
+
+class FavoriteBatchInput(BatchInput):
+    """즐겨찾기 한 요청을 확정 입력 또는 보관된 원본 후보로 다시 제출합니다."""
+
+    restore_mode: Literal["exact", "source"] = "exact"
+
+
+class JobFolderInput(BaseModel):
+    """작업 분류 분류의 이름과 부모를 입력받습니다."""
+
+    name: str = Field(min_length=1, max_length=80)
+    parent_id: str | None = Field(default=None, min_length=1, max_length=64)
+
+
+class JobFolderAssignmentInput(BaseModel):
+    """선택한 작업들을 한 분류 또는 미분류로 이동합니다."""
+
+    job_ids: list[str] = Field(min_length=1, max_length=10000)
+    folder_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class InputImageInspection(BaseModel):
@@ -358,6 +383,7 @@ class HomeServer:
         self.output_catalog.synchronize(config.managed_output_directory)
         self.video_previews = VideoPreviewCache(config, self.output_catalog)
         self.comfy = ComfyClient(config.comfy_endpoint)
+        self.system_resources = SystemResourceMonitor()
         self.sessions: dict[str, float] = {}
         self.login_failures: dict[str, list[float]] = {}
         self.comfy_queue_available: bool | None = None
@@ -552,7 +578,7 @@ def store_batch_requests(
                            "lora_preset_name": payload.lora_preset_name if payload.loras else None},
             }
             submitted_requests.append(request)
-        server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests)
+        server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests, payload.folder_id)
         return job_id, submitted_requests
     except Exception:
         remove_input_snapshots(image_snapshots)
@@ -565,6 +591,41 @@ def find_uploaded_image(upload_directory: Path, upload_id: str) -> Path:
     for upload_path in upload_directory.glob(f"{upload_id}.*"):
         return upload_path
     raise ValueError("업로드 입력 이미지를 찾을 수 없습니다.")
+
+
+def store_favorite_request(server: HomeServer, favorite: dict[str, Any], payload: FavoriteBatchInput) -> tuple[str, list[dict[str, Any]]]:
+    """보관된 태그·Seed·입력을 사용해 원본 Batch 크기와 무관한 단건 작업을 저장합니다."""
+
+    if payload.workflow != favorite["workflow"]:
+        raise ValueError("즐겨찾기와 같은 Workflow로 복원해 주세요.")
+    selected_identifiers = set(payload.selected_tag_ids)
+    candidates = favorite["selected_tags"]
+    if "selected_tag_ids" in payload.model_fields_set:
+        if selected_identifiers - {tag["tag_id"] for tag in candidates}:
+            raise ValueError("보관된 태그 후보에서 선택해 주세요.")
+        candidates = [tag for tag in candidates if tag["tag_id"] in selected_identifiers]
+    prompt_text = anima_prompt(payload.body) if payload.workflow == "anima" else minimax_prompt_template(payload.body)
+    negative_text = anima_negative_prompt(payload.body) if payload.workflow == "anima" else ""
+    if payload.restore_mode == "source":
+        validate_tag_selection(prompt_text + "\n" + negative_text, candidates)
+    settings = {**favorite["resolved"]["settings"], **payload.settings}
+    settings["seed"] = int(favorite["resolved"]["settings"]["seed"])
+    settings["resolution_mode"] = "manual"
+    upload_ids = []
+    if payload.workflow == "minimax_h3":
+        upload_ids = [server.database.favorites.copy_input_for_submission(favorite, server.upload_directory)]
+    restored_payload = payload.model_copy(update={"count": 1, "settings": settings, "upload_ids": upload_ids,
+                                                 "output_ids": [], "input_scope": None, "input_job_id": None})
+    try:
+        job_id, requests = store_batch_requests(server, restored_payload, candidates)
+        request = requests[0]
+        request["detail"]["favorite_restore"] = {"mode": payload.restore_mode, "resolved": favorite["resolved"]}
+        request["detail"]["favorite_seed"] = settings["seed"]
+        request["detail"]["resolved"]["source_image"] = favorite["resolved"].get("source_image")
+        return job_id, requests
+    except Exception:
+        clear_batch_uploads(server.upload_directory, [{"detail": {"upload_id": upload_id}} for upload_id in upload_ids])
+        raise
 
 
 def clear_batch_uploads(upload_directory: Path, requests: list[dict[str, Any]]) -> None:
@@ -593,13 +654,15 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         server.video_previews.start()
         monitor_task = asyncio.create_task(_monitor_requests(server))
         cancellation_task = asyncio.create_task(_monitor_cancellations(server))
+        resource_monitor_task = asyncio.create_task(_monitor_system_resources(server))
         try:
             yield
         finally:
             await asyncio.to_thread(server.video_previews.stop)
             monitor_task.cancel()
             cancellation_task.cancel()
-            await asyncio.gather(monitor_task, cancellation_task, return_exceptions=True)
+            resource_monitor_task.cancel()
+            await asyncio.gather(monitor_task, cancellation_task, resource_monitor_task, return_exceptions=True)
             for submission_task in list(server.submission_tasks):
                 submission_task.cancel()
             if server.submission_tasks:
@@ -646,22 +709,35 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return response
 
     @app.get("/")
-    async def home_page():
-        """반응형 웹 앱의 첫 화면을 제공합니다."""
+    async def home_page(reload_assets: bool = False):
+        """화면 파일 버전을 포함한 HTML을 제공하고 명시적 다시 받기는 캐시를 우회합니다."""
 
-        return FileResponse(PROJECT_DIRECTORY / "web" / "index.html")
+        web_directory = PROJECT_DIRECTORY / "web"
+        if reload_assets:
+            asset_version = secrets.token_hex(16)
+        else:
+            modified_timestamps = []
+            for file_name in ("index.html", "app.js", "app.css"):
+                modified_timestamps.append((web_directory / file_name).stat().st_mtime_ns)
+            asset_version = str(max(modified_timestamps))
+        page_content = (web_directory / "index.html").read_text(encoding="utf-8")
+        for asset_name in ("app.js", "app.css"):
+            page_content = page_content.replace(f'"/{asset_name}"', f'"/{asset_name}?v={asset_version}"')
+        return Response(page_content, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/app.css")
     async def style_sheet():
         """웹 앱 CSS를 제공합니다."""
 
-        return FileResponse(PROJECT_DIRECTORY / "web" / "app.css", media_type="text/css")
+        return FileResponse(PROJECT_DIRECTORY / "web" / "app.css", media_type="text/css",
+                            headers={"Cache-Control": "no-cache"})
 
     @app.get("/app.js")
     async def javascript():
         """웹 앱 JavaScript를 제공합니다."""
 
-        return FileResponse(PROJECT_DIRECTORY / "web" / "app.js", media_type="text/javascript")
+        return FileResponse(PROJECT_DIRECTORY / "web" / "app.js", media_type="text/javascript",
+                            headers={"Cache-Control": "no-cache"})
 
     @app.post("/api/login")
     async def login(request: Request, payload: LoginInput):
@@ -716,6 +792,24 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             queue_count = None
             server.record_comfy_connection(False, type(exception).__name__)
         return {"comfy_connected": connected, "queue_pending": queue_count, "output_directory": str(server.config.managed_output_directory)}
+
+    @app.get("/api/system-resources")
+    async def system_resources():
+        """2초 간격의 공통 Snapshot을 반환하며 브라우저 조회마다 추가 수집하지 않습니다."""
+
+        return JSONResponse(server.system_resources.snapshot, headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/comfy/free-memory")
+    async def free_comfy_memory():
+        """인증된 사용자의 요청으로 ComfyUI model과 cache 해제를 접수합니다."""
+
+        try:
+            await server.comfy.free_memory()
+        except (httpx.HTTPError, RuntimeError) as exception:
+            LOGGER.warning("ComfyUI VRAM 해제 요청 실패: %s", type(exception).__name__)
+            raise HTTPException(502, "ComfyUI에 VRAM 비우기를 요청하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.") from exception
+        LOGGER.info("ComfyUI model 및 cache 해제 요청 접수")
+        return {"accepted": True}
 
     @app.get("/api/presets")
     def presets():
@@ -991,6 +1085,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         job_id: str = "",
         refresh: bool = False,
         summary: bool = False,
+        folder_id: str = Query(default="", max_length=64),
+        search: str = Query(default="", max_length=200),
     ):
         """작업 이력을 페이지 단위로 반환하고 필요하면 요청 상태를 갱신합니다."""
 
@@ -1001,16 +1097,70 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         def read_job_page_response() -> JSONResponse:
             """목록 조회부터 최종 JSON 직렬화까지 같은 Worker에서 완료합니다."""
 
-            response = read_jobs(page=page, page_size=page_size, job_id=job_id)
+            try:
+                response = read_jobs(page=page, page_size=page_size, job_id=job_id, folder_id=folder_id, search=search)
+            except LookupError as exception:
+                raise HTTPException(404, str(exception)) from exception
+            response["server_time"] = current_timestamp()
             return JSONResponse(response)
 
         return await asyncio.to_thread(read_job_page_response)
 
     @app.get("/api/jobs/deletion-candidates")
-    def job_deletion_candidates(job_id: str = ""):
+    def job_deletion_candidates(job_id: str = "", folder_id: str = "", search: str = ""):
         """현재 목록의 모든 페이지에서 삭제 가능한 작업 ID만 반환합니다."""
 
-        return JSONResponse({"job_ids": server.database.list_deletable_job_ids(job_id)})
+        return job_folder_operation(lambda: {"job_ids": server.database.list_deletable_job_ids(job_id, folder_id, search)})
+
+    def job_folder_operation(operation: Callable[[], Any], status_code: int = 200) -> JSONResponse:
+        """분류 오류를 사용자에게 보이는 404·422 응답으로 변환합니다."""
+
+        try:
+            return JSONResponse(operation(), status_code=status_code)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+
+    @app.get("/api/job-folders")
+    def job_folders():
+        """분류 트리와 하위 포함 작업 수를 조회합니다."""
+
+        return JSONResponse(server.database.job_folders.list_folders())
+
+    @app.post("/api/job-folders", status_code=201)
+    def create_job_folder(payload: JobFolderInput):
+        """현재 위치 아래에 깊이를 검증한 작업 분류를 만듭니다."""
+
+        return job_folder_operation(lambda: {
+            "folder_id": server.database.job_folders.save_folder(payload.name, payload.parent_id),
+        }, status_code=201)
+
+    @app.put("/api/job-folders/{folder_id}")
+    def update_job_folder(folder_id: str, payload: JobFolderInput):
+        """분류 이름 또는 부모를 하위 트리 전체의 깊이와 함께 변경합니다."""
+
+        return job_folder_operation(lambda: {
+            "folder_id": server.database.job_folders.save_folder(payload.name, payload.parent_id, folder_id),
+        })
+
+    @app.delete("/api/job-folders/{folder_id}")
+    def delete_job_folder(folder_id: str):
+        """하위 분류도 제거하고 소속 작업들은 미분류로 돌립니다."""
+
+        return job_folder_operation(lambda: server.database.job_folders.delete_folder(folder_id))
+
+    @app.get("/api/jobs/selection-candidates")
+    def job_selection_candidates(job_id: str = "", folder_id: str = "", search: str = ""):
+        """현재 분류·검색의 전체 이동 후보와 삭제 후보를 분리해 반환합니다."""
+
+        return job_folder_operation(lambda: server.database.list_job_selection_candidates(job_id, folder_id, search))
+
+    @app.post("/api/jobs/folder")
+    def move_jobs_to_folder(payload: JobFolderAssignmentInput):
+        """선택 작업들의 소속만 원자적으로 변경합니다."""
+
+        return job_folder_operation(lambda: server.database.job_folders.move_jobs(payload.job_ids, payload.folder_id))
 
     @app.get("/api/jobs/activity")
     def jobs_activity():
@@ -1043,6 +1193,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         job = server.database.get_job(job_id)
         if job is None:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
+        job["server_time"] = current_timestamp()
         return JSONResponse(job)
 
     @app.patch("/api/jobs/{job_id}/description")
@@ -1169,8 +1320,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         prefix: str = "",
         job_id: str = "",
         request_id: str = "",
+        folder_id: str = "",
     ):
-        """결과물 index에서 요청 해상도와 정렬된 페이지를 조회합니다."""
+        """작업 분류·작업·요청 범위의 결과물을 index에서 페이지 조회합니다."""
 
         output_timing = request.state.output_timing
         handler_started_at = time.perf_counter()
@@ -1190,7 +1342,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         try:
             with measure_output_step(output_timing, "catalog_listing", emit=True):
                 listing = server.output_catalog.list_files(
-                    page, page_size, normalized_prefix, job_id, request_id, output_timing,
+                    page, page_size, normalized_prefix, job_id, request_id, output_timing, folder_id=folder_id,
                 )
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
@@ -1209,8 +1361,77 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         output_timing.record("handler_total", handler_started_at, emit=True)
         return response
 
+    @app.put("/api/outputs/{output_id}/favorite")
+    def save_output_favorite(output_id: int):
+        """결과물이 속한 하위 요청 한 건을 즐겨찾기에 저장합니다."""
+
+        try:
+            return JSONResponse(server.database.favorites.save_output(output_id, server.config.managed_output_directory))
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except (ValueError, OSError) as exception:
+            raise HTTPException(422, str(exception)) from exception
+
+    @app.get("/api/favorites")
+    def output_favorites(
+        page: int = Query(default=1, ge=1), page_size: int = Query(default=64, ge=1, le=100),
+        folder_id: str = "", job_id: str = "", request_id: str = "",
+    ):
+        """분류에 맞는 즐겨찾기를 요청당 한 건씩 반환합니다."""
+
+        return job_folder_operation(lambda: server.database.favorites.list_favorites(page, page_size, folder_id, job_id, request_id))
+
+    @app.get("/api/favorites/{favorite_id}")
+    def favorite_details(favorite_id: str):
+        """현재 태그 정의와 무관한 원본 후보와 확정 결과를 반환하며 Seed는 decimal 문자열로 전달합니다."""
+
+        def read_favorite() -> dict[str, Any]:
+            """JSON 직렬화까지 Worker에서 처리하고 큰 Seed를 Browser에서 반올림하지 않게 합니다."""
+
+            favorite = server.database.favorites.get(favorite_id)
+            favorite.pop("snapshot_json", None)
+            favorite["resolved"]["settings"]["seed"] = str(favorite["resolved"]["settings"]["seed"])
+            return favorite
+
+        return job_folder_operation(read_favorite)
+
+    @app.delete("/api/favorites/{favorite_id}")
+    def delete_favorite(favorite_id: str):
+        """원본 이력·파일은 유지하며 즐겨찾기만 해제합니다."""
+
+        return job_folder_operation(lambda: server.database.favorites.delete(favorite_id))
+
+    @app.post("/api/favorites/{favorite_id}/batches")
+    async def submit_favorite(favorite_id: str, payload: FavoriteBatchInput):
+        """사용자가 생성 버튼을 눌렀을 때만 고정 Seed로 요청 한 건을 접수합니다."""
+
+        try:
+            favorite = await asyncio.to_thread(server.database.favorites.get, favorite_id)
+            if payload.workflow != favorite["workflow"]:
+                raise ValueError("즐겨찾기와 같은 Workflow로 복원해 주세요.")
+            if "loras" not in payload.model_fields_set:
+                payload = payload.model_copy(update={"loras": favorite["inputs"].get("loras", [])})
+            available_loras = set(await server.comfy.list_loras()) if payload.loras else set()
+            if any(lora.get("name") not in available_loras for lora in payload.loras):
+                raise ValueError("복원한 LoRA 파일을 ComfyUI에서 찾을 수 없습니다.")
+            await asyncio.to_thread(load_workflows, server.config.workflow_directory, payload.workflow)
+            job_id, requests = await asyncio.to_thread(store_favorite_request, server, favorite, payload)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except (ValueError, OSError) as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except Exception as exception:
+            raise HTTPException(502, str(exception)) from exception
+        submission_task = asyncio.create_task(_submit_requests(server, requests))
+        server.submission_tasks.add(submission_task)
+        submission_task.add_done_callback(server.submission_tasks.discard)
+        return {"job_id": job_id, "request_ids": [request["request_id"] for request in requests]}
+
     @app.get("/api/outputs/{output_id}/neighbors")
-    def output_neighbors(output_id: int, job_id: str = "", request_id: str = "", prefix: str = ""):
+    def output_neighbors(
+        output_id: int, job_id: str = "", request_id: str = "", prefix: str = "", folder_id: str = "",
+        favorite_id: str = "",
+    ):
         """미리보기 현재 파일의 삭제 보호 상태와 같은 범위의 이전·다음 파일을 반환합니다."""
 
         if job_id and request_id:
@@ -1222,30 +1443,30 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             except ValueError as exception:
                 raise HTTPException(422, str(exception)) from exception
         try:
-            return server.output_catalog.get_file_neighbors(output_id, job_id, request_id, normalized_prefix)
+            return server.output_catalog.get_file_neighbors(output_id, job_id, request_id, normalized_prefix, folder_id, favorite_id)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
 
     @app.get("/api/outputs/deletion-candidates")
-    def output_deletion_candidates(job_id: str = "", request_id: str = ""):
-        """현재 작업·요청 필터에서 삭제 보호되지 않은 결과물의 전체 선택용 ID를 반환합니다."""
+    def output_deletion_candidates(job_id: str = "", request_id: str = "", folder_id: str = ""):
+        """현재 작업 분류·작업·요청 범위에서 삭제 보호되지 않은 전체 결과물 ID를 반환합니다."""
 
         if job_id and request_id:
             raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
         try:
-            output_ids = server.output_catalog.list_deletable_output_ids(job_id, request_id)
+            output_ids = server.output_catalog.list_deletable_output_ids(job_id, request_id, folder_id)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
         return JSONResponse({"output_ids": output_ids})
 
     @app.get("/api/outputs/selection-candidates")
-    def output_selection_candidates(job_id: str = "", request_id: str = ""):
+    def output_selection_candidates(job_id: str = "", request_id: str = "", folder_id: str = ""):
         """현재 필터의 전체 선택용 ID와 삭제 가능한 ID를 함께 반환합니다."""
 
         if job_id and request_id:
             raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
         try:
-            candidates = server.output_catalog.list_selection_candidates(job_id, request_id)
+            candidates = server.output_catalog.list_selection_candidates(job_id, request_id, folder_id)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
         return JSONResponse(candidates)
@@ -1563,7 +1784,16 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
             try:
                 if await _skip_cancelled_submission(server, request_id):
                     continue
-                if request["workflow"] == "anima":
+                favorite_restore = detail.get("favorite_restore")
+                if favorite_restore and favorite_restore["mode"] == "exact":
+                    prompt_text = detail["body"]["prompt"]
+                    negative_text = detail["body"].get("negative", "")
+                    saved_resolved = favorite_restore["resolved"]
+                    selected_path = saved_resolved.get("selected_path", [])
+                    negative_selected_path = saved_resolved.get("negative_selected_path", [])
+                    wildcard_seed = saved_resolved.get("wildcard_seed")
+                    tag_seed = saved_resolved.get("tag_seed")
+                elif request["workflow"] == "anima":
                     wildcard_seed = secrets.randbelow(2**31)
                     tag_seed = wildcard_seed
                     prompt_template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
@@ -1589,7 +1819,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                 api_workflow, ui_workflow = workflow_templates[request["workflow"]]
                 if request["workflow"] == "anima":
                     request_settings = dict(detail["settings"])
-                    request_settings["seed"] = secrets.randbelow(2**31)
+                    request_settings["seed"] = detail["favorite_seed"] if "favorite_seed" in detail else secrets.randbelow(2**31)
                     request_workflow, metadata_workflow = await asyncio.to_thread(
                         prepare_anima,
                         api_workflow, ui_workflow, prompt_text, negative_text,
@@ -1652,6 +1882,34 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
         await asyncio.to_thread(clear_batch_uploads, server.upload_directory, requests)
 
 
+async def _monitor_system_resources(server: HomeServer) -> None:
+    """접속자 수·작업 상태에 관계없이 2초 간격으로 한 번씩 순차 수집합니다."""
+
+    while True:
+        collection_started = time.monotonic()
+        await server.system_resources.refresh(server.comfy)
+        elapsed_seconds = time.monotonic() - collection_started
+        await asyncio.sleep(max(0, RESOURCE_POLL_INTERVAL_SECONDS - elapsed_seconds))
+
+
+def comfy_execution_started_at(status_info: dict[str, Any]) -> str | None:
+    """ComfyUI 실행 시작의 millisecond Timestamp를 timezone이 명시된 UTC 시각으로 변환합니다."""
+
+    for message in status_info.get("messages", []):
+        if not isinstance(message, (list, tuple)) or len(message) < 2 or message[0] != "execution_start":
+            continue
+        if not isinstance(message[1], dict):
+            continue
+        timestamp_milliseconds = message[1].get("timestamp")
+        if isinstance(timestamp_milliseconds, bool) or not isinstance(timestamp_milliseconds, (int, float)):
+            continue
+        try:
+            return datetime.fromtimestamp(timestamp_milliseconds / 1000, timezone.utc).isoformat(timespec="seconds")
+        except (ValueError, OverflowError, OSError):
+            continue
+    return None
+
+
 async def _refresh_requests(server: HomeServer) -> None:
     """중복 감시를 막고 작은 상태 조회와 묶음 DB 갱신으로 진행 상태를 확인합니다."""
 
@@ -1680,8 +1938,9 @@ async def _refresh_requests(server: HomeServer) -> None:
             if request["prompt_id"] in running_ids or request["prompt_id"] in pending_ids:
                 server.missing_request_since.pop(request["request_id"], None)
                 next_status = "running" if request["prompt_id"] in running_ids else "pending"
-                if request["status"] not in {next_status, "cancelling"}:
-                    updates.append({"request_id": request["request_id"], "status": next_status})
+                started_at = current_timestamp() if next_status == "running" and not request["started_at"] else None
+                if request["status"] not in {next_status, "cancelling"} or started_at:
+                    updates.append({"request_id": request["request_id"], "status": next_status, "started_at": started_at})
             else:
                 history_requests.append(request)
         history_semaphore = asyncio.Semaphore(4)
@@ -1706,10 +1965,12 @@ async def _refresh_requests(server: HomeServer) -> None:
                 return {"request_id": request["request_id"], "status": next_status, "error_message": error_message}
             server.missing_request_since.pop(request["request_id"], None)
             status_info = record.get("status", {})
+            started_at = comfy_execution_started_at(status_info)
             status_name = str(status_info.get("status_str", ""))
             if status_name == "success":
                 output_paths = await asyncio.to_thread(_history_output_paths, server, record, request["workflow"])
-                return {"request_id": request["request_id"], "status": "completed", "output_paths": output_paths}
+                return {"request_id": request["request_id"], "status": "completed", "output_paths": output_paths,
+                        "started_at": started_at}
             interruption_recorded = any(
                 isinstance(message, (list, tuple)) and message and message[0] == "execution_interrupted"
                 for message in status_info.get("messages", [])
@@ -1717,6 +1978,7 @@ async def _refresh_requests(server: HomeServer) -> None:
             if status_name in {"error", "interrupted"}:
                 next_status = "cancelled" if status_name == "interrupted" or interruption_recorded else "failed"
                 return {"request_id": request["request_id"], "status": next_status,
+                        "started_at": started_at,
                         "error_message": None if next_status == "cancelled" else status_name}
             return None
 

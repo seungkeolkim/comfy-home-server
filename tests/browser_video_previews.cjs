@@ -113,6 +113,20 @@ async function verifyVideoPreviews(browser, width) {
     await page.locator(`[data-video-preview="${sources.ready}"]`).click();
     await page.waitForFunction(() => document.getElementById("video-preview-player").currentTime > 0.1);
     assert.equal(await page.locator("#video-preview-notice").isVisible(), false);
+    assert.deepEqual(originalRequests, []);
+    const originalToggle = page.locator("#video-preview-original-toggle");
+    assert.equal(await originalToggle.isChecked(), false);
+    await originalToggle.check();
+    await page.waitForFunction(() => {
+      const video = document.getElementById("video-preview-player");
+      return video.currentSrc && new URL(video.currentSrc).pathname === "/media/ready.mp4" && video.currentTime > 0.1;
+    });
+    assert.equal(await originalToggle.evaluate(toggle => toggle === document.activeElement), true);
+    await originalToggle.uncheck();
+    await page.waitForFunction(() => {
+      const video = document.getElementById("video-preview-player");
+      return video.currentSrc.includes("/video-preview/stream") && video.currentTime > 0.1;
+    });
     await page.locator("#video-preview-close").click();
     const selectionButton = page.locator("#toggle-output-selection");
     await selectionButton.click();
@@ -120,14 +134,17 @@ async function verifyVideoPreviews(browser, width) {
     assert.equal(await page.locator("#video-preview-dialog").evaluate(dialog => dialog.open), false);
     assert.equal(await page.locator(".output-selected").count(), 1);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-    assert.deepEqual(originalRequests, []);
+    assert.ok(originalRequests.length > 0);
+    assert.ok(originalRequests.every(requestUrl => new URL(requestUrl).pathname === "/media/ready.mp4"));
     assert.deepEqual(pageErrors, []);
 
     await page.waitForFunction(async ({ baseUrl, identifiers }) => {
       const states = await Promise.all(identifiers.map(async identifier => (await fetch(`${baseUrl}/api/outputs/${identifier}/video-preview`)).json()));
       return states.every(status => status.state === "ready");
     }, { baseUrl, identifiers: [sources.progressive, sources.failed] }, { timeout: 15000 });
+    await selectionButton.click();
     await page.locator(`[data-video-preview="${sources.ready}"]`).click();
+    assert.equal(await originalToggle.isChecked(), false);
     await page.locator("#video-preview-delete:not([disabled])").waitFor();
     page.once("dialog", dialog => dialog.accept());
     const deletionResponse = page.waitForResponse(response => response.url() === `${baseUrl}/api/outputs/${sources.ready}` && response.request().method() === "DELETE");
@@ -154,7 +171,7 @@ async function main() {
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "msedge", headless: true });
   try {
     for (const width of [1280, 390]) await verifyVideoPreviews(browser, width);
-    process.stdout.write("Passed: progressive playback, backdrop click/mobile tap dismissal, inside/drag isolation, close keeps encoding, persisted cache, retry Toast, keyboard/focus and mobile layout.\n");
+    process.stdout.write("Passed: original/preview playback toggle, progressive playback, dismissal, encoding/cache preservation, retry, keyboard/focus and mobile layout.\n");
   } finally {
     await browser.close();
   }

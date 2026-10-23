@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const filesystem = require("node:fs");
 const path = require("node:path");
 const { chromium } = require("playwright");
+const { handleJobFolderReadRequest } = require("./browser_job_folder_mock.cjs");
 
 const projectDirectory = path.resolve(__dirname, "..");
 
@@ -27,6 +28,7 @@ function createPromptRequestHandler(fixtures) {
   return async function handlePromptRequest(route) {
     const requestUrl = new URL(route.request().url());
     const requestPath = requestUrl.pathname;
+    if (await handleJobFolderReadRequest(route, fixtures.jobs || [])) return;
     if (["/", "/app.css", "/app.js"].includes(requestPath)) {
       const filename = requestPath === "/" ? "index.html" : requestPath.slice(1);
       const contentTypes = { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css" };

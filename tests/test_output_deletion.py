@@ -58,7 +58,10 @@ def test_output_deletion_ignores_job_state_and_only_checks_protection(
         assert client.delete(f"/api/outputs/{output_identifier}").status_code == 200
         assert not physical_path.exists()
         assert server.output_catalog.is_deleted(source_path)
-        assert client.get("/api/jobs/state-job").json() == original_job
+        remaining_job = client.get("/api/jobs/state-job").json()
+        original_job.pop("server_time")
+        remaining_job.pop("server_time")
+        assert remaining_job == original_job
         assert client.get("/api/outputs?job_id=state-job").json()["files"] == []
         assert invalidation.call_count == (1 if extension == ".mp4" else 0)
         server.database.complete_request("request-0", [source_path])
@@ -111,7 +114,7 @@ def test_schema_ten_migration_preserves_catalog_and_json(tmp_path: Path) -> None
 
     Database(database_path)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
         migrated_catalog = connection.execute("SELECT * FROM output_files ORDER BY output_id").fetchall()
         assert [catalog_row[:-1] for catalog_row in migrated_catalog] == original_catalog
         assert [catalog_row[-1] for catalog_row in migrated_catalog] == [0, 0]

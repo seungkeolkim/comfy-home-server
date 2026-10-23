@@ -328,7 +328,13 @@ def prepare_minimax(
     for node in request_workflow.values():
         if isinstance(node, dict) and node.get("class_type") == "DaSiWa_SeedControl":
             state = json.loads(str(node["inputs"].get("seed_control_state", "{}")))
-            if state.get("mode") == "random":
+            if "seed" in settings:
+                node["inputs"]["seed_value"] = int(settings["seed"])
+                state.update({"mode": "fixed", "last_seed": str(settings["seed"])})
+                node["inputs"]["seed_control_state"] = json.dumps(state)
+                update_ui_widget(metadata_workflow, "2739", "seed_value", int(settings["seed"]))
+                update_ui_widget(metadata_workflow, "2739", "seed_control_state", json.dumps(state))
+            elif state.get("mode") == "random":
                 node["inputs"]["seed_value"] = 0
 
     stack_entries = []

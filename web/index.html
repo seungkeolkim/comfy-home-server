@@ -70,12 +70,36 @@
           <div class="topbar-right">
             <span id="active-count" class="active-count">작업 0</span
             ><button id="refresh-button" class="button subtle">새로고침</button>
+            <button id="reload-web-assets-button" class="button subtle" type="button"
+              title="최신 화면 파일을 다시 받습니다. 저장하지 않은 입력은 사라집니다.">최신 화면 받기</button>
           </div>
         </header>
+        <details id="system-resources" class="system-resources">
+          <summary aria-label="서버 자원 상태 상세 보기">
+            <span class="resource-metrics">
+              <span id="resource-cpu" class="resource-metric"><span>CPU</span><span class="resource-reading"><strong id="resource-cpu-value">—</strong></span></span>
+              <span id="resource-ram" class="resource-metric"><span>RAM</span><span class="resource-reading"><strong id="resource-ram-value">—</strong></span></span>
+              <span id="resource-gpu" class="resource-metric"><span>GPU</span><span class="resource-reading"><strong id="resource-gpu-value">—</strong></span></span>
+              <span id="resource-vram" class="resource-metric"><span>VRAM</span><span class="resource-reading"><strong id="resource-vram-value">—</strong></span></span>
+            </span>
+            <span class="resource-expand-indicator" aria-hidden="true">⌄</span>
+          </summary>
+          <div class="resource-details">
+            <div><p id="resource-host-description">ComfyUI host · 2초 간격</p><p id="resource-status" role="status">서버 상태를 확인하고 있습니다.</p></div>
+            <button id="free-vram-button" type="button" class="button danger">VRAM 비우기</button>
+          </div>
+        </details>
         <section id="view-generate" class="view">
           <div class="section-intro">
             <h2>새 Batch</h2>
             <p>Workflow와 Prompt를 선택하고 제출 전에 조합을 확인하세요.</p>
+          </div>
+          <div id="favorite-restoration-panel" class="panel stack hidden" aria-label="즐겨찾기 복원">
+            <div class="panel-heading"><strong>즐겨찾기에서 단건 복원</strong><button id="clear-favorite-restoration" class="button subtle small" type="button">복원 해제</button></div>
+            <div class="inline-actions"><button id="favorite-restore-exact" class="button subtle small" type="button">생성 그대로</button><button id="favorite-restore-source" class="button subtle small" type="button">원본으로 변형</button></div>
+            <p id="favorite-restoration-summary" class="hint"></p>
+            <div id="favorite-restoration-candidates" class="stack"></div>
+            <details><summary>보관된 원본 Prompt·태그 후보 보기</summary><div id="favorite-restoration-original" class="stack"></div></details>
           </div>
           <div class="form-grid">
             <div class="panel stack">
@@ -109,6 +133,7 @@
               <select id="generate-preset">
                 <option value="">직접 작성</option>
               </select>
+              <p id="generate-prompt-status" class="hint" role="status">직접 작성</p>
               <div class="inline-actions">
                 <button
                   id="edit-preset-button"
@@ -122,6 +147,13 @@
                   type="button"
                 >
                   새 preset 저장
+                </button>
+                <button
+                  id="clear-generation-prompt-button"
+                  class="button danger"
+                  type="button"
+                >
+                  Prompt 초기화
                 </button>
               </div>
               <div id="anima-prompt-fields" class="stack">
@@ -295,6 +327,8 @@
               <p id="generate-count-hint" class="hint">입력한 횟수만큼 개별 요청을 제출합니다. 요청마다 태그 항목과 wildcard를 새로 선택해 한 장씩 생성합니다.</p>
               <label for="job-description">작업 설명 · 선택</label>
               <input id="job-description" type="text" maxlength="200" placeholder="예: 아침 조명 비교" />
+              <label for="job-history-folder">작업 분류 · 선택</label>
+              <select id="job-history-folder"><option value="">미분류</option></select>
             </div>
             <div class="inline-actions">
               <button id="preview-button" class="button subtle" type="button">
@@ -313,27 +347,57 @@
 
         <section id="view-jobs" class="view hidden">
           <div class="section-intro">
-            <h2>작업 상태</h2>
-            <p>앱에서 제출한 요청과 ComfyUI 접수 상태를 확인합니다.</p>
+            <h2>작업 이력</h2>
+            <p>분류별로 작업과 결과물을 모아 확인합니다.</p>
           </div>
+          <div class="jobs-workspace">
+            <aside class="jobs-folder-sidebar">
+              <details id="jobs-folder-panel" open>
+                <summary id="jobs-folder-panel-title">작업 분류</summary>
+                <nav id="jobs-folder-tree" aria-label="작업 분류"></nav>
+                <button id="create-job-folder" class="button subtle small" type="button">＋ 새 분류</button>
+                <p id="jobs-folder-status" class="hint" role="status"></p>
+              </details>
+            </aside>
+            <div class="jobs-workspace-content">
+              <div class="jobs-location-heading">
+                <div><strong id="jobs-folder-location">전체 작업</strong><p id="jobs-folder-count" class="hint"></p></div>
+                <div class="jobs-folder-actions">
+                  <button id="edit-job-folder" class="button subtle small hidden" type="button">이름 변경</button>
+                  <details id="jobs-folder-menu" class="jobs-folder-menu hidden">
+                    <summary aria-label="선택 분류 관리">⋯</summary>
+                    <div class="stack">
+                      <button id="delete-job-folder" class="button danger small" type="button">분류 삭제</button>
+                    </div>
+                  </details>
+                </div>
+              </div>
+              <form id="jobs-search-form" class="jobs-search-form" role="search">
+                <input id="jobs-search" type="search" maxlength="200" placeholder="현재 분류에서 작업 설명 검색" aria-label="작업 설명 검색" />
+                <button class="button subtle small" type="submit">검색</button>
+                <button id="clear-jobs-search" class="button subtle small hidden" type="button">초기화</button>
+              </form>
           <div id="jobs-filter" class="toolbar hidden">
             <span id="jobs-filter-label" class="hint"></span>
             <a id="clear-jobs-filter" class="button subtle small" data-navigation href="?view=jobs&amp;page=1">전체 작업 보기</a>
           </div>
           <div class="jobs-selection-toolbar">
-            <button id="toggle-job-selection" class="button subtle small" type="button" aria-expanded="false" aria-controls="job-selection-actions">다중 삭제</button>
+            <button id="toggle-job-selection" class="button subtle small" type="button" aria-expanded="false" aria-controls="job-selection-actions">선택</button>
             <div id="job-selection-actions" class="inline-actions hidden">
               <button id="select-all-jobs" class="button subtle small" type="button">현재 페이지 선택</button>
               <button id="select-every-job" class="button subtle small" type="button">작업 전체 선택</button>
               <span id="selected-job-count" class="hint" role="status">0개 선택</span>
+              <button id="move-selected-job-folder" class="button subtle small" type="button" disabled>분류 변경</button>
               <button id="delete-selected-job-history" class="button subtle small" type="button" disabled>선택된 이력만 삭제</button>
               <button id="delete-selected-job-outputs" class="button danger small" type="button" disabled>선택된 이력·결과물 삭제</button>
-              <span class="hint">페이지를 이동해도 선택이 유지됩니다. 진행 중·삭제 보호 작업은 제외됩니다.</span>
+              <span class="hint">현재 분류·검색 범위에서 선택합니다. 진행 중·삭제 보호 작업도 분류 변경은 가능합니다.</span>
             </div>
           </div>
           <p id="jobs-loading-status" class="hint" role="status" aria-live="polite"></p>
           <div id="jobs-list" class="stack"></div>
           <nav id="jobs-pagination" class="jobs-pagination hidden" aria-label="작업 이력 페이지"></nav>
+            </div>
+          </div>
         </section>
 
         <section id="view-outputs" class="view hidden">
@@ -343,6 +407,15 @@
               from_home_server의 현재 파일 상태를 보여줍니다.
             </p>
           </div>
+          <div class="output-folder-filter">
+            <label for="output-job-folder">작업 분류</label>
+            <select id="output-job-folder" aria-describedby="output-job-folder-description">
+              <option value="">📋 전체 결과물</option>
+              <option value="unassigned">📥 미분류</option>
+            </select>
+            <p id="output-job-folder-description" class="hint">선택한 분류와 모든 하위 분류의 결과물을 표시합니다. 미분류에는 작업 이력이 없는 파일도 포함됩니다.</p>
+          </div>
+          <div class="output-favorite-toolbar"><label class="preview-original-toggle"><input id="outputs-favorites-only" type="checkbox" role="switch" /><span>즐겨찾기만</span></label></div>
           <div class="toolbar">
             <div class="inline-actions">
               <span id="output-count" class="hint"></span
@@ -364,7 +437,7 @@
               <button id="select-all-outputs" class="button subtle small" type="button">현재 페이지 선택</button>
               <button id="select-every-output" class="button subtle small" type="button">결과물 전체 선택</button>
               <span id="selected-output-count" class="hint" role="status">0개 선택</span>
-              <button id="move-selected-outputs" class="button subtle small" type="button" disabled>선택된 결과물 이동</button>
+              <button id="move-selected-outputs" class="button subtle small" type="button" disabled>선택 파일 이동</button>
               <button id="delete-selected-outputs" class="button danger small" type="button" disabled>선택된 결과물 삭제</button>
               <span class="hint">현재 필터 안에서 페이지를 이동해도 선택이 유지됩니다. 이미지·영상 모두 삭제할 수 있으며, 삭제 보호된 결과물은 이동만 가능합니다.</span>
             </div>
@@ -375,14 +448,35 @@
 
         <section id="view-prompts" class="view hidden">
           <div class="section-intro">
-            <h2>Prompt builder</h2>
-            <p id="preset-form-description">공통 문구와 선택한 태그 조합을 버전으로 저장합니다.</p>
+            <h2>Prompt 관리</h2>
+            <p>Prompt를 편집하고 버전으로 보관합니다. 생성 화면에는 ‘생성에서 사용’으로 적용합니다.</p>
           </div>
-          <div class="panel stack">
+          <div id="prompt-manager-layout" class="prompt-manager-layout" data-mobile-pane="list">
+          <section class="panel prompt-manager-list" aria-labelledby="prompt-list-title">
+            <div class="panel-heading"><h3 id="prompt-list-title">저장된 Prompt</h3><button id="new-preset-button" class="button primary small" type="button">＋ 새 Prompt</button></div>
+            <label for="preset-search">Prompt 검색</label>
+            <input id="preset-search" type="search" placeholder="이름 또는 본문 검색" />
+            <label for="preset-workflow-filter">Workflow 필터</label>
+            <select id="preset-workflow-filter"><option value="">모든 Workflow</option><option value="anima">Anima Turbo V9</option><option value="minimax_h3">MiniMax H3</option></select>
+            <p id="preset-list-count" class="hint"></p>
+            <div id="preset-list" class="preset-list prompt-list"></div>
+          </section>
+          <section class="panel prompt-manager-detail" aria-labelledby="prompt-editor-title">
+            <button id="prompt-list-back" class="button subtle prompt-list-back" type="button">← Prompt 목록</button>
+            <div class="prompt-editor-heading">
+              <div><h3 id="prompt-editor-title">새 Prompt</h3><p id="preset-version" class="prompt-editor-status" role="status">새 Prompt · 아직 저장하지 않음</p></div>
+              <div class="inline-actions"><button id="new-preset-detail-button" class="button subtle small" type="button">＋ 새 Prompt</button><button id="copy-preset-button" class="button subtle small" type="button">복제해서 새로 만들기</button></div>
+            </div>
+            <div class="prompt-detail-tabs" role="tablist" aria-label="Prompt 상세">
+              <button id="preset-edit-tab" class="button subtle" type="button" role="tab" aria-selected="true" aria-controls="preset-edit-panel">편집</button>
+              <button id="preset-history-tab" class="button subtle" type="button" role="tab" aria-selected="false" aria-controls="preset-history-panel">버전 기록</button>
+            </div>
+            <div id="preset-edit-panel" role="tabpanel" aria-labelledby="preset-edit-tab" class="stack">
+            <p id="preset-form-description" class="hint">태그 참조가 포함된 Prompt 텍스트를 버전으로 저장합니다.</p>
             <div class="field-row">
               <div>
-                <label for="preset-name">Preset 이름</label
-                ><input id="preset-name" placeholder="예: 캐릭터 이미지 실험" />
+                <label for="preset-name">Prompt 이름</label
+                ><input id="preset-name" maxlength="120" placeholder="예: 캐릭터 이미지 실험" />
               </div>
               <div>
                 <label for="preset-workflow">Workflow</label
@@ -408,63 +502,47 @@
               ></textarea>
               <p class="hint">[TAG] 참조가 포함된 원문을 저장합니다. 생성 화면에서 태그를 선택하면 이미지마다 독립 치환합니다.</p>
             </div>
-            <div class="inline-actions">
-              <button
-                id="save-preset-button"
-                class="button primary"
-                type="button"
-              >
-                새 버전 저장</button
-              ><span id="preset-version" class="hint"></span>
+            <p id="preset-editor-error" class="form-error" role="alert"></p>
+            <p id="preset-save-message" class="prompt-editor-status" role="status"></p>
+            <div class="prompt-editor-actions">
+              <p id="preset-save-target" class="hint">새 Prompt로 저장합니다.</p>
+              <div class="inline-actions"><button id="save-preset-button" class="button primary" type="button">새 Prompt 저장</button><button id="use-preset-button" class="button subtle" type="button">생성에서 사용</button></div>
             </div>
-          </div>
-          <div class="panel stack">
-            <div class="panel-heading"><h3>저장된 preset</h3></div>
-            <div id="preset-list" class="preset-list"></div>
-            <div id="preset-version-history" class="preset-list"></div>
+            </div>
+            <div id="preset-history-panel" role="tabpanel" aria-labelledby="preset-history-tab" class="stack hidden">
+              <p id="preset-history-title" class="hint">선택한 Prompt의 버전 기록</p>
+              <p id="preset-history-status" class="hint" role="status"></p>
+              <button id="retry-preset-versions" class="button subtle small hidden" type="button">버전 다시 불러오기</button>
+              <div id="preset-version-history" class="preset-list prompt-version-list"></div>
+              <section id="preset-version-preview" class="prompt-version-preview hidden" aria-labelledby="preset-preview-title">
+                <h4 id="preset-preview-title"></h4><p class="hint">저장된 본문 미리보기입니다. 현재 편집 내용과 생성 화면은 바뀌지 않습니다.</p>
+                <h5>Prompt</h5><pre id="preset-preview-prompt"></pre>
+                <div id="preset-preview-negative-section"><h5>Negative Prompt</h5><pre id="preset-preview-negative"></pre></div>
+                <button id="load-preset-version-button" class="button primary" type="button">이 버전으로 편집 시작</button>
+              </section>
+            </div>
+          </section>
           </div>
         </section>
         <section id="view-tags" class="view hidden">
-          <div class="section-intro">
-            <h2>표시 그룹 관리</h2>
-            <p>그룹의 공통 참조 태그와 기본 펼침 상태를 관리합니다.</p>
-          </div>
-          <div class="panel stack">
-            <div class="panel-heading"><h3>표시 그룹</h3><button id="new-tag-group-button" class="button subtle small" type="button">새 그룹</button></div>
-            <form id="tag-group-form" class="stack">
-              <label for="tag-group-name">그룹 이름</label>
-              <input id="tag-group-name" maxlength="120" required placeholder="예: 캐릭터" />
-              <label for="tag-group-key">참조 태그</label>
-              <input id="tag-group-key" maxlength="64" required placeholder="CHR" pattern="[A-Z][A-Z0-9_]*" />
-              <p class="hint">그룹의 모든 항목에 적용됩니다. 여러 그룹에서 같은 참조 태그를 사용할 수 있습니다.</p>
-              <label class="tag-inline-check"><input id="tag-group-default-expanded" type="checkbox" checked /> 생성 화면에서 기본으로 펼치기</label>
-              <button class="button primary" type="submit">그룹 저장</button>
-            </form>
-            <div id="tag-group-list" class="preset-list"></div>
-          </div>
-          <div class="section-intro tag-entry-section-intro">
-            <h2>태그 항목 관리</h2>
-            <p>Prompt에 사용할 태그 항목의 본문과 선택 weight를 관리합니다.</p>
-          </div>
-          <div class="panel stack">
-            <div class="panel-heading"><h3>태그 항목</h3><button id="new-tag-entry-button" class="button subtle small" type="button">새 항목</button></div>
-            <form id="tag-entry-form" class="stack">
-              <label for="tag-entry-group">표시 그룹</label>
-              <select id="tag-entry-group" required></select>
-              <p id="tag-entry-reference" class="hint"></p>
-              <label for="tag-entry-name">항목 이름</label>
-              <input id="tag-entry-name" maxlength="120" required placeholder="예: 1인 a or b" />
-              <label for="tag-entry-content">본문</label>
-              <textarea id="tag-entry-content" rows="5" required placeholder="예: {캐릭터a|캐릭터b} 또는 [CHR], fight"></textarea>
-              <label for="tag-entry-weight">선택 weight</label>
-              <input id="tag-entry-weight" type="number" min="0.01" step="any" value="1" required />
-              <button class="button primary" type="submit">항목 저장</button>
-            </form>
-            <div class="inline-actions">
-              <button id="expand-managed-tag-groups-button" class="button tag-expand small" type="button" aria-controls="tag-entry-list">태그 전부 펼치기</button>
-              <button id="collapse-managed-tag-groups-button" class="button subtle small" type="button" aria-controls="tag-entry-list">태그 전부 접기</button>
-            </div>
-            <div id="tag-entry-list" class="preset-list"></div>
+          <div id="tag-manager-layout" class="tag-manager-layout" data-mobile-pane="groups">
+            <section class="panel tag-manager-groups" aria-labelledby="tag-manager-groups-title">
+              <div class="panel-heading"><h3 id="tag-manager-groups-title">그룹 탐색</h3><button id="new-tag-group-button" class="button subtle small" type="button">새 그룹</button></div>
+              <label for="tag-manager-group-search">그룹 찾기</label>
+              <input id="tag-manager-group-search" type="search" placeholder="그룹 이름 또는 참조 태그" />
+              <label for="tag-manager-reference-filter">참조 태그</label>
+              <select id="tag-manager-reference-filter"><option value="">전체 참조 태그</option></select>
+              <p id="tag-manager-group-count" class="hint"></p>
+              <div id="tag-group-list" class="tag-manager-group-list" aria-label="표시 그룹 목록"></div>
+            </section>
+            <section class="panel tag-manager-entries" aria-labelledby="tag-manager-selected-name">
+              <button id="tag-manager-back" class="button subtle small tag-manager-back" type="button">← 그룹 목록</button>
+              <div class="tag-manager-entry-heading"><div><h3 id="tag-manager-selected-name">그룹을 선택해 주세요.</h3><p id="tag-manager-selected-reference" class="hint"></p></div><div class="inline-actions"><button id="edit-selected-tag-group" class="button subtle small" type="button" disabled>그룹 설정</button><button id="new-tag-entry-button" class="button primary small" type="button" disabled>새 항목</button></div></div>
+              <label for="tag-manager-entry-search">이 그룹에서 항목 찾기</label>
+              <input id="tag-manager-entry-search" type="search" placeholder="항목 이름 또는 본문" disabled />
+              <p id="tag-manager-entry-count" class="hint"></p>
+              <div id="tag-entry-list" class="tag-manager-entry-list"></div>
+            </section>
           </div>
         </section>
         <section id="view-lora-presets" class="view hidden">
@@ -512,8 +590,31 @@
         ><a data-navigation data-view="lora-presets" href="?view=lora-presets">◇<span>LoRA 조합</span></a>
       </nav>
     </div>
+    <dialog id="tag-group-dialog" class="folder-picker tag-editor-dialog" aria-labelledby="tag-group-dialog-title">
+      <h2 id="tag-group-dialog-title">새 그룹</h2>
+      <form id="tag-group-form" class="stack">
+        <label for="tag-group-name">그룹 이름</label><input id="tag-group-name" maxlength="120" required placeholder="예: 캐릭터" />
+        <label for="tag-group-key">참조 태그</label><input id="tag-group-key" maxlength="64" required placeholder="CHR" pattern="[A-Z][A-Z0-9_]*" />
+        <p class="hint">이 그룹의 모든 항목에 적용됩니다. 여러 그룹이 같은 참조 태그를 사용할 수 있습니다.</p>
+        <label class="tag-inline-check"><input id="tag-group-default-expanded" type="checkbox" checked /> 생성 화면에서 기본으로 펼치기</label>
+        <p id="tag-group-editor-status" class="form-error" role="alert"></p>
+        <div class="tag-editor-actions"><button id="delete-selected-tag-group" class="button danger" type="button" hidden>그룹 삭제</button><span></span><button id="tag-group-cancel" class="button subtle" type="button">취소</button><button class="button primary" type="submit">그룹 저장</button></div>
+      </form>
+    </dialog>
+    <dialog id="tag-entry-dialog" class="folder-picker tag-editor-dialog" aria-labelledby="tag-entry-dialog-title">
+      <h2 id="tag-entry-dialog-title">새 항목</h2>
+      <form id="tag-entry-form" class="stack">
+        <label for="tag-entry-group">표시 그룹</label><select id="tag-entry-group" required></select>
+        <p id="tag-entry-reference" class="hint"></p>
+        <label for="tag-entry-name">항목 이름</label><input id="tag-entry-name" maxlength="120" required placeholder="항목 이름" />
+        <label for="tag-entry-content">본문</label><textarea id="tag-entry-content" rows="9" required placeholder="예: [CHR], walking"></textarea>
+        <label for="tag-entry-weight">선택 weight</label><input id="tag-entry-weight" type="number" min="0.01" step="any" value="1" required />
+        <p id="tag-entry-editor-status" class="form-error" role="alert"></p>
+        <div class="tag-editor-actions"><button id="delete-selected-tag-entry" class="button danger" type="button" hidden>항목 삭제</button><span></span><button id="tag-entry-cancel" class="button subtle" type="button">취소</button><button class="button primary" type="submit">항목 저장</button></div>
+      </form>
+    </dialog>
     <dialog id="output-folder-picker" class="folder-picker" aria-labelledby="folder-picker-title" aria-describedby="folder-picker-description">
-      <h2 id="folder-picker-title">이동할 폴더 선택</h2>
+      <h2 id="folder-picker-title">파일을 옮길 폴더 선택</h2>
       <p id="folder-picker-description" class="hint"></p>
       <nav id="folder-picker-breadcrumb" class="folder-breadcrumb" aria-label="현재 폴더 경로"></nav>
       <button id="folder-picker-parent" class="button subtle" type="button">상위 폴더</button>
@@ -531,8 +632,35 @@
       <p id="folder-picker-creation-hint" class="hint">새 폴더를 만들면 그 폴더가 열립니다. 이동을 취소해도 만든 폴더는 남습니다.</p>
       <div class="folder-picker-actions">
         <button id="folder-picker-cancel" class="button subtle" type="button">취소</button>
-        <button id="folder-picker-confirm" class="button primary" type="button">이 폴더로 이동</button>
+        <button id="folder-picker-confirm" class="button primary" type="button">이 폴더로 파일 이동</button>
       </div>
+    </dialog>
+    <dialog id="job-folder-editor" class="folder-picker" aria-labelledby="job-folder-editor-title">
+      <h2 id="job-folder-editor-title">새 분류</h2>
+      <form id="job-folder-editor-form" class="stack">
+        <label for="job-folder-name">분류 이름</label>
+        <input id="job-folder-name" maxlength="80" required autocomplete="off" />
+        <label for="job-folder-parent">상위 분류</label>
+        <select id="job-folder-parent"></select>
+        <p class="hint">작업 분류는 최대 3단계까지 만들 수 있습니다.</p>
+        <p id="job-folder-editor-status" class="hint" role="status"></p>
+        <div class="folder-picker-actions">
+          <button id="job-folder-editor-cancel" class="button subtle" type="button">취소</button>
+          <button id="job-folder-editor-save" class="button primary" type="submit">저장</button>
+        </div>
+      </form>
+    </dialog>
+    <dialog id="job-folder-move-dialog" class="folder-picker" aria-labelledby="job-folder-move-title">
+      <h2 id="job-folder-move-title">작업 분류 변경</h2>
+      <form id="job-folder-move-form" class="stack">
+        <p id="job-folder-move-summary" class="hint"></p>
+        <div id="job-folder-move-tree" class="job-folder-move-tree" role="radiogroup" aria-label="변경할 작업 분류"></div>
+        <p id="job-folder-move-status" class="hint" role="status"></p>
+        <div class="folder-picker-actions">
+          <button id="job-folder-move-cancel" class="button subtle" type="button">취소</button>
+          <button id="job-folder-move-save" class="button primary" type="submit">이 분류로 변경</button>
+        </div>
+      </form>
     </dialog>
     <dialog id="job-description-dialog" class="folder-picker" aria-labelledby="job-description-title">
       <h2 id="job-description-title">작업 설명 수정</h2>
@@ -580,7 +708,10 @@
         <button id="image-preview-next" class="button subtle" type="button" data-preview-next disabled>다음 →</button>
       </div>
       <div class="preview-actions">
-        <a id="image-preview-original" class="button subtle" target="_blank" rel="noopener">원본 보기</a>
+        <div class="preview-source-actions">
+          <a id="image-preview-original" class="button subtle" target="_blank" rel="noopener">원본 새 탭으로 보기</a>
+          <label class="preview-original-toggle"><input id="image-preview-original-toggle" type="checkbox" role="switch" data-preview-original-toggle /><span>원본 보기</span></label>
+        </div>
         <button id="image-preview-delete" class="button danger" type="button" disabled>삭제</button>
       </div>
       <div id="image-preview-notice" class="notice hidden" role="status" aria-live="polite"></div>
@@ -597,10 +728,18 @@
         <button id="video-preview-next" class="button subtle" type="button" data-preview-next disabled>다음 →</button>
       </div>
       <div class="preview-actions">
-        <a id="video-preview-original" class="button subtle" target="_blank" rel="noopener">원본 열기</a>
+        <div class="preview-source-actions">
+          <a id="video-preview-original" class="button subtle" target="_blank" rel="noopener">원본 새 탭으로 보기</a>
+          <label class="preview-original-toggle"><input id="video-preview-original-toggle" type="checkbox" role="switch" data-preview-original-toggle /><span>원본 보기</span></label>
+        </div>
         <button id="video-preview-delete" class="button danger" type="button" disabled>삭제</button>
       </div>
       <div id="video-preview-notice" class="notice hidden" role="status" aria-live="polite"></div>
+    </dialog>
+    <dialog id="favorite-details-dialog" class="folder-picker" aria-labelledby="favorite-details-title">
+      <h2 id="favorite-details-title">즐겨찾기 생성 정보</h2>
+      <div id="favorite-details-content" class="stack"></div>
+      <div class="inline-actions"><button id="favorite-details-exact" class="button primary" type="button">생성 그대로 복원</button><button id="favorite-details-source" class="button subtle" type="button">원본으로 변형</button><button id="favorite-details-close" class="button subtle" type="button">닫기</button></div>
     </dialog>
   </body>
 </html>

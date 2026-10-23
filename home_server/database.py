@@ -11,6 +11,8 @@ from typing import Any
 
 from .output_timing import OutputTimingRecorder, measure_output_step
 from .output_catalog import OutputCatalog
+from .job_folders import JobFolderStore
+from .request_favorites import RequestFavoriteStore
 
 
 def current_timestamp() -> str:
@@ -37,9 +39,15 @@ class Database:
                 self._backup_before_schema_change(connection, "output_catalog")
             elif schema_version == 10:
                 self._backup_before_schema_change(connection, "output_deletion")
+            elif schema_version == 11:
+                self._backup_before_schema_change(connection, "job_folders")
+            elif schema_version == 12:
+                self._backup_before_schema_change(connection, "request_started_at")
+            elif schema_version == 13:
+                self._backup_before_schema_change(connection, "request_favorites")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -102,9 +110,13 @@ class Database:
                     error_message TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
+                    started_at TEXT,
                     UNIQUE (job_id, request_index)
                 )"""
             )
+            request_columns = {column[1] for column in connection.execute("PRAGMA table_info(job_requests)")}
+            if "started_at" not in request_columns:
+                connection.execute("ALTER TABLE job_requests ADD COLUMN started_at TEXT")
             connection.execute("CREATE INDEX IF NOT EXISTS jobs_created_at ON jobs(created_at DESC)")
             connection.execute("CREATE INDEX IF NOT EXISTS job_requests_job_id ON job_requests(job_id, request_index)")
             connection.execute("CREATE INDEX IF NOT EXISTS job_requests_status ON job_requests(status)")
@@ -150,7 +162,11 @@ class Database:
             OutputCatalog.prepare_schema(connection)
             if schema_version < 10:
                 OutputCatalog.backfill_from_requests(connection)
-            connection.execute("PRAGMA user_version = 11")
+            JobFolderStore.prepare_schema(connection)
+            RequestFavoriteStore.prepare_schema(connection)
+            connection.execute("PRAGMA user_version = 14")
+        self.job_folders = JobFolderStore(self._connect)
+        self.favorites = RequestFavoriteStore(self._connect, database_path.parent)
 
     def _separate_request_detail(
         self, detail: dict[str, Any],
@@ -505,7 +521,9 @@ class Database:
             "loras": json.loads(row["loras_json"]), "created_at": row["created_at"], "updated_at": row["updated_at"],
         }
 
-    def add_job(self, job_id: str, workflow: str, description: str, requests: list[dict[str, Any]]) -> None:
+    def add_job(
+        self, job_id: str, workflow: str, description: str, requests: list[dict[str, Any]], folder_id: str | None = None,
+    ) -> None:
         """공통 입력은 작업당 한 번, 확정 결과는 요청별로 같은 transaction에 저장합니다."""
 
         timestamp = current_timestamp()
@@ -515,6 +533,7 @@ class Database:
                 "INSERT INTO jobs (job_id, workflow, request_count, created_at, description) VALUES (?, ?, ?, ?, ?)",
                 (job_id, workflow, len(requests), timestamp, description),
             )
+            JobFolderStore.assign_jobs(connection, [job_id], folder_id)
             connection.execute(
                 "INSERT INTO job_inputs (job_id, input_json, selected_tags_json) VALUES (?, ?, ?)",
                 (job_id, json.dumps(common_inputs, ensure_ascii=False), json.dumps(selected_tags, ensure_ascii=False)),
@@ -538,19 +557,23 @@ class Database:
                     (request["request_id"], upload_id, json.dumps(resolved_result, ensure_ascii=False)),
                 )
 
-    def list_jobs(self, page: int = 1, page_size: int = 10, job_id: str = "") -> dict[str, Any]:
+    def list_jobs(
+        self, page: int = 1, page_size: int = 10, job_id: str = "", folder_id: str = "", search: str = "",
+    ) -> dict[str, Any]:
         """상위 작업을 페이지 단위로 조회하고 전체 활성 작업 수를 반환합니다."""
 
-        filter_clause = " WHERE job_id = ?" if job_id else ""
-        filter_values = (job_id,) if job_id else ()
         with self._connect() as connection:
+            connection.execute("BEGIN")
+            filter_clause, filter_values = JobFolderStore.build_job_filter(connection, job_id, folder_id, search)
             total = connection.execute("SELECT COUNT(*) FROM jobs" + filter_clause, filter_values).fetchone()[0]
             active_count = connection.execute(
                 "SELECT COUNT(DISTINCT job_id) FROM job_requests "
                 "WHERE status IN ('submitting', 'pending', 'running', 'cancelling')"
             ).fetchone()[0]
             job_rows = connection.execute(
-                "SELECT jobs.*, job_inputs.input_json FROM jobs JOIN job_inputs USING (job_id)" + filter_clause
+                "SELECT jobs.*, job_inputs.input_json, "
+                "(SELECT folder_id FROM job_folder_assignments WHERE job_id=jobs.job_id) AS folder_id "
+                "FROM jobs JOIN job_inputs USING (job_id)" + filter_clause
                 + " ORDER BY created_at DESC, jobs.rowid DESC LIMIT ? OFFSET ?",
                 (*filter_values, page_size, (page - 1) * page_size),
             ).fetchall()
@@ -582,22 +605,26 @@ class Database:
                 "WHERE status IN ('submitting', 'pending', 'running', 'cancelling')"
             ).fetchone()[0]
 
-    def list_job_summaries(self, page: int = 1, page_size: int = 10, job_id: str = "") -> dict[str, Any]:
+    def list_job_summaries(
+        self, page: int = 1, page_size: int = 10, job_id: str = "", folder_id: str = "", search: str = "",
+    ) -> dict[str, Any]:
         """공통 입력과 상태 집계만 읽으며 선택 후보 JSON은 읽지 않습니다."""
 
-        filter_clause = " WHERE job_id = ?" if job_id else ""
-        filter_values = (job_id,) if job_id else ()
         with self._connect() as connection:
+            connection.execute("BEGIN")
+            filter_clause, filter_values = JobFolderStore.build_job_filter(connection, job_id, folder_id, search)
             total = connection.execute("SELECT COUNT(*) FROM jobs" + filter_clause, filter_values).fetchone()[0]
             job_rows = connection.execute(
-                "SELECT jobs.*, job_inputs.input_json FROM jobs JOIN job_inputs USING (job_id)" + filter_clause
+                "SELECT jobs.*, job_inputs.input_json, "
+                "(SELECT folder_id FROM job_folder_assignments WHERE job_id=jobs.job_id) AS folder_id "
+                "FROM jobs JOIN job_inputs USING (job_id)" + filter_clause
                 + " ORDER BY created_at DESC, jobs.rowid DESC LIMIT ? OFFSET ?",
                 (*filter_values, page_size, (page - 1) * page_size),
             ).fetchall()
             items = []
             for job_row in job_rows:
                 status_rows = connection.execute(
-                    "SELECT status, COUNT(*) AS request_count, MAX(updated_at) AS updated_at, "
+                    "SELECT status, COUNT(*) AS request_count, MAX(updated_at) AS updated_at, MIN(started_at) AS started_at, "
                     "SUM(CASE WHEN status = 'cancelling' AND error_message IS NOT NULL THEN 1 ELSE 0 END) "
                     "AS cancellation_failures FROM job_requests WHERE job_id = ? GROUP BY status",
                     (job_row["job_id"],),
@@ -622,7 +649,10 @@ class Database:
                 items.append({
                     "job_id": job_row["job_id"], "workflow": job_row["workflow"],
                     "description": job_row["description"], "request_count": job_row["request_count"],
+                    "folder_id": job_row["folder_id"],
+                    "preview_files": self._job_preview_files(connection, job_row["job_id"]),
                     "created_at": job_row["created_at"],
+                    "started_at": min((row["started_at"] for row in status_rows if row["started_at"]), default=None),
                     "updated_at": max((row["updated_at"] for row in status_rows), default=job_row["created_at"]),
                     "deletion_protected": bool(job_row["deletion_protected"]),
                     "cancellation_requested": bool(job_row["cancellation_requested"]),
@@ -641,7 +671,8 @@ class Database:
 
         with self._connect() as connection:
             job_row = connection.execute(
-                "SELECT jobs.*, job_inputs.input_json, job_inputs.selected_tags_json "
+                "SELECT jobs.*, job_inputs.input_json, job_inputs.selected_tags_json, "
+                "(SELECT folder_id FROM job_folder_assignments WHERE job_id=jobs.job_id) AS folder_id "
                 "FROM jobs JOIN job_inputs USING (job_id) WHERE job_id = ?", (job_id,),
             ).fetchone()
             if job_row is None:
@@ -650,24 +681,41 @@ class Database:
         inputs["selected_tags"] = json.loads(job_row["selected_tags_json"])
         return {
             "job_id": job_id, "workflow": job_row["workflow"], "description": job_row["description"],
+            "folder_id": job_row["folder_id"],
             "request_count": job_row["request_count"],
             "inputs": inputs,
         }
 
-    def list_deletable_job_ids(self, job_id: str = "") -> list[str]:
+    def list_job_selection_candidates(self, job_id: str = "", folder_id: str = "", search: str = "") -> dict[str, list[str]]:
+        """이동 가능한 전체 작업과 삭제 가능한 작업을 같은 조회 범위에서 구분합니다."""
+
+        with self._connect() as connection:
+            connection.execute("BEGIN")
+            filter_clause, filter_values = JobFolderStore.build_job_filter(connection, job_id, folder_id, search)
+            job_rows = connection.execute(
+                "SELECT jobs.job_id, jobs.deletion_protected, "
+                "EXISTS (SELECT 1 FROM job_requests WHERE job_requests.job_id=jobs.job_id "
+                "AND status IN ('submitting', 'pending', 'running', 'cancelling')) AS is_active "
+                "FROM jobs" + filter_clause + " ORDER BY jobs.created_at DESC, jobs.rowid DESC", filter_values,
+            ).fetchall()
+        return {
+            "job_ids": [row["job_id"] for row in job_rows],
+            "deletable_job_ids": [row["job_id"] for row in job_rows if not row["deletion_protected"] and not row["is_active"]],
+        }
+
+    def list_deletable_job_ids(self, job_id: str = "", folder_id: str = "", search: str = "") -> list[str]:
         """모든 페이지에서 보호되지 않고 활성 요청이 없는 작업 ID를 반환합니다."""
 
-        filter_clause = " AND jobs.job_id = ?" if job_id else ""
-        filter_values = (job_id,) if job_id else ()
-        with self._connect() as connection:
-            job_rows = connection.execute(
-                "SELECT jobs.job_id FROM jobs WHERE jobs.deletion_protected = 0 "
-                "AND NOT EXISTS (SELECT 1 FROM job_requests WHERE job_requests.job_id = jobs.job_id "
-                "AND status IN ('submitting', 'pending', 'running', 'cancelling'))"
-                + filter_clause + " ORDER BY jobs.created_at DESC, jobs.rowid DESC",
-                filter_values,
-            ).fetchall()
-        return [job_row["job_id"] for job_row in job_rows]
+        return self.list_job_selection_candidates(job_id, folder_id, search)["deletable_job_ids"]
+
+    def _job_preview_files(self, connection: sqlite3.Connection, job_id: str) -> list[dict[str, Any]]:
+        """가용 Catalog에서 대표 결과물 3개만 읽고 파일 조회·영상 변환은 실행하지 않습니다."""
+
+        rows = connection.execute(
+            "SELECT output_id, relative_path FROM output_files "
+            "WHERE job_id=? AND is_available=1 AND is_deleted=0 ORDER BY output_id DESC LIMIT 3", (job_id,),
+        ).fetchall()
+        return [{"output_id": row["output_id"], "path": row["relative_path"]} for row in rows]
 
     def update_job_description(self, job_id: str, description: str) -> bool:
         """작업의 설명 column만 갱신하며 생성 입력·요청 시각·정렬·보호 상태는 유지합니다."""
@@ -731,7 +779,9 @@ class Database:
         with connection:
             with measure_output_step(output_timing, "filter_job_sql", emit=True):
                 job_row = connection.execute(
-                    "SELECT jobs.*, job_inputs.input_json FROM jobs JOIN job_inputs USING (job_id) WHERE job_id = ?",
+                    "SELECT jobs.*, job_inputs.input_json, "
+                    "(SELECT folder_id FROM job_folder_assignments WHERE job_id=jobs.job_id) AS folder_id "
+                    "FROM jobs JOIN job_inputs USING (job_id) WHERE job_id = ?",
                     (job_id,),
                 ).fetchone()
             if job_row is None:
@@ -775,7 +825,7 @@ class Database:
             if limit is not None:
                 query_values.append(limit)
             rows = connection.execute(
-                "SELECT request_id, job_id, prompt_id, status, updated_at, jobs.workflow "
+                "SELECT request_id, job_id, prompt_id, status, updated_at, started_at, jobs.workflow "
                 "FROM job_requests JOIN jobs USING (job_id) "
                 "WHERE status IN ('submitting', 'pending', 'running', 'cancelling') "
                 + filter_clause + " ORDER BY job_requests.created_at DESC" + limit_clause,
@@ -840,6 +890,12 @@ class Database:
         applied_updates = []
         with self._connect() as connection:
             for update in updates:
+                if update.get("started_at"):
+                    connection.execute(
+                        "UPDATE job_requests SET started_at = ? WHERE request_id = ? "
+                        "AND status IN ('pending', 'running', 'cancelling')",
+                        (update["started_at"], update["request_id"]),
+                    )
                 if update["status"] in {"pending", "running"}:
                     change_result = connection.execute(
                         "UPDATE job_requests SET status = ?, updated_at = ? WHERE request_id = ? "
@@ -983,6 +1039,7 @@ class Database:
             "upload_id": row["upload_id"], "result": json.loads(row["result_json"]),
             "error_message": row["error_message"],
             "created_at": row["created_at"], "updated_at": row["updated_at"],
+            "started_at": row["started_at"],
         }
 
     def _job_from_row(self, row: sqlite3.Row, requests: list[dict[str, Any]]) -> dict[str, Any]:
@@ -996,9 +1053,11 @@ class Database:
             "job_id": row["job_id"], "workflow": row["workflow"],
             "inputs": json.loads(row["input_json"]),
             "description": row["description"],
+            "folder_id": row["folder_id"] if "folder_id" in row.keys() else None,
             "deletion_protected": bool(row["deletion_protected"]),
             "cancellation_requested": bool(row["cancellation_requested"]),
             "request_count": row["request_count"], "created_at": row["created_at"],
+            "started_at": min((request["started_at"] for request in requests if request["started_at"]), default=None),
             "updated_at": max((request["updated_at"] for request in requests), default=row["created_at"]),
             "status": self._job_status(status_counts, len(requests)), "status_counts": status_counts, "requests": requests,
         }

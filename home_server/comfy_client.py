@@ -112,6 +112,19 @@ class ComfyClient:
 
         return await self.request_json("GET", f"/history/{prompt_id}", timeout=15)
 
+    async def free_memory(self) -> None:
+        """Model unload와 execution cache 해제를 요청하고 빈 성공 응답을 처리합니다."""
+
+        response = await self.client.post(
+            "/free", json={"unload_models": True, "free_memory": True}, timeout=15,
+        )
+        response.raise_for_status()
+
+    async def system_resources(self) -> dict[str, Any]:
+        """설치된 DaSiWa API에서 Docker가 아닌 ComfyUI host의 자원 상태를 읽습니다."""
+
+        return await self.request_json("GET", "/dasiwa/system-monitor", timeout=2)
+
     async def cancel_prompt(self, prompt_id: str) -> bool:
         """ComfyUI에서 지정한 대기·실행 요청만 취소합니다."""
 
