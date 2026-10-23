@@ -31,7 +31,7 @@ def test_schema_twelve_migration_keeps_unknown_start_times_and_backups(tmp_path:
     assert migrated_request["updated_at"] == original_request["updated_at"]
     assert migrated_request["result"] == original_request["result"]
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 13
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 14
         assert "finished_at" not in {row[1] for row in connection.execute("PRAGMA table_info(job_requests)")}
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

@@ -314,7 +314,9 @@ class OutputCatalog:
                 ).fetchone()[0]
             with measure_output_step(output_timing, "catalog_page_query", emit=True):
                 page_rows = connection.execute(
-                    "SELECT output_id,relative_path,generated_at,seed,job_id,requested_width,requested_height,"
+                    "SELECT output_id,relative_path,generated_at,seed,job_id,request_id,requested_width,requested_height,"
+                    "(SELECT favorite_id FROM favorite_output_links WHERE favorite_output_links.output_id=output_files.output_id) "
+                    "AS favorite_id,"
                     "COALESCE((SELECT deletion_protected FROM jobs WHERE jobs.job_id=output_files.job_id),0) "
                     "AS deletion_protected "
                     f"FROM output_files WHERE {filter_clause} ORDER BY {OUTPUT_SORT_ORDER} LIMIT ? OFFSET ?",
@@ -334,6 +336,7 @@ class OutputCatalog:
                 "seed": generation_seed,
                 "kind": "video" if is_video else "image",
                 "job_id": page_row["job_id"],
+                "request_id": page_row["request_id"], "favorite_id": page_row["favorite_id"],
                 "deletion_protected": bool(page_row["deletion_protected"]),
                 "width": width,
                 "height": height,
@@ -347,6 +350,7 @@ class OutputCatalog:
     def get_file_neighbors(
         self, output_id: int, job_id: str = "", request_id: str = "", prefix: str = "",
         folder_id: str = "",
+        favorite_id: str = "",
     ) -> dict[str, dict[str, Any] | None]:
         """현재 파일의 보호 상태와 같은 범위의 인접 파일을 페이지·FS·이력 JSON 없이 읽습니다."""
 
@@ -358,6 +362,9 @@ class OutputCatalog:
         if request_id:
             conditions.append("request_id=?")
             parameters.append(request_id)
+        if favorite_id:
+            conditions.append("output_id IN (SELECT output_id FROM favorite_output_links WHERE favorite_id=?)")
+            parameters.append(favorite_id)
         if prefix:
             conditions.append("substr(relative_path,1,?)=?")
             parameters.extend((len(prefix), prefix))

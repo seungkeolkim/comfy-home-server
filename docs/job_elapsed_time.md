@@ -19,7 +19,7 @@
 
 Schema 12에서 시작하면 `runtime/backups/*_before_request_started_at_*.sqlite3` 백업을 검증한 뒤 nullable Column을 추가합니다. 기존 시작 시각은 모두 NULL로 유지하며 과거 이력을 별도로 조회해 채우지 않습니다. 작업·요청·분류·입력/결과 JSON과 실제 파일은 그대로 유지합니다.
 
-Schema 12 코드로 복귀해야 한다면 서버를 중지하고 현재 DB를 추가 백업한 뒤 다음 Transaction으로 시작 시각 Column만 제거합니다. 실행 전 실제 `PRAGMA user_version`이 13인지 확인해야 합니다.
+Schema 12 코드로 복귀해야 한다면 서버를 중지하고 현재 DB를 추가 백업한 뒤 다음 Transaction으로 시작 시각 Column만 제거합니다. 실행 전 실제 `PRAGMA user_version`이 13인지 확인해야 합니다. 현재 Schema 14에서는 먼저 [즐겨찾기 Rollback](request_favorites.md)으로 Schema 13으로 전환해야 합니다.
 
 ```sql
 BEGIN IMMEDIATE;

@@ -35,7 +35,7 @@ async function waitForOutputFolder(page, folderIdentifier, expectedTotal) {
     const currentIdentifier = applicationState.outputFilter?.type === "folder" ? applicationState.outputFilter.id : "";
     return currentIdentifier === folderIdentifier && element("output-job-folder").value === folderIdentifier &&
       element("output-count").textContent.includes(`${expectedTotal}개`) &&
-      applicationState.outputSelectionScope === JSON.stringify(applicationState.outputFilter);
+      applicationState.outputSelectionScope === JSON.stringify([applicationState.outputFilter, false]);
   }, { folderIdentifier, expectedTotal });
 }
 

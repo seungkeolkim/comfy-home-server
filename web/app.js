@@ -15,6 +15,7 @@ const KOREAN_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
   hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
 });
 const NAVIGATION_VIEW_NAMES = ["generate", "jobs", "outputs", "prompts", "tags", "lora-presets"];
+const requestFavoriteState = { restoration: null, detailIdentifier: null, busy: false };
 const RESOURCE_POLL_INTERVAL_MILLISECONDS = 2000;
 const videoPreviewState = {
   revision: 0, outputId: null, timer: null, controller: null,
@@ -92,6 +93,8 @@ const applicationState = {
   pendingNavigationScroll: null,
   navigationScrollFrame: null,
   outputFilter: null,
+  outputsFavoritesOnly: false,
+  visibleFavoriteRequests: [],
   outputsPage: 1,
   outputsLoadRevision: 0,
   outputsRenderSignature: null,
@@ -392,6 +395,7 @@ function captureNavigationState() {
     jobFolderId: viewName === "jobs" ? applicationState.jobFolderId : "",
     jobSearch: viewName === "jobs" ? applicationState.jobSearch : "",
     outputFilter: viewName === "outputs" ? applicationState.outputFilter : null,
+    outputsFavoritesOnly: viewName === "outputs" ? applicationState.outputsFavoritesOnly : false,
     scrollPosition: window.scrollY,
     openJobIds,
     promptNavigation: viewName === "prompts" ? capturePromptNavigation() : null,
@@ -410,6 +414,7 @@ function isNavigationStateValid(navigationState) {
   if (navigationState.jobFilterId !== null && typeof navigationState.jobFilterId !== "string") return false;
   if (navigationState.jobFolderId !== undefined && typeof navigationState.jobFolderId !== "string") return false;
   if (navigationState.jobSearch !== undefined && typeof navigationState.jobSearch !== "string") return false;
+  if (navigationState.outputsFavoritesOnly !== undefined && typeof navigationState.outputsFavoritesOnly !== "boolean") return false;
   const outputFilter = navigationState.outputFilter;
   if (outputFilter !== null && (!outputFilter || !["job", "request", "folder"].includes(outputFilter.type) ||
       typeof outputFilter.id !== "string")) return false;
@@ -434,6 +439,7 @@ function navigationUrl(navigationState) {
     const outputFilter = navigationState.outputFilter;
     query.set(outputFilterParameterName(outputFilter.type), outputFilter.id);
   }
+  if (navigationState.viewName === "outputs" && (navigationState.outputsFavoritesOnly ?? applicationState.outputsFavoritesOnly)) query.set("favorites", "1");
   return `${window.location.pathname}?${query}`;
 }
 
@@ -452,7 +458,7 @@ function navigationStateFromUrl(url) {
     else if (requestIdentifier) outputFilter = { type: "request", id: requestIdentifier };
     else if (query.get("folder_id")) outputFilter = { type: "folder", id: query.get("folder_id") };
   }
-  return { viewName, pageNumber, jobFilterId: viewName === "jobs" ? jobIdentifier : null, outputFilter,
+  return { outputsFavoritesOnly: query.get("favorites") === "1", viewName, pageNumber, jobFilterId: viewName === "jobs" ? jobIdentifier : null, outputFilter,
     jobFolderId: viewName === "jobs" ? (query.get("folder_id") || "") : "",
     jobSearch: viewName === "jobs" ? (query.get("search") || "") : "" };
 }
@@ -504,7 +510,8 @@ function navigationRoutesMatch(previousState, nextState) {
   if (nextState.viewName === "outputs") {
     return previousState.pageNumber === nextState.pageNumber &&
       previousState.outputFilter?.type === nextState.outputFilter?.type &&
-      previousState.outputFilter?.id === nextState.outputFilter?.id;
+      previousState.outputFilter?.id === nextState.outputFilter?.id &&
+      Boolean(previousState.outputsFavoritesOnly) === Boolean(nextState.outputsFavoritesOnly);
   }
   if (["prompts", "tags"].includes(nextState.viewName)) {
     return JSON.stringify(managerNavigationRoute(previousState)) === JSON.stringify(managerNavigationRoute(nextState));
@@ -636,6 +643,7 @@ function displayNavigationState(navigationState) {
   if (viewName === "outputs") {
     applicationState.outputsPage = navigationState.pageNumber;
     applicationState.outputFilter = navigationState.outputFilter;
+    applicationState.outputsFavoritesOnly = Boolean(navigationState.outputsFavoritesOnly);
   }
   applicationState.currentView = viewName;
   document
@@ -697,7 +705,7 @@ async function loadNavigationState(navigationState, restoreOpenJobs) {
 }
 
 /** 탭·페이지·필터 이동을 기록하고 일반 탭 이동은 마지막 위치를 유지합니다. */
-function switchView(viewName, { resetScroll = false, pageNumber, jobFilterId, outputFilter, jobFolderId, jobSearch } = {}) {
+function switchView(viewName, { resetScroll = false, pageNumber, jobFilterId, outputFilter, jobFolderId, jobSearch, outputsFavoritesOnly } = {}) {
   if (managerHistoryState.traversalPending) return;
   const previousState = captureNavigationState();
   const nextState = {
@@ -708,6 +716,7 @@ function switchView(viewName, { resetScroll = false, pageNumber, jobFilterId, ou
     jobFolderId: viewName === "jobs" ? (jobFolderId ?? applicationState.jobFolderId) : "",
     jobSearch: viewName === "jobs" ? (jobSearch ?? applicationState.jobSearch) : "",
     outputFilter: viewName === "outputs" ? (outputFilter === undefined ? applicationState.outputFilter : outputFilter) : null,
+    outputsFavoritesOnly: viewName === "outputs" ? (outputsFavoritesOnly ?? applicationState.outputsFavoritesOnly) : false,
     scrollPosition: resetScroll ? 0 : (applicationState.viewScrollPositions.get(viewName) || 0),
     openJobIds: [],
     promptNavigation: viewName === "prompts" ? capturePromptNavigation() : null,
@@ -788,6 +797,7 @@ function initializeNavigationHistory() {
 
 /** Workflow를 바꿀 때 기존 모델의 Prompt와 LoRA 선택을 초기화합니다. */
 function resetGenerationWorkflow(workflow) {
+  clearFavoriteRestoration();
   element("generate-workflow").value = workflow;
   applicationState.currentPresetId = null;
   applicationState.currentPresetVersion = null;
@@ -1018,6 +1028,13 @@ function updateWorkflowOptions() {
   renderGenerateTagGroups();
   updatePresetWorkflowOptions();
   renderMinimaxInputs();
+  if (requestFavoriteState.restoration) {
+    element("generate-tag-fields").classList.add("hidden");
+    element("generate-count").disabled = true;
+    element("preview-button").disabled = true;
+    element("minimax-input-fields").classList.add("hidden");
+    element("minimax-submit-summary").classList.add("hidden");
+  }
 }
 
 /** 선택한 해상도를 Anima의 너비와 높이에 적용합니다. */
@@ -2273,6 +2290,8 @@ async function useJobResultsAsMinimaxInput(jobIdentifier) {
   const selection = await chooseJobInput(jobIdentifier);
   if (selection === null) return;
   if (element("generate-workflow").value !== "minimax_h3") resetGenerationWorkflow("minimax_h3");
+  clearFavoriteRestoration();
+  updateWorkflowOptions();
   element("minimax-input-scope").value = "job";
   clearMinimaxInputs();
   switchView("generate", { resetScroll: true });
@@ -2429,7 +2448,7 @@ async function submitBatch() {
       throw new Error(`ComfyUI에서 LoRA를 찾을 수 없습니다: ${missingLoras.map((lora) => lora.name).join(", ")}`);
   }
   if (
-    workflow === "minimax_h3" &&
+    workflow === "minimax_h3" && !requestFavoriteState.restoration &&
     applicationState.minimaxInputImages.length === 0
   ) {
     throw new Error("MiniMax 입력 이미지를 선택해 주세요.");
@@ -2439,24 +2458,28 @@ async function submitBatch() {
   submitButton.disabled = true;
   submitButton.textContent = "제출 중...";
   try {
-    const response = await apiRequest("/api/batches", {
+    const restoration = requestFavoriteState.restoration;
+    const usesCurrentMinimaxInputs = workflow === "minimax_h3" && !restoration;
+    const submissionEndpoint = restoration ? `/api/favorites/${encodeURIComponent(restoration.favorite.favorite_id)}/batches` : "/api/batches";
+    const response = await apiRequest(submissionEndpoint, {
       method: "POST",
       body: JSON.stringify({
         workflow,
+        ...(restoration ? { restore_mode: restoration.mode } : {}),
         description: element("job-description").value,
         folder_id: element("job-history-folder").value || null,
         body: generateBody(),
-        selected_tag_ids: activeSelectedTagIds(),
+        selected_tag_ids: restoration ? [...restoration.selectedTagIds] : activeSelectedTagIds(),
         count: workflow === "anima" ? Number(element("generate-count").value) : 1,
         settings: generationSettings(),
         loras: applicationState.selectedLoras,
         prompt_preset_id: applicationState.currentPresetId,
         lora_preset_id: applicationState.currentLoraPresetId,
         lora_preset_name: generationLoraPresetName(),
-        output_ids: workflow === "minimax_h3" ? applicationState.minimaxInputImages.map(image => image.output_id) : [],
-        input_scope: workflow === "minimax_h3" ? element("minimax-input-scope").value : null,
-        input_directory: workflow === "minimax_h3" ? applicationState.minimaxInputDirectory : null,
-        input_job_id: workflow === "minimax_h3" ? applicationState.minimaxInputJob?.job_id || null : null,
+        output_ids: usesCurrentMinimaxInputs ? applicationState.minimaxInputImages.map(image => image.output_id) : [],
+        input_scope: usesCurrentMinimaxInputs ? element("minimax-input-scope").value : null,
+        input_directory: usesCurrentMinimaxInputs ? applicationState.minimaxInputDirectory : null,
+        input_job_id: usesCurrentMinimaxInputs ? applicationState.minimaxInputJob?.job_id || null : null,
       }),
     });
     showNotice(
@@ -3277,12 +3300,13 @@ function renderOutputsPagination(page, totalPages) {
 
 /** 결과물 조회 종류를 목록·History·전체 선택·미리보기의 같은 API parameter로 변환합니다. */
 function outputFilterParameterName(filterType) {
-  return { job: "job_id", request: "request_id", folder: "folder_id" }[filterType];
+  return { job: "job_id", request: "request_id", folder: "folder_id", favorite: "favorite_id" }[filterType];
 }
 
 /** 현재 결과물 범위의 표시 이름을 작업 분류 경로와 함께 반환합니다. */
 function outputScopeLabel(outputFilter) {
   if (!outputFilter) return "전체 결과물";
+  if (outputFilter.type === "favorite") return "이 즐겨찾기의 결과물";
   if (outputFilter.type === "folder") {
     return outputFilter.id === "unassigned" ? "미분류" : jobHistoryFolderLabel(outputFilter.id);
   }
@@ -3311,8 +3335,9 @@ async function loadOutputs() {
   const loadRevision = ++applicationState.outputsLoadRevision;
   try {
     const outputFilter = applicationState.outputFilter;
-    const selectionMode = applicationState.outputSelectionMode;
-    const selectionScope = JSON.stringify(outputFilter);
+    const favoritesOnly = applicationState.outputsFavoritesOnly;
+    const selectionMode = applicationState.outputSelectionMode && !favoritesOnly;
+    const selectionScope = JSON.stringify([outputFilter, favoritesOnly]);
     if (applicationState.outputSelectionScope !== selectionScope) {
       applicationState.selectedOutputIds.clear();
       applicationState.selectableOutputIds.clear();
@@ -3327,7 +3352,7 @@ async function loadOutputs() {
     if (outputFilter)
       candidateQuery.set(outputFilterParameterName(outputFilter.type), outputFilter.id);
     const [listingResult, candidates, folders] = await Promise.all([
-      apiRequest(`/api/outputs?${query}`).then(response => ({ response }), error => ({ error })),
+      apiRequest(`${favoritesOnly ? "/api/favorites" : "/api/outputs"}?${query}`).then(response => ({ response }), error => ({ error })),
       selectionMode ? apiRequest(`/api/outputs/selection-candidates?${candidateQuery}`).catch(error => ({ error })) : Promise.resolve(null),
       apiRequest("/api/job-folders"),
     ]);
@@ -3350,7 +3375,9 @@ async function loadOutputs() {
       applicationState.outputsPage = response.total_pages;
       return loadOutputs();
     }
-    applicationState.visibleOutputs = response.files;
+    applicationState.visibleFavoriteRequests = response.items || [];
+    applicationState.visibleOutputs = favoritesOnly ? response.items.map(favorite => favorite.file).filter(Boolean) : response.files;
+    element("outputs-favorites-only").checked = favoritesOnly;
     applicationState.selectableOutputIds = new Set((candidates?.output_ids || []).map(String));
     applicationState.deletableOutputIds = new Set((candidates?.deletable_output_ids || []).map(String));
     for (const selectedOutputId of applicationState.selectedOutputIds) {
@@ -3360,7 +3387,9 @@ async function loadOutputs() {
     }
     const renderSignature = JSON.stringify([response, candidates, query.toString(), selectionMode, outputScopeLabel(outputFilter)]);
     if (renderSignature === applicationState.outputsRenderSignature) return;
-    if (outputFilter?.type === "folder") {
+    if (favoritesOnly) {
+      element("output-count").textContent = `${outputScopeLabel(outputFilter)} · 즐겨찾기 ${response.total}건`;
+    } else if (outputFilter?.type === "folder") {
       element("output-count").textContent = `${outputScopeLabel(outputFilter)} · 결과 ${response.total}개`;
     } else {
       element("output-count").textContent = outputFilter
@@ -3400,10 +3429,12 @@ function updateOutputSelectionControls() {
   );
   const everyOutputSelected = applicationState.selectableOutputIds.size > 0 &&
     [...applicationState.selectableOutputIds].every(outputIdentifier => applicationState.selectedOutputIds.has(outputIdentifier));
+  element("outputs-favorites-only").disabled = selectionIsBusy || requestFavoriteState.busy;
+  element("toggle-output-selection").classList.toggle("hidden", applicationState.outputsFavoritesOnly);
+  element("output-selection-actions").classList.toggle("hidden", applicationState.outputsFavoritesOnly || !applicationState.outputSelectionMode);
   element("toggle-output-selection").textContent = applicationState.outputSelectionMode ? "다중 선택 취소" : "다중 선택";
   element("toggle-output-selection").setAttribute("aria-expanded", String(applicationState.outputSelectionMode));
   element("toggle-output-selection").disabled = selectionIsBusy;
-  element("output-selection-actions").classList.toggle("hidden", !applicationState.outputSelectionMode);
   element("select-all-outputs").textContent = currentPageSelected ? "현재 페이지 선택 해제" : "현재 페이지 선택";
   element("select-all-outputs").disabled = selectionIsBusy || selectableOutputs.length === 0;
   element("select-every-output").textContent = applicationState.selectingEveryOutput
@@ -3431,6 +3462,11 @@ function updateOutputSelectionControls() {
 
 /** 현재 결과물과 선택 상태를 표시하고 삭제 보호된 파일의 삭제 버튼을 비활성화합니다. */
 function renderOutputsList() {
+  if (applicationState.outputsFavoritesOnly) {
+    renderFavoriteOutputs();
+    updateOutputSelectionControls();
+    return;
+  }
   const selectionIsBusy = outputSelectionIsBusy();
   const visibleFiles = applicationState.visibleOutputs;
   element("outputs-grid").innerHTML = visibleFiles.length
@@ -3452,7 +3488,7 @@ function renderOutputsList() {
               ? `<label class="output-selection-control"><input class="output-selection-checkbox" type="checkbox" data-select-output="${outputFile.output_id}" aria-label="결과물 ${escapeHtml(outputFile.name)} 선택" ${isSelected ? "checked" : ""} ${selectionIsBusy ? "disabled" : ""}>선택</label>`
               : "";
             const protectionLabel = outputFile.deletion_protected ? '<span class="output-protection-label">삭제 보호</span>' : "";
-            return `<article class="output-card${isSelected ? " output-selected" : ""}"><div class="output-preview">${media}${selectionCheckbox}</div><div class="output-info"><strong>${escapeHtml(outputFile.name)}</strong>${protectionLabel}<small>${escapeHtml(outputFile.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(outputFile.path)}" ${selectionIsBusy ? "disabled" : ""}>파일 이동</button>${deleteButton}${jobButton}</div></div></article>`;
+            return `<article class="output-card${isSelected ? " output-selected" : ""}"><div class="output-preview">${media}${selectionCheckbox}</div><div class="output-info"><strong>${escapeHtml(outputFile.name)}</strong>${favoriteOutputButtonMarkup(outputFile)}${protectionLabel}<small>${escapeHtml(outputFile.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(outputFile.path)}" ${selectionIsBusy ? "disabled" : ""}>파일 이동</button>${deleteButton}${jobButton}</div></div></article>`;
           })
           .join("")
       : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;
@@ -3561,6 +3597,10 @@ function renderOutputPreviewNavigation() {
 
 /** 현재 결과물 범위를 고정하여 열고 이미지·영상 전환에서도 원래 목록의 Focus를 유지합니다. */
 function openOutputPreview(outputFile, opener, preserveScope = false, scopeFilter = applicationState.outputFilter) {
+  if (!preserveScope && applicationState.currentView === "outputs" && applicationState.outputsFavoritesOnly && scopeFilter === applicationState.outputFilter) {
+    const favorite = applicationState.visibleFavoriteRequests.find(item => item.file?.output_id === outputFile.output_id);
+    if (favorite) scopeFilter = { type: "favorite", id: favorite.favorite_id };
+  }
   const navigationState = outputPreviewNavigationState;
   if (!preserveScope) {
     resetOutputPreviewNavigation();
@@ -4212,6 +4252,7 @@ function runAction(action) {
 
 /** 사용자 조작과 메뉴 이동을 연결합니다. */
 function bindEvents() {
+  bindRequestFavoriteEvents();
   element("job-description-form").addEventListener("submit", event => {
     event.preventDefault();
     runAction(saveJobDescription);
@@ -5039,6 +5080,163 @@ async function initializeApplication() {
   } catch (error) {
     showLogin();
   }
+}
+
+/** 결과파일의 별표를 요청 Snapshot의 저장·해제 동작으로 연결합니다. */
+function favoriteOutputButtonMarkup(outputFile) {
+  if (!outputFile.request_id && !outputFile.favorite_id) return "";
+  return `<button class="button subtle output-favorite-button" type="button" data-save-output-favorite="${outputFile.output_id}" data-existing-favorite="${escapeHtml(outputFile.favorite_id || "")}" aria-label="${outputFile.favorite_id ? "즐겨찾기 해제" : "즐겨찾기 추가"}" aria-pressed="${Boolean(outputFile.favorite_id)}" ${requestFavoriteState.busy || outputSelectionIsBusy() ? "disabled" : ""}>${outputFile.favorite_id ? "★" : "☆"}</button>`;
+}
+
+/** 즐겨찾기는 여러 결과물 대신 요청당 하나의 대표 이미지와 복원 조작을 표시합니다. */
+function renderFavoriteOutputs() {
+  element("outputs-grid").innerHTML = applicationState.visibleFavoriteRequests.map(favorite => {
+    const outputFile = favorite.file;
+    const previewAttribute = outputFile?.kind === "video" ? "data-video-preview" : "data-image-preview";
+    const disabledAttribute = requestFavoriteState.busy ? "disabled" : "";
+    const media = outputFile ? `<button type="button" class="image-preview-trigger" ${previewAttribute}="${outputFile.output_id}"><img src="/api/outputs/preview/${encodedOutputPath(outputFile.path)}" loading="lazy" alt="${escapeHtml(outputFile.name)}" /></button>`
+      : '<div class="favorite-no-output">결과물 파일 없음 · 생성 설정은 보관됨</div>';
+    return `<article class="output-card">
+      <div class="output-preview">${media}</div>
+      <div class="output-info">
+        <strong>${escapeHtml(favorite.description || favorite.workflow)}</strong>
+        <small>요청 ${escapeHtml(favorite.source_request_id)}</small>
+        <div class="inline-actions">
+          <button class="button subtle output-favorite-button" type="button" data-remove-favorite="${favorite.favorite_id}" aria-label="즐겨찾기 해제" aria-pressed="true" ${disabledAttribute}>★</button>
+          <button class="button subtle" type="button" data-favorite-details="${favorite.favorite_id}" ${disabledAttribute}>생성 정보</button>
+          <button class="button subtle" type="button" data-restore-favorite="${favorite.favorite_id}" ${disabledAttribute}>그대로 복원</button>
+        </div>
+      </div>
+    </article>`;
+  }).join("") || '<p class="empty-state">현재 분류에 저장된 즐겨찾기가 없습니다.</p>';
+}
+
+/** 당시 원본과 후보의 이름·본문·weight를 현재 태그 관리 정보와 독립적으로 보여줍니다. */
+function favoriteOriginalMarkup(favorite) {
+  const originalBody = favorite.inputs.body || {};
+  const candidateMarkup = favorite.selected_tags.map(tag => `
+    <p>[${escapeHtml(tag.tag_key)}] ${escapeHtml(tag.name)} · weight ${escapeHtml(tag.weight)}<br>${escapeHtml(tag.content)}</p>`
+  ).join("") || '<p>없음</p>';
+  return `
+    <div class="job-detail"><strong>원본 Prompt</strong><pre>${escapeHtml(originalBody.prompt || "")}</pre></div>
+    <div class="job-detail"><strong>원본 Negative Prompt</strong><pre>${escapeHtml(originalBody.negative || "")}</pre></div>
+    <div class="job-detail"><strong>당시 태그 후보</strong>${candidateMarkup}</div>`;
+}
+
+/** 즐겨찾기의 확정 입력과 원본 후보를 Dialog에 표시합니다. */
+async function showFavoriteDetails(favoriteIdentifier) {
+  const favorite = await apiRequest(`/api/favorites/${encodeURIComponent(favoriteIdentifier)}`);
+  requestFavoriteState.detailIdentifier = favoriteIdentifier;
+  const resolved = favorite.resolved;
+  const positiveChoices = (resolved.selected_path || []).map(tag => tag.name).join(" → ") || "없음";
+  const negativeChoices = (resolved.negative_selected_path || []).map(tag => tag.name).join(" → ") || "없음";
+  const loraDescription = (favorite.inputs.loras || []).map(lora => `${lora.name} (${lora.strength})`).join(" · ") || "없음";
+  element("favorite-details-content").innerHTML = `
+    <p>${escapeHtml(favorite.description || favorite.workflow)}</p>
+    <div class="job-detail"><strong>확정 Prompt</strong><pre>${escapeHtml(resolved.prompt)}</pre></div>
+    <div class="job-detail"><strong>확정 Negative Prompt</strong><pre>${escapeHtml(resolved.negative || "")}</pre></div>
+    <p>Seed ${escapeHtml(resolved.settings.seed)} · ${escapeHtml(resolved.settings.width)} × ${escapeHtml(resolved.settings.height)}</p>
+    <p>선택된 태그: ${escapeHtml(positiveChoices)}<br>Negative 태그: ${escapeHtml(negativeChoices)}</p>
+    <p>LoRA: ${escapeHtml(loraDescription)}</p>
+    <details><summary>원본 Prompt·태그 후보</summary>${favoriteOriginalMarkup(favorite)}</details>`;
+  element("favorite-details-dialog").showModal();
+}
+
+/** 고정 복원 컨텍스트를 해제하고 기존 생성 입력 흐름으로 돌아갑니다. */
+function clearFavoriteRestoration() {
+  requestFavoriteState.restoration = null;
+  element("favorite-restoration-panel").classList.add("hidden");
+  element("generate-count").disabled = false;
+  element("preview-button").disabled = false;
+  element("generate-tag-fields").classList.remove("hidden");
+}
+
+/** 원본과 확정 Prompt를 구분하되 생성 Seed와 단건 제출은 함께 고정합니다. */
+function setFavoriteRestoreMode(mode) {
+  const restoration = requestFavoriteState.restoration;
+  if (!restoration) return;
+  restoration.mode = mode;
+  const favorite = restoration.favorite;
+  const body = mode === "exact" ? { prompt: favorite.resolved.prompt, negative: favorite.resolved.negative || "" } : favorite.inputs.body;
+  fillGenerationPromptFields(body, true);
+  element("favorite-restoration-panel").classList.remove("hidden");
+  element("generate-tag-fields").classList.add("hidden");
+  element("generate-count").value = 1;
+  element("generate-count").disabled = true;
+  element("preview-button").disabled = true;
+  element("favorite-restore-exact").setAttribute("aria-pressed", String(mode === "exact"));
+  element("favorite-restore-source").setAttribute("aria-pressed", String(mode === "source"));
+  element("favorite-restoration-summary").textContent = `Seed ${favorite.resolved.settings.seed} 고정 · 요청 1건 · ${mode === "exact" ? "확정 Prompt 사용, 태그·wildcard 재추첨 없음" : "보관된 태그 후보에서 다시 추첨"}${favorite.workflow === "minimax_h3" ? " · 보관된 입력 이미지 사용" : ""}`;
+  element("favorite-restoration-original").innerHTML = favoriteOriginalMarkup(favorite);
+  element("favorite-restoration-candidates").innerHTML = mode === "source" ? favorite.selected_tags.map(tag => `
+    <label class="favorite-snapshot-candidate">
+      <input type="checkbox" data-favorite-tag="${escapeHtml(tag.tag_id)}" ${restoration.selectedTagIds.has(tag.tag_id) ? "checked" : ""} />
+      <span>[${escapeHtml(tag.tag_key)}] ${escapeHtml(tag.name)}<small>${escapeHtml(tag.content)}</small></span>
+    </label>`
+  ).join("") : "";
+}
+
+/** 하나의 요청만 생성 화면에 복원하며 원본 태그 DB를 수정하거나 자동 제출하지 않습니다. */
+async function restoreFavorite(favoriteIdentifier, mode = "exact") {
+  if (element("submit-button").disabled) throw new Error("작업 제출이 끝난 뒤 복원해 주세요.");
+  const favorite = await apiRequest(`/api/favorites/${encodeURIComponent(favoriteIdentifier)}`);
+  resetGenerationWorkflow(favorite.workflow);
+  requestFavoriteState.restoration = { favorite, mode, selectedTagIds: new Set(favorite.selected_tags.map(tag => tag.tag_id)) };
+  applyLoraCombination(favorite.workflow, favorite.inputs.loras || []);
+  restoreGenerationSettings(favorite.workflow, favorite.resolved.settings);
+  element("job-description").value = favorite.description || "";
+  element("job-history-folder").value = favorite.folder_id || "";
+  clearMinimaxInputs(false);
+  updateWorkflowOptions();
+  setFavoriteRestoreMode(mode);
+  element("favorite-details-dialog").close();
+  switchView("generate", { resetScroll: true });
+  showNotice("즐겨찾기 요청 한 건을 복원했습니다. 생성 버튼을 누르면 제출합니다.");
+}
+
+/** 저장·해제 중 중복 조작을 막고 성공 후 현재 결과물 범위를 다시 읽습니다. */
+async function changeOutputFavorite(outputIdentifier, existingFavoriteIdentifier) {
+  if (requestFavoriteState.busy || outputSelectionIsBusy()) return;
+  requestFavoriteState.busy = true;
+  renderOutputsList();
+  try {
+    if (existingFavoriteIdentifier) await apiRequest(`/api/favorites/${encodeURIComponent(existingFavoriteIdentifier)}`, { method: "DELETE" });
+    else await apiRequest(`/api/outputs/${outputIdentifier}/favorite`, { method: "PUT" });
+    await loadOutputs();
+  } finally {
+    requestFavoriteState.busy = false;
+    renderOutputsList();
+  }
+}
+
+/** 결과물 필터와 요청별 저장·복원 동작을 기존 탭 안에서 연결합니다. */
+function bindRequestFavoriteEvents() {
+  element("outputs-favorites-only").addEventListener("change", event => {
+    applicationState.outputSelectionMode = false;
+    switchView("outputs", { resetScroll: true, pageNumber: 1, outputsFavoritesOnly: event.target.checked });
+  });
+  element("outputs-grid").addEventListener("click", event => {
+    const star = event.target.closest("[data-save-output-favorite]");
+    const remove = event.target.closest("[data-remove-favorite]");
+    const details = event.target.closest("[data-favorite-details]");
+    const restore = event.target.closest("[data-restore-favorite]");
+    if (star) runAction(() => changeOutputFavorite(star.dataset.saveOutputFavorite, star.dataset.existingFavorite));
+    else if (remove) runAction(() => changeOutputFavorite(null, remove.dataset.removeFavorite));
+    else if (details) runAction(() => showFavoriteDetails(details.dataset.favoriteDetails));
+    else if (restore) runAction(() => restoreFavorite(restore.dataset.restoreFavorite));
+  });
+  element("favorite-details-close").addEventListener("click", () => element("favorite-details-dialog").close());
+  element("favorite-details-exact").addEventListener("click", () => runAction(() => restoreFavorite(requestFavoriteState.detailIdentifier)));
+  element("favorite-details-source").addEventListener("click", () => runAction(() => restoreFavorite(requestFavoriteState.detailIdentifier, "source")));
+  element("favorite-restore-exact").addEventListener("click", () => setFavoriteRestoreMode("exact"));
+  element("favorite-restore-source").addEventListener("click", () => setFavoriteRestoreMode("source"));
+  element("clear-favorite-restoration").addEventListener("click", () => { clearFavoriteRestoration(); updateWorkflowOptions(); });
+  element("favorite-restoration-candidates").addEventListener("change", event => {
+    const checkbox = event.target.closest("[data-favorite-tag]");
+    if (!checkbox || !requestFavoriteState.restoration) return;
+    if (checkbox.checked) requestFavoriteState.restoration.selectedTagIds.add(checkbox.dataset.favoriteTag);
+    else requestFavoriteState.restoration.selectedTagIds.delete(checkbox.dataset.favoriteTag);
+  });
 }
 
 initializeApplication();

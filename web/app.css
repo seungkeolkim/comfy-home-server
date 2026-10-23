@@ -1125,6 +1125,17 @@ input[type="file"] {
   grid-template-columns: repeat(auto-fill, minmax(205px, 1fr));
   gap: 16px;
 }
+.output-favorite-toolbar { margin: 0 0 16px; }
+.output-favorite-button[aria-pressed="true"] { color: #9fe4d5; border-color: #4f9c8b; background: #18362f; }
+#favorite-restoration-panel button[aria-pressed="true"] { color: #9fe4d5; border-color: #4f9c8b; background: #18362f; }
+.output-info .output-favorite-button { min-width: 38px; font-size: 18px; }
+.favorite-no-output { display: grid; place-items: center; padding: 20px; height: 100%; color: #a8bad2; font-size: 12px; }
+#favorite-details-dialog pre, #favorite-restoration-panel pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+#favorite-details-dialog > .inline-actions { margin-top: 18px; }
+#favorite-restoration-panel { margin-bottom: 18px; }
+.favorite-snapshot-candidate { display: flex; gap: 10px; align-items: flex-start; padding: 9px; background: #101827; border-radius: 8px; }
+.favorite-snapshot-candidate input { width: 18px; min-height: 18px; flex-shrink: 0; }
+.favorite-snapshot-candidate small { display: block; color: #92a1b6; overflow-wrap: anywhere; }
 .output-card {
   background: #161d2c;
   border: 1px solid #2b3447;

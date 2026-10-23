@@ -192,6 +192,12 @@ class JobDescriptionInput(BaseModel):
         return normalize_job_description(value)
 
 
+class FavoriteBatchInput(BatchInput):
+    """즐겨찾기 한 요청을 확정 입력 또는 보관된 원본 후보로 다시 제출합니다."""
+
+    restore_mode: Literal["exact", "source"] = "exact"
+
+
 class JobFolderInput(BaseModel):
     """작업 분류 분류의 이름과 부모를 입력받습니다."""
 
@@ -585,6 +591,41 @@ def find_uploaded_image(upload_directory: Path, upload_id: str) -> Path:
     for upload_path in upload_directory.glob(f"{upload_id}.*"):
         return upload_path
     raise ValueError("업로드 입력 이미지를 찾을 수 없습니다.")
+
+
+def store_favorite_request(server: HomeServer, favorite: dict[str, Any], payload: FavoriteBatchInput) -> tuple[str, list[dict[str, Any]]]:
+    """보관된 태그·Seed·입력을 사용해 원본 Batch 크기와 무관한 단건 작업을 저장합니다."""
+
+    if payload.workflow != favorite["workflow"]:
+        raise ValueError("즐겨찾기와 같은 Workflow로 복원해 주세요.")
+    selected_identifiers = set(payload.selected_tag_ids)
+    candidates = favorite["selected_tags"]
+    if "selected_tag_ids" in payload.model_fields_set:
+        if selected_identifiers - {tag["tag_id"] for tag in candidates}:
+            raise ValueError("보관된 태그 후보에서 선택해 주세요.")
+        candidates = [tag for tag in candidates if tag["tag_id"] in selected_identifiers]
+    prompt_text = anima_prompt(payload.body) if payload.workflow == "anima" else minimax_prompt_template(payload.body)
+    negative_text = anima_negative_prompt(payload.body) if payload.workflow == "anima" else ""
+    if payload.restore_mode == "source":
+        validate_tag_selection(prompt_text + "\n" + negative_text, candidates)
+    settings = {**favorite["resolved"]["settings"], **payload.settings}
+    settings["seed"] = int(favorite["resolved"]["settings"]["seed"])
+    settings["resolution_mode"] = "manual"
+    upload_ids = []
+    if payload.workflow == "minimax_h3":
+        upload_ids = [server.database.favorites.copy_input_for_submission(favorite, server.upload_directory)]
+    restored_payload = payload.model_copy(update={"count": 1, "settings": settings, "upload_ids": upload_ids,
+                                                 "output_ids": [], "input_scope": None, "input_job_id": None})
+    try:
+        job_id, requests = store_batch_requests(server, restored_payload, candidates)
+        request = requests[0]
+        request["detail"]["favorite_restore"] = {"mode": payload.restore_mode, "resolved": favorite["resolved"]}
+        request["detail"]["favorite_seed"] = settings["seed"]
+        request["detail"]["resolved"]["source_image"] = favorite["resolved"].get("source_image")
+        return job_id, requests
+    except Exception:
+        clear_batch_uploads(server.upload_directory, [{"detail": {"upload_id": upload_id}} for upload_id in upload_ids])
+        raise
 
 
 def clear_batch_uploads(upload_directory: Path, requests: list[dict[str, Any]]) -> None:
@@ -1320,9 +1361,76 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         output_timing.record("handler_total", handler_started_at, emit=True)
         return response
 
+    @app.put("/api/outputs/{output_id}/favorite")
+    def save_output_favorite(output_id: int):
+        """결과물이 속한 하위 요청 한 건을 즐겨찾기에 저장합니다."""
+
+        try:
+            return JSONResponse(server.database.favorites.save_output(output_id, server.config.managed_output_directory))
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except (ValueError, OSError) as exception:
+            raise HTTPException(422, str(exception)) from exception
+
+    @app.get("/api/favorites")
+    def output_favorites(
+        page: int = Query(default=1, ge=1), page_size: int = Query(default=64, ge=1, le=100),
+        folder_id: str = "", job_id: str = "", request_id: str = "",
+    ):
+        """분류에 맞는 즐겨찾기를 요청당 한 건씩 반환합니다."""
+
+        return job_folder_operation(lambda: server.database.favorites.list_favorites(page, page_size, folder_id, job_id, request_id))
+
+    @app.get("/api/favorites/{favorite_id}")
+    def favorite_details(favorite_id: str):
+        """현재 태그 정의와 무관한 원본 후보와 확정 결과를 반환하며 Seed는 decimal 문자열로 전달합니다."""
+
+        def read_favorite() -> dict[str, Any]:
+            """JSON 직렬화까지 Worker에서 처리하고 큰 Seed를 Browser에서 반올림하지 않게 합니다."""
+
+            favorite = server.database.favorites.get(favorite_id)
+            favorite.pop("snapshot_json", None)
+            favorite["resolved"]["settings"]["seed"] = str(favorite["resolved"]["settings"]["seed"])
+            return favorite
+
+        return job_folder_operation(read_favorite)
+
+    @app.delete("/api/favorites/{favorite_id}")
+    def delete_favorite(favorite_id: str):
+        """원본 이력·파일은 유지하며 즐겨찾기만 해제합니다."""
+
+        return job_folder_operation(lambda: server.database.favorites.delete(favorite_id))
+
+    @app.post("/api/favorites/{favorite_id}/batches")
+    async def submit_favorite(favorite_id: str, payload: FavoriteBatchInput):
+        """사용자가 생성 버튼을 눌렀을 때만 고정 Seed로 요청 한 건을 접수합니다."""
+
+        try:
+            favorite = await asyncio.to_thread(server.database.favorites.get, favorite_id)
+            if payload.workflow != favorite["workflow"]:
+                raise ValueError("즐겨찾기와 같은 Workflow로 복원해 주세요.")
+            if "loras" not in payload.model_fields_set:
+                payload = payload.model_copy(update={"loras": favorite["inputs"].get("loras", [])})
+            available_loras = set(await server.comfy.list_loras()) if payload.loras else set()
+            if any(lora.get("name") not in available_loras for lora in payload.loras):
+                raise ValueError("복원한 LoRA 파일을 ComfyUI에서 찾을 수 없습니다.")
+            await asyncio.to_thread(load_workflows, server.config.workflow_directory, payload.workflow)
+            job_id, requests = await asyncio.to_thread(store_favorite_request, server, favorite, payload)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except (ValueError, OSError) as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except Exception as exception:
+            raise HTTPException(502, str(exception)) from exception
+        submission_task = asyncio.create_task(_submit_requests(server, requests))
+        server.submission_tasks.add(submission_task)
+        submission_task.add_done_callback(server.submission_tasks.discard)
+        return {"job_id": job_id, "request_ids": [request["request_id"] for request in requests]}
+
     @app.get("/api/outputs/{output_id}/neighbors")
     def output_neighbors(
         output_id: int, job_id: str = "", request_id: str = "", prefix: str = "", folder_id: str = "",
+        favorite_id: str = "",
     ):
         """미리보기 현재 파일의 삭제 보호 상태와 같은 범위의 이전·다음 파일을 반환합니다."""
 
@@ -1335,7 +1443,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             except ValueError as exception:
                 raise HTTPException(422, str(exception)) from exception
         try:
-            return server.output_catalog.get_file_neighbors(output_id, job_id, request_id, normalized_prefix, folder_id)
+            return server.output_catalog.get_file_neighbors(output_id, job_id, request_id, normalized_prefix, folder_id, favorite_id)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
 
@@ -1676,7 +1784,16 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
             try:
                 if await _skip_cancelled_submission(server, request_id):
                     continue
-                if request["workflow"] == "anima":
+                favorite_restore = detail.get("favorite_restore")
+                if favorite_restore and favorite_restore["mode"] == "exact":
+                    prompt_text = detail["body"]["prompt"]
+                    negative_text = detail["body"].get("negative", "")
+                    saved_resolved = favorite_restore["resolved"]
+                    selected_path = saved_resolved.get("selected_path", [])
+                    negative_selected_path = saved_resolved.get("negative_selected_path", [])
+                    wildcard_seed = saved_resolved.get("wildcard_seed")
+                    tag_seed = saved_resolved.get("tag_seed")
+                elif request["workflow"] == "anima":
                     wildcard_seed = secrets.randbelow(2**31)
                     tag_seed = wildcard_seed
                     prompt_template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
@@ -1702,7 +1819,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                 api_workflow, ui_workflow = workflow_templates[request["workflow"]]
                 if request["workflow"] == "anima":
                     request_settings = dict(detail["settings"])
-                    request_settings["seed"] = secrets.randbelow(2**31)
+                    request_settings["seed"] = detail["favorite_seed"] if "favorite_seed" in detail else secrets.randbelow(2**31)
                     request_workflow, metadata_workflow = await asyncio.to_thread(
                         prepare_anima,
                         api_workflow, ui_workflow, prompt_text, negative_text,

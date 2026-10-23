@@ -94,6 +94,13 @@
             <h2>새 Batch</h2>
             <p>Workflow와 Prompt를 선택하고 제출 전에 조합을 확인하세요.</p>
           </div>
+          <div id="favorite-restoration-panel" class="panel stack hidden" aria-label="즐겨찾기 복원">
+            <div class="panel-heading"><strong>즐겨찾기에서 단건 복원</strong><button id="clear-favorite-restoration" class="button subtle small" type="button">복원 해제</button></div>
+            <div class="inline-actions"><button id="favorite-restore-exact" class="button subtle small" type="button">생성 그대로</button><button id="favorite-restore-source" class="button subtle small" type="button">원본으로 변형</button></div>
+            <p id="favorite-restoration-summary" class="hint"></p>
+            <div id="favorite-restoration-candidates" class="stack"></div>
+            <details><summary>보관된 원본 Prompt·태그 후보 보기</summary><div id="favorite-restoration-original" class="stack"></div></details>
+          </div>
           <div class="form-grid">
             <div class="panel stack">
               <div class="panel-heading">
@@ -408,6 +415,7 @@
             </select>
             <p id="output-job-folder-description" class="hint">선택한 분류와 모든 하위 분류의 결과물을 표시합니다. 미분류에는 작업 이력이 없는 파일도 포함됩니다.</p>
           </div>
+          <div class="output-favorite-toolbar"><label class="preview-original-toggle"><input id="outputs-favorites-only" type="checkbox" role="switch" /><span>즐겨찾기만</span></label></div>
           <div class="toolbar">
             <div class="inline-actions">
               <span id="output-count" class="hint"></span
@@ -727,6 +735,11 @@
         <button id="video-preview-delete" class="button danger" type="button" disabled>삭제</button>
       </div>
       <div id="video-preview-notice" class="notice hidden" role="status" aria-live="polite"></div>
+    </dialog>
+    <dialog id="favorite-details-dialog" class="folder-picker" aria-labelledby="favorite-details-title">
+      <h2 id="favorite-details-title">즐겨찾기 생성 정보</h2>
+      <div id="favorite-details-content" class="stack"></div>
+      <div class="inline-actions"><button id="favorite-details-exact" class="button primary" type="button">생성 그대로 복원</button><button id="favorite-details-source" class="button subtle" type="button">원본으로 변형</button><button id="favorite-details-close" class="button subtle" type="button">닫기</button></div>
     </dialog>
   </body>
 </html>
