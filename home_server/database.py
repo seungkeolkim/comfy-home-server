@@ -342,6 +342,37 @@ class Database:
             rows = connection.execute("SELECT * FROM tag_groups ORDER BY created_at, group_id").fetchall()
         return [self._tag_group_from_row(row) for row in rows]
 
+    def export_tag_definitions(self) -> dict[str, Any]:
+        """그룹과 태그를 한 조회 시점에서 읽어 내부 ID 없는 교환 형식으로 반환합니다."""
+
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT tag_groups.group_id, tag_groups.name AS group_name, tag_groups.tag_key,
+                          tag_entries.tag_id, tag_entries.name AS tag_name,
+                          tag_entries.content, tag_entries.weight
+                   FROM tag_groups LEFT JOIN tag_entries USING (group_id)
+                   ORDER BY tag_groups.created_at, tag_groups.group_id,
+                            tag_entries.created_at, tag_entries.tag_id"""
+            ).fetchall()
+
+        exported_groups = []
+        groups_by_identifier = {}
+        for row in rows:
+            group_identifier = row["group_id"]
+            if group_identifier not in groups_by_identifier:
+                exported_group = {"name": row["group_name"], "tag_key": row["tag_key"], "tags": []}
+                groups_by_identifier[group_identifier] = exported_group
+                exported_groups.append(exported_group)
+            if row["tag_id"] is not None:
+                groups_by_identifier[group_identifier]["tags"].append({
+                    "name": row["tag_name"], "content": row["content"], "weight": row["weight"],
+                })
+
+        return {
+            "format": "comfy-home-server.tags", "schema_version": 1,
+            "exported_at": current_timestamp(), "groups": exported_groups,
+        }
+
     def get_tag_group(self, group_id: str) -> dict[str, Any] | None:
         """식별자에 해당하는 태그 그룹을 반환합니다."""
 

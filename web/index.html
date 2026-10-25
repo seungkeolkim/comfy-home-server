@@ -525,6 +525,13 @@
           </div>
         </section>
         <section id="view-tags" class="view hidden">
+          <div class="section-intro tag-transfer-toolbar">
+            <div><h2>태그 관리</h2><p>전체 그룹과 태그를 JSON 파일로 내보낼 수 있습니다.</p></div>
+            <div class="inline-actions">
+              <a id="export-tags-button" class="button subtle small" href="/api/tags/export">JSON Export</a>
+              <button id="import-tags-button" class="button subtle small" type="button" aria-haspopup="dialog" aria-controls="tag-import-dialog">JSON Import</button>
+            </div>
+          </div>
           <div id="tag-manager-layout" class="tag-manager-layout" data-mobile-pane="groups">
             <section class="panel tag-manager-groups" aria-labelledby="tag-manager-groups-title">
               <div class="panel-heading"><h3 id="tag-manager-groups-title">그룹 탐색</h3><button id="new-tag-group-button" class="button subtle small" type="button">새 그룹</button></div>
@@ -590,6 +597,21 @@
         ><a data-navigation data-view="lora-presets" href="?view=lora-presets">◇<span>LoRA 조합</span></a>
       </nav>
     </div>
+    <dialog id="tag-import-dialog" class="folder-picker tag-editor-dialog" aria-labelledby="tag-import-dialog-title" aria-describedby="tag-import-description">
+      <h2 id="tag-import-dialog-title">태그 JSON Import</h2>
+      <p id="tag-import-description" class="hint">Import는 준비 중입니다. JSON 입력과 방식 선택만 가능하며, 실제 태그는 변경되지 않습니다.</p>
+      <form id="tag-import-form" class="stack" method="dialog">
+        <label for="tag-import-content">태그 그룹·태그 JSON</label>
+        <textarea id="tag-import-content" rows="10" spellcheck="false" placeholder="export한 JSON 또는 생성한 태그 JSON을 붙여 넣으세요."></textarea>
+        <label for="tag-import-mode">Import 방식</label>
+        <select id="tag-import-mode">
+          <option value="append" selected>Append · 추가</option>
+          <option value="replace">Replace · 전체 교체</option>
+        </select>
+        <p class="hint">Append는 기존 태그를 유지하고 추가합니다. Replace는 기존 태그 전체를 교체합니다.</p>
+        <div class="tag-editor-actions"><span></span><button id="tag-import-close" class="button subtle" type="submit">닫기</button><button id="tag-import-submit" class="button primary" type="button" disabled>Import 준비 중</button></div>
+      </form>
+    </dialog>
     <dialog id="tag-group-dialog" class="folder-picker tag-editor-dialog" aria-labelledby="tag-group-dialog-title">
       <h2 id="tag-group-dialog-title">새 그룹</h2>
       <form id="tag-group-form" class="stack">

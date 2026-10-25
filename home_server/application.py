@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import json
 import logging
 import random
 import re
@@ -849,6 +850,22 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """두 Workflow가 공유하는 태그 항목과 표시 그룹을 반환합니다."""
 
         return JSONResponse({"groups": server.database.list_tag_groups(), "entries": server.database.list_tag_entries()})
+
+    @app.get("/api/tags/export")
+    def export_tag_definitions():
+        """전체 태그 그룹과 원본 본문을 UTF-8 JSON 파일로 내려받습니다."""
+
+        exported_definitions = server.database.export_tag_definitions()
+        exported_timestamp = datetime.fromisoformat(exported_definitions["exported_at"])
+        export_filename = f"tags_{exported_timestamp.strftime('%Y%m%dT%H%M%SZ')}.json"
+        return Response(
+            content=json.dumps(exported_definitions, ensure_ascii=False, allow_nan=False, indent=2) + "\n",
+            media_type="application/json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{export_filename}"',
+                "Cache-Control": "no-store",
+            },
+        )
 
     @app.post("/api/tags/groups", status_code=201)
     def create_tag_group(payload: TagGroupInput):

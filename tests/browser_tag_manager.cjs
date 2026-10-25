@@ -45,6 +45,19 @@ function createTagManagerHandler(fixtures) {
     else if (["/api/presets", "/api/loras/presets"].includes(requestPath)) response = [];
     else if (requestPath === "/api/loras") response = { files: [], profiles: [] };
     else if (requestPath === "/api/tags" && method === "GET") response = { groups: fixtures.groups, entries: fixtures.entries };
+    else if (requestPath === "/api/tags/export" && method === "GET") {
+      response = { format: "comfy-home-server.tags", schema_version: 1, exported_at: "2026-10-26T03:00:00+00:00", groups: [] };
+      for (const group of fixtures.groups) {
+        const exportedTags = [];
+        for (const entry of fixtures.entries) {
+          if (entry.group_id === group.group_id) exportedTags.push({ name: entry.name, content: entry.content, weight: entry.weight });
+        }
+        response.groups.push({ name: group.name, tag_key: group.tag_key, tags: exportedTags });
+      }
+      await route.fulfill({ contentType: "application/json", headers: { "Content-Disposition": 'attachment; filename="tags_20261026T030000Z.json"' },
+        body: JSON.stringify(response, null, 2) });
+      return;
+    }
     else if (requestPath.startsWith("/api/tags/")) {
       fixtures.mutations.push({ path: requestPath, method });
       if (fixtures.saveGate) await fixtures.saveGate;
@@ -70,6 +83,47 @@ function createTagManagerHandler(fixtures) {
   };
 }
 
+/** 필터와 무관한 전체 다운로드 및 DB 요청 없는 Import 더미 화면을 확인합니다. */
+async function verifyTagTransferControls(page, fixtures) {
+  await page.locator("#tag-manager-reference-filter").selectOption("CHR");
+  await page.locator("#tag-manager-group-search").fill("그룹 00");
+  const downloadPromise = page.waitForEvent("download");
+  await page.locator("#export-tags-button").click();
+  const downloadedFile = await downloadPromise;
+  assert.equal(downloadedFile.suggestedFilename(), "tags_20261026T030000Z.json");
+  const exportedDefinitions = JSON.parse(filesystem.readFileSync(await downloadedFile.path(), "utf8"));
+  assert.equal(exportedDefinitions.groups.length, 28);
+  assert.equal(exportedDefinitions.groups.reduce((total, group) => total + group.tags.length, 0), 159);
+  assert.deepEqual(Object.keys(exportedDefinitions.groups[0]).sort(), ["name", "tag_key", "tags"]);
+  assert.deepEqual(Object.keys(exportedDefinitions.groups[0].tags[0]).sort(), ["content", "name", "weight"]);
+
+  await page.locator("#import-tags-button").click();
+  assert.equal(await page.locator("#tag-import-dialog").isVisible(), true);
+  assert.equal(await page.locator("#tag-import-mode").inputValue(), "append");
+  assert.match(await page.locator("#tag-import-description").textContent(), /실제 태그는 변경되지 않습니다/);
+  await page.locator("#tag-import-content").fill(JSON.stringify(exportedDefinitions));
+  for (const importMode of ["replace", "append"]) {
+    await page.locator("#tag-import-mode").selectOption(importMode);
+    assert.equal(await page.locator("#tag-import-submit").isDisabled(), true);
+  }
+  const dialogFitsViewport = await page.locator("#tag-import-dialog").evaluate(dialog => {
+    const bounds = dialog.getBoundingClientRect();
+    return bounds.left >= 0 && bounds.right <= innerWidth && dialog.scrollWidth <= dialog.clientWidth;
+  });
+  assert.equal(dialogFitsViewport, true);
+  await page.locator("#tag-import-close").click();
+  assert.equal(await page.locator("#tag-import-dialog").isVisible(), false);
+  assert.equal(await page.locator("#import-tags-button").evaluate(button => button === document.activeElement), true);
+  await page.locator("#import-tags-button").click();
+  await page.locator("#tag-import-content").press("Escape");
+  assert.equal(await page.locator("#tag-import-dialog").isVisible(), false);
+  assert.deepEqual(fixtures.mutations, []);
+  assert.equal(fixtures.groups.length, 28);
+  assert.equal(fixtures.entries.length, 159);
+  await page.locator("#tag-manager-group-search").fill("");
+  await page.locator("#tag-manager-reference-filter").selectOption("");
+}
+
 /** 검색·수정·오류·취소·저장 후 위치와 모바일 탐색을 하나의 화면 흐름으로 확인합니다. */
 async function verifyTagManager(browser, viewport) {
   const fixtures = createTagManagerFixtures();
@@ -84,6 +138,7 @@ async function verifyTagManager(browser, viewport) {
     assert.equal(await page.locator('[data-select-managed-group]').count(), 28);
     assert.equal(await page.locator("#tag-group-dialog").evaluate(dialog => dialog.open), false);
     assert.equal(await page.locator("#tag-entry-dialog").evaluate(dialog => dialog.open), false);
+    await verifyTagTransferControls(page, fixtures);
     await page.locator("#tag-manager-reference-filter").selectOption("CHR");
     assert.equal(await page.locator('[data-select-managed-group]').count(), 12);
     await page.locator("#tag-manager-group-search").fill("그룹 00");
@@ -201,7 +256,7 @@ async function main() {
   try {
     await verifyTagManager(browser, { width: 1440, height: 1000 });
     await verifyTagManager(browser, { width: 320, height: 844 });
-    console.log("Passed: 28 groups/159 entries, local filters, dialog create/edit/delete, dirty cancel, failure/pending safety, focus/scroll/context and generation defaults on desktop/mobile.");
+    console.log("Passed: full JSON export, import placeholder without mutations, 28 groups/159 entries, local filters, dialog CRUD and generation defaults on desktop/mobile.");
   } finally {
     await browser.close();
   }

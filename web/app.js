@@ -626,6 +626,7 @@ function displayNavigationState(navigationState) {
   const previousJobScope = currentJobHistoryScope();
   element("jobs-folder-menu").open = false;
   closeJobHistoryFolderDialogs();
+  element("tag-import-dialog").close();
   closeJobDescriptionEditor(false);
   closeVideoPreview(false);
   closeImagePreview(false);
@@ -1629,6 +1630,11 @@ function updateTagEntryGroupOptions(selectedGroupId = tagManagerState.selectedGr
     `<option value="${escapeHtml(group.group_id)}">${escapeHtml(group.name)} [${escapeHtml(group.tag_key)}]</option>`).join("");
   if (selectedGroupId) element("tag-entry-group").value = selectedGroupId;
   updateTagEntryGroupReference();
+}
+
+/** 태그를 변경하지 않는 Import 입력·방식 선택 화면을 엽니다. */
+function openTagImportDialog() {
+  element("tag-import-dialog").showModal();
 }
 
 /** 그룹을 선택하고 모바일에서는 마지막 항목 목록 위치를 복원합니다. */
@@ -4366,6 +4372,7 @@ function bindEvents() {
     else applicationState.expandedTagGroupIds.delete(groupId);
   }, true);
   element("new-tag-group-button").addEventListener("click", () => editTagGroup());
+  element("import-tags-button").addEventListener("click", openTagImportDialog);
   element("edit-selected-tag-group").addEventListener("click", () => editTagGroup(tagManagerState.selectedGroupId));
   element("delete-selected-tag-group").addEventListener("click", () => runAction(() => deleteTagGroup(applicationState.editingTagGroupId)));
   element("tag-entry-group").addEventListener("change", updateTagEntryGroupReference);

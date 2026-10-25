@@ -703,6 +703,17 @@ input[type="file"] {
   font-size: 22px;
   margin-bottom: 20px;
 }
+.tag-transfer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+#tag-import-content {
+  min-height: 180px;
+  font-family: ui-monospace, monospace;
+}
 .tag-editor-actions {
   position: sticky;
   bottom: -24px;

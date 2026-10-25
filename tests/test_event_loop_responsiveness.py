@@ -90,6 +90,7 @@ def test_slow_json_serialization_keeps_session_and_cancellation_responsive(
 
 @pytest.mark.parametrize("method_name,endpoint", [
     ("list_tag_entries", "/api/tags"), ("list_presets", "/api/presets"),
+    ("export_tag_definitions", "/api/tags/export"),
     ("list_preset_versions", "/api/presets/saved/versions"), ("list_lora_profiles", "/api/loras"),
     ("list_lora_presets", "/api/loras/presets"), ("get_job", "/api/jobs/completed"),
 ])

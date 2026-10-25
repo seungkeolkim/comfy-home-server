@@ -2,6 +2,8 @@ __pycache__/
 .pytest_cache/
 .venv/
 runtime/
+# 외부 LLM 전달용 태그 현황 문서는 Git 관리에서 제외합니다.
+/runtime/prompt_auto_gen_by_tag.md
 *.pyc
 old_codes/
 /data/workflows/AnimaTurboV9/sample_prompt.txt
