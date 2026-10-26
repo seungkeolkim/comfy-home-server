@@ -23,6 +23,7 @@ function createPromptFixtures() {
     [{ version: preset.version, body: structuredClone(preset.body), saved_at: savedAt }]]));
   versions.get("portrait").push({ version: 1, body: { prompt: "portrait, earlier", negative: "old negative" }, saved_at: savedAt });
   return { presets, versions, mutations: [], rejectSave: false, saveGate: null,
+    deleteRequests: [], rejectDelete: false, deleteGate: null, listGate: null,
     rejectVersions: false, versionGates: new Map(), versionReads: [] };
 }
 
@@ -32,9 +33,9 @@ function createPromptHandler(fixtures) {
     const requestPath = new URL(route.request().url()).pathname;
     const method = route.request().method();
     if (await handleJobFolderReadRequest(route)) return;
-    if (["/", "/app.js", "/app.css"].includes(requestPath)) {
+    if (["/", "/app.js", "/app.css", "/favicon.svg"].includes(requestPath)) {
       const fileName = requestPath === "/" ? "index.html" : requestPath.slice(1);
-      await route.fulfill({ contentType: { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css" }[fileName],
+      await route.fulfill({ contentType: { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css", "favicon.svg": "image/svg+xml" }[fileName],
         body: filesystem.readFileSync(path.join(projectDirectory, "web", fileName), "utf8") });
       return;
     }
@@ -46,7 +47,10 @@ function createPromptHandler(fixtures) {
     else if (requestPath === "/api/loras") response = { files: [], profiles: [] };
     else if (requestPath === "/api/loras/presets") response = [];
     else if (requestPath === "/api/tags") response = { groups: [], entries: [] };
-    else if (requestPath === "/api/presets" && method === "GET") response = fixtures.presets;
+    else if (requestPath === "/api/presets" && method === "GET") {
+      response = structuredClone(fixtures.presets);
+      if (fixtures.listGate) await fixtures.listGate;
+    }
     else if (requestPath === "/api/presets" && method === "POST") {
       const payload = route.request().postDataJSON();
       fixtures.mutations.push(payload);
@@ -63,6 +67,17 @@ function createPromptHandler(fixtures) {
       fixtures.presets.unshift(response);
       const previousVersions = fixtures.versions.get(response.preset_id) || [];
       fixtures.versions.set(response.preset_id, [{ version: response.version, body: response.body, saved_at: response.updated_at }, ...previousVersions]);
+    } else if (/^\/api\/presets\/[^/]+$/.test(requestPath) && method === "DELETE") {
+      const presetIdentifier = requestPath.split("/")[3];
+      fixtures.deleteRequests.push(presetIdentifier);
+      if (fixtures.deleteGate) await fixtures.deleteGate;
+      if (fixtures.rejectDelete) {
+        await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: "삭제 실패 테스트" }) });
+        return;
+      }
+      fixtures.presets = fixtures.presets.filter(preset => preset.preset_id !== presetIdentifier);
+      fixtures.versions.delete(presetIdentifier);
+      response = { deleted: true };
     } else if (/^\/api\/presets\/[^/]+\/versions$/.test(requestPath)) {
       const presetIdentifier = requestPath.split("/")[3];
       fixtures.versionReads.push(presetIdentifier);
@@ -80,7 +95,8 @@ function createPromptHandler(fixtures) {
 /** 현재 모바일 상세를 목록으로 돌려 같은 선택 동작을 Desktop과 공유합니다. */
 async function openPromptFromList(page, presetIdentifier, versions = false) {
   if (await page.locator("#prompt-list-back").isVisible()) await page.locator("#prompt-list-back").click();
-  await page.locator(`[${versions ? "data-show-versions" : "data-load-preset"}="${presetIdentifier}"]`).click();
+  await page.locator(`[data-load-preset="${presetIdentifier}"]`).click();
+  if (versions) await page.locator("#preset-history-tab").click();
 }
 
 /** 잘못된 대상 저장과 입력 손실을 막고 버전·생성·모바일 흐름을 함께 확인합니다. */
@@ -113,7 +129,8 @@ async function verifyPromptManager(browser, viewport) {
     assert.match(await page.locator("#preset-history-title").textContent(), /인물 Template/);
     if (viewport.width <= 800) {
       await page.locator("#prompt-list-back").click();
-      await page.locator('[data-show-versions="portrait"]').click();
+      await page.locator('[data-load-preset="portrait"]').click();
+      await page.locator("#preset-history-tab").click();
       assert.equal(await page.locator("#preset-history-panel").isVisible(), true);
     }
     await page.locator('[data-preview-version="1"]').click();
@@ -278,14 +295,111 @@ async function verifyPromptManager(browser, viewport) {
   }
 }
 
-/** Desktop과 좁은 모바일에서 동일한 저장·버전·상태 보호 계약을 확인합니다. */
+/** 삭제 확인·실패·중복 실행과 다른 편집기 및 생성 입력 보존을 검증합니다. */
+async function verifyPromptDeletion(browser, viewport) {
+  const fixtures = createPromptFixtures();
+  const context = await browser.newContext({ viewport });
+  const page = await context.newPage();
+  const pageErrors = [];
+  page.on("pageerror", error => pageErrors.push(error.message));
+  await context.route("**/*", createPromptHandler(fixtures));
+  const navigationSelector = viewport.width <= 800 ? ".mobile-nav" : ".sidebar";
+  try {
+    await page.goto("http://prompt-deletion.test/?view=prompts");
+    await page.locator('[data-delete-preset="portrait"]').waitFor();
+    assert.equal(await page.locator("[data-show-versions]").count(), 0);
+    assert.equal(await page.locator('[data-delete-preset="portrait"]').evaluate(button => button.classList.contains("danger")), true);
+    await openPromptFromList(page, "portrait", true);
+    await page.locator('[data-preview-version="1"]').waitFor();
+    await page.locator("#preset-edit-tab").click();
+    await page.locator("#use-preset-button").click();
+    await page.locator("#generate-anima-prompt").fill("현재 생성 화면의 사용자 입력");
+    await page.locator(`${navigationSelector} [data-view="prompts"]`).click();
+    await page.locator("#preset-anima-prompt").fill("다른 Prompt 삭제 중에도 보존할 미저장 편집");
+    if (viewport.width <= 800) await page.locator("#prompt-list-back").click();
+    await page.locator("#preset-search").fill("Template");
+    await page.locator("#preset-workflow-filter").selectOption("anima");
+
+    page.once("dialog", dialog => dialog.dismiss());
+    await page.locator('[data-delete-preset="landscape"]').click();
+    assert.equal(fixtures.deleteRequests.length, 0);
+    fixtures.rejectDelete = true;
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator('[data-delete-preset="landscape"]').click();
+    await page.locator("#notice").filter({ hasText: "삭제 실패 테스트" }).waitFor();
+    assert.equal(await page.locator('[data-load-preset="landscape"]').count(), 1);
+    assert.equal(await page.locator('[data-delete-preset="landscape"]').isEnabled(), true);
+    assert.equal(fixtures.versions.has("landscape"), true);
+
+    fixtures.rejectDelete = false;
+    let releaseDeletion;
+    fixtures.deleteGate = new Promise(resolve => { releaseDeletion = resolve; });
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator('[data-delete-preset="landscape"]').click();
+    await page.waitForFunction(() => promptEditorState.deletingPresetId === "landscape");
+    assert.equal(await page.locator('[data-delete-preset="portrait"]').isDisabled(), true);
+    const deletionRequestCount = fixtures.deleteRequests.length;
+    await page.evaluate(() => deletePromptPreset("landscape"));
+    assert.equal(fixtures.deleteRequests.length, deletionRequestCount);
+    releaseDeletion();
+    fixtures.deleteGate = null;
+    await page.locator('[data-load-preset="landscape"]').waitFor({ state: "detached" });
+    await page.waitForFunction(() => !promptEditorState.saving);
+    assert.equal(fixtures.versions.has("landscape"), false);
+    assert.equal(await page.locator("#preset-anima-prompt").inputValue(), "다른 Prompt 삭제 중에도 보존할 미저장 편집");
+    assert.equal(await page.locator("#generate-anima-prompt").inputValue(), "현재 생성 화면의 사용자 입력");
+    assert.equal(await page.locator("#preset-search").inputValue(), "Template");
+    assert.equal(await page.locator("#preset-workflow-filter").inputValue(), "anima");
+
+    page.once("dialog", async dialog => {
+      assert.match(dialog.message(), /모든 버전 기록/);
+      assert.match(dialog.message(), /미저장 변경/);
+      await dialog.accept();
+    });
+    await page.locator('[data-delete-preset="portrait"]').click();
+    await page.locator('[data-load-preset="portrait"]').waitFor({ state: "detached" });
+    await page.waitForFunction(() => !promptEditorState.saving);
+    assert.equal(await page.locator("#preset-name").inputValue(), "");
+    assert.equal(await page.locator("#preset-version-history").textContent(), "");
+    assert.equal(await page.locator("#generate-anima-prompt").inputValue(), "현재 생성 화면의 사용자 입력");
+    assert.equal(await page.locator("#generate-negative").inputValue(), "blur");
+    assert.equal(await page.locator("#generate-prompt-status").textContent(), "직접 작성");
+    assert.equal(await page.locator("#generate-preset").inputValue(), "");
+    assert.equal(fixtures.versions.has("portrait"), false);
+
+    await page.locator("#preset-workflow-filter").selectOption("");
+    let releaseListResponse;
+    fixtures.listGate = new Promise(resolve => { releaseListResponse = resolve; });
+    const staleListRequest = page.waitForRequest(request => new URL(request.url()).pathname === "/api/presets" && request.method() === "GET");
+    await page.evaluate(() => { window.pendingPromptListReload = loadPresets(); });
+    await staleListRequest;
+    page.once("dialog", dialog => dialog.accept());
+    await page.locator('[data-delete-preset="motion"]').click();
+    await page.locator('[data-load-preset="motion"]').waitFor({ state: "detached" });
+    releaseListResponse();
+    fixtures.listGate = null;
+    await page.evaluate(() => window.pendingPromptListReload);
+    assert.equal(await page.locator("[data-load-preset]").count(), 0);
+    await page.goBack();
+    await page.goForward();
+    assert.equal(await page.locator("[data-load-preset]").count(), 0);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    assert.deepEqual(pageErrors, []);
+  } finally {
+    await context.close();
+  }
+}
+
+/** Desktop과 좁은 모바일에서 동일한 저장·버전·삭제·상태 보호 계약을 확인합니다. */
 async function main() {
   filesystem.mkdirSync(screenshotDirectory, { recursive: true });
   const browser = await chromium.launch({ channel: process.env.PLAYWRIGHT_CHANNEL || "msedge", headless: true });
   try {
     await verifyPromptManager(browser, { width: 1440, height: 1000 });
     await verifyPromptManager(browser, { width: 320, height: 844 });
-    console.log("Passed: prompt create/update/copy, contextual version preview, stale response protection, dirty/failure/pending safety, independent generation state, mobile navigation and repeated web asset reload.");
+    await verifyPromptDeletion(browser, { width: 1440, height: 1000 });
+    await verifyPromptDeletion(browser, { width: 320, height: 844 });
+    console.log("Passed: prompt create/update/copy/delete, confirmation and rollback UI, contextual versions, stale response protection, dirty/failure/pending safety, independent generation state, desktop/mobile navigation and asset reload.");
   } finally {
     await browser.close();
   }

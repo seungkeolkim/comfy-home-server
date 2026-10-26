@@ -862,6 +862,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         preset_id = payload.preset_id or uuid.uuid4().hex
         return JSONResponse(server.database.save_preset(preset_id, payload.name.strip(), payload.workflow, body))
 
+    @app.delete("/api/presets/{preset_id}")
+    def delete_prompt_preset(preset_id: str):
+        """저장된 Prompt와 해당 버전 기록만 삭제합니다."""
+
+        try:
+            deleted = server.database.delete_preset(preset_id)
+        except sqlite3.Error as exception:
+            LOGGER.exception("Prompt 삭제 실패: preset_id=%s", preset_id)
+            raise HTTPException(409, "Prompt를 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.") from exception
+        if not deleted:
+            raise HTTPException(404, "삭제할 Prompt를 찾을 수 없습니다.")
+        return {"deleted": True}
+
     @app.get("/api/presets/{preset_id}/versions")
     def preset_versions(preset_id: str):
         """저장된 Prompt의 이전 버전을 보여줍니다."""

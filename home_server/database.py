@@ -341,6 +341,17 @@ class Database:
             ).fetchall()
         return [{"version": row["version"], "body": json.loads(row["body_json"]), "saved_at": row["saved_at"]} for row in rows]
 
+    def delete_preset(self, preset_id: str) -> bool:
+        """선택한 Prompt와 모든 버전을 같은 Transaction에서 삭제하고 작업 Snapshot은 보존합니다."""
+
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("SELECT 1 FROM presets WHERE preset_id = ?", (preset_id,)).fetchone() is None:
+                return False
+            connection.execute("DELETE FROM preset_versions WHERE preset_id = ?", (preset_id,))
+            deleted_preset = connection.execute("DELETE FROM presets WHERE preset_id = ?", (preset_id,))
+            return deleted_preset.rowcount > 0
+
     def list_tag_groups(self) -> list[dict[str, Any]]:
         """화면 표시 그룹과 기본 펼침 상태를 생성 순서로 반환합니다."""
 

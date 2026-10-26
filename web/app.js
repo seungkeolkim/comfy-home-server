@@ -56,7 +56,7 @@ const promptEditorState = {
   activeTab: "edit", mobilePane: "list", listScrollPosition: 0,
   versions: [], versionsPresetId: null, previewVersion: null,
   versionsLoading: false, versionsError: "", versionsRevision: 0,
-  saving: false, editorRevision: 0, navigationLoading: false,
+  saving: false, deletingPresetId: null, editorRevision: 0, navigationLoading: false,
   contextId: null, listHistoryIndex: null,
 };
 const managerHistoryState = {
@@ -65,6 +65,7 @@ const managerHistoryState = {
 
 const applicationState = {
   presets: [],
+  presetsLoadRevision: 0,
   currentPresetId: null,
   currentPresetVersion: null,
   currentBody: { prompt: "", negative: "" },
@@ -1087,8 +1088,11 @@ function updatePresetWorkflowOptions() {
 
 /** 저장된 preset 목록을 불러옵니다. */
 async function loadPresets() {
+  const loadRevision = ++applicationState.presetsLoadRevision;
   try {
-    applicationState.presets = await apiRequest("/api/presets");
+    const presets = await apiRequest("/api/presets");
+    if (loadRevision !== applicationState.presetsLoadRevision) return;
+    applicationState.presets = presets;
     renderPresetList();
   } catch (error) {
     showNotice(error.message, true);
@@ -1165,7 +1169,7 @@ function renderPromptManagerList() {
       <button type="button" class="prompt-list-open" data-load-preset="${escapeHtml(preset.preset_id)}"${promptEditorState.saving ? " disabled" : ""}>
         <strong>${escapeHtml(preset.name)}</strong><small>${workflowLabel} · v${preset.version}${selected ? " · 편집 대상" : ""}</small>
         <small>${escapeHtml(formatKoreanTimestamp(preset.updated_at))}</small></button>
-      <button type="button" class="button subtle small" data-show-versions="${escapeHtml(preset.preset_id)}" aria-label="${escapeHtml(preset.name)} 버전 기록"${promptEditorState.saving ? " disabled" : ""}>버전</button></article>`;
+      <button type="button" class="button danger small" data-delete-preset="${escapeHtml(preset.preset_id)}" aria-label="${escapeHtml(preset.name)} 삭제"${promptEditorState.saving ? " disabled" : ""}>${promptEditorState.deletingPresetId === preset.preset_id ? "삭제 중…" : "삭제"}</button></article>`;
   }).join("") : '<p class="empty-state">조건에 맞는 Prompt가 없습니다.</p>';
   list.scrollTop = previousScrollPosition;
   element("preset-list-count").textContent = `${filteredPresets.length} / ${applicationState.presets.length}개 Prompt`;
@@ -1183,7 +1187,7 @@ function renderPromptEditorStatus() {
       ? `v${preset.version} 편집 중` : `v${promptEditorState.sourceVersion}에서 시작 · 최신 v${preset.version}`;
   }
   if (changed) status += " · 변경됨";
-  if (promptEditorState.saving) status += " · 저장 중…";
+  if (promptEditorState.saving) status += promptEditorState.deletingPresetId ? " · 삭제 중…" : " · 저장 중…";
   if (promptEditorState.navigationLoading) status += " · 이전 화면 불러오는 중…";
   element("preset-version").textContent = status;
   const sameAsLatest = preset && JSON.stringify(snapshot) === JSON.stringify({
@@ -1197,7 +1201,7 @@ function renderPromptEditorStatus() {
   element("preset-workflow").disabled = saving || Boolean(preset);
   element("preset-history-tab").disabled = saving || !preset;
   element("save-preset-button").disabled = saving || !snapshot.name || !snapshot.body.prompt.trim() || Boolean(sameAsLatest);
-  element("save-preset-button").textContent = saving ? "저장 중…" : preset ? `v${preset.version + 1}으로 저장` : "새 Prompt 저장";
+  element("save-preset-button").textContent = saving ? (promptEditorState.deletingPresetId ? "삭제 중…" : "저장 중…") : preset ? `v${preset.version + 1}으로 저장` : "새 Prompt 저장";
   element("use-preset-button").disabled = saving || !snapshot.body.prompt.trim();
   element("copy-preset-button").disabled = saving || !snapshot.body.prompt.trim();
   element("preset-save-target").textContent = preset
@@ -1976,6 +1980,43 @@ async function savePreset() {
       renderPromptEditorStatus();
       renderPromptManagerList();
     }
+  }
+}
+
+/** 확인한 Prompt와 버전 기록을 삭제하고 다른 편집 내용과 생성 입력은 유지합니다. */
+async function deletePromptPreset(presetId) {
+  if (promptEditorState.saving || promptEditorState.navigationLoading || managerHistoryState.traversalPending) return;
+  const preset = applicationState.presets.find(candidate => candidate.preset_id === presetId);
+  if (!preset) return;
+  const deletesEditorSelection = promptEditorState.selectedPresetId === presetId;
+  const unsavedMessage = deletesEditorSelection && promptEditorHasChanges()
+    ? "\n현재 편집 중인 이 Prompt의 미저장 변경 사항도 사라집니다." : "";
+  if (!window.confirm(`“${preset.name}” Prompt와 모든 버전 기록을 삭제하시겠습니까?${unsavedMessage}\n기존 작업 이력과 생성 화면의 입력은 유지됩니다.`)) return;
+  promptEditorState.saving = true;
+  promptEditorState.deletingPresetId = presetId;
+  renderPromptEditorStatus();
+  renderPromptManagerList();
+  try {
+    await apiRequest(`/api/presets/${encodeURIComponent(presetId)}`, { method: "DELETE" });
+    applicationState.presetsLoadRevision += 1;
+    applicationState.presets = applicationState.presets.filter(candidate => candidate.preset_id !== presetId);
+    if (applicationState.currentPresetId === presetId) {
+      applicationState.currentPresetId = null;
+      applicationState.currentPresetVersion = null;
+    }
+    if (deletesEditorSelection) {
+      configurePromptEditor(null, { workflow: preset.workflow, showDetail: false, invalidateVersions: true });
+      promptEditorState.mobilePane = "list";
+      element("prompt-manager-layout").dataset.mobilePane = "list";
+    }
+    renderPresetList();
+    saveCurrentNavigationEntry();
+    showNotice("Prompt와 버전 기록을 삭제했습니다.");
+  } finally {
+    promptEditorState.saving = false;
+    promptEditorState.deletingPresetId = null;
+    renderPromptEditorStatus();
+    renderPromptManagerList();
   }
 }
 
@@ -4579,10 +4620,10 @@ function bindEvents() {
   );
   element("preset-list").addEventListener("click", (event) => {
     const loadButton = event.target.closest("[data-load-preset]");
-    const versionsButton = event.target.closest("[data-show-versions]");
+    const deleteButton = event.target.closest("[data-delete-preset]");
     if (loadButton) loadPresetIntoEditor(loadButton.dataset.loadPreset);
-    if (versionsButton)
-      runAction(() => showPresetVersions(versionsButton.dataset.showVersions));
+    if (deleteButton && !deleteButton.disabled)
+      runAction(() => deletePromptPreset(deleteButton.dataset.deletePreset));
   });
   element("preset-version-history").addEventListener("click", (event) => {
     const button = event.target.closest("[data-preview-version]");
