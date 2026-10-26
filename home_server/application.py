@@ -719,13 +719,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             asset_version = secrets.token_hex(16)
         else:
             modified_timestamps = []
-            for file_name in ("index.html", "app.js", "app.css"):
+            for file_name in ("index.html", "app.js", "app.css", "favicon.svg"):
                 modified_timestamps.append((web_directory / file_name).stat().st_mtime_ns)
             asset_version = str(max(modified_timestamps))
         page_content = (web_directory / "index.html").read_text(encoding="utf-8")
-        for asset_name in ("app.js", "app.css"):
+        for asset_name in ("app.js", "app.css", "favicon.svg"):
             page_content = page_content.replace(f'"/{asset_name}"', f'"/{asset_name}?v={asset_version}"')
         return Response(page_content, media_type="text/html", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/favicon.svg")
+    async def browser_tab_icon():
+        """로그인 전후에 브라우저 탭 아이콘을 제공합니다."""
+
+        return FileResponse(PROJECT_DIRECTORY / "web" / "favicon.svg", media_type="image/svg+xml",
+                            headers={"Cache-Control": "no-cache"})
 
     @app.get("/app.css")
     async def style_sheet():

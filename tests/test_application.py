@@ -160,17 +160,20 @@ def create_processing_test_app(tmp_path: Path, comfy_client: FakeComfyClient):
 
 
 def test_web_asset_reload_changes_urls_without_clearing_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """다시 받기는 HTML·JS·CSS 캐시를 우회하고 로그인 쿠키와 다른 사이트 데이터는 유지합니다."""
+    """다시 받기는 화면·favicon 캐시를 우회하고 로그인 쿠키와 다른 사이트 데이터는 유지합니다."""
 
     app = create_processing_test_app(tmp_path, FakeComfyClient())
     isolated_web_directory = tmp_path / "web"
     isolated_web_directory.mkdir()
-    for file_name in ("index.html", "app.js", "app.css"):
+    for file_name in ("index.html", "app.js", "app.css", "favicon.svg"):
         source_file = PROJECT_DIRECTORY / "web" / file_name
         (isolated_web_directory / file_name).write_bytes(source_file.read_bytes())
     monkeypatch.setattr("home_server.application.PROJECT_DIRECTORY", tmp_path)
 
     with TestClient(app) as client:
+        icon_response = client.get("/favicon.svg")
+        assert icon_response.status_code == 200
+        assert icon_response.headers["content-type"].startswith("image/svg+xml")
         client.post("/api/login", json={"password": "test"}).raise_for_status()
         session_cookie = client.cookies.get("home_session")
         normal_page = client.get("/")
@@ -186,7 +189,7 @@ def test_web_asset_reload_changes_urls_without_clearing_sessions(tmp_path: Path,
             assert page_response.headers["cache-control"] == "no-cache"
             assert "clear-site-data" not in page_response.headers
             assert "set-cookie" not in page_response.headers
-            for asset_name in ("app.js", "app.css"):
+            for asset_name in ("app.js", "app.css", "favicon.svg"):
                 asset_url = page_response.text.split(f'"/{asset_name}?v=', 1)[1].split('"', 1)[0]
                 asset_response = client.get(f"/{asset_name}?v={asset_url}")
                 assert asset_response.status_code == 200
