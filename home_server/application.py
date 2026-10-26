@@ -13,7 +13,7 @@ import shutil
 import sqlite3
 import time
 import uuid
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -26,6 +26,7 @@ from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .comfy_client import ComfyClient
+from .administration import AdministrationMaintenance, AdministrationStore, create_administration_router
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database, current_timestamp
 from .image_dimension_cache import ImageDimensionCache
@@ -381,6 +382,8 @@ class HomeServer:
             if stale_upload.is_file() and time.time() - stale_upload.stat().st_mtime > 24 * 3600:
                 stale_upload.unlink()
         self.database = Database(config.runtime_directory / "home_server.sqlite3")
+        self.administration = AdministrationStore(self.database.database_path)
+        self.administration_maintenance = AdministrationMaintenance()
         self.output_catalog = OutputCatalog(self.database.database_path)
         self.output_catalog.synchronize(config.managed_output_directory)
         self.video_previews = VideoPreviewCache(config, self.output_catalog)
@@ -406,6 +409,12 @@ class HomeServer:
             LOGGER.info("ComfyUI 연결 확인")
         else:
             LOGGER.warning("ComfyUI 연결 실패: error_type=%s", error_type)
+
+    def ensure_restore_idle(self) -> None:
+        """진행 중인 생성이나 제출 Task가 있으면 DB 복원을 거절합니다."""
+
+        if self.submission_tasks or self.database.list_active_requests(limit=1):
+            raise RuntimeError("진행 중인 생성·제출·취소 작업이 있어 복원할 수 없습니다. 작업 종료 후 다시 시도해 주세요.")
 
     def _mark_interrupted_submissions(self) -> None:
         """이전 실행에서 제출되지 못한 작업을 자동 재실행 없이 표시합니다."""
@@ -676,6 +685,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     app = FastAPI(title="Comfy Home Server", lifespan=lifespan)
     app.state.home_server = server
+    app.include_router(create_administration_router(server))
 
     @app.middleware("http")
     async def require_authentication(request: Request, call_next):
@@ -691,13 +701,18 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             origin = request.headers.get("origin")
             if origin and origin != f"{request.url.scheme}://{request.headers.get('host', '')}":
                 return JSONResponse({"detail": "허용되지 않은 요청 출처입니다."}, status_code=403)
+        is_restore_request = request_path.startswith("/api/administration/backups/") and request_path.endswith("/restore")
+        tracks_database_access = request_path.startswith(("/api/", "/media/")) and request_path != "/api/session" and not is_restore_request
+        if tracks_database_access and server.administration_maintenance.restoring:
+            return JSONResponse({"detail": "DB 복원 중입니다. 잠시 후 다시 시도해 주세요."}, status_code=503)
         output_timing = None
         if request_path == "/api/outputs" or request_path.startswith("/api/outputs/"):
             output_timing = OutputTimingRecorder(request_path)
             request.state.output_timing = output_timing
         try:
-            with measure_output_step(output_timing, "http_dispatch", emit=True):
-                response = await call_next(request)
+            with server.administration_maintenance.operation() if tracks_database_access else nullcontext():
+                with measure_output_step(output_timing, "http_dispatch", emit=True):
+                    response = await call_next(request)
         except Exception:
             if output_timing is not None:
                 output_timing.finish(500)
@@ -1764,32 +1779,9 @@ async def _monitor_cancellations(server: HomeServer) -> None:
 
     while True:
         try:
-            active_requests = await asyncio.to_thread(server.database.list_active_requests)
-            active_request_ids = {request["request_id"] for request in active_requests}
-            server.cancellation_retry_after = {
-                request_id: retry_after for request_id, retry_after in server.cancellation_retry_after.items()
-                if request_id in active_request_ids
-            }
-            cancellation_requests = []
-            for request in active_requests:
-                if request["status"] != "cancelling" or not request["prompt_id"]:
-                    continue
-                if time.monotonic() < server.cancellation_retry_after.get(request["request_id"], 0):
-                    continue
-                cancellation_requests.append(request)
-            for first_index in range(0, len(cancellation_requests), 100):
-                request_batch = cancellation_requests[first_index:first_index + 100]
-                request_ids = [request["request_id"] for request in request_batch]
-                cancellation_error = None
-                try:
-                    await server.comfy.cancel_prompts([request["prompt_id"] for request in request_batch])
-                    LOGGER.info("ComfyUI 취소 전송: count=%s", len(request_batch))
-                except Exception as exception:
-                    cancellation_error = "ComfyUI 취소 전송 실패. 자동 재시도 중입니다."
-                    LOGGER.warning("ComfyUI 취소 전송 실패: count=%s error_type=%s", len(request_batch), type(exception).__name__)
-                for request_id in request_ids:
-                    server.cancellation_retry_after[request_id] = time.monotonic() + 5
-                await asyncio.to_thread(server.database.record_cancellation_error, request_ids, cancellation_error)
+            if not server.administration_maintenance.restoring:
+                with server.administration_maintenance.operation():
+                    await _send_pending_cancellations(server)
         except Exception:
             LOGGER.exception("취소 요청 처리 중 오류가 발생했습니다.")
         try:
@@ -1797,6 +1789,37 @@ async def _monitor_cancellations(server: HomeServer) -> None:
         except TimeoutError:
             pass
         server.cancellation_wakeup.clear()
+
+
+async def _send_pending_cancellations(server: HomeServer) -> None:
+    """복원 Gate 안에서 활성 취소 요청을 읽고 ComfyUI에 전달합니다."""
+
+    active_requests = await asyncio.to_thread(server.database.list_active_requests)
+    active_request_ids = {request["request_id"] for request in active_requests}
+    server.cancellation_retry_after = {
+        request_id: retry_after for request_id, retry_after in server.cancellation_retry_after.items()
+        if request_id in active_request_ids
+    }
+    cancellation_requests = []
+    for request in active_requests:
+        if request["status"] != "cancelling" or not request["prompt_id"]:
+            continue
+        if time.monotonic() < server.cancellation_retry_after.get(request["request_id"], 0):
+            continue
+        cancellation_requests.append(request)
+    for first_index in range(0, len(cancellation_requests), 100):
+        request_batch = cancellation_requests[first_index:first_index + 100]
+        request_ids = [request["request_id"] for request in request_batch]
+        cancellation_error = None
+        try:
+            await server.comfy.cancel_prompts([request["prompt_id"] for request in request_batch])
+            LOGGER.info("ComfyUI 취소 전송: count=%s", len(request_batch))
+        except Exception as exception:
+            cancellation_error = "ComfyUI 취소 전송 실패. 자동 재시도 중입니다."
+            LOGGER.warning("ComfyUI 취소 전송 실패: count=%s error_type=%s", len(request_batch), type(exception).__name__)
+        for request_id in request_ids:
+            server.cancellation_retry_after[request_id] = time.monotonic() + 5
+        await asyncio.to_thread(server.database.record_cancellation_error, request_ids, cancellation_error)
 
 
 async def _skip_cancelled_submission(server: HomeServer, request_id: str) -> bool:
@@ -1950,6 +1973,15 @@ def comfy_execution_started_at(status_info: dict[str, Any]) -> str | None:
 
 async def _refresh_requests(server: HomeServer) -> None:
     """중복 감시를 막고 작은 상태 조회와 묶음 DB 갱신으로 진행 상태를 확인합니다."""
+
+    if server.administration_maintenance.restoring:
+        return
+    with server.administration_maintenance.operation():
+        await _refresh_requests_before_restore(server)
+
+
+async def _refresh_requests_before_restore(server: HomeServer) -> None:
+    """복원 Gate 안에서 ComfyUI 상태를 조회하고 DB에 반영합니다."""
 
     async with server.request_refresh_lock:
         active_requests = await asyncio.to_thread(server.database.list_active_requests)

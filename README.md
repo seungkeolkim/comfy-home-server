@@ -1,5 +1,7 @@
 # Comfy Home Server
 
+리소스 모니터링을 펼치고 `VRAM 비우기` 옆의 **⚙ 관리자**에서 운영 DB를 수동 백업·복원할 수 있습니다. 백업별 설명과 실행 이력은 별도 DB에 보관하며, 현재 서버와 Schema version이 같은 백업만 복원할 수 있습니다. 삭제는 확인 후 즉시 실행합니다. 실제 결과물·입력 파일은 백업·복원하지 않으며, 관리자 화면에서 데이터 연결 진단과 저장 공간 현황을 수동 조회할 수 있습니다. [관리자 기능과 데이터 경계](docs/administration.md)를 참고하세요.
+
 ComfyUI API에 Anima 이미지와 DaSiWa MiniMax H3 영상을 bulk로 제출하고, 집 안과 mobile에서 결과물을 확인하는 웹 앱입니다. 기획 결정사항은 [PLAN.md](PLAN.md)에 기록했습니다.
 
 ## Docker Compose 실행

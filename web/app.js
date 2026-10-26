@@ -14,7 +14,11 @@ const KOREAN_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
   hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
 });
-const NAVIGATION_VIEW_NAMES = ["generate", "jobs", "outputs", "prompts", "tags", "lora-presets"];
+const NAVIGATION_VIEW_NAMES = ["generate", "jobs", "outputs", "prompts", "tags", "lora-presets", "administration"];
+const administrationState = {
+  backups: [], backupPage: 1, historyPage: 1, historyTotalPages: 1,
+  busy: false, loading: false, editingBackupId: null, descriptionSaving: false, loadRevision: 0,
+};
 const requestFavoriteState = { restoration: null, detailIdentifier: null, busy: false };
 const RESOURCE_POLL_INTERVAL_MILLISECONDS = 2000;
 const videoPreviewState = {
@@ -323,6 +327,7 @@ async function showApplication() {
     loadLoraPresets(),
     loadJobs(),
     applicationState.currentView === "outputs" ? loadOutputs() : Promise.resolve(),
+    applicationState.currentView === "administration" ? loadAdministration() : Promise.resolve(),
     loadStatus(),
   ]);
   saveCurrentNavigationEntry();
@@ -629,6 +634,7 @@ function displayNavigationState(navigationState) {
   element("jobs-folder-menu").open = false;
   closeJobHistoryFolderDialogs();
   element("tag-import-dialog").close();
+  element("database-backup-description-dialog").close();
   closeJobDescriptionEditor(false);
   closeVideoPreview(false);
   closeImagePreview(false);
@@ -666,6 +672,7 @@ function displayNavigationState(navigationState) {
     prompts: "Prompt",
     tags: "태그 관리",
     "lora-presets": "LoRA 조합",
+    administration: "관리자",
   };
   element("page-title").textContent = titles[viewName];
   updateNavigationLinks();
@@ -698,6 +705,7 @@ async function loadNavigationState(navigationState, restoreOpenJobs) {
       }
     }
     if (navigationState.viewName === "outputs") await loadOutputs();
+    if (navigationState.viewName === "administration") await loadAdministration();
   } finally {
     if (applicationState.pendingNavigationScroll === pendingScroll) {
       applicationState.pendingNavigationScroll = null;
@@ -937,6 +945,7 @@ function promptEditorMatchesNavigation(target) {
 
 /** 닫히는 Dialog나 교체되는 Prompt의 미저장 변경만 확인합니다. */
 function canNavigateToState(navigationState) {
+  if (administrationState.busy || administrationState.descriptionSaving) return false;
   if (promptEditorState.saving || tagManagerState.editorBusy || tagImportState.busy) return false;
   const tagTarget = navigationState.viewName === "tags" ? navigationState.tagNavigation : null;
   const sameTagEditor = tagTarget?.editorKind === tagManagerState.editorKind &&
@@ -4410,11 +4419,13 @@ function bindEvents() {
   );
   element("refresh-button").addEventListener("click", () =>
     runAction(async () => {
-      await Promise.all([loadStatus(), loadJobs(), loadOutputs(), loadLoras(), loadLoraPresets(), loadTags()]);
+      await Promise.all([loadStatus(), loadJobs(), loadOutputs(), loadLoras(), loadLoraPresets(), loadTags(),
+        applicationState.currentView === "administration" ? loadAdministration() : Promise.resolve()]);
       showNotice("새로고침했습니다.");
     }),
   );
   element("free-vram-button").addEventListener("click", () => runAction(freeComfyMemory));
+  bindAdministrationControls();
   element("reload-web-assets-button").addEventListener("click", reloadWebAssets);
   element("generate-workflow").addEventListener("change", () => {
     resetGenerationWorkflow(element("generate-workflow").value);
@@ -5342,6 +5353,256 @@ function bindRequestFavoriteEvents() {
     if (checkbox.checked) requestFavoriteState.restoration.selectedTagIds.add(checkbox.dataset.favoriteTag);
     else requestFavoriteState.restoration.selectedTagIds.delete(checkbox.dataset.favoriteTag);
   });
+}
+
+/** DB와 파일 크기를 같은 단위로 읽기 쉽게 표시합니다. */
+function formatAdministrationBytes(sizeBytes) {
+  if (sizeBytes === null || sizeBytes === undefined) return "확인 불가";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let convertedSize = Number(sizeBytes);
+  let unitIndex = 0;
+  while (convertedSize >= 1024 && unitIndex < units.length - 1) {
+    convertedSize /= 1024;
+    unitIndex += 1;
+  }
+  return `${convertedSize.toLocaleString("ko-KR", { maximumFractionDigits: unitIndex ? 1 : 0 })} ${units[unitIndex]}`;
+}
+
+/** 백업 작업 중 중복 실행과 설명 입력 교체를 막습니다. */
+function updateAdministrationControls() {
+  const busy = administrationState.busy || administrationState.loading;
+  for (const button of element("view-administration").querySelectorAll("button")) {
+    if (["inspect-database-connections", "inspect-administration-storage"].includes(button.id)) continue;
+    button.disabled = busy;
+  }
+  const backupTotalPages = Math.max(1, Math.ceil(administrationState.backups.length / 10));
+  element("database-backup-previous").disabled = busy || administrationState.backupPage <= 1;
+  element("database-backup-next").disabled = busy || administrationState.backupPage >= backupTotalPages;
+  element("administration-history-previous").disabled = busy || administrationState.historyPage <= 1;
+  element("administration-history-next").disabled = busy || administrationState.historyPage >= administrationState.historyTotalPages;
+  element("database-backup-description").disabled = busy;
+  element("database-backup-description-editor").disabled = administrationState.descriptionSaving;
+  element("save-database-backup-description").disabled = administrationState.descriptionSaving;
+  element("cancel-database-backup-description").disabled = administrationState.descriptionSaving;
+  for (const backup of administrationState.backups) {
+    const restoreButton = element("database-backup-list").querySelector(`[data-restore-database-backup="${CSS.escape(backup.backup_id)}"]`);
+    if (restoreButton) restoreButton.disabled = busy || !backup.restorable;
+  }
+}
+
+/** 백업 설명과 현재 서버의 Schema 비교 결과를 페이지로 표시합니다. */
+function renderDatabaseBackups() {
+  const totalPages = Math.max(1, Math.ceil(administrationState.backups.length / 10));
+  administrationState.backupPage = Math.min(administrationState.backupPage, totalPages);
+  const visibleBackups = administrationState.backups.slice((administrationState.backupPage - 1) * 10, administrationState.backupPage * 10);
+  element("database-backup-list").innerHTML = visibleBackups.length ? visibleBackups.map(backup => `
+    <article class="administration-card">
+      <p class="administration-description">${escapeHtml(backup.description || "(백업 설명 없음)")}</p>
+      <p>${escapeHtml(formatKoreanTimestamp(backup.created_at))} · ${escapeHtml(formatAdministrationBytes(backup.size_bytes))}</p>
+      <p class="hint">${backup.source === "manual" ? "수동 백업" : "기존 백업"} · Schema ${escapeHtml(backup.schema_version ?? "확인 불가")} · ${backup.restorable ? "현재 Schema와 일치" : "복원 불가"}</p>
+      <p class="hint">${escapeHtml(backup.file_name)}</p>
+      ${backup.unavailable_reason ? `<p class="form-error">${escapeHtml(backup.unavailable_reason)}</p>` : ""}
+      <div class="inline-actions">
+        <button type="button" class="button subtle small" data-edit-database-backup="${escapeHtml(backup.backup_id)}">설명 수정</button>
+        <button type="button" class="button subtle small" data-restore-database-backup="${escapeHtml(backup.backup_id)}" ${backup.restorable ? "" : "disabled"}>복원</button>
+        <button type="button" class="button danger small" data-delete-database-backup="${escapeHtml(backup.backup_id)}">삭제</button>
+      </div>
+    </article>`).join("") : '<p class="hint">저장된 DB 백업이 없습니다.</p>';
+  element("database-backup-page").textContent = `${administrationState.backupPage} / ${totalPages} · ${administrationState.backups.length}개`;
+  updateAdministrationControls();
+}
+
+/** 운영 DB 복원 이후에도 남아 있는 관리자 작업 이력을 표시합니다. */
+function renderAdministrationHistory(history) {
+  const actionNames = { backup: "백업", restore: "복원", delete: "삭제", description: "설명 수정" };
+  const statusNames = { running: "진행 중", completed: "완료", failed: "실패", interrupted: "중단 · 결과 확인 불가" };
+  administrationState.historyTotalPages = history.total_pages;
+  element("administration-history-list").innerHTML = history.items.length ? history.items.map(operation => `
+    <article class="administration-card">
+      <p><strong>${escapeHtml(actionNames[operation.action] || operation.action)}</strong> · ${escapeHtml(statusNames[operation.status] || operation.status)}</p>
+      <p class="administration-description">${escapeHtml(operation.description || "(백업 설명 없음)")}</p>
+      <p class="hint">시작 ${escapeHtml(formatKoreanTimestamp(operation.started_at))}<br>종료 ${escapeHtml(formatKoreanTimestamp(operation.finished_at))}</p>
+      <p class="hint">${escapeHtml(operation.file_name || "")}</p>
+      ${operation.error_message ? `<p class="form-error">${escapeHtml(operation.error_message)}</p>` : ""}
+    </article>`).join("") : '<p class="hint">관리자 작업 이력이 없습니다.</p>';
+  element("administration-history-page").textContent = `${history.page} / ${history.total_pages} · ${history.total}건`;
+  updateAdministrationControls();
+}
+
+/** 관리자 화면에서만 백업과 이력을 조회하고 오래된 응답은 적용하지 않습니다. */
+async function loadAdministration() {
+  const loadRevision = ++administrationState.loadRevision;
+  administrationState.loading = true;
+  updateAdministrationControls();
+  try {
+    const [backups, history] = await Promise.all([
+      apiRequest("/api/administration/backups"),
+      apiRequest(`/api/administration/history?page=${administrationState.historyPage}`),
+    ]);
+    if (loadRevision !== administrationState.loadRevision) return;
+    administrationState.backups = backups.items;
+    element("database-schema-status").textContent = `현재 서버 DB Schema ${backups.current_schema_version} · 같은 version의 백업만 복원할 수 있습니다.`;
+    renderDatabaseBackups();
+    renderAdministrationHistory(history);
+  } catch (error) {
+    if (loadRevision === administrationState.loadRevision) showNotice(error.message, true);
+  } finally {
+    if (loadRevision === administrationState.loadRevision) {
+      administrationState.loading = false;
+      updateAdministrationControls();
+    }
+  }
+}
+
+/** 변경 작업을 한 번만 실행하고 성공·실패 이력을 다시 읽습니다. */
+async function runAdministrationMutation(action) {
+  if (administrationState.busy || administrationState.loading) return;
+  administrationState.busy = true;
+  element("database-backup-status").textContent = "처리 중…";
+  updateAdministrationControls();
+  try {
+    await action();
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    administrationState.busy = false;
+    administrationState.historyPage = 1;
+    element("database-backup-status").textContent = "";
+    await loadAdministration();
+  }
+}
+
+/** 백업 파일은 그대로 두고 별도 설명 편집기를 엽니다. */
+function editDatabaseBackupDescription(backup) {
+  if (administrationState.busy || administrationState.loading) return;
+  administrationState.editingBackupId = backup.backup_id;
+  element("database-backup-description-editor").value = backup.description;
+  element("database-backup-description-error").textContent = "";
+  element("database-backup-description-dialog").showModal();
+  element("database-backup-description-editor").focus();
+}
+
+/** 삭제 확인과 백업 여부 확인을 거쳐 선택한 DB에만 작업을 실행합니다. */
+async function handleDatabaseBackupAction(event) {
+  const button = event.target.closest("button");
+  if (!button || button.disabled) return;
+  const backupId = button.dataset.editDatabaseBackup || button.dataset.restoreDatabaseBackup || button.dataset.deleteDatabaseBackup;
+  const backup = administrationState.backups.find(candidate => candidate.backup_id === backupId);
+  if (!backup) return;
+  if (button.dataset.editDatabaseBackup) {
+    editDatabaseBackupDescription(backup);
+    return;
+  }
+  const backupLabel = backup.description || backup.file_name;
+  if (button.dataset.deleteDatabaseBackup) {
+    if (!window.confirm(`“${backupLabel}” 백업을 영구 삭제하시겠습니까? 삭제한 백업은 복구할 수 없습니다.`)) return;
+    await runAdministrationMutation(async () => {
+      await apiRequest(`/api/administration/backups/${encodeURIComponent(backupId)}`, { method: "DELETE", body: JSON.stringify({ confirmed: true }) });
+      showNotice("백업을 삭제했습니다.");
+    });
+    return;
+  }
+  if (!backup.restorable || !window.confirm(`현재 DB를 필요한 만큼 백업해 두셨습니까?\n\n“${backupLabel}” 시점으로 DB를 복원합니다. 현재 DB의 이후 변경 사항은 사라지며, 결과물과 입력 파일은 변경되지 않습니다. 복원 후 화면을 다시 불러오므로 저장하지 않은 입력은 사라집니다.`)) return;
+  await runAdministrationMutation(async () => {
+    await apiRequest(`/api/administration/backups/${encodeURIComponent(backupId)}/restore`, { method: "POST", body: JSON.stringify({ backup_confirmed: true }) });
+    window.location.assign("?view=administration");
+  });
+}
+
+/** 실행한 시점의 파일 연결 차이와 일부 경로를 읽기 전용으로 표시합니다. */
+function renderDatabaseConnectionFindings(diagnosis) {
+  const findingNames = {
+    missing_outputs: "DB에 있으나 현재 파일이 없는 결과물",
+    unregistered_outputs: "현재 파일은 있으나 DB에 등록되지 않은 결과물",
+    deleted_outputs_present: "DB에서 삭제 처리됐으나 현재 파일이 있는 결과물",
+    missing_favorite_inputs: "즐겨찾기에 연결됐으나 현재 파일이 없는 입력",
+    unreferenced_favorite_inputs: "현재 즐겨찾기에서 사용하지 않는 보관 입력",
+  };
+  element("database-connection-findings").innerHTML = `<p class="hint">확인 ${escapeHtml(formatKoreanTimestamp(diagnosis.checked_at))}</p>
+    ${diagnosis.access_errors.length ? '<p class="form-error">접근하지 못한 폴더가 있어 일부 결과가 누락됐을 수 있습니다.</p>' : ""}
+    <div class="administration-findings">${Object.entries(diagnosis.findings).map(([name, finding]) => `
+      <details><summary>${escapeHtml(findingNames[name] || name)} · ${finding.total}개</summary>
+      ${finding.paths.length ? `<ul>${finding.paths.map(path => `<li>${escapeHtml(path)}</li>`).join("")}</ul>` : '<p class="hint">해당 항목이 없습니다.</p>'}
+      ${finding.total > finding.paths.length ? '<p class="hint">경로는 처음 100개까지 표시합니다.</p>' : ""}</details>`).join("")}</div>`;
+}
+
+/** 폴더 사용량과 디스크 여유 공간을 삭제 동작 없이 표시합니다. */
+function renderAdministrationStorage(storage) {
+  element("administration-storage-list").innerHTML = `<p class="hint">확인 ${escapeHtml(formatKoreanTimestamp(storage.checked_at))} · 디스크 여유 공간은 같은 디스크의 항목끼리 공유합니다.</p>
+    <div class="administration-storage-grid">${storage.items.map(location => `
+      <article class="administration-card"><p><strong>${escapeHtml(location.name)}</strong></p>
+      <p>${escapeHtml(formatAdministrationBytes(location.size_bytes))} · ${location.file_count ?? "—"}개 파일</p>
+      <p class="hint">디스크 여유 ${escapeHtml(formatAdministrationBytes(location.disk_free_bytes))} / 전체 ${escapeHtml(formatAdministrationBytes(location.disk_total_bytes))}</p>
+      ${location.access_errors.length ? '<p class="form-error">일부 항목을 읽지 못했습니다.</p>' : ""}</article>`).join("")}</div>`;
+}
+
+/** 수동 조회 버튼의 중복 실행을 막고 실패하면 직전 조회 결과를 유지합니다. */
+async function runAdministrationInspection(buttonId, endpoint, renderResult) {
+  const button = element(buttonId);
+  if (button.disabled) return;
+  button.disabled = true;
+  const originalLabel = button.textContent;
+  button.textContent = "확인 중…";
+  try {
+    const result = await apiRequest(endpoint, { method: "POST" });
+    renderResult(result);
+  } catch (error) {
+    showNotice(error.message, true);
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
+}
+
+/** 관리자 진입·백업·설명·복원·삭제와 명시적 진단 버튼을 연결합니다. */
+function bindAdministrationControls() {
+  element("refresh-database-backups").addEventListener("click", () => loadAdministration());
+  element("create-database-backup-form").addEventListener("submit", event => {
+    event.preventDefault();
+    runAdministrationMutation(async () => {
+      await apiRequest("/api/administration/backups", { method: "POST", body: JSON.stringify({ description: element("database-backup-description").value }) });
+      element("database-backup-description").value = "";
+      administrationState.backupPage = 1;
+      showNotice("현재 DB를 백업했습니다.");
+    });
+  });
+  element("database-backup-list").addEventListener("click", event => runAction(() => handleDatabaseBackupAction(event)));
+  element("database-backup-description-form").addEventListener("submit", event => {
+    event.preventDefault();
+    if (administrationState.descriptionSaving) return;
+    runAdministrationMutation(async () => {
+      administrationState.descriptionSaving = true;
+      updateAdministrationControls();
+      try {
+        await apiRequest(`/api/administration/backups/${encodeURIComponent(administrationState.editingBackupId)}/description`, { method: "PATCH", body: JSON.stringify({ description: element("database-backup-description-editor").value }) });
+        element("database-backup-description-dialog").close();
+        showNotice("백업 설명을 저장했습니다.");
+      } catch (error) {
+        element("database-backup-description-error").textContent = error.message;
+        throw error;
+      } finally {
+        administrationState.descriptionSaving = false;
+      }
+    });
+  });
+  element("cancel-database-backup-description").addEventListener("click", () => element("database-backup-description-dialog").close());
+  element("database-backup-description-dialog").addEventListener("cancel", event => {
+    if (administrationState.descriptionSaving) event.preventDefault();
+  });
+  for (const [buttonId, direction] of [["database-backup-previous", -1], ["database-backup-next", 1]]) {
+    element(buttonId).addEventListener("click", () => {
+      administrationState.backupPage += direction;
+      renderDatabaseBackups();
+    });
+  }
+  for (const [buttonId, direction] of [["administration-history-previous", -1], ["administration-history-next", 1]]) {
+    element(buttonId).addEventListener("click", () => {
+      administrationState.historyPage += direction;
+      loadAdministration();
+    });
+  }
+  element("inspect-database-connections").addEventListener("click", () => runAdministrationInspection("inspect-database-connections", "/api/administration/diagnostics", renderDatabaseConnectionFindings));
+  element("inspect-administration-storage").addEventListener("click", () => runAdministrationInspection("inspect-administration-storage", "/api/administration/storage", renderAdministrationStorage));
 }
 
 initializeApplication();

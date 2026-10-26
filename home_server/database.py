@@ -17,6 +17,9 @@ from .job_folders import JobFolderStore
 from .request_favorites import RequestFavoriteStore
 
 
+DATABASE_SCHEMA_VERSION = 14
+
+
 def current_timestamp() -> str:
     """UTC ISO 형식의 현재 시간을 반환합니다."""
 
@@ -49,7 +52,7 @@ class Database:
                 self._create_verified_database_backup(connection, "request_favorites")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, DATABASE_SCHEMA_VERSION}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -166,7 +169,7 @@ class Database:
                 OutputCatalog.backfill_from_requests(connection)
             JobFolderStore.prepare_schema(connection)
             RequestFavoriteStore.prepare_schema(connection)
-            connection.execute("PRAGMA user_version = 14")
+            connection.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
         self.job_folders = JobFolderStore(self._connect)
         self.favorites = RequestFavoriteStore(self._connect, database_path.parent)
 

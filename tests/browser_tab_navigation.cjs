@@ -35,9 +35,9 @@ function createNavigationRequestHandler(fixtures) {
     const requestPath = requestUrl.pathname;
     if (await handleJobFolderReadRequest(route, fixtures.jobs || [])) return;
     if (route.request().method() !== "GET") fixtures.mutations.push(requestPath);
-    if (["/", "/app.js", "/app.css"].includes(requestPath)) {
+    if (["/", "/app.js", "/app.css", "/favicon.svg"].includes(requestPath)) {
       const filename = requestPath === "/" ? "index.html" : requestPath.slice(1);
-      const contentTypes = { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css" };
+      const contentTypes = { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css", "favicon.svg": "image/svg+xml" };
       await route.fulfill({
         contentType: contentTypes[filename],
         body: filesystem.readFileSync(path.join(projectDirectory, "web", filename), "utf8"),

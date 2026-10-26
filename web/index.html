@@ -87,7 +87,10 @@
           </summary>
           <div class="resource-details">
             <div><p id="resource-host-description">ComfyUI host · 2초 간격</p><p id="resource-status" role="status">서버 상태를 확인하고 있습니다.</p></div>
-            <button id="free-vram-button" type="button" class="button danger">VRAM 비우기</button>
+            <div class="inline-actions resource-actions">
+              <button id="free-vram-button" type="button" class="button danger">VRAM 비우기</button>
+              <a data-navigation data-view="administration" href="?view=administration" class="button subtle">⚙ 관리자</a>
+            </div>
           </div>
         </details>
         <section id="view-generate" class="view">
@@ -586,6 +589,46 @@
             <div id="lora-preset-list" class="preset-list"></div>
           </div>
         </section>
+        <section id="view-administration" class="view hidden">
+          <div class="section-intro">
+            <h2>관리자</h2>
+            <p>운영 DB의 백업·복원과 저장 공간, 데이터 연결 상태를 관리합니다.</p>
+          </div>
+          <div class="panel stack administration-panel">
+            <div class="panel-heading"><h3>DB 백업</h3><button id="refresh-database-backups" type="button" class="button subtle small">목록 새로고침</button></div>
+            <p class="hint">결과물·입력 이미지 등 실제 파일은 백업·복원에 포함되지 않습니다.</p>
+            <form id="create-database-backup-form" class="stack">
+              <div><label for="database-backup-description">백업 설명</label><input id="database-backup-description" maxlength="200" placeholder="예: 태그 정리 전" /></div>
+              <div class="inline-actions"><button id="create-database-backup" type="submit" class="button primary">현재 DB 백업</button><span id="database-backup-status" class="hint" role="status"></span></div>
+            </form>
+            <p id="database-schema-status" class="hint"></p>
+            <div id="database-backup-list" class="administration-list"></div>
+            <div class="inline-actions"><button id="database-backup-previous" type="button" class="button subtle small">이전</button><span id="database-backup-page" class="hint"></span><button id="database-backup-next" type="button" class="button subtle small">다음</button></div>
+          </div>
+          <div class="panel stack administration-panel">
+            <div class="panel-heading"><h3>백업·복원 이력</h3></div>
+            <div id="administration-history-list" class="administration-list"></div>
+            <div class="inline-actions"><button id="administration-history-previous" type="button" class="button subtle small">이전</button><span id="administration-history-page" class="hint"></span><button id="administration-history-next" type="button" class="button subtle small">다음</button></div>
+          </div>
+          <div class="panel stack administration-panel">
+            <div class="panel-heading"><h3>데이터 연결 진단</h3><button id="inspect-database-connections" type="button" class="button subtle small">진단 실행</button></div>
+            <p class="hint">복원 후 DB와 현재 파일의 연결을 확인합니다. DB와 파일을 수정하지 않습니다.</p>
+            <div id="database-connection-findings"><p class="hint">진단 실행을 누르면 현재 상태를 확인합니다.</p></div>
+          </div>
+          <div class="panel stack administration-panel">
+            <div class="panel-heading"><h3>저장 공간 현황</h3><button id="inspect-administration-storage" type="button" class="button subtle small">용량 확인</button></div>
+            <p class="hint">필요할 때 폴더별 사용량과 디스크 여유 공간을 확인합니다.</p>
+            <div id="administration-storage-list"><p class="hint">용량 확인을 누르면 현재 사용량을 집계합니다.</p></div>
+          </div>
+        </section>
+        <dialog id="database-backup-description-dialog" class="folder-picker">
+          <form id="database-backup-description-form" class="stack">
+            <h2>백업 설명 수정</h2>
+            <div><label for="database-backup-description-editor">설명</label><input id="database-backup-description-editor" maxlength="200" /></div>
+            <p id="database-backup-description-error" class="form-error" role="alert"></p>
+            <div class="inline-actions"><button id="save-database-backup-description" type="submit" class="button primary">저장</button><button id="cancel-database-backup-description" type="button" class="button subtle">취소</button></div>
+          </form>
+        </dialog>
         <div id="notice" class="notice hidden" role="status"></div>
       </main>
 

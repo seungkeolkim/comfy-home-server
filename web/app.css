@@ -5,6 +5,26 @@
   font-synthesis: none;
   line-height: 1.5;
 }
+.resource-actions { justify-content: flex-end; }
+.resource-actions a { text-decoration: none; }
+.administration-panel + .administration-panel { margin-top: 20px; }
+.administration-list { display: grid; gap: 12px; }
+.administration-card { min-width: 0; border: 1px solid #344159; border-radius: 12px; padding: 16px; }
+.administration-card p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.administration-card .inline-actions { margin-top: 12px; }
+.administration-description { font-weight: 700; white-space: pre-wrap; }
+.administration-findings { display: grid; gap: 10px; }
+.administration-findings details { min-width: 0; border: 1px solid #344159; border-radius: 10px; padding: 12px; }
+.administration-findings summary { cursor: pointer; overflow-wrap: anywhere; }
+.administration-findings ul { padding-left: 20px; overflow-wrap: anywhere; }
+.administration-storage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.administration-panel .panel-heading { flex-wrap: wrap; gap: 10px; }
+.administration-panel .inline-actions { flex-wrap: wrap; }
+.administration-panel button, .resource-actions a { min-height: 40px; }
+@media (max-width: 480px) {
+  body:has(#view-administration:not(.hidden)) .topbar { flex-wrap: wrap; }
+  body:has(#view-administration:not(.hidden)) .topbar h1 { white-space: nowrap; }
+}
 * {
   box-sizing: border-box;
 }
