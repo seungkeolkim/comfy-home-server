@@ -8,3 +8,4 @@ runtime/
 old_codes/
 /data/workflows/AnimaTurboV9/sample_prompt.txt
 .env
+.vscode/
