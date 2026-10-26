@@ -1286,6 +1286,18 @@ body:has(.image-preview-dialog[open]) { overflow: hidden; }
 .preview-source-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .preview-actions > button { flex-shrink: 0; margin-left: auto; }
 #video-preview-player { display: block; width: 100%; max-height: 65dvh; margin: 12px 0; background: black; }
+@media (min-width: 801px) {
+  .image-preview-dialog, .video-preview-dialog { width: min(1440px, 90vw); }
+  .image-preview-dialog[open], .video-preview-dialog[open] { display: flex; flex-direction: column; }
+  .image-preview-dialog > :not(#image-preview-content),
+  .video-preview-dialog > :not(#video-preview-player) { flex-shrink: 0; }
+  #image-preview-content, #video-preview-player {
+    flex: 0 1 auto;
+    min-height: 0;
+    max-height: none;
+    object-fit: contain;
+  }
+}
 #video-preview-notice { max-width: calc(100vw - 32px); box-sizing: border-box; }
 #video-preview-notice button { pointer-events: auto; }
 .output-info {
