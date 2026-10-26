@@ -214,7 +214,7 @@ async function verifyPreviewNavigation(browser, width) {
     assert.equal(await page.locator("#image-preview-next").isDisabled(), true);
     assert.equal(await page.locator("#image-preview-original").isVisible(), true);
     await page.keyboard.press("Escape");
-    assert.deepEqual(fixtures.originalRequests, []);
+    assertDefaultMediaRequests(fixtures, width);
     assert.deepEqual(pageErrors, []);
   } finally {
     await context.close();
@@ -243,8 +243,12 @@ async function verifyOriginalPreviewMode(browser, width) {
     await waitForPreviewImage(page);
     const imageToggle = page.locator("#image-preview-original-toggle");
     const videoToggle = page.locator("#video-preview-original-toggle");
-    assert.equal(await imageToggle.isChecked(), false);
-    assert.deepEqual(fixtures.originalRequests, []);
+    assert.equal(await imageToggle.isChecked(), width >= 801);
+    assertDefaultMediaRequests(fixtures, width);
+    if (width >= 801) {
+      await imageToggle.uncheck();
+      await waitForPreviewImage(page);
+    }
     await imageToggle.check();
     await waitForPreviewImage(page);
     assert.match(await page.locator("#image-preview-content").getAttribute("src"), /^\/media\//);
@@ -294,8 +298,8 @@ async function verifyOriginalPreviewMode(browser, width) {
     await page.keyboard.press("Escape");
     await page.locator('[data-job-result-preview="1"]').click();
     await waitForPreviewImage(page);
-    assert.equal(await imageToggle.isChecked(), false);
-    assert.match(await page.locator("#image-preview-content").getAttribute("src"), /^\/api\/outputs\/preview\//);
+    assert.equal(await imageToggle.isChecked(), width >= 801);
+    assert.match(await page.locator("#image-preview-content").getAttribute("src"), width >= 801 ? /^\/media\// : /^\/api\/outputs\/preview\//);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
     await imageToggle.check();
     await waitForPreviewImage(page);
@@ -314,6 +318,12 @@ async function waitForPreviewImage(browserPage) {
   });
 }
 
+/** 새로 연 창의 너비에 맞춰 원본 요청이 기본으로 발생하는지 확인합니다. */
+function assertDefaultMediaRequests(fixtures, width) {
+  if (width >= 801) assert.ok(fixtures.originalRequests.length > 0);
+  else assert.deepEqual(fixtures.originalRequests, []);
+}
+
 /** Desktop과 Touch 환경에서 원본 요청 분리·닫기·Focus·실패·화면 경계를 확인합니다. */
 async function verifyImagePreviews(browser, width) {
   const context = await browser.newContext({ viewport: { width, height: 900 }, hasTouch: width < 600 });
@@ -329,7 +339,7 @@ async function verifyImagePreviews(browser, width) {
     await firstImageButton.focus();
     await page.keyboard.press("Enter");
     await waitForPreviewImage(page);
-    assert.deepEqual(fixtures.originalRequests, []);
+    assertDefaultMediaRequests(fixtures, width);
     assert.equal(await page.locator("#image-preview-title").textContent(), fixtures.files[0].name);
     assert.equal(await page.locator("#image-preview-close").evaluate(button => button === document.activeElement), true);
     assert.equal(await page.locator("#image-preview-original").getAttribute("href"), `/media/${fixtures.files[0].path.split("/").map(encodeURIComponent).join("/")}`);
@@ -355,7 +365,8 @@ async function verifyImagePreviews(browser, width) {
     await page.locator("#image-preview-original").click();
     const popup = await popupPromise;
     await popup.waitForLoadState("domcontentloaded");
-    assert.deepEqual(fixtures.originalRequests, [`/media/${fixtures.files[0].path}`]);
+    assert.ok(fixtures.originalRequests.includes(`/media/${fixtures.files[0].path}`));
+    assert.ok(fixtures.originalRequests.every(requestPath => requestPath === `/media/${fixtures.files[0].path}`));
     assert.equal(await imageDialog.evaluate(dialog => dialog.open), true);
     await popup.close();
     await page.locator("#image-preview-close").click();
@@ -393,6 +404,7 @@ async function verifyImagePreviews(browser, width) {
     assert.equal(await page.locator("#image-preview-status").textContent(), "");
 
     await page.locator('[data-video-preview="4"]').click();
+    if (width >= 801) await page.locator("#video-preview-original-toggle").uncheck();
     await page.locator("#video-preview-notice").filter({ hasText: "변환에 실패했습니다" }).waitFor();
     await page.locator("#video-preview-close").click();
     await page.locator('[data-view="jobs"]:visible').first().click();
@@ -524,7 +536,7 @@ async function verifyPreviewDeletion(browser, width) {
     await page.locator("#image-preview-delete").click();
     await page.locator("#video-preview-title").filter({ hasText: "next-video.mp4" }).waitFor();
     assert.equal(await page.locator("#image-preview-dialog").evaluate(dialog => dialog.open), false);
-    assert.deepEqual(fixtures.originalRequests, []);
+    assertDefaultMediaRequests(fixtures, width);
     assert.deepEqual(pageErrors, []);
   } finally {
     await context.close();
@@ -597,7 +609,7 @@ async function verifyAnyStateOutputDeletion(browser, width) {
     await page.locator("#image-preview-delete:not([disabled])").waitFor();
     assert.equal(await page.locator("#image-preview-title").textContent(), "remaining.png");
     assert.equal(await page.locator("#video-preview-dialog").evaluate(dialog => dialog.open), false);
-    assert.deepEqual(fixtures.originalRequests, []);
+    assertDefaultMediaRequests(fixtures, width);
     assert.deepEqual(pageErrors, []);
   } finally {
     await context.close();

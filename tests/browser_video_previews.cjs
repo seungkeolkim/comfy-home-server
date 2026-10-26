@@ -31,7 +31,7 @@ async function waitForServer(baseUrl, serverProcess, readLogs) {
   throw new Error(`Server start timeout: ${readLogs()}`);
 }
 
-/** 원본 전송 없이 변환 중 재생·완료 Cache·실패 Toast와 Focus 복귀를 확인합니다. */
+/** 화면별 기본 원본 모드와 변환 중 재생·완료 Cache·실패 Toast를 확인합니다. */
 async function verifyVideoPreviews(browser, width) {
   const runtimeDirectory = filesystem.mkdtempSync(path.join(artifactDirectory, `video-preview-${width}-`));
   const port = await availableTestPort();
@@ -72,6 +72,9 @@ async function verifyVideoPreviews(browser, width) {
 
     const progressiveButton = page.locator(`[data-video-preview="${sources.progressive}"]`);
     await progressiveButton.click();
+    const originalToggle = page.locator("#video-preview-original-toggle");
+    assert.equal(await originalToggle.isChecked(), width >= 801);
+    if (width >= 801) await originalToggle.uncheck();
     await page.waitForFunction(() => document.getElementById("video-preview-player").currentTime > 0.15, { timeout: 12000 });
     const converting = await (await page.request.get(`${baseUrl}/api/outputs/${sources.progressive}/video-preview`)).json();
     assert.equal(converting.state, "converting", "Playback must begin before full conversion completes");
@@ -103,6 +106,7 @@ async function verifyVideoPreviews(browser, width) {
     assert.equal((await (await page.request.get(`${baseUrl}/api/outputs/${sources.progressive}/video-preview`)).json()).state, "converting");
 
     await page.locator(`[data-video-preview="${sources.failed}"]`).click();
+    if (width >= 801) await originalToggle.uncheck();
     await page.locator("#video-preview-notice").filter({ hasText: "미리보기 변환에 실패했습니다." }).waitFor();
     await page.locator("#video-preview-notice button").click();
     await page.waitForFunction(() => document.getElementById("video-preview-player").currentTime > 0.15, { timeout: 12000 });
@@ -111,10 +115,11 @@ async function verifyVideoPreviews(browser, width) {
     assert.equal(await page.locator("#video-preview-dialog").evaluate(dialog => dialog.open), false);
 
     await page.locator(`[data-video-preview="${sources.ready}"]`).click();
+    assert.equal(await originalToggle.isChecked(), width >= 801);
+    if (width >= 801) await originalToggle.uncheck();
     await page.waitForFunction(() => document.getElementById("video-preview-player").currentTime > 0.1);
     assert.equal(await page.locator("#video-preview-notice").isVisible(), false);
-    assert.deepEqual(originalRequests, []);
-    const originalToggle = page.locator("#video-preview-original-toggle");
+    if (width < 801) assert.deepEqual(originalRequests, []);
     assert.equal(await originalToggle.isChecked(), false);
     await originalToggle.check();
     await page.waitForFunction(() => {
@@ -135,7 +140,8 @@ async function verifyVideoPreviews(browser, width) {
     assert.equal(await page.locator(".output-selected").count(), 1);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
     assert.ok(originalRequests.length > 0);
-    assert.ok(originalRequests.every(requestUrl => new URL(requestUrl).pathname === "/media/ready.mp4"));
+    const expectedOriginalPaths = width >= 801 ? ["/media/progressive.mp4", "/media/failed.mp4", "/media/ready.mp4"] : ["/media/ready.mp4"];
+    assert.ok(originalRequests.every(requestUrl => expectedOriginalPaths.includes(new URL(requestUrl).pathname)));
     assert.deepEqual(pageErrors, []);
 
     await page.waitForFunction(async ({ baseUrl, identifiers }) => {
@@ -144,7 +150,7 @@ async function verifyVideoPreviews(browser, width) {
     }, { baseUrl, identifiers: [sources.progressive, sources.failed] }, { timeout: 15000 });
     await selectionButton.click();
     await page.locator(`[data-video-preview="${sources.ready}"]`).click();
-    assert.equal(await originalToggle.isChecked(), false);
+    assert.equal(await originalToggle.isChecked(), width >= 801);
     await page.locator("#video-preview-delete:not([disabled])").waitFor();
     page.once("dialog", dialog => dialog.accept());
     const deletionResponse = page.waitForResponse(response => response.url() === `${baseUrl}/api/outputs/${sources.ready}` && response.request().method() === "DELETE");

@@ -3746,6 +3746,7 @@ function openOutputPreview(outputFile, opener, preserveScope = false, scopeFilte
   const navigationState = outputPreviewNavigationState;
   if (!preserveScope) {
     resetOutputPreviewNavigation();
+    navigationState.showOriginalFiles = window.matchMedia("(min-width: 801px)").matches;
     navigationState.filter = scopeFilter ? { ...scopeFilter } : null;
     navigationState.opener = opener;
   }
