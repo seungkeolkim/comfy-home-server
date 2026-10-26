@@ -594,7 +594,7 @@ input[type="file"] {
 }
 .tag-manager-layout {
   display: grid;
-  grid-template-columns: minmax(230px, 290px) minmax(0, 1fr);
+  grid-template-columns: minmax(230px, min(435px, 50%)) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
 }
@@ -1357,7 +1357,7 @@ body:has(.image-preview-dialog[open]) { overflow: hidden; }
 }
 .prompt-manager-layout {
   display: grid;
-  grid-template-columns: minmax(250px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(230px, min(435px, 50%)) minmax(0, 1fr);
   align-items: start;
   gap: 18px;
 }
