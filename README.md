@@ -73,7 +73,11 @@ CFG `1`에서 개념을 억제하려면 **Positive Prompt**에 `portrait, (blurr
 
 생성 화면의 각 그룹에는 현재 표시된 태그 항목을 한 번에 선택하거나 해제하는 버튼이 있습니다. 아직 Prompt 참조에서 필요하지 않아 숨겨진 항목은 일괄선택에 포함되지 않습니다.
 
-태그 관리 상단의 **JSON Export**는 검색·필터와 관계없이 전체 그룹과 태그를 UTF-8 JSON 파일로 내려받습니다. `GET /api/tags/export`는 `format: "comfy-home-server.tags"`, `schema_version: 1`, timezone이 포함된 `exported_at`, `groups`를 반환하며 각 그룹의 `name`, `tag_key`, `tags`와 태그의 `name`, 원문 `content`, 저장된 `weight`를 포함합니다. 빈 그룹과 같은 이름의 항목도 보존하며 DB 내부 ID와 화면 선택 상태는 제외합니다. **JSON Import**는 JSON 붙여넣기와 Append·Replace 전체 교체 방식 선택까지만 가능한 더미 화면이며, 실제 저장·삭제 요청을 보내지 않습니다.
+태그 관리 상단의 **JSON Export**는 검색·필터와 관계없이 전체 그룹과 태그를 UTF-8 JSON 파일로 내려받습니다. `GET /api/tags/export`는 `format: "comfy-home-server.tags"`, `schema_version: 1`, timezone이 포함된 `exported_at`, `groups`를 반환하며 각 그룹의 `name`, `tag_key`, `tags`와 태그의 `name`, 원문 `content`, 저장된 `weight`를 포함합니다. 빈 그룹과 같은 이름의 항목도 보존하며 DB 내부 ID와 화면 선택 상태는 제외합니다.
+
+**JSON Import**에서 입력 방식을 **텍스트 입력** 또는 **JSON 파일 업로드** 중 하나로 선택합니다. 선택한 입력만 사용하며 다른 입력은 숨기고 비활성화합니다. 방식을 전환하면 이전 입력은 보존하지만 함께 반영하지 않습니다. 파일 읽기나 JSON 문법 오류가 있으면 서버에 Import 요청을 보내지 않고 입력을 유지합니다. 파일을 읽는 동안에도 방식 전환·중복 제출·닫기를 막으며, 두 입력 모두 아래의 동일한 검증·DB 백업·Import 정책을 적용합니다. **Append**는 그룹 이름과 `tag_key`가 같은 기존 그룹에 추가하고, 해당 그룹에서 이름과 본문이 모두 같은 태그는 건너뜁니다. 기존 태그의 weight와 ID·화면 설정은 유지하며, 이름만 같고 본문이 다르면 별도 항목으로 추가합니다. 동일 이름·동일 참조의 그룹이 여러 개여서 대상을 정할 수 없거나 입력 JSON에 같은 그룹이 반복되면 Append를 거부합니다. **Replace**는 확인 후 기존 태그 그룹·태그 전체를 입력한 목록으로 교체합니다. JSON에서 빠진 그룹도 제거하므로 전체 목록을 전달해야 합니다. 빈 `groups`로 Replace하면 태그 정의 전체를 비웁니다. Replace는 같은 이름의 여러 그룹·항목도 그대로 보존하고 새 ID를 발급합니다. 신규 그룹은 기본 펼침이며, 두 방식 모두 작업·즐겨찾기의 과거 Snapshot과 Prompt 등 다른 데이터는 변경하지 않습니다.
+
+Import마다 변경 직전 전체 DB를 SQLite backup API로 `runtime/backups/*_before_tag_import_append_*.sqlite3` 또는 `*_before_tag_import_replace_*.sqlite3`에 보관하고 무결성을 확인합니다. 백업이 실패하면 태그를 변경하지 않으며, 반영 중 오류가 발생하면 하나의 Transaction으로 전체 rollback합니다. `POST /api/tags/import`의 요청은 파일 원문을 `data`, 정책을 `mode: "append"` 또는 `"replace"`에 넣습니다. `exported_at`과 개별 weight는 생략할 수 있으며 weight의 기본값은 `1.0`입니다. 본문은 최대 8,000자로 원문을 보존하고 잘못된 형식·버전·weight·내부 ID는 반영 전에 거부합니다. 화면은 처리 중 입력과 중복 제출·닫기를 막으며, 실패하면 입력을 유지하고 성공하면 목록을 다시 읽습니다.
 
 Prompt 관리의 편집 상태는 생성 화면과 독립적입니다. `＋ 새 Prompt`는 기존 저장 대상과 연결되지 않은 빈 편집기를 열고, `복제해서 새로 만들기`는 현재 입력을 별도 Prompt로 복사합니다. 기존 Prompt는 이름을 수정해도 같은 Prompt의 다음 버전으로 저장되며 Workflow는 고정됩니다. 다른 Workflow로 복사하려면 복제를 사용합니다. 편집기 위에는 시작 버전·최신 버전·변경 여부, 아래에는 저장 대상 이름과 다음 버전을 표시합니다. 최신 저장 내용과 같으면 저장 버튼을 비활성화하고, 저장 중에는 중복 전송과 대상 전환을 막습니다. 저장 실패 시 입력을 유지합니다.
 
@@ -202,4 +206,6 @@ node tests/browser_output_deletion.cjs
 node tests/browser_job_restoration.cjs
 node tests/browser_job_performance.cjs
 node tests/browser_tab_navigation.cjs
+node tests/browser_tag_manager.cjs
+node tests/browser_tag_import.cjs
 ```

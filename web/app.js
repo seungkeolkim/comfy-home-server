@@ -45,6 +45,7 @@ const tagManagerState = {
   editorBusy: false,
   listHistoryIndex: null, editorParentHistoryIndex: null,
 };
+const tagImportState = { busy: false };
 const promptEditorState = {
   selectedPresetId: null, sourceVersion: null, sourceBody: { prompt: "", negative: "" },
   baselineFingerprint: null, workflow: "anima", search: "", workflowFilter: "",
@@ -291,6 +292,7 @@ function showLogin() {
   promptEditorState.versionsLoading = false;
   renderPromptEditorStatus();
   closeTagEditor({ discard: true, restoreFocus: false, force: true });
+  element("tag-import-dialog").close();
   window.clearInterval(applicationState.resourcePollingTimer);
   applicationState.resourcePollingTimer = null;
   applicationState.resourceSessionRevision += 1;
@@ -935,7 +937,7 @@ function promptEditorMatchesNavigation(target) {
 
 /** 닫히는 Dialog나 교체되는 Prompt의 미저장 변경만 확인합니다. */
 function canNavigateToState(navigationState) {
-  if (promptEditorState.saving || tagManagerState.editorBusy) return false;
+  if (promptEditorState.saving || tagManagerState.editorBusy || tagImportState.busy) return false;
   const tagTarget = navigationState.viewName === "tags" ? navigationState.tagNavigation : null;
   const sameTagEditor = tagTarget?.editorKind === tagManagerState.editorKind &&
     tagTarget?.editorId === (tagManagerState.editorKind === "group" ? applicationState.editingTagGroupId : applicationState.editingTagEntryId);
@@ -1468,8 +1470,10 @@ async function loadTags() {
     }
     renderGenerateTagGroups();
     renderTagManager();
+    return true;
   } catch (error) {
     showNotice(error.message, true);
+    return false;
   }
 }
 
@@ -1632,9 +1636,91 @@ function updateTagEntryGroupOptions(selectedGroupId = tagManagerState.selectedGr
   updateTagEntryGroupReference();
 }
 
-/** 태그를 변경하지 않는 Import 입력·방식 선택 화면을 엽니다. */
+/** 이전 입력을 유지한 채 태그 Import 화면을 엽니다. */
 function openTagImportDialog() {
+  element("tag-import-status").textContent = "";
+  updateTagImportControls();
   element("tag-import-dialog").showModal();
+}
+
+/** 선택한 입력 방식만 활성화하고 파일 읽기·Import 중에는 조작을 막습니다. */
+function updateTagImportControls() {
+  const busy = tagImportState.busy;
+  const usingFile = element("tag-import-source").value === "file";
+  element("tag-import-text-panel").classList.toggle("hidden", usingFile);
+  element("tag-import-file-panel").classList.toggle("hidden", !usingFile);
+  element("tag-import-content").disabled = busy || usingFile;
+  element("tag-import-file").disabled = busy || !usingFile;
+  for (const identifier of ["tag-import-source", "tag-import-mode", "tag-import-close"]) element(identifier).disabled = busy;
+  const hasInput = usingFile ? element("tag-import-file").files.length > 0 : Boolean(element("tag-import-content").value.trim());
+  element("tag-import-submit").disabled = busy || !hasInput;
+  element("tag-import-submit").textContent = busy ? "백업 및 Import 중…" :
+    element("tag-import-mode").value === "replace" ? "전체 Replace" : "Append로 추가";
+  element("tag-import-dialog").setAttribute("aria-busy", String(busy));
+}
+
+/** 입력 방식 변경이나 파일 선택 후 오류와 조작 상태를 갱신합니다. */
+function refreshTagImportInput() {
+  element("tag-import-status").textContent = "";
+  updateTagImportControls();
+}
+
+/** 선택한 입력만 읽고 UTF-8 BOM을 제거한 뒤 JSON 문법을 확인합니다. */
+async function readTagImportDocument() {
+  let documentText;
+  if (element("tag-import-source").value === "file") {
+    const importedFile = element("tag-import-file").files[0];
+    if (!importedFile) throw new Error("JSON 파일을 선택해 주세요.");
+    try {
+      documentText = await importedFile.text();
+    } catch {
+      throw new Error("파일을 읽지 못했습니다. 파일을 다시 선택해 주세요. 태그는 변경되지 않았습니다.");
+    }
+  } else {
+    documentText = element("tag-import-content").value;
+  }
+  try {
+    return JSON.parse(documentText.replace(/^\uFEFF/, ""));
+  } catch {
+    throw new Error("JSON 문법을 확인해 주세요. 태그는 변경되지 않았습니다.");
+  }
+}
+
+/** 진행 중인 Import를 방해하지 않고 입력 화면을 닫습니다. */
+function closeTagImportDialog() {
+  if (!tagImportState.busy) element("tag-import-dialog").close();
+}
+
+/** JSON을 확인하고 서버의 백업·Transaction Import를 요청한 뒤 목록을 갱신합니다. */
+async function submitTagImport() {
+  if (tagImportState.busy) return;
+  const status = element("tag-import-status");
+  status.textContent = "";
+  const importMode = element("tag-import-mode").value;
+  const inputSource = element("tag-import-source").value;
+  tagImportState.busy = true;
+  updateTagImportControls();
+  let importedResult;
+  let tagsRefreshed = false;
+  try {
+    const importedDocument = await readTagImportDocument();
+    if (importMode === "replace" && !window.confirm("기존 태그 그룹과 태그 전체를 입력한 JSON으로 교체합니다. DB 백업 후 진행하시겠습니까?")) return;
+    importedResult = await apiRequest("/api/tags/import", {
+      method: "POST", body: JSON.stringify({ mode: importMode, data: importedDocument }),
+    });
+    tagsRefreshed = await loadTags();
+    element(inputSource === "file" ? "tag-import-file" : "tag-import-content").value = "";
+  } catch (error) {
+    status.textContent = error.message;
+    return;
+  } finally {
+    tagImportState.busy = false;
+    updateTagImportControls();
+  }
+  closeTagImportDialog();
+  const policyName = importMode === "replace" ? "전체 교체" : "추가";
+  const summary = `DB 백업 후 ${policyName} 완료 · 새 그룹 ${importedResult.created_group_count}개 · 태그 ${importedResult.created_tag_count}개 · 중복 제외 ${importedResult.skipped_tag_count}개`;
+  showNotice(tagsRefreshed ? summary : `${summary}. 목록 갱신에 실패하여 새로고침이 필요합니다.`, !tagsRefreshed);
 }
 
 /** 그룹을 선택하고 모바일에서는 마지막 항목 목록 위치를 복원합니다. */
@@ -4373,6 +4459,18 @@ function bindEvents() {
   }, true);
   element("new-tag-group-button").addEventListener("click", () => editTagGroup());
   element("import-tags-button").addEventListener("click", openTagImportDialog);
+  element("tag-import-content").addEventListener("input", updateTagImportControls);
+  element("tag-import-source").addEventListener("change", refreshTagImportInput);
+  element("tag-import-file").addEventListener("change", refreshTagImportInput);
+  element("tag-import-mode").addEventListener("change", updateTagImportControls);
+  element("tag-import-close").addEventListener("click", closeTagImportDialog);
+  element("tag-import-dialog").addEventListener("cancel", event => {
+    if (tagImportState.busy) event.preventDefault();
+  });
+  element("tag-import-form").addEventListener("submit", event => {
+    event.preventDefault();
+    runAction(submitTagImport);
+  });
   element("edit-selected-tag-group").addEventListener("click", () => editTagGroup(tagManagerState.selectedGroupId));
   element("delete-selected-tag-group").addEventListener("click", () => runAction(() => deleteTagGroup(applicationState.editingTagGroupId)));
   element("tag-entry-group").addEventListener("change", updateTagEntryGroupReference);

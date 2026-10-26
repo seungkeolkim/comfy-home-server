@@ -58,6 +58,44 @@ function createTagManagerHandler(fixtures) {
         body: JSON.stringify(response, null, 2) });
       return;
     }
+    else if (requestPath === "/api/tags/import" && method === "POST") {
+      const importedPayload = route.request().postDataJSON();
+      fixtures.mutations.push({ path: requestPath, method, payload: importedPayload });
+      if (fixtures.saveGate) await fixtures.saveGate;
+      if (fixtures.rejectSave) {
+        await route.fulfill({ status: 409, contentType: "application/json", body: JSON.stringify({ detail: "Import하지 못했습니다." }) });
+        return;
+      }
+      if (importedPayload.mode === "replace") {
+        fixtures.groups = [];
+        fixtures.entries = [];
+      }
+      let createdGroupCount = 0;
+      let createdTagCount = 0;
+      let skippedTagCount = 0;
+      for (const importedGroup of importedPayload.data.groups) {
+        let targetGroup = fixtures.groups.find(group => group.name === importedGroup.name && group.tag_key === importedGroup.tag_key);
+        if (!targetGroup) {
+          targetGroup = { group_id: `imported-group-${fixtures.mutations.length}-${createdGroupCount}`, name: importedGroup.name,
+            tag_key: importedGroup.tag_key, default_expanded: true };
+          fixtures.groups.push(targetGroup);
+          createdGroupCount += 1;
+        }
+        for (const importedTag of importedGroup.tags) {
+          const duplicateTag = fixtures.entries.some(entry => entry.group_id === targetGroup.group_id &&
+            entry.name === importedTag.name && entry.content === importedTag.content);
+          if (importedPayload.mode === "append" && duplicateTag) {
+            skippedTagCount += 1;
+            continue;
+          }
+          fixtures.entries.push({ ...importedTag, weight: importedTag.weight ?? 1.0, group_id: targetGroup.group_id,
+            tag_id: `imported-tag-${fixtures.mutations.length}-${createdTagCount}` });
+          createdTagCount += 1;
+        }
+      }
+      response = { mode: importedPayload.mode, created_group_count: createdGroupCount, created_tag_count: createdTagCount,
+        skipped_tag_count: skippedTagCount, backup_filename: "before_import.sqlite3" };
+    }
     else if (requestPath.startsWith("/api/tags/")) {
       fixtures.mutations.push({ path: requestPath, method });
       if (fixtures.saveGate) await fixtures.saveGate;
@@ -83,7 +121,7 @@ function createTagManagerHandler(fixtures) {
   };
 }
 
-/** 필터와 무관한 전체 다운로드 및 DB 요청 없는 Import 더미 화면을 확인합니다. */
+/** 필터와 무관한 전체 다운로드 및 Import 입력·정책·문법 검증을 확인합니다. */
 async function verifyTagTransferControls(page, fixtures) {
   await page.locator("#tag-manager-reference-filter").selectOption("CHR");
   await page.locator("#tag-manager-group-search").fill("그룹 00");
@@ -100,12 +138,16 @@ async function verifyTagTransferControls(page, fixtures) {
   await page.locator("#import-tags-button").click();
   assert.equal(await page.locator("#tag-import-dialog").isVisible(), true);
   assert.equal(await page.locator("#tag-import-mode").inputValue(), "append");
-  assert.match(await page.locator("#tag-import-description").textContent(), /실제 태그는 변경되지 않습니다/);
+  assert.match(await page.locator("#tag-import-description").textContent(), /DB 백업 후/);
+  assert.equal(await page.locator("#tag-import-submit").isDisabled(), true);
   await page.locator("#tag-import-content").fill(JSON.stringify(exportedDefinitions));
   for (const importMode of ["replace", "append"]) {
     await page.locator("#tag-import-mode").selectOption(importMode);
-    assert.equal(await page.locator("#tag-import-submit").isDisabled(), true);
+    assert.equal(await page.locator("#tag-import-submit").isEnabled(), true);
   }
+  await page.locator("#tag-import-content").fill("{invalid JSON");
+  await page.locator("#tag-import-submit").click();
+  await page.locator("#tag-import-status").filter({ hasText: "JSON 문법" }).waitFor();
   const dialogFitsViewport = await page.locator("#tag-import-dialog").evaluate(dialog => {
     const bounds = dialog.getBoundingClientRect();
     return bounds.left >= 0 && bounds.right <= innerWidth && dialog.scrollWidth <= dialog.clientWidth;
@@ -256,7 +298,7 @@ async function main() {
   try {
     await verifyTagManager(browser, { width: 1440, height: 1000 });
     await verifyTagManager(browser, { width: 320, height: 844 });
-    console.log("Passed: full JSON export, import placeholder without mutations, 28 groups/159 entries, local filters, dialog CRUD and generation defaults on desktop/mobile.");
+    console.log("Passed: full JSON export, import input/policies/JSON validation, 28 groups/159 entries, local filters, dialog CRUD and generation defaults on desktop/mobile.");
   } finally {
     await browser.close();
   }

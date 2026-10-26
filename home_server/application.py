@@ -40,6 +40,7 @@ from .tag_builder import (
     MAX_PROMPT_LENGTH, MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt,
     resolve_anima_prompts, resolve_tag_text, validate_tag_selection,
 )
+from .tag_transfer import TagImportInput
 from .thumbnail_cache import PREVIEW_IMAGE_EXTENSIONS, PREVIEW_SIZE, ThumbnailCache, ThumbnailTooLargeError
 from .video_encoding import VideoEncodingError
 from .video_preview_cache import VideoPreviewCache, VideoPreviewQueueFull
@@ -866,6 +867,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 "Cache-Control": "no-store",
             },
         )
+
+    @app.post("/api/tags/import")
+    def import_tag_definitions(payload: TagImportInput):
+        """검증한 JSON을 DB 백업 후 추가하거나 태그 정의 전체를 교체합니다."""
+
+        try:
+            imported_groups = [group.model_dump() for group in payload.data.groups]
+            return JSONResponse(server.database.import_tag_definitions(imported_groups, payload.mode))
+        except ValueError as exception:
+            raise HTTPException(409, str(exception)) from exception
+        except (OSError, sqlite3.Error, RuntimeError) as exception:
+            LOGGER.exception("태그 Import 실패: mode=%s", payload.mode)
+            raise HTTPException(500, "DB 백업 또는 Import에 실패했습니다. 태그 변경은 반영되지 않았습니다.") from exception
 
     @app.post("/api/tags/groups", status_code=201)
     def create_tag_group(payload: TagGroupInput):

@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import uuid
 from collections.abc import Callable
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from .output_timing import OutputTimingRecorder, measure_output_step
 from .output_catalog import OutputCatalog
@@ -34,17 +36,17 @@ class Database:
             if schema_version == 4:
                 self._backup_before_group_tag_migration(connection)
             elif schema_version in {5, 6, 7, 8}:
-                self._backup_before_schema_change(connection, "job_request_storage")
+                self._create_verified_database_backup(connection, "job_request_storage")
             elif schema_version == 9:
-                self._backup_before_schema_change(connection, "output_catalog")
+                self._create_verified_database_backup(connection, "output_catalog")
             elif schema_version == 10:
-                self._backup_before_schema_change(connection, "output_deletion")
+                self._create_verified_database_backup(connection, "output_deletion")
             elif schema_version == 11:
-                self._backup_before_schema_change(connection, "job_folders")
+                self._create_verified_database_backup(connection, "job_folders")
             elif schema_version == 12:
-                self._backup_before_schema_change(connection, "request_started_at")
+                self._create_verified_database_backup(connection, "request_started_at")
             elif schema_version == 13:
-                self._backup_before_schema_change(connection, "request_favorites")
+                self._create_verified_database_backup(connection, "request_favorites")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
             if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}:
@@ -234,20 +236,21 @@ class Database:
     def _backup_before_group_tag_migration(self, connection: sqlite3.Connection) -> None:
         """SQLite backup API로 schema 변경 전 일관된 복구용 DB를 보관합니다."""
 
-        self._backup_before_schema_change(connection, "group_tag_keys")
+        self._create_verified_database_backup(connection, "group_tag_keys")
 
-    def _backup_before_schema_change(self, connection: sqlite3.Connection, change_name: str) -> None:
+    def _create_verified_database_backup(self, connection: sqlite3.Connection, change_name: str) -> Path:
         """데이터를 옮기기 전 검증된 SQLite 백업을 만들어 실패 시 기존 DB를 보존합니다."""
 
         backup_directory = self.database_path.parent / "backups"
         backup_directory.mkdir(parents=True, exist_ok=True)
         backup_timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S_%fZ")
         backup_path = backup_directory / f"{self.database_path.stem}_before_{change_name}_{backup_timestamp}.sqlite3"
-        with sqlite3.connect(backup_path) as backup_connection:
+        with closing(sqlite3.connect(backup_path)) as backup_connection:
             connection.backup(backup_connection)
             integrity_result = backup_connection.execute("PRAGMA integrity_check").fetchone()[0]
             if integrity_result != "ok":
-                raise RuntimeError("DB 백업의 무결성 검사에 실패하여 migration을 중단합니다.")
+                raise RuntimeError("DB 백업의 무결성 검사에 실패하여 데이터 변경을 중단합니다.")
+        return backup_path
 
     def _migrate_group_tag_keys(self, connection: sqlite3.Connection) -> None:
         """기존 그룹의 공통 참조 태그를 옮기고 개별 항목의 참조 column을 제거합니다."""
@@ -345,7 +348,7 @@ class Database:
     def export_tag_definitions(self) -> dict[str, Any]:
         """그룹과 태그를 한 조회 시점에서 읽어 내부 ID 없는 교환 형식으로 반환합니다."""
 
-        with self._connect() as connection:
+        with closing(self._connect()) as connection:
             rows = connection.execute(
                 """SELECT tag_groups.group_id, tag_groups.name AS group_name, tag_groups.tag_key,
                           tag_entries.tag_id, tag_entries.name AS tag_name,
@@ -371,6 +374,77 @@ class Database:
         return {
             "format": "comfy-home-server.tags", "schema_version": 1,
             "exported_at": current_timestamp(), "groups": exported_groups,
+        }
+
+    def import_tag_definitions(self, groups: list[dict[str, Any]], mode: Literal["append", "replace"]) -> dict[str, Any]:
+        """변경 직전 DB를 백업하고 태그 정의만 하나의 Transaction으로 반영합니다."""
+
+        if mode not in {"append", "replace"}:
+            raise ValueError("지원하지 않는 태그 Import 방식입니다.")
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            # 쓰기를 잠근 상태에서 별도 읽기 연결로 변경 직전의 확정 데이터만 백업합니다.
+            backup_source_uri = self.database_path.resolve().as_uri() + "?mode=ro"
+            with closing(sqlite3.connect(backup_source_uri, uri=True)) as backup_source:
+                backup_path = self._create_verified_database_backup(backup_source, f"tag_import_{mode}")
+
+            if mode == "replace":
+                connection.execute("DELETE FROM tag_entries")
+                connection.execute("DELETE FROM tag_groups")
+
+            existing_groups_by_identity = {}
+            for group_row in connection.execute("SELECT group_id, name, tag_key FROM tag_groups"):
+                group_identity = (group_row["name"], group_row["tag_key"])
+                existing_groups_by_identity.setdefault(group_identity, []).append(group_row["group_id"])
+            existing_tags_by_group = {}
+            for tag_row in connection.execute("SELECT group_id, name, content FROM tag_entries"):
+                existing_tags_by_group.setdefault(tag_row["group_id"], set()).add((tag_row["name"], tag_row["content"]))
+
+            created_group_count = 0
+            created_tag_count = 0
+            skipped_tag_count = 0
+            imported_group_identities = set()
+            for imported_group in groups:
+                group_identity = (imported_group["name"], imported_group["tag_key"])
+                matching_group_ids = existing_groups_by_identity.get(group_identity, [])
+                if mode == "append" and (len(matching_group_ids) > 1 or group_identity in imported_group_identities):
+                    raise ValueError(
+                        f"그룹 이름과 참조태그가 중복되어 Append 대상을 정할 수 없습니다: "
+                        f"{imported_group['name']} [{imported_group['tag_key']}]. 그룹을 구분하거나 Replace를 사용해 주세요."
+                    )
+                imported_group_identities.add(group_identity)
+                if mode == "append" and matching_group_ids:
+                    group_identifier = matching_group_ids[0]
+                else:
+                    group_identifier = uuid.uuid4().hex
+                    group_timestamp = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+                    connection.execute(
+                        "INSERT INTO tag_groups (group_id, name, tag_key, default_expanded, created_at, updated_at) "
+                        "VALUES (?, ?, ?, 1, ?, ?)",
+                        (group_identifier, imported_group["name"], imported_group["tag_key"], group_timestamp, group_timestamp),
+                    )
+                    existing_groups_by_identity.setdefault(group_identity, []).append(group_identifier)
+                    created_group_count += 1
+
+                existing_tag_identities = existing_tags_by_group.setdefault(group_identifier, set())
+                for imported_tag in imported_group["tags"]:
+                    tag_identity = (imported_tag["name"], imported_tag["content"])
+                    if mode == "append" and tag_identity in existing_tag_identities:
+                        skipped_tag_count += 1
+                        continue
+                    tag_timestamp = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+                    connection.execute(
+                        "INSERT INTO tag_entries (tag_id, group_id, name, content, weight, created_at, updated_at) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (uuid.uuid4().hex, group_identifier, imported_tag["name"], imported_tag["content"],
+                         imported_tag["weight"], tag_timestamp, tag_timestamp),
+                    )
+                    existing_tag_identities.add(tag_identity)
+                    created_tag_count += 1
+
+        return {
+            "mode": mode, "created_group_count": created_group_count, "created_tag_count": created_tag_count,
+            "skipped_tag_count": skipped_tag_count, "backup_filename": backup_path.name,
         }
 
     def get_tag_group(self, group_id: str) -> dict[str, Any] | None:
