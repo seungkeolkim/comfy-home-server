@@ -62,6 +62,18 @@ class ComfyClient:
         result = await self.request_json("GET", "/models/loras")
         return [str(name) for name in result]
 
+    async def refresh_loras(self) -> None:
+        """LoRA Manager의 파일 재검색이 끝날 때까지 기다립니다."""
+
+        response = await self.client.get("/api/lm/loras/scan")
+        # LoRA Manager가 없으면 뒤이은 기본 목록 조회에서 디렉터리 변경을 확인합니다.
+        if response.status_code in {404, 405}:
+            return
+        response.raise_for_status()
+        result = await asyncio.to_thread(response.json)
+        if result.get("status") != "success":
+            raise RuntimeError(f"ComfyUI LoRA 목록 재검색 실패: {result.get('message') or result}")
+
     async def populate_wildcards(self, text: str, seed: int) -> str:
         """설치된 Impact Pack으로 Prompt wildcard를 확장합니다."""
 

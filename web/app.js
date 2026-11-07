@@ -76,6 +76,7 @@ const applicationState = {
   loraEditorPresetId: null,
   loraEditorEntries: [],
   loraCatalogAvailable: false,
+  loraRefreshInProgress: false,
   selectedLoras: [],
   minimaxInputImages: [],
   minimaxInputCandidates: [],
@@ -2020,19 +2021,41 @@ async function deletePromptPreset(presetId) {
   }
 }
 
-/** ComfyUI의 현재 LoRA 목록을 읽습니다. */
-async function loadLoras() {
+/** 필요할 때 재검색을 완료한 ComfyUI의 현재 LoRA 목록을 읽습니다. */
+async function loadLoras({ refresh = false } = {}) {
   try {
-    const response = await apiRequest("/api/loras");
+    const response = await apiRequest(refresh ? "/api/loras/refresh" : "/api/loras", refresh ? { method: "POST" } : {});
     applicationState.availableLoras = response.files;
     applicationState.loraProfiles = response.profiles || [];
     applicationState.loraCatalogAvailable = true;
   } catch (error) {
     applicationState.loraCatalogAvailable = false;
+    if (refresh) throw error;
   }
   renderLoraFileOptions();
   renderSelectedLoras();
   renderLoraPresetEditor();
+}
+
+/** 중복 재검색을 막고 두 화면의 LoRA 파일 목록을 함께 갱신합니다. */
+async function refreshLoras() {
+  if (applicationState.loraRefreshInProgress) return;
+  applicationState.loraRefreshInProgress = true;
+  const refreshButtons = [element("refresh-loras-button"), element("refresh-lora-preset-files-button")];
+  for (const refreshButton of refreshButtons) {
+    refreshButton.disabled = true;
+    refreshButton.textContent = "확인 중…";
+  }
+  try {
+    await loadLoras({ refresh: true });
+    showNotice("LoRA 목록을 새로고침했습니다.");
+  } finally {
+    applicationState.loraRefreshInProgress = false;
+    for (const refreshButton of refreshButtons) {
+      refreshButton.disabled = false;
+      refreshButton.textContent = "목록 새로고침";
+    }
+  }
 }
 
 /** 선택한 LoRA 카드의 공통 편집 UI를 구성합니다. */
@@ -4640,7 +4663,7 @@ function bindEvents() {
     event.returnValue = "";
   });
   element("refresh-loras-button").addEventListener("click", () =>
-    runAction(loadLoras),
+    runAction(refreshLoras),
   );
   element("add-lora-button").addEventListener("click", () => {
     addLoraEntry(applicationState.selectedLoras, element("generate-workflow").value, element("available-loras").value);
@@ -4894,7 +4917,7 @@ function bindLoraPresetEvents() {
   element("new-lora-preset-button").addEventListener("click", () => resetLoraPresetEditor());
   element("lora-preset-workflow").addEventListener("change", () => resetLoraPresetEditor());
   element("lora-preset-name").addEventListener("input", renderLoraPresetEditorStatus);
-  element("refresh-lora-preset-files-button").addEventListener("click", () => runAction(loadLoras));
+  element("refresh-lora-preset-files-button").addEventListener("click", () => runAction(refreshLoras));
   element("add-lora-preset-entry-button").addEventListener("click", () => {
     addLoraEntry(applicationState.loraEditorEntries, element("lora-preset-workflow").value, element("lora-preset-available-files").value);
     renderLoraPresetEditor();

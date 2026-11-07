@@ -20,6 +20,10 @@ const mockOutputFiles = [];
 const previewRequests = [];
 const tagPreviewRequests = [];
 let availableLoras = ["first.safetensors", "second.safetensors"];
+let loraRefreshRequestCount = 0;
+let loraRefreshCompletion = null;
+let loraRefreshFailure = false;
+let lorasAfterRefresh = null;
 
 /** 브라우저에 실제 앱 파일과 GPU 작업이 없는 독립된 API 응답을 제공합니다. */
 async function handleBrowserRequest(route) {
@@ -143,6 +147,16 @@ async function handleBrowserRequest(route) {
     });
     return;
   }
+  else if (requestPath === "/api/loras/refresh" && method === "POST") {
+    loraRefreshRequestCount += 1;
+    if (loraRefreshCompletion) await loraRefreshCompletion;
+    if (loraRefreshFailure) {
+      await route.fulfill({ status: 502, contentType: "application/json", body: JSON.stringify({ detail: "LoRA scan failed" }) });
+      return;
+    }
+    if (lorasAfterRefresh) availableLoras = lorasAfterRefresh;
+    response = { files: availableLoras, profiles: [] };
+  }
   else if (requestPath === "/api/loras") response = {
     files: availableLoras,
     profiles: [{ name: "first.safetensors", workflow: "anima", settings: { strength: 0.75, clip_strength: 0.55 } }],
@@ -196,7 +210,7 @@ async function handleBrowserRequest(route) {
     for (const child of activeRequests) child.status = "cancelled";
     selectedJob.status = "cancelled";
     response = { cancelled_count: activeRequests.length, failed_count: 0 };
-  } else if (requestPath === "/favicon.ico") {
+  } else if (["/favicon.ico", "/favicon.svg"].includes(requestPath)) {
     await route.fulfill({ status: 204 });
     return;
   } else throw new Error(`Unexpected request: ${method} ${requestPath}`);
@@ -283,6 +297,67 @@ async function verifyJobLoraDisplay(browser) {
   await page.screenshot({ path: path.join(screenshotDirectory, "job-original-prompt-mobile.png"), fullPage: true });
   assert.deepEqual(pageErrors, []);
   await page.close();
+}
+
+/** 두 목록 새로고침의 완료 대기·중복 방지·오류 복구와 편집 보존을 검증합니다. */
+async function verifyLoraCatalogRefresh(browser) {
+  const previousAvailableLoras = availableLoras;
+  const previousRefreshRequestCount = loraRefreshRequestCount;
+  const page = await browser.newPage({ viewport: { width: 1280, height: 950 } });
+  try {
+    await page.route("**/*", handleBrowserRequest);
+    await page.goto("http://home-server.test/");
+    await page.locator('#available-loras option[value="first.safetensors"]').waitFor({ state: "attached" });
+    await page.locator("#generate-anima-prompt").fill("유지할 Prompt");
+    await page.locator("#available-loras").selectOption("first.safetensors");
+    await page.locator("#add-lora-button").click();
+    await setCardWeight(page, "selected-loras", 0, "strength", 0.42);
+    await page.locator('.sidebar [data-view="lora-presets"]').click();
+    await page.locator("#lora-preset-name").fill("미저장 LoRA 조합");
+    await page.locator("#lora-preset-available-files").selectOption("first.safetensors");
+    await page.locator("#add-lora-preset-entry-button").click();
+    await setCardWeight(page, "lora-preset-selected-files", 0, "strength", 0.36);
+
+    let completeLoraRefresh;
+    loraRefreshCompletion = new Promise(resolve => { completeLoraRefresh = resolve; });
+    lorasAfterRefresh = [...availableLoras, "new-after-scan.safetensors"];
+    await Promise.all([
+      page.waitForRequest(request => request.url().endsWith("/api/loras/refresh") && request.method() === "POST"),
+      page.locator("#refresh-lora-preset-files-button").click(),
+    ]);
+    assert.equal(await page.locator("#refresh-lora-preset-files-button").isDisabled(), true);
+    assert.equal(await page.locator("#refresh-loras-button").isDisabled(), true);
+    assert.equal(await page.locator('#lora-preset-available-files option[value="new-after-scan.safetensors"]').count(), 0);
+    await page.evaluate(() => refreshLoras());
+    assert.equal(loraRefreshRequestCount, previousRefreshRequestCount + 1);
+    completeLoraRefresh();
+    loraRefreshCompletion = null;
+    await page.locator('#lora-preset-available-files option[value="new-after-scan.safetensors"]').waitFor({ state: "attached" });
+    await page.waitForFunction(() => !document.getElementById("refresh-lora-preset-files-button").disabled);
+    assert.equal(await page.locator("#lora-preset-name").inputValue(), "미저장 LoRA 조합");
+    assert.equal(await page.locator('#lora-preset-selected-files [data-lora-field="strength"]').inputValue(), "0.36");
+
+    await page.locator('.sidebar [data-view="generate"]').click();
+    assert.equal(await page.locator("#generate-anima-prompt").inputValue(), "유지할 Prompt");
+    assert.equal(await page.locator('#selected-loras [data-lora-field="strength"]').inputValue(), "0.42");
+    loraRefreshFailure = true;
+    await page.locator("#refresh-loras-button").click();
+    await page.waitForFunction(() => document.getElementById("notice").textContent === "LoRA scan failed");
+    assert.equal(await page.locator("#refresh-loras-button").isDisabled(), false);
+    assert.equal(await page.locator('#available-loras option[value="new-after-scan.safetensors"]').count(), 1);
+    assert.equal(await page.locator('#selected-loras [data-lora-field="strength"]').inputValue(), "0.42");
+    loraRefreshFailure = false;
+    lorasAfterRefresh = [...availableLoras, "new-after-retry.safetensors"];
+    await page.locator("#refresh-loras-button").click();
+    await page.locator('#available-loras option[value="new-after-retry.safetensors"]').waitFor({ state: "attached" });
+    assert.equal(loraRefreshRequestCount, previousRefreshRequestCount + 3);
+  } finally {
+    availableLoras = previousAvailableLoras;
+    loraRefreshCompletion = null;
+    loraRefreshFailure = false;
+    lorasAfterRefresh = null;
+    await page.close();
+  }
 }
 
 /** LoRA 조합, 작업 계층, 결과 필터와 mobile 화면을 검증합니다. */
@@ -741,6 +816,7 @@ async function main() {
     await tagPage.screenshot({ path: path.join(screenshotDirectory, "negative-tag-job-desktop.png"), fullPage: true });
     assert.deepEqual(tagPageErrors, []);
     await tagPage.close();
+    await verifyLoraCatalogRefresh(browser);
     await verifyJobLoraDisplay(browser);
     assert.deepEqual(pageErrors, []);
     console.log("Passed: LoRA presets, grouped jobs, tag groups and selection, mobile layout.");

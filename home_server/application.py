@@ -1025,6 +1025,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except Exception as exception:
             raise HTTPException(502, str(exception)) from exception
 
+    @app.post("/api/loras/refresh")
+    async def refresh_lora_catalog():
+        """ComfyUI의 LoRA 재검색을 완료한 뒤 최신 파일과 기본 강도를 제공합니다."""
+
+        try:
+            await server.comfy.refresh_loras()
+        except Exception as exception:
+            raise HTTPException(502, str(exception)) from exception
+        return await loras()
+
     @app.post("/api/loras/profiles")
     async def save_lora_profile(payload: LoraProfileInput):
         """선택한 LoRA의 workflow별 기본 강도를 저장합니다."""

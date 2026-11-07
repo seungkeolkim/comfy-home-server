@@ -12,6 +12,52 @@ import pytest
 from home_server.comfy_client import ComfyClient
 
 
+@pytest.mark.parametrize("scan_status, scan_result, should_fail", [
+    (200, {"status": "success"}, False),
+    (404, None, False),
+    (405, None, False),
+    (500, {"error": "scan failed"}, True),
+    (200, {"status": "cancelled", "message": "scan cancelled"}, True),
+])
+def test_lora_refresh_waits_for_scan_before_reading_files(scan_status, scan_result, should_fail) -> None:
+    """재검색 후 새 파일을 읽고 미지원 API만 기본 조회로 대체합니다."""
+
+    request_paths = []
+    available_files = ["existing.safetensors"]
+
+    def handle_request(request: httpx.Request) -> httpx.Response:
+        """재검색을 완료해야 새 파일이 보이는 ComfyUI를 구현합니다."""
+
+        request_paths.append(request.url.path)
+        if request.url.path == "/api/lm/loras/scan":
+            available_files.append("new.safetensors")
+            return httpx.Response(scan_status, json=scan_result)
+        assert request.url.path == "/models/loras"
+        return httpx.Response(200, json=available_files)
+
+    async def verify_lora_refresh() -> None:
+        """재검색 실패 시에는 뒤이은 목록 조회를 수행하지 않습니다."""
+
+        client = ComfyClient("http://comfy.test")
+        await client.client.aclose()
+        client.client = httpx.AsyncClient(base_url=client.endpoint, transport=httpx.MockTransport(handle_request))
+        try:
+            if should_fail:
+                with pytest.raises((httpx.HTTPStatusError, RuntimeError)):
+                    await client.refresh_loras()
+            else:
+                await client.refresh_loras()
+                assert await client.list_loras() == ["existing.safetensors", "new.safetensors"]
+        finally:
+            await client.close()
+
+    asyncio.run(verify_lora_refresh())
+    expected_paths = ["/api/lm/loras/scan"]
+    if not should_fail:
+        expected_paths.append("/models/loras")
+    assert request_paths == expected_paths
+
+
 def test_queue_reads_small_job_summaries_without_workflow_payload() -> None:
     """상태 요약 API의 ID와 상태만 기존 queue 형태로 변환합니다."""
 

@@ -70,6 +70,52 @@ def lora_preset_client(tmp_path: Path) -> Iterator[tuple[TestClient, FastAPI, Lo
         yield client, application, comfy_client
 
 
+def test_lora_catalog_refresh_requires_auth_and_returns_rescanned_files(lora_preset_client) -> None:
+    """인증된 재검색 완료 후 최신 목록과 기존 기본 강도를 함께 반환합니다."""
+
+    client, application, comfy_client = lora_preset_client
+    refresh_calls = []
+
+    async def refresh_available_loras() -> None:
+        """재검색이 끝나면 새 파일을 현재 목록에 추가합니다."""
+
+        refresh_calls.append("scan")
+        comfy_client.available_loras.append("new.safetensors")
+
+    comfy_client.refresh_loras = refresh_available_loras
+    assert client.post("/api/loras/refresh").status_code == 401
+    assert refresh_calls == []
+    client.post("/api/login", json={"password": "test-password"})
+    assert client.get("/api/loras").json()["files"] == ["first.safetensors", "second.safetensors"]
+    assert refresh_calls == []
+    client.post("/api/loras/profiles", json={
+        "name": "first.safetensors", "workflow": "anima", "strength": 0.65, "clip_strength": 0.4,
+    })
+    refresh_response = client.post("/api/loras/refresh")
+    assert refresh_response.status_code == 200
+    assert refresh_calls == ["scan"]
+    assert refresh_response.json()["files"] == ["first.safetensors", "second.safetensors", "new.safetensors"]
+    assert refresh_response.json()["profiles"][0]["settings"]["strength"] == 0.65
+
+
+def test_lora_catalog_refresh_reports_scan_failure(lora_preset_client) -> None:
+    """재검색 실패를 이전 목록으로 숨기지 않고 502로 반환합니다."""
+
+    client, application, comfy_client = lora_preset_client
+
+    async def fail_lora_refresh() -> None:
+        """ComfyUI 재검색 실패를 재현합니다."""
+
+        raise RuntimeError("LoRA scan failed")
+
+    comfy_client.refresh_loras = fail_lora_refresh
+    client.post("/api/login", json={"password": "test-password"})
+    refresh_response = client.post("/api/loras/refresh")
+    assert refresh_response.status_code == 502
+    assert refresh_response.json()["detail"] == "LoRA scan failed"
+    assert comfy_client.available_loras == ["first.safetensors", "second.safetensors"]
+
+
 def test_lora_preset_crud_keeps_snapshots_independent(lora_preset_client) -> None:
     """조합의 생성·수정·삭제와 개별 기본값 독립성 및 DB 재연결 보존을 검증합니다."""
 
