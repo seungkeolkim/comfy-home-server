@@ -1216,7 +1216,7 @@ def test_tag_api_previews_and_submits_snapshot_before_comfy_queue(tmp_path: Path
         pair_tag = create_tag(pair_group["group_id"], "두 사람", "[CHR] and [CHR]")
         character_tag = create_tag(character_group["group_id"], "A", "character A")
         selected_ids = [action_tag["tag_id"], pair_tag["tag_id"], character_tag["tag_id"]]
-        assert client.delete(f"/api/tags/groups/{character_group['group_id']}").status_code == 409
+        assert app.state.home_server.database.get_tag_entry(character_tag["tag_id"]) is not None
         assert client.post("/api/tags/groups", json={
             "name": "잘못됨", "tag_key": "bad-key",
         }).status_code == 422
@@ -1301,3 +1301,13 @@ def test_tag_api_previews_and_submits_snapshot_before_comfy_queue(tmp_path: Path
         assert rejected.status_code == 422
         assert "cycle" in rejected.json()["detail"]
         assert client.get("/api/jobs").json()["total"] == 1
+        historical_job_inputs = app.state.home_server.database.get_job_inputs(response.json()["job_id"])
+        deleted_group_response = client.delete(f"/api/tags/groups/{character_group['group_id']}")
+        assert deleted_group_response.status_code == 200
+        assert deleted_group_response.json() == {"deleted": True}
+        assert client.delete(f"/api/tags/groups/{character_group['group_id']}").status_code == 404
+        current_catalog = client.get("/api/tags").json()
+        assert character_group["group_id"] not in {group["group_id"] for group in current_catalog["groups"]}
+        assert character_tag["tag_id"] not in {entry["tag_id"] for entry in current_catalog["entries"]}
+        assert {entry["tag_id"] for entry in current_catalog["entries"]} == {action_tag["tag_id"], pair_tag["tag_id"]}
+        assert app.state.home_server.database.get_job_inputs(response.json()["job_id"]) == historical_job_inputs

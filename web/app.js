@@ -1828,9 +1828,6 @@ function closeTagEditor({ discard = false, restoreFocus = true, force = false, h
 function setTagEditorBusy(kind, busy) {
   tagManagerState.editorBusy = busy;
   for (const control of element(`tag-${kind}-form`).querySelectorAll("input,select,textarea,button")) control.disabled = busy;
-  if (kind === "group" && !busy) {
-    element("delete-selected-tag-group").disabled = applicationState.tagEntries.some(entry => entry.group_id === applicationState.editingTagGroupId);
-  }
 }
 
 /** 새 그룹 또는 기존 그룹의 설정을 현재 화면의 Dialog로 엽니다. */
@@ -1844,7 +1841,7 @@ function editTagGroup(groupId = null) {
   element("tag-group-default-expanded").checked = group ? group.default_expanded : true;
   element("tag-group-dialog-title").textContent = group ? "그룹 설정" : "새 그룹";
   element("delete-selected-tag-group").hidden = !group;
-  element("delete-selected-tag-group").title = "항목이 없는 그룹만 삭제할 수 있습니다.";
+  element("delete-selected-tag-group").title = "그룹과 내부 태그 항목을 모두 삭제합니다.";
   setTagEditorBusy("group", false);
   openTagEditor("group");
 }
@@ -1909,10 +1906,13 @@ async function saveTagEditor(kind) {
   }
 }
 
-/** 현재 그룹 설정에서 비어 있는 그룹만 확인 후 삭제합니다. */
+/** 그룹과 내부 태그 전체가 삭제됨을 한 번 확인한 뒤 함께 삭제합니다. */
 async function deleteTagGroup(groupId) {
   const group = applicationState.tagGroups.find(item => item.group_id === groupId);
-  if (!group || tagManagerState.editorBusy || !window.confirm(`"${group.name}" 그룹을 삭제하시겠습니까?`)) return;
+  if (!group || tagManagerState.editorBusy) return;
+  const groupTagCount = applicationState.tagEntries.filter(entry => entry.group_id === groupId).length;
+  const confirmationMessage = `"${group.name}" 그룹을 삭제하시겠습니까?\n그룹 내 태그 ${groupTagCount}개가 모두 함께 삭제됩니다.`;
+  if (!window.confirm(confirmationMessage)) return;
   const revision = tagManagerState.editorRevision;
   setTagEditorBusy("group", true);
   try {
@@ -1922,7 +1922,7 @@ async function deleteTagGroup(groupId) {
     if (revision !== tagManagerState.editorRevision) return;
     setTagEditorBusy("group", false);
     closeTagEditor({ discard: true });
-    showNotice("그룹을 삭제했습니다.");
+    showNotice("그룹과 내부 태그를 삭제했습니다.");
   } catch (error) {
     if (revision === tagManagerState.editorRevision) element("tag-group-editor-status").textContent = error.message;
   } finally {

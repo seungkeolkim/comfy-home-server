@@ -484,9 +484,10 @@ class Database:
         return self.get_tag_group(group_id) or {}
 
     def delete_tag_group(self, group_id: str) -> bool:
-        """비어 있는 그룹만 삭제하며 항목이 있으면 SQLite 제약으로 거부합니다."""
+        """그룹과 내부 태그를 같은 Transaction에서 삭제하고 과거 Snapshot은 보존합니다."""
 
         with self._connect() as connection:
+            connection.execute("DELETE FROM tag_entries WHERE group_id = ?", (group_id,))
             result = connection.execute("DELETE FROM tag_groups WHERE group_id = ?", (group_id,))
         return result.rowcount > 0
 

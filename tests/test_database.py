@@ -9,6 +9,43 @@ import pytest
 from home_server.database import Database
 
 
+@pytest.mark.parametrize("reject_group_delete", [False, True])
+def test_tag_group_deletion_is_atomic_and_preserves_other_groups(tmp_path: Path, reject_group_delete: bool) -> None:
+    """같은 참조 태그의 다른 그룹을 보존하고 그룹 삭제 실패 시 내부 태그도 복구합니다."""
+
+    database = Database(tmp_path / "home_server.sqlite3")
+    database.save_tag_group("deleted-group", "삭제할 그룹", "CHR", True)
+    database.save_tag_group("preserved-group", "보존할 그룹", "CHR", True)
+    for tag_identifier, group_identifier in (
+        ("deleted-first", "deleted-group"), ("deleted-second", "deleted-group"),
+        ("preserved-entry", "preserved-group"),
+    ):
+        database.save_tag_entry(tag_identifier, {
+            "group_id": group_identifier, "name": tag_identifier, "content": "character", "weight": 1,
+        })
+    if reject_group_delete:
+        with sqlite3.connect(database.database_path) as connection:
+            connection.execute(
+                "CREATE TRIGGER reject_group_delete BEFORE DELETE ON tag_groups "
+                "BEGIN SELECT RAISE(ABORT, 'test group deletion failure'); END"
+            )
+        with pytest.raises(sqlite3.IntegrityError, match="test group deletion failure"):
+            database.delete_tag_group("deleted-group")
+        assert database.get_tag_group("deleted-group") is not None
+        assert database.get_tag_entry("deleted-first") is not None
+        assert database.get_tag_entry("deleted-second") is not None
+    else:
+        assert database.delete_tag_group("deleted-group") is True
+        assert database.get_tag_group("deleted-group") is None
+        assert database.get_tag_entry("deleted-first") is None
+        assert database.get_tag_entry("deleted-second") is None
+        assert database.delete_tag_group("deleted-group") is False
+    assert database.get_tag_group("preserved-group") is not None
+    assert database.get_tag_entry("preserved-entry") is not None
+    with sqlite3.connect(database.database_path) as connection:
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
 def create_legacy_group_tag_database(database_path: Path) -> None:
     """다른 설정과 작업 snapshot을 포함한 version 4 fixture를 준비합니다."""
 

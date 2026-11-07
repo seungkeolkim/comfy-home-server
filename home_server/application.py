@@ -935,12 +935,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.delete("/api/tags/groups/{group_id}")
     def delete_tag_group(group_id: str):
-        """항목이 없는 표시 그룹만 삭제합니다."""
+        """선택한 그룹과 내부 태그 항목을 함께 삭제합니다."""
 
-        try:
-            deleted = server.database.delete_tag_group(group_id)
-        except sqlite3.IntegrityError as exception:
-            raise HTTPException(409, "그룹의 태그 항목을 먼저 이동하거나 삭제해 주세요.") from exception
+        deleted = server.database.delete_tag_group(group_id)
         if not deleted:
             raise HTTPException(404, "태그 그룹을 찾을 수 없습니다.")
         return JSONResponse({"deleted": True})

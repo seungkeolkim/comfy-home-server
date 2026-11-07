@@ -110,6 +110,7 @@ function createTagManagerHandler(fixtures) {
       const recordIndex = records.findIndex(record => record[identifierName] === identifier);
       if (method === "DELETE") {
         records.splice(recordIndex, 1);
+        if (isGroup) fixtures.entries = fixtures.entries.filter(entry => entry.group_id !== identifier);
         response = { deleted: true };
       } else {
         response = { ...route.request().postDataJSON(), [identifierName]: identifier };
@@ -226,7 +227,7 @@ async function verifyTagManager(browser, viewport) {
     await page.locator("#tag-entry-cancel").click();
     assert.equal(await page.locator("#tag-entry-dialog").evaluate(dialog => dialog.open), false);
     await page.locator("#edit-selected-tag-group").click();
-    assert.equal(await page.locator("#delete-selected-tag-group").isDisabled(), true);
+    assert.equal(await page.locator("#delete-selected-tag-group").isEnabled(), true);
     await page.locator("#tag-group-cancel").click();
     await page.locator("#new-tag-entry-button").click();
     assert.equal(await page.locator("#tag-entry-group").inputValue(), "group-00");
@@ -286,9 +287,77 @@ async function verifyTagManager(browser, viewport) {
     await page.waitForFunction(() => !document.getElementById("tag-group-dialog").open);
     assert.equal(fixtures.groups.length, 28);
     assert.equal(fixtures.entries.length, 159);
+    await verifyNonEmptyGroupDeletion(page, fixtures, viewport);
     assert.deepEqual(pageErrors, []);
   } finally {
     await context.close();
+  }
+}
+
+/** 전체 태그 삭제 경고 한 번과 취소·실패 복구·중복 방지 및 다른 그룹 보존을 확인합니다. */
+async function verifyNonEmptyGroupDeletion(page, fixtures, viewport) {
+  const navigationSelector = viewport.width <= 800 ? ".mobile-nav" : ".sidebar";
+  await page.locator(`${navigationSelector} [data-view="generate"]`).click();
+  await page.locator('[data-select-tag="group-00-entry-00"]').check();
+  await page.locator('[data-select-tag="group-02-entry-00"]').check();
+  await page.locator(`${navigationSelector} [data-view="tags"]`).click();
+  if (viewport.width <= 800 && await page.locator("#tag-manager-back").isVisible()) {
+    await page.locator("#tag-manager-back").click();
+  }
+  await page.locator("#tag-manager-group-search").fill("그룹 00");
+  await page.locator('[data-select-managed-group="group-00"]').click();
+  await page.locator("#tag-manager-entry-search").fill("sample 07");
+  assert.equal(await page.locator("[data-edit-tag-entry]").count(), 1);
+  await page.locator("#edit-selected-tag-group").click();
+  await page.locator("#tag-group-name").fill("유지할 미저장 그룹명");
+  const originalMutationCount = fixtures.mutations.length;
+  const preservedEntries = fixtures.entries.filter(entry => entry.group_id !== "group-00");
+  const confirmationMessages = [];
+  let acceptDeletion = false;
+  const handleConfirmation = async dialog => {
+    confirmationMessages.push(dialog.message());
+    if (acceptDeletion) await dialog.accept();
+    else await dialog.dismiss();
+  };
+  page.on("dialog", handleConfirmation);
+  try {
+    await page.locator("#delete-selected-tag-group").click();
+    assert.equal(confirmationMessages.length, 1);
+    assert.match(confirmationMessages[0], /"그룹 00".*\n그룹 내 태그 45개가 모두 함께 삭제됩니다/);
+    assert.equal(fixtures.mutations.length, originalMutationCount);
+    assert.equal(await page.locator("#tag-group-name").inputValue(), "유지할 미저장 그룹명");
+
+    acceptDeletion = true;
+    fixtures.rejectSave = true;
+    await page.locator("#delete-selected-tag-group").click();
+    await page.locator("#tag-group-editor-status").filter({ hasText: "저장하지 못했습니다." }).waitFor();
+    assert.equal(confirmationMessages.length, 2);
+    assert.equal(await page.locator("#delete-selected-tag-group").isEnabled(), true);
+    assert.equal(await page.locator("#tag-group-name").inputValue(), "유지할 미저장 그룹명");
+    assert.equal(fixtures.entries.filter(entry => entry.group_id === "group-00").length, 45);
+
+    fixtures.rejectSave = false;
+    let completeDeletion;
+    fixtures.saveGate = new Promise(resolve => { completeDeletion = resolve; });
+    await Promise.all([
+      page.waitForRequest(request => request.method() === "DELETE" && request.url().endsWith("/api/tags/groups/group-00")),
+      page.locator("#delete-selected-tag-group").click(),
+    ]);
+    assert.equal(await page.locator("#delete-selected-tag-group").isDisabled(), true);
+    await page.evaluate(() => deleteTagGroup(applicationState.editingTagGroupId));
+    assert.equal(confirmationMessages.length, 3);
+    assert.equal(fixtures.mutations.length, originalMutationCount + 2);
+    completeDeletion();
+    fixtures.saveGate = null;
+    await page.waitForFunction(() => !document.getElementById("tag-group-dialog").open);
+    assert.equal(fixtures.groups.some(group => group.group_id === "group-00"), false);
+    assert.deepEqual(fixtures.entries, preservedEntries);
+    assert.equal(await page.evaluate(() => applicationState.selectedTagIds.has("group-00-entry-00")), false);
+    assert.equal(await page.evaluate(() => applicationState.selectedTagIds.has("group-02-entry-00")), true);
+  } finally {
+    page.off("dialog", handleConfirmation);
+    fixtures.rejectSave = false;
+    fixtures.saveGate = null;
   }
 }
 
