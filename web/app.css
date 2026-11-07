@@ -919,12 +919,12 @@ input[type="file"] {
 .job-folder-destination { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px calc(12px + var(--folder-depth, 0) * 16px); min-height: 44px; border: 1px solid #2a3549; border-radius: 8px; overflow-wrap: anywhere; cursor: pointer; }
 .job-folder-destination:has(input:checked) { border-color: #7ed6c0; background: #203b3c; }
 .job-folder-destination input { width: 18px; height: 18px; min-height: 18px; flex-shrink: 0; }
-.job-result-thumbnails { grid-column: 1/-1; display: flex; gap: 8px; margin: 12px 0; }
+.job-result-thumbnails { grid-column: 1/-1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; width: 100%; max-width: 408px; margin: 12px 0; }
 .job-card > .job-protection-badge { grid-column: 1/-1; }
 .job-card > .job-status-heading { justify-self: end; }
 .job-status-heading { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; }
 .job-elapsed-time { font-size: 12px; color: #b4bed2; white-space: nowrap; }
-.job-result-thumbnail { position: relative; flex: 0 1 112px; min-width: 0; width: 112px; height: 80px; padding: 0; overflow: hidden; border: 1px solid #344159; border-radius: 8px; background: #0d111b; }
+.job-result-thumbnail { position: relative; min-width: 0; width: 100%; height: 68px; padding: 0; overflow: hidden; border: 1px solid #344159; border-radius: 8px; background: #0d111b; }
 .job-result-thumbnail:hover { border-color: #7ed6c0; }
 .job-result-thumbnail img { display: block; width: 100%; height: 100%; object-fit: contain; font-size: 10px; color: #8f9eb7; }
 .job-result-thumbnail span { position: absolute; inset: 0; display: grid; place-items: center; color: white; text-shadow: 0 1px 5px #000; pointer-events: none; }
@@ -934,7 +934,7 @@ input[type="file"] {
   #jobs-folder-panel > summary { padding: 4px 6px; }
   #jobs-folder-tree { margin-top: 10px; max-height: 45dvh; }
   .job-folder-row a { min-height: 44px; }
-  .job-result-thumbnail { width: min(28vw, 112px); height: 74px; }
+  .job-result-thumbnail { height: 64px; }
 }
 .job-card {
   display: grid;
@@ -1602,7 +1602,7 @@ body:has(.image-preview-dialog[open]) { overflow: hidden; }
   .job-card h3 { font-size: 16px; }
   .job-card .job-description { font-size: 15px; }
   .job-card .job-prompts, .job-card .job-detail { font-size: 13px; }
-  .job-result-thumbnails { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; width: 100%; max-width: 744px; }
+  .job-result-thumbnails { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; width: 100%; max-width: 744px; }
   .job-result-thumbnail { width: 100%; height: auto; aspect-ratio: 4 / 3; border-radius: 10px; }
   .outputs-grid { grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; }
   .output-preview { height: 260px; }

@@ -100,7 +100,7 @@ async function verifyJobHistoryFolders(browser, width) {
     page.once("dialog", dialog => dialog.accept());
     await page.locator("#image-preview-delete").click();
     await page.waitForFunction(jobIdentifier =>
-      applicationState.visibleJobs.find(job => job.job_id === jobIdentifier)?.preview_files.length === 2 &&
+      applicationState.visibleJobs.find(job => job.job_id === jobIdentifier)?.preview_files.length === 3 &&
       !outputPreviewNavigationState.loading, previewJob);
     assert.equal(await page.evaluate(() => outputPreviewNavigationState.filter.id), previewJob);
     await page.locator("#image-preview-close").click();

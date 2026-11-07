@@ -829,11 +829,11 @@ class Database:
         return self.list_job_selection_candidates(job_id, folder_id, search)["deletable_job_ids"]
 
     def _job_preview_files(self, connection: sqlite3.Connection, job_id: str) -> list[dict[str, Any]]:
-        """가용 Catalog에서 대표 결과물 3개만 읽고 파일 조회·영상 변환은 실행하지 않습니다."""
+        """가용 Catalog에서 대표 결과물 4개만 읽고 파일 조회·영상 변환은 실행하지 않습니다."""
 
         rows = connection.execute(
             "SELECT output_id, relative_path FROM output_files "
-            "WHERE job_id=? AND is_available=1 AND is_deleted=0 ORDER BY output_id DESC LIMIT 3", (job_id,),
+            "WHERE job_id=? AND is_available=1 AND is_deleted=0 ORDER BY output_id DESC LIMIT 4", (job_id,),
         ).fetchall()
         return [{"output_id": row["output_id"], "path": row["relative_path"]} for row in rows]
 

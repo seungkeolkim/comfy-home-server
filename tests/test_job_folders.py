@@ -182,14 +182,14 @@ def test_submission_folder_is_committed_with_job_or_rolled_back(tmp_path: Path) 
 
 
 def test_summary_thumbnails_follow_catalog_paths_and_ignore_deleted_or_missing_outputs(tmp_path: Path) -> None:
-    """작업 대표 미리보기는 최대 3개이며 현재 Catalog 경로와 가용·삭제 상태를 따릅니다."""
+    """작업 대표 미리보기는 최대 4개이며 현재 Catalog 경로와 가용·삭제 상태를 따릅니다."""
 
     database = Database(tmp_path / "jobs.sqlite3")
     request_id = add_catalog_test_request(database)
-    database.complete_request(request_id, [f"image-{image_index}.png" for image_index in range(6)])
+    database.complete_request(request_id, [f"image-{image_index}.png" for image_index in range(7)])
     with sqlite3.connect(database.database_path) as connection:
         connection.execute("UPDATE output_files SET is_deleted=1 WHERE relative_path='image-5.png'")
         connection.execute("UPDATE output_files SET is_available=0 WHERE relative_path='image-4.png'")
         connection.execute("UPDATE output_files SET relative_path='moved/image-3.png' WHERE relative_path='image-3.png'")
     thumbnails = database.list_job_summaries()["items"][0]["preview_files"]
-    assert [thumbnail["path"] for thumbnail in thumbnails] == ["moved/image-3.png", "image-2.png", "image-1.png"]
+    assert [thumbnail["path"] for thumbnail in thumbnails] == ["image-6.png", "moved/image-3.png", "image-2.png", "image-1.png"]

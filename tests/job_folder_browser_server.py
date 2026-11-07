@@ -38,7 +38,7 @@ def create_job_folder_browser_application(runtime_directory: Path):
         if job_index < 22:
             database.job_folders.move_jobs([job_id], leaf_id if job_index % 2 else root_id)
         image_names = []
-        for image_index in range(3):
+        for image_index in range(4):
             image_name = f"{job_id}-{image_index}.png"
             Image.new("RGB", (128, 96), (job_index * 9, 80 + image_index * 40, 140)).save(output_directory / image_name)
             image_names.append(image_name)
