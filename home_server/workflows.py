@@ -12,8 +12,12 @@ from typing import Any
 
 WORKFLOW_FILES = {
     "anima": "AnimaTurboV9/AnimaStandardTurboV9_empty",
-    "minimax_h3": "DasiwaMinimaxH3/DasiwaMinimaxH3WorkflowsT2VA_cMMH3V23_bypassfix_empty",
+    "minimax_h3": "DasiwaMinimaxH3LoraAV/DasiwaMinimaxH3LoraAV",
 }
+
+MINIMAX_LORA_NODE_IDENTIFIERS = (
+    "2678", "2794", "2795", "2796", "2797", "2798", "2799", "2800", "2801", "2802",
+)
 
 WORKFLOW_OUTPUT_NAMES = {
     "anima": "%time_%seed",
@@ -293,6 +297,54 @@ def apply_minimax_upscale(workflow: dict[str, Any], mode: str, model_name: str) 
     combine_inputs["images"] = [node_id, 0]
 
 
+def validate_minimax_loras(selected_loras: list[dict[str, Any]]) -> None:
+    """LoRA 개수와 loader가 받는 STR·VIS·AUDIO의 숫자 범위를 확인합니다."""
+
+    if len(selected_loras) > len(MINIMAX_LORA_NODE_IDENTIFIERS):
+        raise ValueError("MiniMax workflow에는 LoRA를 최대 10개 적용할 수 있습니다.")
+    for selected_lora in selected_loras:
+        for field_name in ("strength", "video_strength", "audio_strength"):
+            try:
+                strength = float(selected_lora.get(field_name, 1))
+            except (TypeError, ValueError, OverflowError) as exception:
+                raise ValueError("LoRA의 STR·VIS·AUDIO는 숫자로 입력해 주세요.") from exception
+            if not math.isfinite(strength):
+                raise ValueError("LoRA의 STR·VIS·AUDIO는 유한한 숫자로 입력해 주세요.")
+            if field_name != "strength" and not 0 <= strength <= 5:
+                raise ValueError("MiniMax LoRA의 VIS·AUDIO는 0~5 범위여야 합니다.")
+
+
+def apply_minimax_modality_loras(
+    request_workflow: dict[str, Any], metadata_workflow: dict[str, Any],
+    selected_loras: list[dict[str, Any]],
+) -> None:
+    """LoRA마다 loader 하나를 사용해 개별 modality weight와 복원 metadata를 맞춥니다."""
+
+    validate_minimax_loras(selected_loras)
+    metadata_nodes = {str(node["id"]): node for node in metadata_workflow["nodes"]}
+    for slot_index, node_identifier in enumerate(MINIMAX_LORA_NODE_IDENTIFIERS):
+        loader_inputs = request_workflow[node_identifier]["inputs"]
+        stack_entries = []
+        video_strength = audio_strength = 1.0
+        if slot_index < len(selected_loras):
+            selected_lora = selected_loras[slot_index]
+            stack_entries.append({
+                "on": True, "lora": str(selected_lora["name"]),
+                "str": float(selected_lora.get("strength", 1)),
+            })
+            video_strength = float(selected_lora.get("video_strength", 1))
+            audio_strength = float(selected_lora.get("audio_strength", 1))
+        stack_json = json.dumps(stack_entries, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        loader_inputs.update({
+            "stack_data": stack_json, "video": video_strength, "audio": audio_strength,
+            "text": 1.0, "evict_model": False,
+        })
+        for widget_name in ("stack_data", "audio", "video", "text", "evict_model"):
+            update_ui_widget(metadata_workflow, node_identifier, widget_name, loader_inputs[widget_name])
+        # Loader의 onConfigure는 widget보다 properties의 stack_data를 먼저 읽습니다.
+        metadata_nodes[node_identifier]["properties"]["stack_data"] = stack_json
+
+
 def prepare_minimax(
     api_workflow: dict[str, Any], ui_workflow: dict[str, Any], uploaded_image: str,
     prompt_text: str, settings: dict[str, Any], selected_loras: list[dict[str, Any]],
@@ -337,21 +389,7 @@ def prepare_minimax(
             elif state.get("mode") == "random":
                 node["inputs"]["seed_value"] = 0
 
-    stack_entries = []
-    for selected_lora in selected_loras:
-        stack_entries.append({
-            "on": True, "lora": str(selected_lora["name"]),
-            "str": float(selected_lora.get("strength", 1)),
-            "vs": float(selected_lora.get("video_strength", 1)),
-            "as": float(selected_lora.get("audio_strength", 1)),
-        })
-    if len(stack_entries) > 10:
-        raise ValueError("MiniMax workflow에는 LoRA를 최대 10개 적용할 수 있습니다.")
-    while len(stack_entries) < 10:
-        stack_entries.append({"on": True, "lora": "None", "str": 1, "vs": 1, "as": 1})
-    stack_json = json.dumps(stack_entries, ensure_ascii=False, separators=(",", ":"))
-    request_workflow["2678"]["inputs"]["stack_data"] = stack_json
-    update_ui_widget(metadata_workflow, "2678", "stack_data", stack_json)
+    apply_minimax_modality_loras(request_workflow, metadata_workflow, selected_loras)
 
     output_path = validate_output_stem(output_stem)
     combine_inputs = request_workflow["2568"]["inputs"]

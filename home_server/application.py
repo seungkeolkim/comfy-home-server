@@ -45,7 +45,10 @@ from .tag_transfer import TagImportInput
 from .thumbnail_cache import PREVIEW_IMAGE_EXTENSIONS, PREVIEW_SIZE, ThumbnailCache, ThumbnailTooLargeError
 from .video_encoding import VideoEncodingError
 from .video_preview_cache import VideoPreviewCache, VideoPreviewQueueFull
-from .workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, minimax_execution_settings, prepare_anima, prepare_minimax
+from .workflows import (
+    WORKFLOW_OUTPUT_NAMES, load_workflows, minimax_execution_settings, prepare_anima,
+    prepare_minimax, validate_minimax_loras,
+)
 
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"}
@@ -310,6 +313,14 @@ class LoraProfileInput(BaseModel):
     video_strength: float = 1
     audio_strength: float = 1
 
+    @model_validator(mode="after")
+    def validate_modality_weights(self) -> LoraProfileInput:
+        """MiniMax의 개별 기본값도 실제 loader의 weight 범위 안에서 저장합니다."""
+
+        if self.workflow == "minimax_h3":
+            validate_minimax_loras([self.model_dump()])
+        return self
+
 
 class LoraPresetSelectionInput(BaseModel):
     """조합에 포함할 LoRA 파일과 유한한 강도 값을 검증합니다."""
@@ -351,8 +362,8 @@ class LoraPresetInput(BaseModel):
             if selected_lora.name in selected_names:
                 raise ValueError("같은 LoRA를 한 조합에 중복 저장할 수 없습니다.")
             selected_names.add(selected_lora.name)
-        if self.workflow == "minimax_h3" and len(self.loras) > 10:
-            raise ValueError("MiniMax workflow에는 LoRA를 최대 10개 적용할 수 있습니다.")
+        if self.workflow == "minimax_h3":
+            validate_minimax_loras([selected_lora.model_dump() for selected_lora in self.loras])
         return self
 
     def selected_loras_snapshot(self) -> list[dict[str, Any]]:
@@ -1123,6 +1134,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                     selected_tag_definitions, server.database, payload.selected_tag_ids, prompt_text,
                 )
                 minimax_execution_settings(payload.settings)
+                validate_minimax_loras(payload.loras)
             else:
                 prompt_text = anima_prompt(payload.body)
                 negative_text = anima_negative_prompt(payload.body)
@@ -1487,6 +1499,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             available_loras = set(await server.comfy.list_loras()) if payload.loras else set()
             if any(lora.get("name") not in available_loras for lora in payload.loras):
                 raise ValueError("복원한 LoRA 파일을 ComfyUI에서 찾을 수 없습니다.")
+            if payload.workflow == "minimax_h3":
+                validate_minimax_loras(payload.loras)
             await asyncio.to_thread(load_workflows, server.config.workflow_directory, payload.workflow)
             job_id, requests = await asyncio.to_thread(store_favorite_request, server, favorite, payload)
         except LookupError as exception:

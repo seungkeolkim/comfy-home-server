@@ -174,6 +174,8 @@ def test_lora_preset_crud_keeps_snapshots_independent(lora_preset_client) -> Non
     {"name": "Invalid", "workflow": "anima", "loras": [{"name": "first.safetensors", "clip_strength": "Infinity"}]},
     {"name": "Invalid", "workflow": "anima", "loras": [{"name": "first.safetensors"}, {"name": "first.safetensors"}]},
     {"name": "Invalid", "workflow": "minimax_h3", "loras": [{"name": f"lora-{index}.safetensors"} for index in range(11)]},
+    {"name": "Invalid", "workflow": "minimax_h3", "loras": [{"name": "first.safetensors", "video_strength": 5.01}]},
+    {"name": "Invalid", "workflow": "minimax_h3", "loras": [{"name": "first.safetensors", "audio_strength": -0.01}]},
 ])
 def test_lora_preset_rejects_invalid_combinations(lora_preset_client, invalid_payload: dict) -> None:
     """빈 조합·중복·잘못된 강도·지원하지 않는 workflow를 저장 전에 거부합니다."""

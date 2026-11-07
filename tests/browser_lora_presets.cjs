@@ -473,6 +473,12 @@ async function main() {
     assert.equal(await page.locator("#generate-workflow").inputValue(), "minimax_h3");
     assert.equal(await page.locator('#generate-lora-preset option').count(), 2);
     assert.equal(await page.locator('#selected-loras [data-lora-field="audio_strength"]').inputValue(), "0");
+    assert.deepEqual(await page.locator("#selected-loras .selected-lora > label").allTextContents(), ["STR", "VIS", "AUDIO"]);
+    const modalityControls = await page.locator("#selected-loras .selected-lora > label").evaluateAll(labels =>
+      labels.map(label => ({ text: label.textContent, left: label.getBoundingClientRect().left, top: label.getBoundingClientRect().top })));
+    assert.ok(modalityControls[0].left < modalityControls[1].left && modalityControls[1].left < modalityControls[2].left);
+    assert.ok(modalityControls.every(control => control.top === modalityControls[0].top));
+    assert.equal(await page.locator('#selected-loras [data-lora-field="video_strength"]').inputValue(), "0.8");
     availableLoras = ["second.safetensors"];
     await page.locator("#refresh-loras-button").click();
     await page.locator("#selected-loras .missing-lora").waitFor();

@@ -10,7 +10,10 @@ from PIL import Image
 from PIL.PngImagePlugin import PngInfo
 
 from home_server.configuration import PROJECT_DIRECTORY
-from home_server.workflows import WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima, prepare_minimax
+from home_server.workflows import (
+    MINIMAX_LORA_NODE_IDENTIFIERS, WORKFLOW_OUTPUT_NAMES, load_workflows, prepare_anima,
+    prepare_minimax, validate_minimax_loras,
+)
 
 
 WORKFLOW_DIRECTORY = PROJECT_DIRECTORY / "data" / "workflows"
@@ -236,7 +239,9 @@ def test_minimax_adapter_sets_timeline_and_output() -> None:
     assert (director["width"], director["height"]) == (736, 736)
     assert [item["value"] for item in timeline["items"]] == ["from_home_server/input.png"] * 2
     assert timeline["resolved_prompt"] == "quiet scene"
-    assert json.loads(request["2678"]["inputs"]["stack_data"])[0]["as"] == 0
+    assert json.loads(request["2678"]["inputs"]["stack_data"]) == [{"on": True, "lora": "motion.safetensors", "str": 0.6}]
+    assert request["2678"]["inputs"]["audio"] == 0
+    assert request["2678"]["inputs"]["video"] == 1
     expected_output_stem = f"from_home_server/minimax_h3/{WORKFLOW_OUTPUT_NAMES['minimax_h3']}"
     assert request["2568"]["inputs"]["filename_prefix"] == expected_output_stem
     assert request["2568"]["inputs"]["seed"] == ["2739", 0]
@@ -246,6 +251,87 @@ def test_minimax_adapter_sets_timeline_and_output() -> None:
     saver_node = next(node for node in metadata["nodes"] if node["id"] == 2568)
     assert next(node_input for node_input in saver_node["inputs"] if node_input["name"] == "seed")["link"] == seed_links[0][0]
     assert any(node.get("widgets_values_named", {}).get("filename_prefix") == expected_output_stem for node in metadata["nodes"])
+
+
+@pytest.mark.parametrize("lora_count", [0, 1, 2, 10])
+def test_minimax_modality_weights_chain_and_metadata_round_trip(lora_count: int) -> None:
+    """LoRA별 서로 다른 weight와 0, 빈 slot 및 복원용 세 저장 위치가 일치하는지 확인합니다."""
+
+    api_workflow, ui_workflow = load_workflows(WORKFLOW_DIRECTORY, "minimax_h3")
+    original_templates = copy.deepcopy((api_workflow, ui_workflow))
+    selected_loras = []
+    for slot_index in range(lora_count):
+        selected_loras.append({
+            "name": f"motion-{slot_index}.safetensors", "strength": 0 if slot_index == 0 else -0.2,
+            "video_strength": slot_index / 2, "audio_strength": 0 if slot_index % 2 == 0 else 5,
+        })
+    request_workflow, metadata = prepare_minimax(
+        api_workflow, ui_workflow, "input.png", "quiet scene", {}, selected_loras,
+        f"from_home_server/minimax_h3/{WORKFLOW_OUTPUT_NAMES['minimax_h3']}",
+    )
+    restored_metadata = json.loads(json.dumps(metadata))
+    metadata_nodes = {str(node["id"]): node for node in restored_metadata["nodes"]}
+    previous_output = ["2730", 5]
+    for slot_index, node_identifier in enumerate(MINIMAX_LORA_NODE_IDENTIFIERS):
+        loader_node = request_workflow[node_identifier]
+        loader_inputs = loader_node["inputs"]
+        assert loader_node["class_type"] == "H3ModalityLoraLoader"
+        assert loader_inputs["model"] == previous_output
+        previous_output = [node_identifier, 0]
+        saved_node = metadata_nodes[node_identifier]
+        saved_widgets = saved_node["widgets_values_named"]
+        assert saved_node["widgets_values"] == list(saved_widgets.values())
+        assert saved_node["properties"]["stack_data"] == saved_widgets["stack_data"] == loader_inputs["stack_data"]
+        assert loader_inputs["text"] == saved_widgets["text"] == 1
+        assert loader_inputs["evict_model"] is saved_widgets["evict_model"] is False
+        if slot_index < lora_count:
+            selected_lora = selected_loras[slot_index]
+            assert json.loads(loader_inputs["stack_data"]) == [{
+                "on": True, "lora": selected_lora["name"], "str": selected_lora["strength"],
+            }]
+            assert loader_inputs["video"] == saved_widgets["video"] == selected_lora["video_strength"]
+            assert loader_inputs["audio"] == saved_widgets["audio"] == selected_lora["audio_strength"]
+        else:
+            assert json.loads(loader_inputs["stack_data"]) == []
+            assert loader_inputs["video"] == loader_inputs["audio"] == 1
+    for consumer_identifier in ("1512:2590", "1512:2679", "1512:2692"):
+        assert request_workflow[consumer_identifier]["inputs"]["model"] == previous_output
+    assert request_workflow["1512:2701"]["inputs"]["clip"] == ["1512:2587", 0]
+    assert (api_workflow, ui_workflow) == original_templates
+
+
+def test_minimax_modality_template_links_preserve_clip_and_model_consumers() -> None:
+    """Top-level·subgraph의 연결 양끝과 CLIP 직결을 검사해 복원 시 끊긴 배선을 잡습니다."""
+
+    api_workflow, ui_workflow = load_workflows(WORKFLOW_DIRECTORY, "minimax_h3")
+    assert not any(node["class_type"] == "DaSiWa_LTX2LoraLoader" for node in api_workflow.values())
+    metadata_nodes = {node["id"]: node for node in ui_workflow["nodes"]}
+    for link_identifier, source_identifier, source_slot, target_identifier, target_slot, connection_type in ui_workflow["links"]:
+        assert link_identifier in metadata_nodes[source_identifier]["outputs"][source_slot]["links"]
+        assert metadata_nodes[target_identifier]["inputs"][target_slot]["link"] == link_identifier
+        assert metadata_nodes[source_identifier]["outputs"][source_slot]["type"] == connection_type
+        target_type = metadata_nodes[target_identifier]["inputs"][target_slot]["type"]
+        assert target_type == "*" or connection_type in target_type.split(",")
+    subgraph = next(graph for graph in ui_workflow["definitions"]["subgraphs"] if graph["id"] == metadata_nodes[1512]["type"])
+    clip_link = next(link for link in subgraph["links"] if link["target_id"] == 2701 and link["target_slot"] == 0)
+    assert (clip_link["origin_id"], clip_link["origin_slot"]) == (2587, 0)
+    assert subgraph["inputs"][22]["linkIds"] == []
+    assert metadata_nodes[1512]["inputs"][22]["link"] is None
+
+
+@pytest.mark.parametrize("invalid_selection", [
+    [{"name": "motion.safetensors", "audio_strength": -0.1}],
+    [{"name": "motion.safetensors", "video_strength": 5.1}],
+    [{"name": "motion.safetensors", "strength": float("nan")}],
+    [{"name": "motion.safetensors", "audio_strength": "Infinity"}],
+    [{"name": "motion.safetensors", "video_strength": None}],
+    [{"name": f"motion-{slot_index}.safetensors"} for slot_index in range(11)],
+])
+def test_minimax_modality_loader_rejects_invalid_weights(invalid_selection: list[dict]) -> None:
+    """Loader가 받을 수 없는 weight나 개수는 요청 전에 거부합니다."""
+
+    with pytest.raises(ValueError):
+        validate_minimax_loras(invalid_selection)
 
 
 def test_adapter_rejects_output_path_escape() -> None:

@@ -2066,8 +2066,8 @@ function loraCardsMarkup(selectedLoras, workflow, showProfileSave) {
       (lora, index) => `
     <div class="selected-lora" data-lora-index="${index}"><div><strong>${escapeHtml(lora.name)}</strong>${showProfileSave ? `<button class="text-button lora-save-button" data-save-lora="${index}" type="button">이 강도를 기본값으로 저장</button>` : ""}${applicationState.loraCatalogAvailable && !applicationState.availableLoras.includes(lora.name) ? '<span class="missing-lora">ComfyUI에서 찾을 수 없는 LoRA</span>' : ""}</div>
     <label>STR<input data-lora-field="strength" type="number" step="0.05" value="${escapeHtml(lora.strength)}"></label>
-    <label>${isAnima ? "CLIP" : "V×"}<input data-lora-field="${isAnima ? "clip_strength" : "video_strength"}" type="number" step="0.05" value="${escapeHtml(isAnima ? lora.clip_strength : lora.video_strength)}"></label>
-    ${isAnima ? "<span></span>" : `<label class="audio-strength">A×<input data-lora-field="audio_strength" type="number" step="0.05" value="${escapeHtml(lora.audio_strength)}"></label>`}
+    <label title="${isAnima ? "CLIP 강도" : "영상 LoRA multiplier: STR × VIS"}">${isAnima ? "CLIP" : "VIS"}<input data-lora-field="${isAnima ? "clip_strength" : "video_strength"}" type="number" ${isAnima ? "" : 'min="0" max="5"'} step="0.05" value="${escapeHtml(isAnima ? lora.clip_strength : lora.video_strength)}"></label>
+    ${isAnima ? "<span></span>" : `<label class="audio-strength" title="음성 LoRA multiplier: STR × AUDIO">AUDIO<input data-lora-field="audio_strength" type="number" min="0" max="5" step="0.05" value="${escapeHtml(lora.audio_strength)}"></label>`}
     <button class="icon-button" data-remove-lora="${index}" title="LoRA 제거">×</button></div>`,
     )
     .join("");
@@ -2103,6 +2103,8 @@ function validateLoraEntries(selectedLoras, workflow) {
     for (const [field, value] of Object.entries(selectedLora)) {
       if (field !== "name" && !Number.isFinite(value))
         throw new Error(`${selectedLora.name}의 weight를 숫자로 입력해 주세요.`);
+      if (workflow === "minimax_h3" && ["video_strength", "audio_strength"].includes(field) && (value < 0 || value > 5))
+        throw new Error(`${selectedLora.name}의 VIS·AUDIO는 0~5 범위여야 합니다.`);
     }
   }
 }
