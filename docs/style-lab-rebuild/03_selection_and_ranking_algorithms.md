@@ -68,3 +68,7 @@ Skip은 일반 Elo의 0.5점 무승부와 같지 않습니다.
 일반 Vote는 후보 Elo·경기 수·승수, 영향을 받은 작가·LoRA의 전적, History를 함께 변경합니다. 양쪽에 공통으로 들어간 작가·LoRA는 해당 투표의 성분 승패 통계에서 제외합니다. Undo는 이미지 A/B 위치까지 돌려주어야 합니다.
 
 현재 Undo Stack은 메모리의 최근 30개입니다. 새 프로젝트 구현은 Event Log를 저장해 재시작 후 Undo 범위를 명시하고, 다른 사용자의 최신 Vote를 조용히 되돌리지 않도록 Revision을 검사합니다.
+
+## 새 구현의 비교 추천
+
+위 우선순위와 산식은 기존 복원 기준입니다. 채택한 [비교 후보 추천](19_adopted_exploration_tools.md)은 진행 중 Pair·Placement·Evolution Selection·필수 동점 해소를 우선 처리한 뒤 일반 League/Top 및 허용한 추가 비교에 적용합니다. 비교 근거 부족·상대 분포·순위 경계·최근 Pair·Skip을 정책 Version과 함께 기록합니다. Elo 차이만으로 신뢰구간을 만들지 않으며 Match Kind별 Skip·Vote·Undo 의미도 바꾸지 않습니다. 기존 Golden Fixture와 새 추천 정책 Fixture를 나눠 검증합니다.

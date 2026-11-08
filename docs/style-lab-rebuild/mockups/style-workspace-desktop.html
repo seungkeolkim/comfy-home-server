@@ -1,0 +1,739 @@
+<style>
+.style-workspace-preview {
+  color-scheme: light dark;
+  --workspace-paper: light-dark(#f4f5f8, #15181f);
+  --workspace-panel: light-dark(#ffffff, #1e222c);
+  --workspace-text: light-dark(#1e293b, #e7ebf4);
+  --workspace-secondary-text: light-dark(#58667b, #abb6ca);
+  --workspace-rule: light-dark(#dce2eb, #363f50);
+  --workspace-blue: light-dark(#3156c7, #b6c8ff);
+  --workspace-blue-fill: light-dark(#e9efff, #2a385a);
+  --workspace-button: light-dark(#304ec0, #a9c1ff);
+  --workspace-button-text: light-dark(#ffffff, #142545);
+  --workspace-danger: light-dark(#a52e3b, #ffadb5);
+  --workspace-danger-fill: light-dark(#fff0f1, #482b33);
+  --workspace-green: light-dark(#28634c, #a6dac0);
+  --workspace-green-fill: light-dark(#e9f4ed, #243e34);
+  width: 100%;
+  min-width: 0;
+  color: var(--workspace-text);
+  background: var(--workspace-paper);
+  border: 1px solid var(--workspace-rule);
+  border-radius: 16px;
+  font: 14px/1.55 "Segoe UI", "Malgun Gothic", sans-serif;
+  overflow: clip;
+  position: relative;
+  text-align: left;
+}
+.style-workspace-preview *, .style-workspace-preview *::before, .style-workspace-preview *::after { box-sizing: border-box; }
+.style-workspace-preview [hidden] { display: none !important; }
+.style-workspace-preview button, .style-workspace-preview input, .style-workspace-preview select, .style-workspace-preview textarea { font: inherit; color: inherit; }
+.style-workspace-preview button { min-height: 40px; border: 1px solid var(--workspace-rule); border-radius: 9px; padding: 8px 13px; background: var(--workspace-panel); }
+.style-workspace-preview button:disabled { opacity: .5; }
+.style-workspace-preview button:hover:not(:disabled) { background: var(--workspace-blue-fill); }
+.style-workspace-preview button.workspace-primary { background: var(--workspace-button); border-color: var(--workspace-button); color: var(--workspace-button-text); }
+.style-workspace-preview button.workspace-primary:hover:not(:disabled) { filter: brightness(.94); }
+.style-workspace-preview button.workspace-danger { color: var(--workspace-danger); background: var(--workspace-danger-fill); }
+.style-workspace-preview button.workspace-quiet { border-color: transparent; background: transparent; }
+.style-workspace-preview button[aria-pressed="true"] { color: var(--workspace-blue); background: var(--workspace-blue-fill); border-color: var(--workspace-blue); }
+.style-workspace-preview a { color: var(--workspace-blue); }
+.style-workspace-preview h1, .style-workspace-preview h2, .style-workspace-preview h3, .style-workspace-preview p { margin: 0; }
+.style-workspace-preview h1 { font-size: 24px; line-height: 1.35; letter-spacing: -.7px; font-weight: 650; }
+.style-workspace-preview h2 { font-size: 18px; font-weight: 600; }
+.style-workspace-preview h3 { font-size: 15px; font-weight: 600; }
+.style-workspace-preview small, .style-workspace-preview .workspace-caption { font-size: 12px; color: var(--workspace-secondary-text); }
+.style-workspace-preview .workspace-chrome { display: flex; align-items: center; gap: 20px; padding: 16px 22px; border-bottom: 1px solid var(--workspace-rule); background: var(--workspace-panel); }
+.style-workspace-preview .workspace-brand { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 650; }
+.style-workspace-preview .workspace-monogram { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; font-size: 12px; color: var(--workspace-button-text); background: var(--workspace-button); }
+.style-workspace-preview .workspace-prototype-label { display: block; color: var(--workspace-secondary-text); font-size: 11px; font-weight: 400; }
+.style-workspace-preview .workspace-mode-switch { display: flex; gap: 3px; padding: 3px; border: 1px solid var(--workspace-rule); background: var(--workspace-paper); border-radius: 11px; }
+.style-workspace-preview .workspace-mode-switch button { border-color: transparent; background: transparent; padding: 6px 14px; min-height: 34px; }
+.style-workspace-preview .workspace-mode-switch button[aria-pressed="true"] { background: var(--workspace-panel); border-color: var(--workspace-rule); box-shadow: 0 1px 4px light-dark(#14254512, #00000030); }
+.style-workspace-preview .workspace-jobs { margin-left: auto; white-space: nowrap; }
+.style-workspace-preview .workspace-count { padding: 1px 6px; border-radius: 6px; background: var(--workspace-blue-fill); color: var(--workspace-blue); font-variant-numeric: tabular-nums; }
+.style-workspace-preview .workspace-body { display: grid; grid-template-columns: 184px minmax(0, 1fr); min-height: 650px; }
+.style-workspace-preview .workspace-sidebar { padding: 20px 12px; border-right: 1px solid var(--workspace-rule); background: var(--workspace-panel); display: flex; flex-direction: column; gap: 5px; }
+.style-workspace-preview .workspace-sidebar button { text-align: left; border-color: transparent; background: transparent; }
+.style-workspace-preview .workspace-sidebar button[aria-current="page"] { color: var(--workspace-blue); background: var(--workspace-blue-fill); }
+.style-workspace-preview .workspace-sidebar .workspace-section-label { padding: 20px 12px 6px; color: var(--workspace-secondary-text); font-size: 11px; letter-spacing: .06em; }
+.style-workspace-preview .workspace-sidebar .workspace-sidebar-footer { margin-top: auto; padding: 22px 12px 0; }
+.style-workspace-preview .workspace-main { padding: 25px 28px 28px; min-width: 0; }
+.style-workspace-preview .workspace-breadcrumb { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--workspace-secondary-text); font-size: 12px; margin-bottom: 15px; }
+.style-workspace-preview .workspace-breadcrumb button { padding: 0; min-height: 28px; color: var(--workspace-secondary-text); border: 0; background: transparent; font-size: 12px; }
+.style-workspace-preview .workspace-page-heading { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 20px; }
+.style-workspace-preview .workspace-page-heading p { margin-top: 6px; color: var(--workspace-secondary-text); }
+.style-workspace-preview .workspace-row { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.style-workspace-preview .workspace-spread { justify-content: space-between; }
+.style-workspace-preview .workspace-stack { display: grid; gap: 17px; }
+.style-workspace-preview .workspace-panel { padding: 18px; border: 1px solid var(--workspace-rule); background: var(--workspace-panel); border-radius: 12px; min-width: 0; }
+.style-workspace-preview .workspace-panel > p + p { margin-top: 9px; }
+.style-workspace-preview .workspace-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 13px; flex-wrap: wrap; }
+.style-workspace-preview .workspace-tag { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 5px; color: var(--workspace-secondary-text); background: var(--workspace-paper); font-size: 11px; }
+.style-workspace-preview .workspace-tag-accent { color: var(--workspace-blue); background: var(--workspace-blue-fill); }
+.style-workspace-preview .workspace-tag-success { color: var(--workspace-green); background: var(--workspace-green-fill); }
+.style-workspace-preview .workspace-context { padding: 10px 13px; border-radius: 9px; border: 1px solid var(--workspace-rule); background: var(--workspace-panel); margin-bottom: 17px; color: var(--workspace-secondary-text); font-size: 12px; }
+.style-workspace-preview .workspace-context summary { color: var(--workspace-text); }
+.style-workspace-preview .workspace-context p { margin-top: 9px; overflow-wrap: anywhere; }
+.style-workspace-preview .workspace-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 15px; }
+.style-workspace-preview .workspace-candidate { border: 1px solid var(--workspace-rule); background: var(--workspace-panel); border-radius: 11px; overflow: clip; min-width: 0; }
+.style-workspace-preview .workspace-candidate-heading { padding: 11px 13px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 4px; }
+.style-workspace-preview .workspace-candidate-footer { padding: 12px; }
+.style-workspace-preview .workspace-candidate-footer button { width: 100%; }
+.style-workspace-preview .workspace-art { --art-sky: #e6bdb7; --art-land: #5c697e; --art-front: #344761; height: 240px; position: relative; overflow: hidden; background: linear-gradient(180deg, var(--art-sky), #f4d5bd 65%, #9aa4ad); isolation: isolate; }
+.style-workspace-preview .workspace-art::before { content: ""; position: absolute; inset: 31% -4% 0; background: var(--art-land); clip-path: polygon(0 55%, 21% 29%, 38% 45%, 57% 10%, 78% 47%, 100% 26%, 100% 100%, 0 100%); }
+.style-workspace-preview .workspace-art::after { content: ""; position: absolute; inset: 51% -5% -2%; background: var(--art-front); clip-path: polygon(0 24%, 30% 54%, 65% 32%, 100% 53%, 100% 100%, 0 100%); }
+.style-workspace-preview .workspace-art .workspace-art-sun { position: absolute; width: 23%; aspect-ratio: 1; border-radius: 50%; background: #fff0cd; top: 13%; left: 57%; box-shadow: 0 0 30px #ffefd633; }
+.style-workspace-preview .workspace-art .workspace-art-branch { position: absolute; z-index: 2; width: 29%; height: 115%; top: -7%; left: -3%; background: #263a4b; clip-path: polygon(10% 0, 20% 0, 34% 38%, 80% 15%, 89% 14%, 38% 49%, 63% 100%, 45% 100%, 23% 44%, 0 33%, 0 26%, 19% 34%); }
+.style-workspace-preview .workspace-art .workspace-art-flower { position: absolute; z-index: 3; width: 28%; height: 18%; left: 2%; top: 12%; border-radius: 45% 55% 38% 62%; background: #cfa0ac; box-shadow: 26px 13px 0 #b988a1, 0 45px 0 #d7a6b6, 58px -5px 0 #e2b6bd; opacity: .94; }
+.style-workspace-preview .workspace-art .workspace-art-label { position: absolute; bottom: 10px; right: 10px; z-index: 4; color: #ffffff; background: #20354cbd; padding: 3px 7px; border-radius: 4px; font-size: 11px; }
+.style-workspace-preview .workspace-art[data-art="ink"] { --art-sky: #c8cfda; --art-land: #78869a; --art-front: #344759; filter: saturate(.6); }
+.style-workspace-preview .workspace-art[data-art="gold"] { --art-sky: #e8c492; --art-land: #96916b; --art-front: #4b6258; }
+.style-workspace-preview .workspace-art[data-art="violet"] { --art-sky: #c8b8d9; --art-land: #8f809c; --art-front: #4b4868; }
+.style-workspace-preview .workspace-art[data-art="mint"] { --art-sky: #bfdbd4; --art-land: #85aaa6; --art-front: #3c6168; }
+.style-workspace-preview .workspace-art[data-art="rose"] { --art-sky: #dfa9b4; --art-land: #9b8090; --art-front: #65475f; }
+.style-workspace-preview .workspace-comparison-controls { margin-top: 14px; display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.style-workspace-preview .workspace-progress { margin-top: 18px; height: 4px; background: var(--workspace-rule); border-radius: 3px; overflow: hidden; }
+.style-workspace-preview .workspace-progress span { display: block; height: 100%; background: var(--workspace-blue); }
+.style-workspace-preview .workspace-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; }
+.style-workspace-preview .workspace-grid .workspace-art { height: 130px; }
+.style-workspace-preview .workspace-candidate-details { padding: 13px; display: grid; gap: 7px; }
+.style-workspace-preview .workspace-candidate-details h3 { overflow-wrap: anywhere; }
+.style-workspace-preview .workspace-projects { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; }
+.style-workspace-preview .workspace-project-cover { margin: -18px -18px 17px; overflow: hidden; border-radius: 12px 12px 0 0; }
+.style-workspace-preview .workspace-project-cover .workspace-art { height: 145px; }
+.style-workspace-preview .workspace-project-actions { margin-top: 18px; }
+.style-workspace-preview .workspace-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.style-workspace-preview label { display: grid; gap: 7px; font-size: 13px; min-width: 0; }
+.style-workspace-preview input:not([type="checkbox"]), .style-workspace-preview select, .style-workspace-preview textarea { width: 100%; min-width: 0; padding: 10px 11px; background: var(--workspace-panel); border: 1px solid var(--workspace-rule); border-radius: 8px; }
+.style-workspace-preview textarea { resize: vertical; min-height: 96px; }
+.style-workspace-preview .workspace-checkbox { display: flex; align-items: center; gap: 8px; }
+.style-workspace-preview .workspace-checkbox input { width: 17px; height: 17px; accent-color: var(--workspace-button); }
+.style-workspace-preview .workspace-hero { display: grid; grid-template-columns: minmax(0, 1fr) 170px; align-items: center; gap: 20px; background: var(--workspace-blue-fill); border-color: transparent; }
+.style-workspace-preview .workspace-hero h2 { font-size: 20px; margin: 6px 0 9px; }
+.style-workspace-preview .workspace-hero .workspace-art { border-radius: 9px; height: 145px; }
+.style-workspace-preview .workspace-hero button { margin-top: 16px; }
+.style-workspace-preview .workspace-statline { display: flex; flex-wrap: wrap; gap: 15px; color: var(--workspace-secondary-text); font-size: 12px; }
+.style-workspace-preview .workspace-statline strong { color: var(--workspace-text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.style-workspace-preview .workspace-table { width: 100%; border-collapse: collapse; }
+.style-workspace-preview .workspace-table th, .style-workspace-preview .workspace-table td { text-align: left; padding: 12px 6px; border-bottom: 1px solid var(--workspace-rule); }
+.style-workspace-preview .workspace-table th { color: var(--workspace-secondary-text); font-size: 12px; font-weight: 400; }
+.style-workspace-preview .workspace-table .workspace-art { width: 62px; height: 62px; border-radius: 6px; }
+.style-workspace-preview .workspace-table .workspace-row { flex-wrap: nowrap; }
+.style-workspace-preview .workspace-table td:last-child { text-align: right; }
+.style-workspace-preview .workspace-table tr[data-dropped="true"] .workspace-entry-name { text-decoration: line-through; color: var(--workspace-secondary-text); }
+.style-workspace-preview .workspace-timeline { display: grid; gap: 12px; }
+.style-workspace-preview .workspace-history-entry { display: flex; align-items: center; gap: 16px; padding: 17px; background: var(--workspace-panel); border: 1px solid var(--workspace-rule); border-radius: 10px; }
+.style-workspace-preview .workspace-history-entry > div { flex: 1; }
+.style-workspace-preview .workspace-mobile-navigation { display: none; }
+.style-workspace-preview .workspace-overlay { position: absolute; inset: 0; padding: 95px 25px 30px; z-index: 8; background: light-dark(#22304a66, #00000088); display: flex; align-items: flex-start; justify-content: center; }
+.style-workspace-preview .workspace-dialog { width: min(100%, 500px); padding: 23px; background: var(--workspace-panel); border: 1px solid var(--workspace-rule); border-radius: 14px; box-shadow: 0 15px 60px #00000025; }
+.style-workspace-preview .workspace-dialog h2 { margin-bottom: 13px; }
+.style-workspace-preview .workspace-dialog p { margin-bottom: 13px; }
+.style-workspace-preview .workspace-dialog .workspace-row { margin-top: 20px; justify-content: flex-end; }
+.style-workspace-preview .workspace-notice { margin: 0 18px 18px; padding: 11px 15px; color: var(--workspace-green); background: var(--workspace-green-fill); border-radius: 9px; }
+.style-workspace-preview .workspace-explanation { color: var(--workspace-secondary-text); font-size: 12px; margin-top: 12px; }
+.style-workspace-preview .workspace-mobile-options { display: none; }
+.style-workspace-preview[data-navigation="top"] .workspace-body { grid-template-columns: minmax(0, 1fr); }
+.style-workspace-preview[data-navigation="top"] .workspace-sidebar { flex-direction: row; flex-wrap: wrap; border-right: 0; border-bottom: 1px solid var(--workspace-rule); padding: 10px 18px; }
+.style-workspace-preview[data-navigation="top"] .workspace-sidebar .workspace-section-label,
+.style-workspace-preview[data-navigation="top"] .workspace-sidebar .workspace-sidebar-footer { display: none; }
+.style-workspace-preview[data-device="mobile"] { max-width: 408px; margin-inline: auto; border-radius: 20px; }
+.style-workspace-preview[data-device="mobile"] .workspace-chrome { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 16px; }
+.style-workspace-preview[data-device="mobile"] .workspace-mode-switch { grid-row: 2; grid-column: 1 / -1; }
+.style-workspace-preview[data-device="mobile"] .workspace-mode-switch button { flex: 1; min-height: 40px; }
+.style-workspace-preview[data-device="mobile"] .workspace-body { display: block; min-height: 0; }
+.style-workspace-preview[data-device="mobile"] .workspace-sidebar { display: none; }
+.style-workspace-preview[data-device="mobile"] .workspace-main { padding: 17px 15px 22px; }
+.style-workspace-preview[data-device="mobile"] h1 { font-size: 21px; }
+.style-workspace-preview[data-device="mobile"] .workspace-page-heading { gap: 10px; margin-bottom: 15px; }
+.style-workspace-preview[data-device="mobile"] .workspace-page-heading p { font-size: 12px; }
+.style-workspace-preview[data-device="mobile"] .workspace-page-heading .workspace-heading-controls { width: 100%; justify-content: space-between; }
+.style-workspace-preview[data-device="mobile"] .workspace-mobile-options { display: flex; }
+.style-workspace-preview[data-device="mobile"] .workspace-pair { gap: 9px; }
+.style-workspace-preview[data-device="mobile"] .workspace-pair .workspace-art { height: 200px; }
+.style-workspace-preview[data-device="mobile"] .workspace-candidate-heading { padding: 9px; font-size: 12px; }
+.style-workspace-preview[data-device="mobile"] .workspace-candidate-footer { padding: 8px; }
+.style-workspace-preview[data-device="mobile"] .workspace-candidate-footer button { padding-inline: 5px; }
+.style-workspace-preview[data-device="mobile"] .workspace-context { font-size: 11px; }
+.style-workspace-preview[data-device="mobile"] .workspace-comparison-controls button { flex: 1; }
+.style-workspace-preview[data-device="mobile"] .workspace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.style-workspace-preview[data-device="mobile"] .workspace-grid .workspace-art { height: 125px; }
+.style-workspace-preview[data-device="mobile"] .workspace-projects, .style-workspace-preview[data-device="mobile"] .workspace-fields { grid-template-columns: minmax(0, 1fr); }
+.style-workspace-preview[data-device="mobile"] .workspace-mobile-navigation { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 9px 8px 12px; border-top: 1px solid var(--workspace-rule); background: var(--workspace-panel); }
+.style-workspace-preview[data-device="mobile"] .workspace-mobile-navigation button { font-size: 12px; padding-inline: 3px; background: transparent; border-color: transparent; min-height: 44px; }
+.style-workspace-preview[data-device="mobile"] .workspace-mobile-navigation button[aria-current="page"] { background: var(--workspace-blue-fill); color: var(--workspace-blue); }
+.style-workspace-preview[data-device="mobile"] .workspace-hero { grid-template-columns: minmax(0, 1fr); }
+.style-workspace-preview[data-device="mobile"] .workspace-hero .workspace-art { display: none; }
+.style-workspace-preview[data-device="mobile"] .workspace-panel { padding: 15px; }
+.style-workspace-preview[data-device="mobile"] .workspace-project-cover { margin: -15px -15px 15px; }
+.style-workspace-preview[data-device="mobile"] input:not([type="checkbox"]), .style-workspace-preview[data-device="mobile"] select, .style-workspace-preview[data-device="mobile"] textarea { font-size: 16px; }
+.style-workspace-preview[data-device="mobile"] .workspace-table th, .style-workspace-preview[data-device="mobile"] .workspace-table td { padding: 10px 3px; font-size: 12px; }
+.style-workspace-preview[data-device="mobile"] .workspace-table .workspace-art { width: 40px; height: 48px; }
+.style-workspace-preview[data-device="mobile"] .workspace-table .workspace-optional-column { display: none; }
+.style-workspace-preview[data-device="mobile"] .workspace-table button { min-height: 44px; padding-inline: 7px; }
+.style-workspace-preview[data-device="mobile"] .workspace-overlay { padding: 150px 12px 25px; }
+.style-workspace-preview[data-device="mobile"] .workspace-dialog { padding: 18px; }
+.style-workspace-preview[data-device="mobile"] .workspace-history-entry { flex-wrap: wrap; gap: 10px; padding: 14px; }
+.style-workspace-preview[data-device="mobile"] .workspace-history-entry button { width: 100%; }
+.style-workspace-preview[data-device="mobile"] .workspace-pair[data-layout="single"] { grid-template-columns: minmax(0, 1fr); }
+.style-workspace-preview[data-device="mobile"] .workspace-pair[data-layout="single"] .workspace-art { height: 260px; }
+@media (max-width: 740px) {
+  .style-workspace-preview[data-device="desktop"] .workspace-body { grid-template-columns: 145px minmax(0, 1fr); }
+  .style-workspace-preview[data-device="desktop"] .workspace-main { padding: 20px 16px; }
+  .style-workspace-preview[data-device="desktop"] .workspace-chrome { gap: 10px; padding: 13px; flex-wrap: wrap; }
+  .style-workspace-preview[data-device="desktop"] .workspace-brand { font-size: 13px; }
+  .style-workspace-preview[data-device="desktop"] .workspace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .style-workspace-preview[data-device="desktop"] .workspace-art { height: 180px; }
+  .style-workspace-preview[data-device="desktop"] .workspace-projects { grid-template-columns: minmax(0, 1fr); }
+  .style-workspace-preview[data-device="desktop"] .workspace-hero { grid-template-columns: minmax(0, 1fr); }
+  .style-workspace-preview[data-device="desktop"] .workspace-hero .workspace-art { display: none; }
+}
+@media (max-width: 500px) {
+  .style-workspace-preview[data-device="desktop"] .workspace-body { display: block; }
+  .style-workspace-preview[data-device="desktop"] .workspace-sidebar { flex-direction: row; flex-wrap: wrap; gap: 3px; border-right: 0; border-bottom: 1px solid var(--workspace-rule); padding: 8px; }
+  .style-workspace-preview[data-device="desktop"] .workspace-sidebar button { font-size: 12px; padding: 6px 8px; }
+  .style-workspace-preview[data-device="desktop"] .workspace-sidebar .workspace-section-label,
+  .style-workspace-preview[data-device="desktop"] .workspace-sidebar .workspace-sidebar-footer { display: none; }
+  .style-workspace-preview[data-device="desktop"] .workspace-mode-switch { order: 3; width: 100%; }
+  .style-workspace-preview[data-device="desktop"] .workspace-mode-switch button { flex: 1; }
+  .style-workspace-preview[data-device="desktop"] .workspace-fields { grid-template-columns: minmax(0, 1fr); }
+  .style-workspace-preview[data-device="desktop"] .workspace-pair { gap: 8px; }
+  .style-workspace-preview[data-device="desktop"] .workspace-candidate-heading { padding: 8px; }
+  .style-workspace-preview[data-device="desktop"] .workspace-optional-column { display: none; }
+  .style-workspace-preview[data-device="desktop"] .workspace-table .workspace-art { width: 35px; height: 40px; }
+  .style-workspace-preview[data-device="desktop"] .workspace-table td { padding-inline: 3px; }
+  .style-workspace-preview[data-device="desktop"] .workspace-table button { padding-inline: 5px; }
+}
+</style>
+<div id="style-workspace-desktop" class="style-workspace-preview" data-device="desktop" lang="ko" aria-label="Desktop 스타일 구성 목업">
+  <header class="workspace-chrome">
+    <div class="workspace-brand"><span class="workspace-monogram" aria-hidden="true">CH</span><span>Comfy Home<span class="workspace-prototype-label">목업 · 예시 데이터</span></span></div>
+    <div class="workspace-mode-switch" role="group" aria-label="작업 공간">
+      <button type="button" data-action="switch-mode" data-mode="general" aria-pressed="false">일반 생성</button>
+      <button type="button" data-action="switch-mode" data-mode="style" aria-pressed="true">스타일 구성</button>
+    </div>
+    <button type="button" class="workspace-quiet workspace-jobs" data-action="show-jobs">작업 <span class="workspace-count">2</span></button>
+  </header>
+  <div class="workspace-body">
+    <aside class="workspace-sidebar" aria-label="스타일 구성 메뉴"></aside>
+    <main class="workspace-main"></main>
+  </div>
+  <nav class="workspace-mobile-navigation" aria-label="프로젝트 메뉴"></nav>
+  <section class="workspace-overlay" hidden aria-label="상세 작업"></section>
+  <div class="workspace-notice" role="status" aria-live="polite" hidden></div>
+</div>
+<script>
+(() => {
+  const workspaceRoot = document.getElementById("style-workspace-desktop");
+  if (!workspaceRoot) return;
+
+  const projectNames = ["봄 풍경 · 부드러운 채색", "인물화 · 또렷한 선"];
+  const candidateNames = ["안개 수채", "정돈된 잉크", "햇살 채색", "라일락 톤", "맑은 청록", "장밋빛 선", "얇은 붓결", "고요한 오후", "깊은 음영", "가벼운 스케치", "잔잔한 색면", "선명한 윤곽"];
+  const artworkNames = ["water", "ink", "gold", "violet", "mint", "rose"];
+  const projectStates = [];
+  for (let projectIndex = 0; projectIndex < projectNames.length; projectIndex += 1) {
+    const candidates = [];
+    for (let candidateIndex = 0; candidateIndex < candidateNames.length; candidateIndex += 1) {
+      candidates.push({
+        identifier: `project-${projectIndex}-candidate-${candidateIndex}`,
+        name: candidateNames[candidateIndex],
+        artwork: artworkNames[candidateIndex % artworkNames.length],
+        elo: 11040 - candidateIndex * 72,
+        matches: 24,
+        weights: [0.8 + (candidateIndex % 3) * 0.1, 0.6],
+        lineage: candidateIndex % 3,
+        representative: candidateIndex < 3,
+        saved: candidateIndex < 2,
+      });
+    }
+    projectStates.push({
+      name: projectNames[projectIndex], generation: 12, comparisons: 18, candidates,
+      prompt: projectIndex === 0 ? "spring landscape, cherry blossoms, distant mountains, soft light" : "portrait, expressive eyes, clean linework, soft light",
+      trialPrompt: "autumn landscape, golden leaves, distant mountains, warm light",
+      trial: null, activeTrial: false, voteHistory: [], lastScreen: "compare",
+    });
+  }
+
+  const previewState = {
+    mode: "style", screen: "compare", projectIndex: 0, blind: true,
+    comparisonLayout: "pair", visibleCandidate: 0, compareTrial: false,
+    generalPrompt: "portrait, evening light, calm expression", generalSteps: 8, generalGuidance: 1, trialCount: 10,
+    comparisonOffset: 0, projectDraftName: "", projectDraftPrompt: "", newProjectMethod: "fresh",
+    sidebarPlacement: "side", selectedCandidate: null,
+  };
+  let dialogOpener = null;
+
+  /** 사용자 입력을 화면에 표시할 때 HTML로 해석하지 않도록 처리합니다. */
+  function escapeMarkup(inputValue) {
+    return String(inputValue).replace(/[&<>"']/g, function replaceMarkupCharacter(character) {
+      /** HTML 예약 문자에 대응하는 Entity를 반환합니다. */
+      const replacementCharacters = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+      return replacementCharacters[character];
+    });
+  }
+
+  /** 현재 프로젝트의 목업 상태를 반환합니다. */
+  function currentProject() {
+    return projectStates[previewState.projectIndex];
+  }
+
+  /** 실제 생성물 대신 동일 장면의 색감 차이를 보여주는 예시 화면을 만듭니다. */
+  function artworkMarkup(artworkName, accessibleLabel = "구도 확인용 합성 예시 이미지") {
+    return `<div class="workspace-art" data-art="${artworkName}" role="img" aria-label="${escapeMarkup(accessibleLabel)}"><span class="workspace-art-sun"></span><span class="workspace-art-branch"></span><span class="workspace-art-flower"></span><span class="workspace-art-label">예시 이미지</span></div>`;
+  }
+
+  /** 활성 탐색 또는 시험에 속한 조합만 반환합니다. */
+  function activeCandidates(useTrial = false) {
+    const project = currentProject();
+    if (useTrial && project.trial) return project.trial.entries.filter(candidate => !candidate.dropped);
+    if (project.activeTrial && project.trial) return project.trial.entries.filter(candidate => !candidate.dropped);
+    return project.candidates;
+  }
+
+  /** 현재 화면에서 사용할 제목과 공통 경로를 표시합니다. */
+  function pageHeading(title, description, controls = "") {
+    const project = currentProject();
+    const revisionLabel = project.activeTrial ? `${project.generation}세대 / Prompt 시험 B` : `${project.generation}세대`;
+    return `<div class="workspace-breadcrumb"><button type="button" data-screen="projects">프로젝트</button><span>/</span><button type="button" data-screen="overview">${escapeMarkup(project.name)}</button><span class="workspace-tag workspace-tag-accent">${revisionLabel}</span></div><div class="workspace-page-heading"><div><h1>${title}</h1><p>${description}</p></div>${controls}</div>`;
+  }
+
+  /** 입력값을 유지하면서 두 작업 공간의 메뉴를 각각 표시합니다. */
+  function renderNavigation() {
+    const sidebar = workspaceRoot.querySelector(".workspace-sidebar");
+    const mobileNavigation = workspaceRoot.querySelector(".workspace-mobile-navigation");
+    const generalMode = previewState.mode === "general";
+    workspaceRoot.querySelectorAll("[data-action='switch-mode']").forEach(function updateModeButton(button) {
+      /** 각 작업 공간의 선택 상태를 접근성 속성에 반영합니다. */
+      button.setAttribute("aria-pressed", String(button.dataset.mode === previewState.mode));
+    });
+    if (generalMode) {
+      sidebar.innerHTML = `<button type="button" aria-current="page">생성</button><button type="button" data-action="show-jobs">작업</button><button type="button" data-action="show-general-library">결과물 · Prompt · LoRA</button><p class="workspace-sidebar-footer workspace-caption">일반 생성의 입력은<br>스타일 프로젝트와 별도로 유지됩니다.</p>`;
+      mobileNavigation.innerHTML = `<button type="button" aria-current="page" data-action="general-home">생성</button><button type="button" data-action="show-jobs">작업</button><button type="button" data-action="show-general-library">결과물</button><button type="button" data-action="show-general-library">더보기</button>`;
+      return;
+    }
+    const navigationItems = [["overview", "프로젝트 홈"], ["compare", "이미지 비교"], ["candidates", "현재 조합"], ["trial", "Prompt 재시험"], ["history", "세대 이력"], ["settings", "프로젝트 설정"]];
+    let sidebarMarkup = `<button type="button" data-screen="projects" ${previewState.screen === "projects" ? 'aria-current="page"' : ""}>모든 프로젝트</button><button type="button" data-screen="saved" ${previewState.screen === "saved" ? 'aria-current="page"' : ""}>보관한 스타일</button><div class="workspace-section-label">${escapeMarkup(currentProject().name)}</div>`;
+    for (const [screenName, screenLabel] of navigationItems) {
+      sidebarMarkup += `<button type="button" data-screen="${screenName}" ${previewState.screen === screenName ? 'aria-current="page"' : ""}>${screenLabel}</button>`;
+    }
+    sidebarMarkup += `<div class="workspace-sidebar-footer workspace-caption">Anima · Turbo V11<br>Seed 381729 · CFG 1</div>`;
+    sidebar.innerHTML = sidebarMarkup;
+    const mobileItems = [["compare", "비교"], ["candidates", "조합"], ["trial", "Prompt 시험"]];
+    mobileNavigation.innerHTML = mobileItems.map(function mobileNavigationButton([screenName, screenLabel]) {
+      /** 모바일의 핵심 동작은 하단의 고정된 순서로 배치합니다. */
+      return `<button type="button" data-screen="${screenName}" ${previewState.screen === screenName ? 'aria-current="page"' : ""}>${screenLabel}</button>`;
+    }).join("") + `<button type="button" data-action="show-more" ${["history", "settings", "saved"].includes(previewState.screen) ? 'aria-current="page"' : ""}>더보기</button>`;
+  }
+
+  /** 신규 생성의 입력 영역을 프로젝트 탐색과 분리해 보여줍니다. */
+  function generalGenerationMarkup() {
+    return `<div class="workspace-page-heading"><div><h1>일반 생성</h1><p>원하는 설정으로 이미지를 생성합니다.</p></div><span class="workspace-tag">독립 작업 공간</span></div><div class="workspace-stack"><section class="workspace-panel"><div class="workspace-panel-heading"><h2>이미지 생성</h2><span class="workspace-tag">Anima</span></div><label>Positive Prompt<textarea data-input="generalPrompt">${escapeMarkup(previewState.generalPrompt)}</textarea></label><div class="workspace-fields" style="margin-top:14px"><label>모델<select aria-label="일반 생성 모델"><option>anima_turboV11.safetensors</option></select></label><label>LoRA Preset<select><option>직접 구성</option><option>보관한 스타일에서 가져오기</option></select></label><label>Steps<input type="number" data-input="generalSteps" value="${escapeMarkup(previewState.generalSteps)}" min="1"></label><label>CFG<input type="number" data-input="generalGuidance" value="${escapeMarkup(previewState.generalGuidance)}" min="0" step="0.1"></label></div><div class="workspace-row workspace-spread" style="margin-top:18px"><small>스타일 프로젝트의 평가·점수에는 반영하지 않습니다.</small><button type="button" class="workspace-primary" data-action="demo-generate">이미지 생성</button></div></section><section class="workspace-panel"><h3>보관한 스타일을 사용하고 싶으신가요?</h3><p class="workspace-explanation">스타일 구성에서 저장한 조합을 명시적으로 가져올 수 있습니다. 작업 공간을 바꾸는 것만으로 현재 입력을 변경하지 않습니다.</p><button type="button" data-action="browse-saved" style="margin-top:12px">보관한 스타일 보기</button></section></div>`;
+  }
+
+  /** 프로젝트 목록과 명시적인 이어서 작업 동작을 만듭니다. */
+  function projectsMarkup() {
+    let projectsMarkup = `<div class="workspace-page-heading"><div><h1>스타일 프로젝트</h1><p>목적과 Prompt마다 다른 그림체를 키워보세요.</p></div><button type="button" class="workspace-primary" data-screen="create">새 프로젝트</button></div><div class="workspace-projects">`;
+    for (let projectIndex = 0; projectIndex < projectStates.length; projectIndex += 1) {
+      const project = projectStates[projectIndex];
+      projectsMarkup += `<section class="workspace-panel"><div class="workspace-project-cover">${artworkMarkup(projectIndex === 0 ? "water" : "ink")}</div><div class="workspace-row workspace-spread"><h2>${escapeMarkup(project.name)}</h2><span class="workspace-tag">Anima</span></div><p class="workspace-explanation">${project.generation}세대 · ${project.candidates.length}개 조합 · 3개 계보</p><div class="workspace-project-actions workspace-row"><button type="button" class="workspace-primary" data-action="open-project" data-project="${projectIndex}">이어서 비교</button><button type="button" data-action="open-project-home" data-project="${projectIndex}">프로젝트 홈</button></div></section>`;
+    }
+    return projectsMarkup + `</div><p class="workspace-explanation">Moss 등 새 모델은 Home에 Workflow가 등록된 뒤 프로젝트에서 선택할 수 있습니다.</p>`;
+  }
+
+  /** 프로젝트의 다음 행동과 조건, 대표 계보를 요약합니다. */
+  function overviewMarkup() {
+    const project = currentProject();
+    return pageHeading("프로젝트 홈", "한 가지 순위보다, 마음에 드는 여러 그림체를 남겨보세요.") + `<div class="workspace-stack"><section class="workspace-panel workspace-hero"><div><span class="workspace-tag workspace-tag-accent">지금 할 일</span><h2>현재 조합의 비교를 이어가세요</h2><p>${project.generation}세대에서 ${project.comparisons}회 비교했습니다.</p><button type="button" class="workspace-primary" data-action="compare-main">이어서 비교</button></div>${artworkMarkup("water")}</section><div class="workspace-statline"><span>활성 조합 <strong>${activeCandidates().length}개</strong></span><span>유지하는 계보 <strong>3개</strong></span><span>보관한 스타일 <strong>${project.candidates.filter(candidate => candidate.saved).length}개</strong></span></div><section class="workspace-panel"><div class="workspace-panel-heading"><h3>평가 조건</h3><button type="button" class="workspace-quiet" data-screen="settings">조건 보기</button></div><p>${escapeMarkup(project.activeTrial ? project.trial.prompt : project.prompt)}</p><p class="workspace-explanation">Anima Turbo V11 · Seed 381729 · 8 Steps · CFG 1 · 1024 × 1024</p></section><section class="workspace-panel"><div class="workspace-panel-heading"><h3>다음 탐색</h3><span class="workspace-tag">실행 전 대상 확인</span></div><div class="workspace-row"><button type="button" class="workspace-primary" data-action="preview-evolution">다음 세대 만들기</button><button type="button" data-screen="trial">현재 조합으로 Prompt 시험</button></div><p class="workspace-explanation">다음 세대는 조합을 변형합니다. Prompt 시험은 조합과 Weight를 유지합니다.</p></section></div>`;
+  }
+
+  /** 같은 평가 구간의 이미지 두 개만 비교 화면에 배치합니다. */
+  function comparisonMarkup() {
+    const project = currentProject();
+    const comparingTrial = (previewState.compareTrial || project.activeTrial) && Boolean(project.trial);
+    const candidates = activeCandidates(comparingTrial);
+    if (candidates.length < 2) return pageHeading("비교할 조합이 부족합니다", "성공한 활성 조합이 2개 이상 있어야 비교할 수 있습니다.") + `<button type="button" data-screen="trial">시험으로 돌아가기</button>`;
+    const firstIndex = previewState.comparisonOffset % candidates.length;
+    const secondIndex = (firstIndex + 1) % candidates.length;
+    const pairedCandidates = [candidates[firstIndex], candidates[secondIndex]];
+    const title = comparingTrial ? "새 Prompt에서는 어느 쪽이 좋으신가요?" : "어느 그림체가 더 마음에 드시나요?";
+    const controls = `<div class="workspace-row workspace-heading-controls"><label class="workspace-checkbox"><input type="checkbox" data-input="blind" ${previewState.blind ? "checked" : ""}>Blind 비교</label><div class="workspace-row workspace-mobile-options"><button type="button" data-action="comparison-layout" data-layout="pair" aria-pressed="${previewState.comparisonLayout === "pair"}">나란히</button><button type="button" data-action="comparison-layout" data-layout="single" aria-pressed="${previewState.comparisonLayout === "single"}">한 장씩</button></div></div>`;
+    let comparisonMarkup = pageHeading(title, comparingTrial ? "Prompt 시험 B · 시험 안에서만 순위를 다시 매깁니다." : `${project.generation}세대 · ${project.comparisons} / 30회 비교`, controls);
+    comparisonMarkup += `<details class="workspace-context"><summary>${comparingTrial ? "Prompt 시험 B" : "평가 조건 고정"} · Seed 381729 · CFG 1 · 8 Steps</summary><p>${escapeMarkup(comparingTrial ? project.trial.prompt : (project.activeTrial ? project.trial.prompt : project.prompt))}</p><p>모델·Workflow·해상도·Seed를 고정하고 조합만 비교합니다.</p></details><div class="workspace-pair" data-layout="${previewState.comparisonLayout}">`;
+    for (let candidatePosition = 0; candidatePosition < pairedCandidates.length; candidatePosition += 1) {
+      const candidate = pairedCandidates[candidatePosition];
+      const candidateLetter = candidatePosition === 0 ? "A" : "B";
+      const shouldHide = workspaceRoot.dataset.device === "mobile" && previewState.comparisonLayout === "single" && previewState.visibleCandidate !== candidatePosition;
+      comparisonMarkup += `<section class="workspace-candidate" ${shouldHide ? "hidden" : ""}><div class="workspace-candidate-heading"><strong>${candidateLetter}${previewState.blind ? "" : ` · ${escapeMarkup(candidate.name)}`}</strong><small>${previewState.blind ? "정보 숨김" : `Elo ${Math.round(candidate.elo).toLocaleString()}`}</small></div>${artworkMarkup(candidate.artwork)}<div class="workspace-candidate-footer"><button type="button" class="workspace-primary" data-action="vote" data-winner="${candidatePosition}">${candidateLetter}가 더 좋아요</button></div></section>`;
+    }
+    comparisonMarkup += `</div>`;
+    if (workspaceRoot.dataset.device === "mobile" && previewState.comparisonLayout === "single") comparisonMarkup += `<div class="workspace-row workspace-spread" style="margin-top:10px"><span class="workspace-caption">현재 ${previewState.visibleCandidate === 0 ? "A" : "B"} 이미지</span><button type="button" data-action="swap-single">${previewState.visibleCandidate === 0 ? "B" : "A"} 이미지 보기</button></div>`;
+    comparisonMarkup += `<div class="workspace-comparison-controls"><button type="button" data-action="skip-pair">비슷해요 · 건너뛰기</button><button type="button" data-action="undo-vote" ${project.voteHistory.length ? "" : "disabled"}>되돌리기</button>${comparingTrial ? '<button type="button" data-screen="trial">시험 결과 보기</button>' : '<button type="button" data-action="preview-evolution">다음 세대</button>'}</div><div class="workspace-progress" role="progressbar" aria-label="현재 세대 비교 진행" aria-valuenow="${Math.min(30, project.comparisons)}" aria-valuemin="0" aria-valuemax="30"><span style="width:${Math.min(100, project.comparisons / 30 * 100)}%"></span></div>`;
+    return comparisonMarkup;
+  }
+
+  /** 조합 목록과 별도로 관리되는 계보 대표·보관 동작을 표시합니다. */
+  function candidatesMarkup(savedOnly = false) {
+    const project = currentProject();
+    const candidates = activeCandidates().filter(candidate => !savedOnly || candidate.saved);
+    let candidatesMarkup = pageHeading(savedOnly ? "보관한 스타일" : "현재 조합", savedOnly ? "마음에 드는 조합을 이름과 함께 보관합니다." : "점수와 계보를 함께 보며 여러 그림체를 유지하세요.", `<button type="button" data-screen="trial">상위 N개로 Prompt 시험</button>`);
+    candidatesMarkup += `<div class="workspace-grid">`;
+    for (const candidate of candidates) {
+      candidatesMarkup += `<article class="workspace-candidate">${artworkMarkup(candidate.artwork)}<div class="workspace-candidate-details"><div class="workspace-row workspace-spread"><h3>${escapeMarkup(candidate.name)}</h3><span class="workspace-caption">${Math.round(candidate.elo).toLocaleString()}</span></div><div class="workspace-row"><span class="workspace-tag">계보 ${["수채", "선화", "채색"][candidate.lineage]}</span>${candidate.representative ? '<span class="workspace-tag workspace-tag-accent">계보 대표</span>' : ""}</div><div class="workspace-row"><button type="button" data-action="candidate-details" data-candidate="${candidate.identifier}">상세</button><button type="button" data-action="toggle-saved" data-candidate="${candidate.identifier}" aria-pressed="${Boolean(candidate.saved)}">${candidate.saved ? "보관됨" : "보관"}</button></div>${savedOnly ? `<button type="button" data-action="use-in-general" data-candidate="${candidate.identifier}">일반 생성에 가져오기</button>` : ""}</div></article>`;
+    }
+    return candidatesMarkup + `</div>${candidates.length ? "" : '<section class="workspace-panel">아직 보관한 스타일이 없습니다.</section>'}<p class="workspace-explanation">${project.generation}세대 · 계보 대표는 부모 기회, 보관은 결과 저장입니다.</p>`;
+  }
+
+  /** 새 Prompt 입력과 독립 시험 결과를 같은 작업 공간에서 보여줍니다. */
+  function trialMarkup() {
+    const project = currentProject();
+    let trialMarkup = pageHeading("현재 조합으로 Prompt 시험", "조합과 Weight는 그대로 두고, Prompt만 바꿔 확인합니다.");
+    if (!project.trial) {
+      return trialMarkup + `<div class="workspace-stack"><section class="workspace-panel"><div class="workspace-panel-heading"><h2>시험할 조합</h2><span class="workspace-tag">세대 증가 없음</span></div><label>현재 순위의 상위 N개<input type="number" data-input="trialCount" value="${previewState.trialCount}" min="1" max="${activeCandidates().length}"></label><p class="workspace-explanation">${project.generation}세대의 활성 ${activeCandidates().length}개 중 선택합니다. 작가·LoRA·모든 Weight를 고정합니다.</p></section><section class="workspace-panel"><label>새 Positive Prompt<textarea data-input="trialPrompt">${escapeMarkup(project.trialPrompt)}</textarea></label><details class="workspace-context" style="margin-top:15px;margin-bottom:0"><summary>유지할 생성 조건</summary><p>기존 Negative · Anima Turbo V11 · Seed 381729 · CFG 1 · 8 Steps · 1024 × 1024</p></details></section><div class="workspace-row workspace-spread"><small>기존 이미지와 Elo는 유지됩니다.</small><button type="button" class="workspace-primary" data-action="start-trial">${previewState.trialCount}개 조합으로 시험</button></div></div>`;
+    }
+    const retainedCandidates = project.trial.entries.filter(candidate => !candidate.dropped);
+    const hasTrialVotes = project.trial.entries.some(candidate => candidate.matches > 0);
+    trialMarkup += `<section class="workspace-panel" style="margin-bottom:15px"><div class="workspace-panel-heading"><h2>Prompt 시험 B</h2><span class="workspace-tag workspace-tag-accent">${project.generation}세대 · ${project.trial.entries.length}개 시험</span></div><p>${escapeMarkup(project.trial.prompt)}</p><div class="workspace-row workspace-spread" style="margin-top:13px"><small>유지 ${retainedCandidates.length}개 · Elo는 10,000에서 새로 시작</small><button type="button" class="workspace-primary" data-action="compare-trial" ${retainedCandidates.length < 2 ? "disabled" : ""}>시험 이미지 비교</button></div></section><section class="workspace-panel"><table class="workspace-table"><thead><tr><th>조합</th><th>시험 Elo</th><th class="workspace-optional-column">비교</th><th>유지 여부</th></tr></thead><tbody>`;
+    const rankedTrialEntries = [...project.trial.entries].sort(function compareTrialRanking(firstCandidate, secondCandidate) {
+      /** 제외한 조합은 아래에 두고 같은 상태에서는 시험 Elo 순으로 정렬합니다. */
+      return Number(Boolean(firstCandidate.dropped)) - Number(Boolean(secondCandidate.dropped)) || secondCandidate.elo - firstCandidate.elo;
+    });
+    for (const candidate of rankedTrialEntries) {
+      trialMarkup += `<tr data-dropped="${Boolean(candidate.dropped)}"><td><div class="workspace-row">${artworkMarkup(candidate.artwork)}<span class="workspace-entry-name">${escapeMarkup(candidate.name)}</span></div></td><td>${Math.round(candidate.elo).toLocaleString()}</td><td class="workspace-optional-column">${candidate.matches}회</td><td><button type="button" data-action="toggle-drop" data-candidate="${candidate.identifier}" ${project.activeTrial ? "disabled" : ""}>${candidate.dropped ? "Drop 취소" : "Drop"}</button></td></tr>`;
+    }
+    trialMarkup += `</tbody></table></section><div class="workspace-row workspace-spread" style="margin-top:18px"><button type="button" data-action="retain-trial">시험으로 보관</button><button type="button" class="workspace-primary" data-action="preview-adoption" ${!retainedCandidates.length || !hasTrialVotes || project.activeTrial ? "disabled" : ""}>${project.activeTrial ? "현재 채택한 시험" : "새 Prompt와 남은 조합 채택"}</button></div><p class="workspace-explanation">Drop은 이 시험에서만 제외합니다. 원본 후보·이미지는 삭제하지 않습니다.${hasTrialVotes ? "" : " 채택 전 시험 이미지를 비교해 주세요."}</p>`;
+    return trialMarkup;
+  }
+
+  /** 확정 세대 복원은 별도의 단일 확인 동작으로 제공합니다. */
+  function historyMarkup() {
+    let historyMarkup = pageHeading("세대 이력", "확정한 시점의 조합·순위와 평가 조건을 확인합니다.") + `<div class="workspace-timeline">`;
+    for (const generationNumber of [currentProject().generation, 10, 8]) {
+      if (generationNumber > currentProject().generation) continue;
+      historyMarkup += `<section class="workspace-history-entry"><span class="workspace-tag">${generationNumber}세대</span><div><h3>${generationNumber === currentProject().generation ? "현재 탐색" : "세대 확정 Checkpoint"}</h3><p class="workspace-caption">Anima · 같은 평가 조건 · 조합과 승패 Snapshot</p></div><button type="button" data-action="preview-restore" data-generation="${generationNumber}" ${generationNumber === currentProject().generation ? "disabled" : ""}>이 세대로 돌아가기</button></section>`;
+    }
+    return historyMarkup + `</div><p class="workspace-explanation">Prompt 시험과 채택 구간은 해당 세대 아래에 별도로 표시합니다. 실제 삭제 전 영향을 한 번 확인합니다.</p>`;
+  }
+
+  /** 생성 조건과 모델별 성분 범위를 설정 화면에 배치합니다. */
+  function settingsMarkup() {
+    return pageHeading("프로젝트 설정", "현재 평가 조건은 고정되어 있습니다. 조건 변경은 별도 구간에서 평가합니다.") + `<div class="workspace-stack"><section class="workspace-panel"><div class="workspace-panel-heading"><h2>생성 조건</h2><span class="workspace-tag">현재 조건 · 읽기 전용</span></div><div class="workspace-fields"><label>등록 Workflow<input value="Anima Turbo V11" readonly></label><label>Sampling Seed<input value="381729" readonly></label><label>Steps<input value="8" readonly></label><label>CFG<input value="1" readonly></label></div><p class="workspace-explanation">새 모델은 Home의 Workflow 등록 목록에서 선택합니다. Moss는 등록 전까지 사용 예정으로 표시합니다.</p><button type="button" data-screen="trial" style="margin-top:12px">현재 조합으로 다른 Prompt 시험</button></section><section class="workspace-panel"><div class="workspace-panel-heading"><h2>작가 · LoRA와 탐색 규칙</h2><span class="workspace-tag">Interactive Evolution</span></div><p>Mutate / Crossover / Random = 1 : 1 : 1</p><p class="workspace-explanation">유지할 계보의 대표에게 부모 기회를 배정합니다. 조합 범위와 실제 배정은 다음 세대 실행 전에 확인합니다.</p><button type="button" data-action="show-components" style="margin-top:12px">성분과 점수 보기</button></section></div>`;
+  }
+
+  /** Fresh 또는 점수만 이전하는 프로젝트 시작 흐름을 보여줍니다. */
+  function createProjectMarkup() {
+    return `<div class="workspace-page-heading"><div><h1>새 스타일 프로젝트</h1><p>먼저 목적과 평가 조건을 정합니다.</p></div><button type="button" data-screen="projects">목록으로</button></div><div class="workspace-stack"><section class="workspace-panel"><div class="workspace-fields"><label>프로젝트 이름<input data-input="projectDraftName" placeholder="예: 배경화 · 따뜻한 색감" value="${escapeMarkup(previewState.projectDraftName)}"></label><label>등록 Workflow<select><option>Anima Turbo V11</option><option disabled>Moss · Workflow 등록 후 사용</option></select></label></div><div class="workspace-row" style="margin-top:16px"><button type="button" data-action="project-method" data-method="fresh" aria-pressed="${previewState.newProjectMethod === "fresh"}">새로 시작</button><button type="button" data-action="project-method" data-method="scores" aria-pressed="${previewState.newProjectMethod === "scores"}">작가·LoRA 점수만 이전</button></div><p class="workspace-explanation">${previewState.newProjectMethod === "fresh" ? "기존 조합·승패·점수 없이 시작합니다." : "출처를 선택하고 성분 점수만 가져옵니다. 조합·이미지·투표는 가져오지 않습니다."}</p>${previewState.newProjectMethod === "scores" ? '<label style="margin-top:12px">점수 출처<select><option>봄 풍경 · 부드러운 채색 / 현재 평가</option><option>인물화 · 또렷한 선 / 현재 평가</option></select></label>' : ""}</section><section class="workspace-panel"><label>비교할 Prompt<textarea data-input="projectDraftPrompt" placeholder="모든 후보가 공유할 Prompt를 입력하세요.">${escapeMarkup(previewState.projectDraftPrompt)}</textarea></label><div class="workspace-fields" style="margin-top:14px"><label>공통 Sampling Seed<input type="number" value="381729"></label><label>초기 후보 수<input type="number" value="24"></label></div></section><div class="workspace-row workspace-spread"><small>다음 단계에서 작가·LoRA 범위를 고릅니다.</small><button type="button" class="workspace-primary" data-action="preview-project-create">성분 선택으로</button></div></div>`;
+  }
+
+  /** 기본 화면을 선택하고 디자인 변경 시에도 프로젝트 입력을 유지합니다. */
+  function renderWorkspace() {
+    workspaceRoot.dataset.navigation = previewState.sidebarPlacement;
+    renderNavigation();
+    const mainContent = workspaceRoot.querySelector(".workspace-main");
+    if (previewState.mode === "general") mainContent.innerHTML = generalGenerationMarkup();
+    else if (previewState.screen === "projects") mainContent.innerHTML = projectsMarkup();
+    else if (previewState.screen === "overview") mainContent.innerHTML = overviewMarkup();
+    else if (previewState.screen === "compare") mainContent.innerHTML = comparisonMarkup();
+    else if (previewState.screen === "candidates") mainContent.innerHTML = candidatesMarkup();
+    else if (previewState.screen === "saved") mainContent.innerHTML = candidatesMarkup(true);
+    else if (previewState.screen === "trial") mainContent.innerHTML = trialMarkup();
+    else if (previewState.screen === "history") mainContent.innerHTML = historyMarkup();
+    else if (previewState.screen === "settings") mainContent.innerHTML = settingsMarkup();
+    else if (previewState.screen === "create") mainContent.innerHTML = createProjectMarkup();
+    workspaceRoot.querySelectorAll("button").forEach(function applyInteractionCursor(button) {
+      /** 호스트의 커서 설정만 재사용하고 제품 스타일은 독립적으로 유지합니다. */
+      button.classList.add("cursor-interaction");
+    });
+  }
+
+  /** 화면 전환 시 입력과 진행 상태를 유지하고 선택 화면만 바꿉니다. */
+  function navigateTo(screenName) {
+    previewState.screen = screenName;
+    currentProject().lastScreen = screenName;
+    closeDialog();
+    renderWorkspace();
+    rememberPresentation();
+  }
+
+  /** 조작 결과를 작은 상태 안내 영역에 표시합니다. */
+  function showNotice(message) {
+    const notice = workspaceRoot.querySelector(".workspace-notice");
+    notice.textContent = message;
+    notice.hidden = false;
+  }
+
+  /** 모달의 확인 대상과 닫기 경로를 명시합니다. */
+  function showDialog(title, description, actions = "") {
+    const overlay = workspaceRoot.querySelector(".workspace-overlay");
+    dialogOpener = document.activeElement;
+    for (const backgroundElement of workspaceRoot.querySelectorAll(".workspace-chrome, .workspace-body, .workspace-mobile-navigation")) {
+      backgroundElement.inert = true;
+    }
+    overlay.hidden = false;
+    overlay.innerHTML = `<section class="workspace-dialog" role="dialog" aria-modal="true" aria-label="${escapeMarkup(title)}"><h2>${escapeMarkup(title)}</h2>${description}<div class="workspace-row"><button type="button" data-action="close-dialog">닫기</button>${actions}</div></section>`;
+    overlay.querySelector("button")?.focus();
+  }
+
+  /** 모달을 닫고 배경 조작과 원래 Focus를 복원합니다. */
+  function closeDialog() {
+    workspaceRoot.querySelector(".workspace-overlay").hidden = true;
+    for (const backgroundElement of workspaceRoot.querySelectorAll(".workspace-chrome, .workspace-body, .workspace-mobile-navigation")) {
+      backgroundElement.inert = false;
+    }
+    if (dialogOpener?.isConnected && workspaceRoot.contains(dialogOpener)) dialogOpener.focus();
+    dialogOpener = null;
+  }
+
+  /** 비교 중인 평가 범위의 후보 두 개에만 예시 Elo를 반영합니다. */
+  function recordDemoVote(winnerPosition) {
+    const project = currentProject();
+    const useTrial = (previewState.compareTrial || project.activeTrial) && Boolean(project.trial);
+    const candidates = activeCandidates(useTrial);
+    if (candidates.length < 2) return;
+    const firstCandidate = candidates[previewState.comparisonOffset % candidates.length];
+    const secondCandidate = candidates[(previewState.comparisonOffset + 1) % candidates.length];
+    project.voteHistory.push({ firstCandidate, secondCandidate, firstElo: firstCandidate.elo, secondElo: secondCandidate.elo, firstMatches: firstCandidate.matches, secondMatches: secondCandidate.matches, comparisons: project.comparisons, useTrial, offset: previewState.comparisonOffset });
+    const expectedFirst = 1 / (1 + 10 ** ((secondCandidate.elo - firstCandidate.elo) / 4000));
+    const scoreChange = 320 * ((winnerPosition === 0 ? 1 : 0) - expectedFirst);
+    firstCandidate.elo += scoreChange;
+    secondCandidate.elo -= scoreChange;
+    firstCandidate.matches += 1;
+    secondCandidate.matches += 1;
+    if (!useTrial) project.comparisons += 1;
+    previewState.comparisonOffset += 2;
+    renderWorkspace();
+    showNotice(useTrial ? "시험 Elo를 갱신했습니다. 원본 순위는 그대로입니다." : "비교를 기록했습니다. 다음 조합을 보여드립니다.");
+  }
+
+  /** 고정한 성분의 사본에 새로운 평가 점수를 부여합니다. */
+  function startPromptTrial() {
+    const project = currentProject();
+    const candidates = activeCandidates();
+    const candidateCount = Number(previewState.trialCount);
+    if (!Number.isInteger(candidateCount) || candidateCount < 1 || candidateCount > candidates.length) {
+      showNotice(`1부터 ${candidates.length} 사이의 정수를 입력해 주세요.`);
+      return;
+    }
+    if (!project.trialPrompt.trim()) {
+      showNotice("새 Prompt를 입력해 주세요.");
+      return;
+    }
+    const sortedCandidates = [...candidates].sort((firstCandidate, secondCandidate) => secondCandidate.elo - firstCandidate.elo);
+    project.trial = { prompt: project.trialPrompt, entries: [], retained: false };
+    for (const sourceCandidate of sortedCandidates.slice(0, candidateCount)) {
+      project.trial.entries.push({ ...sourceCandidate, sourceIdentifier: sourceCandidate.identifier, identifier: `trial-${sourceCandidate.identifier}`, weights: [...sourceCandidate.weights], elo: 10000, matches: 0, dropped: false, saved: false });
+    }
+    previewState.compareTrial = false;
+    renderWorkspace();
+    showNotice("예시 시험을 만들었습니다. 조합·Weight와 세대는 유지하고 시험 Elo를 초기화했습니다.");
+  }
+
+  /** 생성 전 계보별 배정과 진화의 최소 조건을 확인합니다. */
+  function showEvolutionPreview() {
+    const ratedCandidates = activeCandidates().filter(candidate => candidate.matches > 0);
+    if (ratedCandidates.length < 10) {
+      showDialog("비교가 더 필요합니다", `<p>평가한 조합이 ${ratedCandidates.length}개입니다. 기본 진화 조건인 10개 평가를 채운 뒤 다음 세대를 만들 수 있습니다.</p><p class="workspace-caption">채택한 Prompt에서 추가 조합을 시험하거나 비교를 이어가세요.</p>`);
+      return;
+    }
+    showDialog("다음 세대의 탐색 계획", `<p>현재 ${currentProject().generation}세대 → 다음 ${currentProject().generation + 1}세대</p><p>새 후보 24개 · Mutate 8 / Crossover 8 / Random 8</p><p class="workspace-caption">유지한 3개 계보의 대표에게 부모 기회를 배정합니다. 실제 구현에서는 고정된 대상별 배정 내역을 표시합니다.</p>`, '<button type="button" class="workspace-primary" data-action="demo-evolution">이 계획으로 생성</button>');
+  }
+
+  /** 표시 설정만 저장하고 Prompt나 생성물은 호스트에 보내지 않습니다. */
+  function rememberPresentation() {
+    if (!window.openai?.setWidgetState) return;
+    const savedPrivateState = window.openai.widgetState?.privateContent;
+    const previousPrivateState = savedPrivateState && typeof savedPrivateState === "object" ? savedPrivateState : {};
+    const presentationState = { mode: previewState.mode, screen: previewState.screen, blind: previewState.blind, comparisonLayout: previewState.comparisonLayout, sidebarPlacement: previewState.sidebarPlacement };
+    window.openai.setWidgetState({ modelContent: { device: workspaceRoot.dataset.device, workspace: previewState.mode, screen: previewState.screen }, privateContent: { ...previousPrivateState, [workspaceRoot.id]: presentationState } }).catch(function ignoreUnavailablePresentationStorage() {
+      /** 호스트 저장 기능이 없어도 목업의 로컬 조작은 계속됩니다. */
+    });
+  }
+
+  /** 저장된 표시 설정만 복원하고 예시 후보 데이터는 덮어쓰지 않습니다. */
+  function restorePresentation(savedState) {
+    const savedPresentation = savedState?.privateContent?.[workspaceRoot.id];
+    if (!savedPresentation) return;
+    if (["general", "style"].includes(savedPresentation.mode)) previewState.mode = savedPresentation.mode;
+    const supportedScreens = ["projects", "overview", "compare", "candidates", "saved", "trial", "history", "settings", "create"];
+    if (supportedScreens.includes(savedPresentation.screen)) previewState.screen = savedPresentation.screen;
+    if (typeof savedPresentation.blind === "boolean") previewState.blind = savedPresentation.blind;
+    if (["pair", "single"].includes(savedPresentation.comparisonLayout)) previewState.comparisonLayout = savedPresentation.comparisonLayout;
+    if (["side", "top"].includes(savedPresentation.sidebarPlacement)) previewState.sidebarPlacement = savedPresentation.sidebarPlacement;
+  }
+
+  /** 입력 중에는 전체 화면을 교체하지 않고 작성 중 값을 유지합니다. */
+  function handleWorkspaceInput(event) {
+    const inputName = event.target.dataset.input;
+    if (inputName === "generalPrompt") previewState.generalPrompt = event.target.value;
+    else if (inputName === "generalSteps") previewState.generalSteps = event.target.value;
+    else if (inputName === "generalGuidance") previewState.generalGuidance = event.target.value;
+    else if (inputName === "trialPrompt") currentProject().trialPrompt = event.target.value;
+    else if (inputName === "projectDraftName") previewState.projectDraftName = event.target.value;
+    else if (inputName === "projectDraftPrompt") previewState.projectDraftPrompt = event.target.value;
+    else if (inputName === "trialCount") {
+      previewState.trialCount = Number(event.target.value);
+      const startButton = workspaceRoot.querySelector("[data-action='start-trial']");
+      if (startButton) startButton.textContent = `${event.target.value || "N"}개 조합으로 시험`;
+    } else if (inputName === "blind") {
+      previewState.blind = event.target.checked;
+      renderWorkspace();
+      rememberPresentation();
+    }
+  }
+
+  /** 목업 동작을 중앙에서 처리하고 실제 서비스에는 요청하지 않습니다. */
+  function handleWorkspaceClick(event) {
+    const button = event.target.closest("button");
+    if (!button || !workspaceRoot.contains(button) || button.disabled) return;
+    if (button.dataset.screen) {
+      navigateTo(button.dataset.screen);
+      return;
+    }
+    const actionName = button.dataset.action;
+    const project = currentProject();
+    if (actionName === "switch-mode") {
+      previewState.mode = button.dataset.mode;
+      closeDialog();
+      renderWorkspace();
+      rememberPresentation();
+    } else if (actionName === "show-jobs") {
+      showDialog("전체 작업", '<p><strong>일반 생성</strong> · 인물 이미지 1개 · 생성 중</p><p><strong>스타일 구성</strong> · 봄 풍경 / 시험 B · 대기 중</p><p class="workspace-caption">목업의 예시 작업입니다. 실제 서버 Queue와 연결되지 않습니다.</p>');
+    } else if (actionName === "show-more") {
+      showDialog("프로젝트 메뉴", '<div class="workspace-stack"><button type="button" data-screen="overview">프로젝트 홈</button><button type="button" data-screen="projects">모든 프로젝트</button><button type="button" data-screen="history">세대 이력 · 되돌리기</button><button type="button" data-screen="saved">보관한 스타일</button><button type="button" data-screen="settings">프로젝트 설정</button></div>');
+    } else if (actionName === "close-dialog") closeDialog();
+    else if (actionName === "open-project" || actionName === "open-project-home") {
+      previewState.projectIndex = Number(button.dataset.project);
+      previewState.comparisonOffset = 0;
+      previewState.compareTrial = false;
+      navigateTo(actionName === "open-project" ? "compare" : "overview");
+    } else if (actionName === "compare-main") {
+      previewState.compareTrial = false;
+      navigateTo("compare");
+    } else if (actionName === "compare-trial") {
+      previewState.compareTrial = true;
+      previewState.comparisonOffset = 0;
+      navigateTo("compare");
+    } else if (actionName === "comparison-layout") {
+      previewState.comparisonLayout = button.dataset.layout;
+      renderWorkspace();
+      rememberPresentation();
+    } else if (actionName === "swap-single") {
+      previewState.visibleCandidate = 1 - previewState.visibleCandidate;
+      renderWorkspace();
+    } else if (actionName === "vote") recordDemoVote(Number(button.dataset.winner));
+    else if (actionName === "skip-pair") {
+      previewState.comparisonOffset += 2;
+      renderWorkspace();
+      showNotice("다음 비교로 이동했습니다. 이 예시는 Elo를 변경하지 않습니다.");
+    } else if (actionName === "undo-vote") {
+      const previousVote = project.voteHistory.at(-1);
+      if (!previousVote || previousVote.useTrial !== ((previewState.compareTrial || project.activeTrial) && Boolean(project.trial))) {
+        showNotice("현재 평가 구간에서 되돌릴 투표가 없습니다.");
+        return;
+      }
+      project.voteHistory.pop();
+      previousVote.firstCandidate.elo = previousVote.firstElo;
+      previousVote.secondCandidate.elo = previousVote.secondElo;
+      previousVote.firstCandidate.matches = previousVote.firstMatches;
+      previousVote.secondCandidate.matches = previousVote.secondMatches;
+      project.comparisons = previousVote.comparisons;
+      previewState.comparisonOffset = previousVote.offset;
+      renderWorkspace();
+      showNotice("직전 비교를 되돌렸습니다.");
+    } else if (actionName === "start-trial") startPromptTrial();
+    else if (actionName === "toggle-drop") {
+      const candidate = project.trial.entries.find(candidate => candidate.identifier === button.dataset.candidate);
+      candidate.dropped = !candidate.dropped;
+      renderWorkspace();
+      showNotice(candidate.dropped ? "이 시험에서 제외했습니다. 원본은 유지됩니다." : "시험 비교 대상으로 복귀했습니다.");
+    } else if (actionName === "preview-adoption") {
+      const retainedCount = project.trial.entries.filter(candidate => !candidate.dropped).length;
+      showDialog("새 Prompt와 남은 조합을 채택할까요?", `<p>시험 B의 ${retainedCount}개 조합과 시험 Elo를 활성 평가로 사용합니다. 기존 Prompt와 결과는 이전 구간에 남습니다.</p><p class="workspace-caption">${project.generation}세대 / Prompt 시험 B · 세대 번호는 증가하지 않습니다. 진화 최소 조건은 별도로 확인합니다.</p>`, '<button type="button" class="workspace-primary" data-action="adopt-trial">새 평가 구간으로 채택</button>');
+    } else if (actionName === "adopt-trial") {
+      project.activeTrial = true;
+      project.voteHistory = [];
+      previewState.compareTrial = false;
+      navigateTo("overview");
+      showNotice("새 평가 구간을 채택했습니다. 원본 기록과 세대 번호는 유지됩니다.");
+    } else if (actionName === "retain-trial") {
+      project.trial.retained = true;
+      showNotice("시험을 보관했습니다. 활성 평가 구간은 변경하지 않았습니다.");
+    } else if (actionName === "preview-evolution") showEvolutionPreview();
+    else if (actionName === "demo-evolution") {
+      closeDialog();
+      showNotice("목업에서 생성 계획을 확인했습니다. 실제 생성과 세대 변경은 실행하지 않습니다.");
+    } else if (actionName === "preview-restore") {
+      const targetGeneration = Number(button.dataset.generation);
+      showDialog(`${targetGeneration}세대로 돌아가시겠습니까?`, `<p>${targetGeneration}세대 확정 시점 이후에 생성된 세대 이미지와 이력, 승패 기록, Elo 변경 사항은 모두 삭제되고 당시 상태로 돌아갑니다.</p><p>이후 보관한 그림체도 포함되며 삭제는 되돌릴 수 없습니다.</p><p class="workspace-caption">예시 삭제 영향: 세대 ${project.generation - targetGeneration}개 · 이미지 48장 · 비교 이력 96개. 실제 구현에서는 종속 시험과 공유 파일 참조까지 계산합니다.</p>`, `<button type="button" class="workspace-danger" data-action="demo-restore" data-generation="${targetGeneration}">이후 데이터 삭제 후 돌아가기</button>`);
+    } else if (actionName === "demo-restore") {
+      closeDialog();
+      showNotice("복원 확인창의 예시입니다. 실제 이미지·이력은 변경하지 않았습니다.");
+    } else if (actionName === "toggle-saved") {
+      const candidate = activeCandidates().find(candidate => candidate.identifier === button.dataset.candidate);
+      if (!candidate) return;
+      candidate.saved = !candidate.saved;
+      renderWorkspace();
+      showNotice(candidate.saved ? "스타일을 보관했습니다." : "보관 표시를 해제했습니다.");
+    } else if (actionName === "candidate-details") {
+      const candidate = activeCandidates().find(candidate => candidate.identifier === button.dataset.candidate);
+      previewState.selectedCandidate = candidate.identifier;
+      showDialog(candidate.name, `${artworkMarkup(candidate.artwork)}<p style="margin-top:13px">artist_alpha: ${candidate.weights[0].toFixed(1)} · artist_beta: ${candidate.weights[1].toFixed(1)}</p><p class="workspace-caption">예시 LoRA A · Model 0.8 / CLIP 0 · 공통 Seed 381729</p><p class="workspace-caption">실제 등록 파일이 아닌 화면 설명용 성분입니다.</p>`, `<button type="button" data-action="toggle-representative">${candidate.representative ? "계보 대표 해제" : "계보 대표로 지정"}</button>`);
+    } else if (actionName === "toggle-representative") {
+      const candidate = activeCandidates().find(candidate => candidate.identifier === previewState.selectedCandidate);
+      candidate.representative = !candidate.representative;
+      closeDialog();
+      renderWorkspace();
+      showNotice(candidate.representative ? "계보 대표로 지정했습니다. 보관과는 별도 설정입니다." : "계보 대표 지정을 해제했습니다.");
+    } else if (actionName === "browse-saved") {
+      previewState.mode = "style";
+      navigateTo("saved");
+    } else if (actionName === "use-in-general") {
+      showDialog("일반 생성으로 가져오기", '<p>선택한 스타일의 작가·LoRA·Weight를 일반 생성 입력에 적용합니다. 현재 입력을 자동 제출하지 않습니다.</p><p class="workspace-caption">실제 구현에서는 덮어쓸 성분과 호환성 차이를 미리 보여줍니다.</p>', '<button type="button" class="workspace-primary" data-action="demo-transfer">설정 적용 후 일반 생성으로</button>');
+    } else if (actionName === "demo-transfer") {
+      previewState.mode = "general";
+      closeDialog();
+      renderWorkspace();
+      showNotice("일반 생성으로 이동했습니다. 목업에서는 입력을 덮어쓰거나 제출하지 않습니다.");
+    } else if (actionName === "show-components") {
+      showDialog("작가 · LoRA 성분", '<p>선택 범위 · Weight 제한 · 호환성 · 사용 횟수 · 관측 점수</p><p class="workspace-caption">가져온 Prior와 현재 평가에서 관측한 점수는 구분합니다. 실제 적용 기록과 LoRA 진단은 해당 Job 상세에서 확인합니다.</p>');
+    } else if (actionName === "project-method") {
+      previewState.newProjectMethod = button.dataset.method;
+      renderWorkspace();
+    } else if (actionName === "preview-project-create") {
+      showDialog("사용할 성분 선택", '<p>작가·LoRA 사용 여부와 개수·Weight 범위를 정하고 첫 후보 생성 계획을 확인합니다.</p><p class="workspace-caption">이 목업은 화면 구조 확인용입니다. 프로젝트 생성·DB 저장·ComfyUI 제출은 실행하지 않습니다.</p>');
+    } else if (actionName === "demo-generate") showNotice("일반 생성 버튼의 예시입니다. 실제 서버로 제출하지 않습니다.");
+    else if (actionName === "show-general-library") showDialog("일반 생성의 관리 화면", '<p>기존 작업·결과물·Prompt·태그·LoRA Preset은 일반 생성 공간에서 이용합니다. 스타일 프로젝트의 순위와는 구분합니다.</p>');
+    else if (actionName === "general-home") renderWorkspace();
+  }
+
+  workspaceRoot.addEventListener("click", handleWorkspaceClick);
+  workspaceRoot.addEventListener("input", handleWorkspaceInput);
+  workspaceRoot.addEventListener("keydown", function closeDialogWithEscape(event) {
+    /** Escape를 사용한 모달 닫기를 지원합니다. */
+    if (event.key === "Escape") closeDialog();
+    const overlay = workspaceRoot.querySelector(".workspace-overlay");
+    if (overlay.hidden || event.key !== "Tab") return;
+    const focusableElements = [...overlay.querySelectorAll("button:not(:disabled), input, select, textarea, a[href]")];
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements.at(-1);
+    if (event.shiftKey && document.activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  });
+  window.addEventListener("openai:set_globals", function updateHostPresentation(event) {
+    /** 호스트가 돌려준 표시 설정만 복원합니다. */
+    if (!event.detail?.globals?.widgetState) return;
+    restorePresentation(event.detail.globals.widgetState);
+    renderWorkspace();
+  });
+  restorePresentation(window.openai?.widgetState);
+  renderWorkspace();
+  if (globalThis.Tweak && workspaceRoot.dataset.device === "desktop") {
+    const navigationTweak = new Tweak({ container: workspaceRoot, onChange: renderWorkspace });
+    navigationTweak.addSelect(previewState, "sidebarPlacement", { label: "프로젝트 메뉴 배치", options: [{ label: "왼쪽 메뉴 · 권장", value: "side" }, { label: "상단 메뉴", value: "top" }] });
+  }
+})();
+</script>

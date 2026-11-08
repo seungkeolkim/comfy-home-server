@@ -47,6 +47,8 @@
 | 현재 Match·Undo Stack·이전 응답 | 폐기하고 Timeline Revision 갱신 |
 | 이후 Checkpoint | 삭제. 지운 미래 상태로 다시 갈 수 없게 함 |
 | 채택 전 Prompt Trial | 경계 이후 생성분 삭제, 기존 Trial의 이후 Vote·Drop·Render 변경은 당시 상태로 복원 |
+| 잠금·계보·비교 추천 정책 | 해당 평가 구간의 적용 Revision을 당시 상태로 복원 |
+| 종속 Ablation·Validation Run | Case Evaluation·진단 Render·검증 기록까지 Event 경계로 복원·삭제 |
 
 Prompt 재시험도 세대 번호 대신 Event 경계로 처리합니다. Checkpoint에는 당시 종속 Trial 상태와 Asset 참조를 포함합니다. 폐기 후 보관 중인 Trial도 삭제 영향에 포함합니다. 확인창에 이후 Trial 이미지·비교 이력 수를 함께 표시합니다.
 
@@ -55,6 +57,8 @@ Prompt 재시험도 세대 번호 대신 Event 경계로 처리합니다. Checkp
 북마크 보호는 이 명시적인 복원 삭제의 예외가 아니며 경고창에서 안내합니다. 다른 프로젝트의 독립 결과는 보존합니다. 같은 물리 이미지를 다른 프로젝트가 참조하면 이 프로젝트의 참조만 제거하고 공용 파일을 삭제하지 않습니다. 화면의 삭제 이미지 수와 실제 미참조 물리 파일 삭제 수를 구분합니다.
 
 공유 Catalog 자체, 모델·LoRA 파일, 외부로 이미 내보낸 독립 파일은 삭제 범위가 아닙니다.
+
+[독립 탐색 분기](19_adopted_exploration_tools.md)는 새 Project이므로 원본 복원의 삭제 대상이 아닙니다. 원본 이후에 만들어졌어도 분기의 출처 Snapshot·점수·이미지 참조를 보존합니다. 검증 Suite의 공유 정의와 불변 Version도 전역 삭제하지 않고, 이 평가 구간의 종속 Run·참조를 Event 경계로 처리합니다. 이 보존 범위를 Preview에 명시합니다.
 
 ## Checkpoint가 저장해야 할 것
 
@@ -66,6 +70,7 @@ Prompt 재시험도 세대 번호 대신 Event 경계로 처리합니다. Checkp
 4. 작가·LoRA 통계·Prior, 부모 ID/점수, 세대 Log와 안정성 Snapshot.
 5. 당시 Render·Output·SavedStyle·이미지 참조 Manifest.
 6. 무결성 Hash와 Timeline Revision.
+7. 당시 잠금·계보·추천 정책 Revision, 종속 진단·검증 Run/Case 상태와 Asset 참조.
 
 완전한 논리 Snapshot 또는 검증된 Event Replay로 구현합니다. 현재 점수만 저장하거나 가변 객체를 얕게 참조하는 것으로는 부족합니다. 복원 가능한 Checkpoint가 참조하는 이미지는 평상시 Cleanup에서도 보호합니다.
 
@@ -108,3 +113,4 @@ DB 트랜잭션만으로 파일 삭제까지 원자적으로 처리할 수 없�
 - 이전 Checkpoint가 필요한 이미지를 실수로 삭제하지 않습니다.
 - Checkpoint 없는 Import의 과거 상태를 추측해 복원하지 않습니다.
 - 종속 Prompt Trial의 이후 변경·이미지를 삭제·복원하며, 독립 채택 Revision을 연쇄 삭제하거나 비활성화하지 않습니다.
+- 독립 분기 Project·공유 Suite Version을 보존하고, 종속 Ablation/Validation과 정책 Revision은 Event 경계대로 복원·삭제합니다.

@@ -29,6 +29,12 @@ Catalog 선택과 필요한 생성 조건은 복사할 수 있지만 후보0, Vo
 
 기존 이미지·후보까지 가져오는 Branch는 별도 Mode입니다. 점수만 복제하는 Mode에 섞지 않습니다.
 
+### C. `branch_snapshot`
+
+현재 안정 상태 또는 실제 확정 Checkpoint에서 새 Project를 만듭니다. 같은 평가 조건의 활성/퇴역 후보·Elo·승패·Prior·계보·잠금·보관 결과와 이미지 참조를 Snapshot으로 이어받되 모든 소유 ID는 분리합니다. 분기 후 평가·진화·복원·삭제는 독립적입니다. 원본 Vote는 읽기 전용 출처이며 새 Vote나 Undo 가능한 과거 이벤트로 재생하지 않습니다.
+
+출발 세대가 N이면 다음 실제 진화는 N+1입니다. 시작 Snapshot 이전의 모든 세대를 복원 가능하다고 표시하지 않습니다. Prompt/모델을 바꾸려면 별도 재시험·Evaluation을 만들고 옛 Elo를 자동 이전하지 않습니다. Job·현재 Pair·Session은 복제하지 않습니다. [19번 문서](19_adopted_exploration_tools.md)에 분기·공유 Asset·동시성 계약을 정의합니다.
+
 ## 점수 영속화 계약
 
 기존 점수는 조합을 없애면 재계산할 근거를 잃으므로 `ComponentPrior`를 따로 저장합니다.

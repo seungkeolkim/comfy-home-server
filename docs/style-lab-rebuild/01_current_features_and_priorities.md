@@ -20,6 +20,11 @@ Style Lab은 이미지 생성기 UI 위에 놓인 **주관적 선호 탐색 도�
 | 작가·LoRA 정보 | 등록·범위·Trigger·사용·승률·성분 점수 | P0 |
 | 점수만 복제 | 없음. 점수는 조합에서 재계산 | P0: 명시적 Prior Snapshot |
 | 여러 그림체 확보 | 조합별 북마크로 보존 | P0: 프로젝트별 복수 결과·Snapshot 내보내기 |
+| 성분·Weight 일부 잠금 | 선택 성분·강도 축의 프로젝트/계보별 고정 계약 없음 | P0: Mutate/Crossover/Random 공통 제약 |
+| 탐색 분기 | 독립 Project Snapshot 분기 없음 | P0: 현재 안정 상태·확정 세대에서 새 Project |
+| 성분별 영향 확인 | 수동 도구와 구분되는 고정 조건 Ablation 없음 | P1: Baseline 대비 단일 성분/강도 축 변경 |
+| 대표 Prompt·Seed 검증 | Improve의 최종 Seed 확인과 구분 | P1: Version이 있는 Case 묶음, 조건별 결과 격리 |
+| 비교 후보 추천 | 기존 Placement·Selection·League 가중치 사용 | P1: 필수 대결 유지 후 일반 대결 추천 보강 |
 | 등록 Workflow 사용 | Style Lab 전용 간소 Workflow 또는 API JSON | P0: Home Server 등록본과 같은 Adapter 경로 |
 | LoRA 적용 진단 | Model/TE/미확인/Patch 분리, 상세 기록 | P0: 최근 수정 동작 보존 |
 | 융합 | 두 후보 태그 합치기, 겹친 가중치 평균, 생성 후 채택 | P2 |

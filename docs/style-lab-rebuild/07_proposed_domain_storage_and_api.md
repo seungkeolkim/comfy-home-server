@@ -12,8 +12,10 @@
 | `style_component_priors` | evaluation_id, component_id, initial_score, transfer_strength, source/provenance |
 | `style_component_statistics` | evaluation_id, component_id, estimated_score, observed_count, 사용·승패, algorithm_version |
 | `style_candidates` | candidate_id, evaluation_id, component_set_json, fingerprint, elo, matches, wins, placed, generation_id, status |
+| `style_lineages` | lineage_id, evaluation_id, 이름·목적, 대표 후보·정책 Revision |
+| `style_lineage_memberships` | lineage_id, candidate_id, 소속·대표 역할, 출처·Event Sequence |
 | `style_candidate_renders` | render_id, candidate_id, request_id, output_id, sampling_seed, contract_snapshot_hash, status |
-| `style_generations` | generation_id, evaluation_id, number, frozen_parent_scores, status, summary |
+| `style_generations` | generation_id, evaluation_id, number, frozen_parent_scores, frozen_lock_policy_revision, status, summary |
 | `style_generation_checkpoints` | checkpoint_id, evaluation_id, generation_id, event_sequence, 불변 상태 Snapshot, Asset Manifest, integrity_hash |
 | `style_generation_restore_operations` | operation_id, checkpoint_id, expected_timeline_revision, 삭제 Manifest, idempotency_key, 처리 상태 |
 | `style_matches` | match_id, evaluation_id, generation_id, revision, a/b candidate/render, kind, status |
@@ -22,6 +24,13 @@
 | `style_operation_events` | operation_id, project/evaluation, request/generation, 상태, 오류·안내 |
 | `style_prompt_retest_sessions` | trial_id, source_evaluation/generation/event/timeline, trial_evaluation_id, 조건 Snapshot, 상태 |
 | `style_prompt_retest_entries` | trial_id, source/trial candidate_id, 원본 성분 Fingerprint·순위, 제외 상태 |
+| `style_component_lock_policies` | policy_id, project/lineage, revision, 성분 Identity·Hash·순서, 고정 Weight 축·값 |
+| `style_project_branch_snapshots` | branch_id, source Project/Evaluation/Checkpoint/Event, target_project_id, 불변 출처 Snapshot, ID 대응·Asset 참조 |
+| `style_ablation_experiments` | experiment_id, source Snapshot, diagnostic_evaluation_id, Baseline·변형 Delta, RenderPlan·상태 |
+| `style_validation_suites` | suite_id, version, Case 정의·공통 Seed, 불변 조건·출처 |
+| `style_validation_runs` | run_id, source Snapshot, suite_version, 선택 후보·계획·Asset Manifest·상태 |
+| `style_validation_case_results` | run/case, validation_evaluation_id, 원본/평가 후보 대응, Render·수동 판정·Memo |
+| `style_pair_recommendation_policies` | policy_id, version, 적격 범위·가중치·Cooldown·필수 대결 우선 규칙 |
 
 ## 불변 조건과 저장
 
@@ -30,6 +39,8 @@
 Candidate의 성분은 생성 후 불변입니다. Weight 조정은 새 Candidate를 만들며 기존 Elo의 의미를 바꾸지 않습니다. Render를 Candidate와 분리해 여러 Seed를 지원합니다. 실패한 Render는 Vote 대상이 아닙니다.
 
 Prompt 재시험은 별도 Trial Evaluation의 Candidate·Render·Match를 사용합니다. 성분은 원본과 같고 Elo는 10000/전적0부터 시작합니다. Trial 테이블에 점수를 중복 저장하지 않습니다. 채택 전 Drop은 시험 한정이며 원본 순위와 세대는 바뀌지 않습니다. [17번 문서](17_prompt_retests_and_reranking.md)에 선택·채택·동시성 계약을 정의합니다.
+
+Evaluation에 `purpose`와 소유 Operation/Run을 기록해 일반 탐색·Prompt 재시험·Ablation·Validation Case를 구분합니다. 진단·검증도 기존 Candidate/Render/Match/Vote 구조를 재사용하며 조건별 평가와 원본 통계를 섞지 않습니다. 분기는 새 Project와 소유 ID를 만들고 출처 통계를 불변 기준값으로 보존합니다. 잠금은 기존 Candidate 수정이 아니라 이후 생성 계획에 적용합니다. 상세 불변식은 [19번 문서](19_adopted_exploration_tools.md)를 따릅니다.
 
 평가 구간마다 `timeline_revision`을 두고 세대 복원 시 갱신합니다. 세대 번호 필터로만 삭제하지 않고 Checkpoint의 Event 경계와 상태 전체를 복원합니다. 상세 계약은 [15번 문서](15_generation_restore_and_deletion.md)를 따릅니다.
 
@@ -60,6 +71,15 @@ stateDiagram-v2
 | POST | `.../{project_id}/evaluation-revisions` | 새 평가 조건 |
 | POST | `.../{project_id}/score-snapshots` | 이전용 불변 점수 Snapshot |
 | POST | `.../{project_id}/candidate-batches` | 초기 후보 생성 |
+| GET/POST | `.../{project_id}/component-lock-policies` | 프로젝트/계보 잠금 조회·정책 Revision 생성 |
+| POST | `.../{project_id}/branches/preview` | 현재 안정 상태·Checkpoint의 분기 영향 확인 |
+| POST | `.../{project_id}/branches` | 새 Project Snapshot 분기 |
+| POST | `.../{project_id}/ablation-experiments` | 고정 조건 Baseline·변형 계획 생성 |
+| POST | `.../{project_id}/ablation-experiments/{experiment_id}/renders` | 계획 확인 후 진단 생성 |
+| POST | `.../{project_id}/ablation-experiments/{experiment_id}/candidates` | 제약 확인 후 변형을 새 후보로 가져오기 |
+| GET/POST | `.../{project_id}/validation-suites` | 검증 Case·Seed 정의와 Version 관리 |
+| POST | `.../{project_id}/validation-runs` | 후보·Suite Version 고정, 장수 Preview 계획 |
+| POST | `.../{project_id}/validation-runs/{run_id}/renders` | 확인한 검증 계획 제출 |
 | POST | `.../{project_id}/prompt-retests` | 상위 N개 고정 조합의 새 Prompt 시험 |
 | POST | `.../{project_id}/prompt-retests/{trial_id}/renders` | 시험 이미지 생성·실패 재시도 |
 | POST | `.../{project_id}/prompt-retests/{trial_id}/candidates/{candidate_id}/drop` | 시험에서 제외; reinstate로 취소 |
@@ -96,6 +116,8 @@ Home 기존 API와 명명 공간을 분리합니다. 인증·CSRF·출력 조회
 화면의 좌우가 아니라 의미상 A/B를 선택합니다. result는 `a|b|similar`이며 similar를 Match Kind별 기존 의미로 처리합니다.
 
 트랜잭션 안에서 Match·Revision을 검사하고 같은 Idempotency Key에는 같은 응답을 반환합니다. 별도의 오래된 요청은409입니다. 같은 Pair가 다시 나와도 과거 Token은 사용할 수 없습니다. Undo는 Vote·통계·순위·다음 Pair를 함께 갱신합니다.
+
+Match에는 추천 정책 Version·추천 이유·후보 집합 Snapshot을 기록합니다. 추천은 기존 필수 대결을 대체하지 않으며 Pair 선정만 바꿉니다. Validation Pair는 같은 Case·Seed·Evaluation 소속을 검사하고 다른 조건의 이미지를 연결하지 않습니다.
 
 Trial Vote에는 `trial_id`와 Trial의 `evaluation_revision_id`를 함께 검증합니다. Drop·Undo·채택과 투표가 경쟁할 때도 같은 평가 구간 안에서 원자적으로 처리합니다. 다른 Trial 또는 원본 이미지와의 Pair는 거부합니다.
 

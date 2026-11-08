@@ -54,10 +54,17 @@ home_server/style_exploration/
   evolution_algorithms.py
   component_score_estimator.py
   candidate_generation_service.py
+  component_lock_policy.py
+  project_branch_service.py
+  ablation_experiment_service.py
+  validation_suite_service.py
+  pair_recommendation_policy.py
   legacy_style_lab_importer.py
 ```
 
 제안 파일명이며 필요한 시점에 나눕니다. Workflow Registry를 Style 전용으로 복제하지 않고 일반 생성과 공통 위치에서 사용합니다.
+
+잠금은 모든 후보 생성 방식이 사용하는 공통 정책으로, 분기는 저장 경계로, Ablation·검증은 고정 RenderPlan을 사용하는 별도 평가 범위로 구현합니다. 비교 추천은 Pair 선택 정책이며 Elo·Vote Service를 복제하지 않습니다. 다섯 기능의 확정 계약은 [19번 문서](19_adopted_exploration_tools.md)를 따릅니다.
 
 ## 문서와 구현 상태 관리
 

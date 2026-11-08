@@ -26,6 +26,8 @@
 
 Prompt를 바꿀 때는 다음 세대를 만드는 대신 [현재 조합의 Prompt 재시험](17_prompt_retests_and_reranking.md)을 P0로 제공합니다. 계보, 성분, 가중치를 바꾸는 탐색과 같은 조합의 조건 적응도를 확인하는 시험을 별도 동작으로 둡니다.
 
+추가 채택한 [19번 기능](19_adopted_exploration_tools.md)은 탐색을 보강합니다. 모든 생성 방식에 성분·Weight 잠금을 적용하고, 분기는 같은 조건의 Snapshot에서 독립 탐색합니다. Ablation·대표 Prompt/Seed 검증은 원본 Elo와 분리하며, 비교 추천은 필수 Placement/Selection 뒤 일반 대결에 적용합니다. Genetic Algorithm과 Elo 산식 자체는 이 기능을 이유로 자동 교체하지 않습니다.
+
 ## 대안의 위치
 
 | 방법 | 검토할 상황 | 현재 결정 |

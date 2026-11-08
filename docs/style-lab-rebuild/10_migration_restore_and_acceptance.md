@@ -79,6 +79,20 @@
 - 전체 상위 30% 밖의 계보 대표도 배정된 부모 기회를 얻으며 예산 부족을 표시합니다.
 - 세부 수락 기준은 [16번](16_search_strategy_and_diversity.md)·[17번 문서](17_prompt_retests_and_reranking.md)를 따릅니다.
 
+### 잠금·분기·진단·검증·비교 추천
+
+- 성분 유지와 Weight 축 고정을 구분하고 Mutate/Crossover/Random 모두 동일한 잠금 정책을 적용합니다. 충돌은 사전 거부하고 몰래 해제·Clamp하지 않습니다.
+- 새 정책은 기존 후보를 수정하지 않으며 전부 잠겼을 때 중복 없는 후보 부족을 유한 시간에 안내합니다.
+- 분기는 새 Project·소유 ID·출발 Checkpoint를 만들고 N세대에서 시작해 다음 실제 진화는 N+1입니다. 원본의 복원·삭제와 공유 Asset의 독립 참조를 검증합니다.
+- 분기의 가져온 Elo·승패와 새 관측을 구분하고 원본 Vote를 새 Vote로 재생하지 않습니다. 분기 전 Vote는 Undo 대상이 아닙니다.
+- Ablation은 공통 조건을 유지하고 한 변형의 의도한 성분/Strength Delta만 변경합니다. Trigger·실제 Encode·Metadata 차이까지 확인합니다.
+- 진단의 Baseline 재사용과 신규 장수를 대조하고, 변형 채택 시 새 Candidate·Elo10000/전적0·현재 잠금 검사를 적용합니다.
+- ValidationSuite Version과 실제 전개 Snapshot은 불변입니다. 후보3×Case3×Seed2, 재사용0이면18장을 계획하며 실패 항목만 재시도합니다.
+- Case·Seed가 다른 이미지를 같은 비교에 넣지 않고 원본과 검증 Elo를 합산하지 않습니다. 수동 통과 표시와 비교 순위도 구분합니다.
+- 추천은 필수 Placement·Selection·동점 해소를 건너뛰지 않습니다. 근거·정책 Version·최근 Pair·Skip과 Blind 정보 노출을 검증합니다.
+- 세대 복원 시 종속 실험·Case Evaluation을 Event 경계로 처리하고 다른 Project 분기·독립 채택 구간을 보존합니다.
+- 상세 수락 기준은 [19번 문서](19_adopted_exploration_tools.md)를 따릅니다.
+
 ### 동시성·복구·모바일
 
 - 동일 Vote를 두 번 보내도 한 번만 반영됩니다. 오래된 Match Token은 409입니다.
@@ -89,4 +103,4 @@
 
 ## 이번 문서 작성에서 수행하지 않은 것
 
-새 프로그램 구현·DB Migration·추가 생성·서비스 재기동·GPU 모델 로드를 수행하지 않았습니다. 문서 검증은 원문 Snapshot의 Hash와 Markdown 내부 연결, 현재 코드와의 계약 대조로 제한합니다.
+새 프로그램 구현·DB Migration·추가 생성·서비스 재기동·GPU 모델 로드를 수행하지 않았습니다. 문서 검증은 원문 Snapshot의 Hash와 내부 연결, 현재 코드와의 계약 대조와 별도 정적 목업의 기본 동작 확인입니다. 목업 검증은 운영 API·생성·복원의 검증을 대체하지 않습니다.

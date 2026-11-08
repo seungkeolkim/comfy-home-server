@@ -11,6 +11,7 @@
 - 수동 조합·융합·다듬기는 후순위입니다.
 - Interactive Evolution을 유지하고 여러 계보의 부모 기회를 보강합니다.
 - 현재 상위 N개 조합을 성분·Weight 변경 없이 새 Prompt로 시험하고 시험 Elo·Drop·채택을 지원합니다. 시험만으로 세대를 올리지 않습니다.
+- 성분·Weight 일부 잠금, 독립 프로젝트 분기, Ablation, 대표 Prompt·Seed 검증, 비교 후보 추천을 모두 채택합니다. [19번 문서](19_adopted_exploration_tools.md)를 구현 계약으로 사용합니다.
 
 ## 권장 구현 순서
 
@@ -22,14 +23,18 @@
 | STYLE-004 | P0: Workflow Registry 공통화 | Home 일반 생성과 Style 경로가 같은 Adapter 사용 |
 | STYLE-005 | P0: 고정 RenderPlan | Sampling Seed·Prompt 전개 고정, 새 모델별 Capabilities |
 | STYLE-006 | P0: 초기 후보와 투표 | A/B·Skip·Undo·Blind·멀티탭 Idempotency |
+| STYLE-019 | P0: 성분·Weight 잠금 | 프로젝트/계보 정책, 고정 축·Hash·순서, 세 생성 방식 공통 검증·충돌 거부 |
 | STYLE-007 | P0: 진화 | 부모 Snapshot·후보 생성·확정·퇴역·취소 |
 | STYLE-017 | P0: 여러 계보 보존 | 기존 1:1:1 탐색 유지, 계보 대표 부모 기회·배정 Preview·정책 Version |
 | STYLE-018 | P0: 현재 조합 Prompt 재시험 | 상위 N개 고정·고정 RenderPlan·독립 Elo·Drop 취소·채택·원본 보존 |
 | STYLE-016 | P0: 특정 세대 복원 | 확정 Checkpoint, 삭제 영향 Preview·경고창 하나, 이후 이미지·이력 삭제, 당시 통계 복원 |
+| STYLE-020 | P0: 탐색 분기 | 현재 안정 상태/확정 세대의 새 Project Snapshot, 독립 ID·점수·Asset·Undo 경계 |
 | STYLE-008 | P0: 그림체 보관 | 프로젝트별 복수 SavedStyle, 설정·이미지 참조 보존 |
 | STYLE-009 | P0: LoRA 진단 | 예상 TE 미적용과 실제 문제 분리, 모바일 반복 방지 |
 | STYLE-010 | P1: Legacy Import | 원본 비변경, Dry-run, 3가지 Mode, 중복 Import 방지 |
-| STYLE-011 | P1: Seed 검증·비교 Panel | 같은 그림체를 별도 Seed 묶음에서 평가 |
+| STYLE-021 | P1: Ablation | 고정 Baseline·단일 성분/강도 Delta, 장수 Preview, 원본 비변경·새 후보 채택 |
+| STYLE-011 | P1: 대표 Prompt·Seed 검증 세트 | 기존 Seed 검증 확장, Suite Version·Case별 결과·생성 장수·평가 격리 |
+| STYLE-022 | P1: 비교 후보 추천 | 필수 대결 유지 후 규칙 기반 추천, 근거·Version·최근 Pair·Skip·Blind 검증 |
 | STYLE-012 | P1: 내보내기·재현 | Project Bundle, Import 미리보기, 실제 Workflow Metadata |
 | STYLE-013 | P1: 모델 추가 | 실제 Moss Workflow 등록 후 Adapter 검증; 이름만 등록하지 않음 |
 | STYLE-014 | P2: 수동 조합/융합 | 기존 평균·개수 제한·별도 결과 Pool 복원 |
@@ -44,6 +49,8 @@ STYLE-013의 설계 기반은 P0부터 필요하지만, 실제 Moss 지원 완�
 세대 확정부터 Checkpoint를 저장하고, [특정 세대 복원](15_generation_restore_and_deletion.md)도 MVP에 포함합니다. 나중에 기능을 붙이면서 과거 Snapshot을 추측하는 방식으로 구현하지 않습니다.
 
 [계보 보존](16_search_strategy_and_diversity.md)과 [Prompt 재시험](17_prompt_retests_and_reranking.md)도 MVP에 포함합니다. STYLE-018은 STYLE-002/005/006의 평가 범위·RenderPlan·투표 계약을 재사용하고 세대 복원과 함께 검증합니다. 추가 Seed 검증은 P1을 유지합니다.
+
+성분·Weight 잠금과 독립 분기도 MVP에 포함합니다. 잠금은 후보 생성·진화 전에 공통 제약을 준비하고, 분기는 세대 복원과 같은 Snapshot·Asset 참조 기반을 재사용합니다. P1은 Ablation → STYLE-011의 대표 Prompt·Seed 검증 확장 → 규칙 기반 비교 추천 순으로 구현합니다. 고급 Pairwise Preference Learning은 효과를 측정한 뒤 검토하며 즉시 필수 의존성을 추가하지 않습니다.
 
 ## 미확정 사항과 권장 기본값
 
@@ -70,6 +77,10 @@ STYLE-013의 설계 기반은 P0부터 필요하지만, 실제 Moss 지원 완�
 - Model Only에서 생긴 TE 미사용 Key를 다시 'LoRA 전체 실패'로 표시하기.
 - Prompt 재시험에 기존 Evolution 생성 함수를 호출해 조합·Weight·세대를 바꾸기.
 - 옛 Prompt의 Elo를 새 Prompt 평가에 자동 합산하거나 Drop을 패배로 기록하기.
+- 잠금을 표시만 하고 Random/Crossover가 무시하게 하거나 고정 강도를 자동 Clamp하기.
+- 분기 원본과 Candidate·Vote·가변 Snapshot을 공유하거나 원본 Undo Token을 복제하기.
+- Ablation·검증 결과를 원본 Elo에 자동 합산하거나 서로 다른 Case·Seed를 한 Pair에 넣기.
+- 비교 추천이 필수 Placement/Selection을 건너뛰거나 Blind에서 점수·예상 승자를 노출하기.
 
 ## 다음 작업 시작용 요청 예시
 
