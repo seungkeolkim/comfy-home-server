@@ -1,0 +1,61 @@
+# Style Lab 복원·프로젝트 확장 설계 문서
+
+작성일: 2026-11-08, Asia/Seoul. 실제 설치본과 Comfy Home Server 소스를 읽어 작성했습니다.
+
+## 목적과 확정한 방향
+
+기존 Style Lab의 **후보 생성 → A/B 선별 → 진화 → 그림체 확보**를 Comfy Home Server 내부에 구현하고, 프로젝트별로 독립적인 취향 탐색을 할 수 있게 합니다. **Comfy Home Server에 등록된 Workflow를 생성 기준으로 사용**합니다. Anima 외에 Moss 등 추가 모델을 수용하는 구조가 필요합니다.
+
+2026-11-09 사용자 결정에 따라 구현 방식은 **Comfy Home Server 내장**으로 확정했습니다. 이 저장소의 `docs/style-lab-rebuild/`가 문서 기준본이며 앞으로 설계·요구사항·구현 상태를 코드와 함께 관리합니다. 이전 저장소 외부 폴더는 최초 작성본으로 남기고 이후 수정은 이곳에만 반영합니다.
+
+프로젝트 생성은 최소 두 가지를 지원합니다.
+
+1. **새로 시작**: 등록 작가·LoRA를 선택하되 조합·투표·점수·세대는 새로 시작합니다.
+2. **점수만 이어받기**: 선택한 원본에서 작가·LoRA 점수 Snapshot만 가져옵니다. 기존 조합, 이미지, 승패, 세대, 진행 중 작업은 이어받지 않습니다.
+
+사용자가 덜 쓰는 수동 조합·융합·다듬기는 후순위입니다. 다만 자동 후보 조합은 선별·진화의 입력이므로 핵심 범위에 포함합니다. 기존 메뉴 `조합` 전체를 없애는 의미로 해석하지 않았습니다.
+
+**특정 세대의 확정 시점으로 돌아가기**도 P0에 포함합니다. 확인창 하나로 이후 이미지·이력·승패·Elo 변경의 삭제를 경고하고 당시 상태를 복원합니다.
+
+탐색은 기존 Interactive Evolution을 유지하면서 여러 계보에 부모 기회를 배정합니다. **현재 상위 N개 조합의 Prompt 재시험**도 P0입니다. 성분·가중치와 세대 번호를 유지한 채 새 Prompt로 생성하고, 시험 내부 Elo·Drop을 거쳐 새 평가 구간으로 채택할 수 있습니다.
+
+## 문서 읽는 순서
+
+| 문서 | 내용 |
+| --- | --- |
+| [01 기존 기능과 우선순위](01_current_features_and_priorities.md) | 현재 동작, 메뉴, 복원 범위 |
+| [02 기존 데이터와 API](02_legacy_data_and_api_contracts.md) | State, DTO, 저장·내보내기, API |
+| [03 선별·순위 알고리즘](03_selection_and_ranking_algorithms.md) | Elo, 자리 찾기, Skip, Undo, 동점 |
+| [04 진화·성분 점수](04_evolution_and_component_scores.md) | 부모 선택, 변이, 생존, 작가·LoRA 점수 |
+| [05 생성·Workflow 계약](05_generation_and_registered_workflows.md) | 실제 두 Workflow 차이, Seed·LoRA·NegPip |
+| [06 프로젝트와 점수 이전](06_projects_and_score_transfer.md) | 이번 요구의 중심, 독립성, 초기화, Prior |
+| [07 새 Domain·API 설계](07_proposed_domain_storage_and_api.md) | 테이블, 불변식, 동시성, 요청 예시 |
+| [08 Home Server 내장](08_comfy_home_server_integration.md) | 확정한 내장 구조, 기존 코드 재사용, 확장 지점 |
+| [09 화면·사용 흐름](09_user_interface_and_scenarios.md) | 프로젝트 중심 PC·모바일 UI |
+| [10 이관·검증](10_migration_restore_and_acceptance.md) | 복원 절차, Migration, 수락 테스트 |
+| [11 구현 순서](11_implementation_backlog_and_decisions.md) | P0/P1/P2, 미확정 사항, 구현 티켓 |
+| [12 조사 근거](12_source_inventory_and_contract_evidence.md) | 자동 추출한 설정·함수·Workflow·State 구조 |
+| [13 실제 점수 Seed](13_existing_artist_and_lora_score_snapshot.md) | 원본 State에서 계산한 작가·LoRA 점수 Snapshot |
+| [14 Custom Node 의존성](14_custom_node_dependencies.md) | 등록 Anima Workflow에 필요한 설치본과 Version 근거 |
+| [15 세대 되돌리기](15_generation_restore_and_deletion.md) | Checkpoint·삭제 경고·승패/Elo 복원·동시성·검증 |
+| [16 탐색 정책과 다양성](16_search_strategy_and_diversity.md) | Interactive Evolution 유지, 계보별 기회, 대안의 적용 범위 |
+| [17 Prompt 재시험](17_prompt_retests_and_reranking.md) | 상위 N개 고정 조합 재생성, 시험 Elo·Drop·채택 |
+| [원문 Snapshot 목록](source_reference/README.md) | 복원에 필요한 원문을 코드 블록으로 보관 |
+
+## 사실과 제안의 구분
+
+`현재`·`기존`은 설치본의 동작입니다. `새 설계`·`제안`은 아직 구현하지 않은 요구사항입니다. 제안 API·Schema·Moss Adapter가 이미 존재한다고 해석하면 안 됩니다. 원문 Snapshot은 동작을 재검토할 때의 기준이고, 원본 README와 현재 코드가 다르면 코드가 우선합니다.
+
+원본 Style Lab은 `VERSION = 2.0.0`이나 Web 모드·NegPip·LoRA 경고 분리 등 로컬 변경이 포함돼 있습니다. 같은 Version 문자열의 배포본만으로 이 설치본을 식별할 수 없으므로 Snapshot의 SHA-256을 함께 확인해야 합니다.
+
+## 산출물 범위
+
+이 폴더는 **Markdown만으로 읽고 옮길 수 있는 구현 자료 묶음**입니다. 설명에 더해 Style Lab의 Python·JavaScript·CSS·HTML·실행 스크립트·테스트와 현재 Workflow를 Markdown 코드 블록으로 보관했습니다. Home Server의 연동 핵심 소스와 Anima API/UI Workflow도 포함합니다.
+
+원본 Python Runtime, 모델·LoRA Tensor 파일, 사용자 생성 이미지, 전체 State·투표 이력, 비밀번호·Cookie·인증 파일은 포함하지 않습니다. 따라서 문서에서 로직과 텍스트 UI를 복원할 수 있지만, 기존 이미지까지 그대로 돌려놓는 운영 Backup은 별도로 필요합니다. 본문 예제 Prompt는 설명용이며 실제 사용자 Prompt를 복제하지 않았습니다. 바이너리 아이콘은 제외하고 SVG 원문을 보관합니다.
+
+이번 작업은 문서 작성입니다. 원본 서비스·Workflow·데이터를 변경하거나 재기동하지 않습니다.
+
+## 검증
+
+원문 Snapshot 63개를 Markdown에서 다시 추출해 Hash를 대조했습니다. Python Snapshot 18개는 Syntax를 확인했고, 문서 내부 링크·코드 블록·인증 정보 포함 여부도 검사했습니다. 실제 프로그램 실행이나 생성 테스트를 대신하는 검증은 아닙니다.

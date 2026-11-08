@@ -1,0 +1,978 @@
+# Source Snapshot: web/app.css
+
+- Source: `C:\Users\azzib\Desktop\ComfyUI\StyleLab\Anima-Style-Lab-2.0\web\app.css`
+- Original Byte SHA-256: `f33818446b4ce0f3e139fd7ad3a11b7cf5e19fc7bad041c0513234fb0da4e6ac`
+- Snapshot Text SHA-256: `f33818446b4ce0f3e139fd7ad3a11b7cf5e19fc7bad041c0513234fb0da4e6ac`
+- 형식: UTF-8 / LF / 마지막 줄바꿈. Markdown 외곽을 제외한 코드 블록 내용이 Snapshot입니다.
+- 범위: 전체 텍스트 파일
+- 복원 시 생성 이미지·모델·인증 정보는 별도 준비합니다.
+
+```css
+/* ==========================================================================
+   Anima Style Lab — design system
+   One dark theme, three surface steps, hairline borders, one accent.
+   The artwork is the only loud thing on screen.
+   ========================================================================== */
+:root {
+  color-scheme: dark;
+  --bg: #0b0d12;
+  --panel: #0f1218;
+  --surface: #161a23;
+  --surface-2: #1b2029;
+  --surface-3: #232935;
+  --surface-4: #2c3341;
+  --line: rgba(255, 255, 255, 0.065);
+  --line-2: rgba(255, 255, 255, 0.11);
+  --line-3: rgba(255, 255, 255, 0.18);
+  --text: #eceef4;
+  --text-2: #a9b0c1;
+  --text-3: #6f778a;
+  --accent: #8b7dff;
+  --accent-2: #a89eff;
+  --accent-ink: #0d0b1f;
+  --accent-soft: rgba(139, 125, 255, 0.14);
+  --accent-line: rgba(139, 125, 255, 0.42);
+  --sky: #5cc2ff;   --sky-soft: rgba(92, 194, 255, 0.13); --sky-solid: rgba(10, 38, 58, 0.88); --sky-line: rgba(92, 194, 255, 0.45);
+  --amber: #ffc861; --amber-soft: rgba(255, 200, 97, 0.13);
+  --rose: #ff7d9d;  --rose-soft: rgba(255, 125, 157, 0.13);
+  --mint: #4fd6a0;  --mint-soft: rgba(79, 214, 160, 0.13);
+  --red: #ff6b73;   --red-soft: rgba(255, 107, 115, 0.13);
+  /* Tier identity (validated: dark surface, lightness band, chroma, CVD separation). */
+  --t-s: #b88a12; --t-a: #8290d4; --t-b: #b0632a; --t-c: #1e9c7e; --t-d: #3d7bdb;
+  --radius-sm: 8px; --radius: 12px; --radius-lg: 16px; --radius-xl: 22px;
+  --shadow-1: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 1px 0 rgba(255, 255, 255, 0.05) inset, 0 12px 32px -12px rgba(0, 0, 0, 0.6);
+  --shadow-3: 0 24px 64px -16px rgba(0, 0, 0, 0.75);
+  --font: 'Pretendard Variable', Pretendard, 'SUIT Variable', SUIT, 'Malgun Gothic', 'Apple SD Gothic Neo', system-ui, sans-serif;
+  --mono: 'Cascadia Code', 'JetBrains Mono', Consolas, 'D2Coding', monospace;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --sidebar: 248px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--text);
+  font: 14px/1.55 var(--font); letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased; overflow: auto hidden;  /* sideways only when the window is under #app's min-width */
+}
+button, input, select, textarea { font: inherit; color: inherit; letter-spacing: inherit; }
+button { cursor: pointer; }
+img { display: block; max-width: 100%; }
+a { color: var(--accent-2); text-decoration: none; }
+::selection { background: var(--accent-soft); }
+:focus-visible { outline: none; }  /* no keyboard focus ring (the browser would draw its own without this); inputs keep their :focus style */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-thumb { background: var(--surface-4); border-radius: 999px; border: 3px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: #3a4254; }
+::-webkit-scrollbar-track { background: transparent; }
+
+/* ------------------------------------------------------------------ shell */
+/* Narrower: scroll sideways, not break. 1022px = the sidebar, page padding, the 그림체 preview and exactly 4 tiles a row
+   (248 + 64 + 230 + 10 + 4 x 110 + 3 x 10). */
+#app { display: grid; grid-template-columns: var(--sidebar) 1fr; height: 100vh; min-width: 1022px; }
+.main { display: grid; grid-template-rows: auto 2px 1fr; grid-template-columns: minmax(0, 1fr); min-width: 0; min-height: 0; }  /* never wider than the window, however long the to-do text */
+.content { overflow: auto; padding: 28px 32px 28px; min-height: 0; outline: none; scroll-behavior: smooth; container-type: inline-size;
+  /* One gallery tile, the same size on 진화 · 다듬기 · 그림체: never smaller than 110px (a narrow window shows
+     fewer to a row) and never more than 10 to a row (a wide window makes them bigger).
+     100cqw is the page's width but does not leave out the scrollbar: --sb does. */
+  --tile: max(110px, calc((100cqw - var(--sb, 0px) - 90px) / 10 - 0.1px)); }
+/* With a scrollbar (12px), the right padding gives way to it: 20px + 12px matches the 32px on the left, and the
+   page keeps the same width as without one, so tiles are the same size on every page. Set by app.js. */
+.content.scrolling { padding-right: 20px; --sb: 12px; }
+/* Page layouts that change with the width use @media on the window (page = window - 248px sidebar - 64px padding),
+   never @container on .content: a container query counts its scrollbar, so a layout that changes height there
+   adds and drops the scrollbar on every frame and the page shakes. */
+.content.fill { overflow: hidden; padding-bottom: 24px; display: flex; flex-direction: column; }
+
+.sidebar {
+  background: var(--panel); border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 18px 14px 14px; gap: 6px; min-height: 0; overflow: auto;
+}
+.brand { display: flex; align-items: center; gap: 11px; padding: 4px 8px 18px; }
+.brand-mark { width: 34px; height: 34px; flex: none; filter: drop-shadow(0 6px 14px rgba(139, 125, 255, 0.35)); }
+.brand-name { font-weight: 700; font-size: 15px; letter-spacing: -0.02em; }
+.brand-sub { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+.nav-label { font-size: 11px; font-weight: 600; color: var(--text-3); padding: 14px 10px 6px; letter-spacing: 0.04em; }
+.nav-item {
+  display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 10px;
+  color: var(--text-2); border: 0; background: none; width: 100%; text-align: left; position: relative;
+  transition: background 0.15s, color 0.15s;
+}
+.nav-item svg { width: 18px; height: 18px; flex: none; opacity: 0.85; }
+.nav-item:hover { background: var(--surface); color: var(--text); }
+.nav-item.active { background: var(--surface-2); color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+.nav-item.active::before {
+  content: ''; position: absolute; left: -14px; top: 9px; bottom: 9px; width: 3px; border-radius: 0 3px 3px 0; background: var(--accent);
+}
+.nav-item.active svg { color: var(--accent-2); opacity: 1; }
+.nav-badge {
+  margin-left: auto; font-size: 11px; font-weight: 700; min-width: 20px; height: 20px; padding: 0 6px;
+  border-radius: 999px; display: grid; place-items: center; background: var(--surface-3); color: var(--text-2);
+}
+.nav-badge.hot { background: var(--accent); color: var(--accent-ink); }
+.nav-badge.warn { background: var(--amber); color: #1f1400; }
+.sidebar-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding-top: 14px; }
+
+.job-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px;
+  box-shadow: var(--shadow-1);
+}
+.job-card .row { display: flex; align-items: center; gap: 8px; }
+.job-card .title { font-size: 12.5px; font-weight: 600; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.job-card .meta { font-size: 11.5px; color: var(--text-3); margin-top: 8px; display: flex; justify-content: space-between; }
+.job-card .meta .fail { color: var(--red); }
+.spinner { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--accent-soft); border-top-color: var(--accent); animation: spin 0.8s linear infinite; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.bar { height: 6px; border-radius: 999px; background: var(--surface-3); overflow: hidden; margin-top: 10px; }
+.bar > span { display: block; height: 100%; border-radius: inherit; background: #7c70e0; transition: width 0.4s var(--ease); }
+.sub-card { font-size: 12px; color: var(--text-2); padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 2px; }
+.sub-card strong { color: var(--text); font-weight: 600; }
+.sub-card .muted { color: var(--text-3); font-size: 11.5px; }
+.release-notes { white-space: pre-wrap; font: inherit; font-size: 12.5px; line-height: 1.55; color: var(--text-2); background: var(--surface-2);
+  border-radius: 10px; padding: 10px 12px; margin: 10px 0 0; max-height: 180px; overflow: auto; }
+
+/* ------------------------------------------------------------------ topbar / stepper */
+.topbar {
+  display: flex; align-items: center; gap: 20px; padding: 14px 32px; border-bottom: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(22, 26, 35, 0.6), rgba(11, 13, 18, 0));
+  min-height: 72px;
+}
+.stepper { display: flex; align-items: center; gap: 0; flex: none; }
+.step { display: flex; align-items: center; gap: 9px; padding: 6px 10px 6px 6px; border-radius: 999px; border: 0; background: none; color: var(--text-3); }
+.step .dot {
+  width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700;
+  border: 1.5px solid var(--line-3); color: var(--text-3); background: var(--bg); transition: all 0.25s var(--ease);
+}
+.step .dot svg { width: 14px; height: 14px; }
+.step .name { font-size: 13px; font-weight: 600; white-space: nowrap; display: none; }  /* only the current step's name */
+.step.current .name { display: inline; }
+.step.done .dot { background: var(--accent-soft); border-color: var(--accent-line); color: var(--accent-2); }
+.step.done { color: var(--text-2); }
+.step.current .dot { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); box-shadow: 0 0 0 5px var(--accent-soft); }
+.step.current { color: var(--text); }
+.step-link { width: 22px; height: 1.5px; background: var(--line-2); flex: none; }
+.step-link.done { background: var(--accent-line); }
+.todo {
+  margin-left: auto; display: flex; align-items: center; gap: 14px; min-width: 0;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 6px 6px 6px 16px;
+  box-shadow: var(--shadow-1);
+}
+.todo:not(:has(.btn)) { padding-right: 16px; }  /* no button (already on that page): same room as on the left */
+.todo .label { font-size: 11px; font-weight: 700; color: var(--accent-2); letter-spacing: 0.04em; flex: none; }
+.todo .text { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.progress-line { height: 2px; background: transparent; overflow: hidden; }
+.progress-line span { display: block; height: 100%; width: 0; background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2)); transition: width 0.4s var(--ease); }
+
+/* ------------------------------------------------------------------ type & layout helpers */
+.page-head { margin-bottom: 22px; }
+.page-head .title-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.page-head h1 { font-size: 24px; line-height: 1.25; margin: 0; font-weight: 700; letter-spacing: -0.025em; }
+.page-head p { margin: 6px 0 0; color: var(--text-2); }  /* no max-width: one line whenever it fits */
+.eyebrow { font-size: 11.5px; font-weight: 700; color: var(--accent-2); letter-spacing: 0.06em; margin-bottom: 6px; }
+.muted { color: var(--text-2); }
+.faint { color: var(--text-3); }
+/* A small note under or beside something: one size and color for all of them; as a paragraph it sits 8px
+   below what it explains. */
+.note { font-size: 12px; line-height: 1.55; color: var(--text-3); margin: 0; }
+p.note { margin-top: 8px; }
+.num { font-variant-numeric: tabular-nums; }
+.grid { display: grid; gap: 16px; }
+.row { display: flex; align-items: center; gap: 10px; }
+.row.wrap { flex-wrap: wrap; }
+.spacer { flex: 1; }
+.stack { display: flex; flex-direction: column; gap: 12px; }
+h2.section { font-size: 15px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.section-head { display: flex; align-items: center; gap: 10px; margin: 18px 0 12px; }
+.section-head .hint { color: var(--text-3); font-size: 12.5px; }
+kbd {
+  font: 600 11px/1 var(--font); padding: 3px 6px 4px; border-radius: 6px; color: var(--text-2);
+  background: var(--surface-3); border: 1px solid var(--line-2); border-bottom-width: 2px;
+}
+code, .mono { font-family: var(--mono); font-size: 12px; }
+
+/* ------------------------------------------------------------------ cards */
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1); padding: 20px;
+}
+.card.pad-sm { padding: 14px 16px; }
+.card h3 { margin: 0 0 4px; font-size: 14.5px; font-weight: 700; letter-spacing: -0.01em; }
+.card .desc { color: var(--text-2); font-size: 13px; margin: 0 0 14px; }
+.card-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
+.card-head .icon-badge { flex: none; }
+.card-head-text { flex: 1; min-width: 0; }
+.card-head .desc { margin: 0; }
+.icon-badge { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--accent-soft); color: var(--accent-2); }
+.icon-badge svg { width: 18px; height: 18px; }
+.icon-badge.sky { background: var(--sky-soft); color: var(--sky); }
+.icon-badge.amber { background: var(--amber-soft); color: var(--amber); }
+.icon-badge.rose { background: var(--rose-soft); color: var(--rose); }
+.icon-badge.mint { background: var(--mint-soft); color: var(--mint); }
+
+.stat { padding: 14px 18px; }
+.stat .label { font-size: 12.5px; color: var(--text-2); }
+.stat .value { font-size: 26px; font-weight: 700; letter-spacing: -0.03em; margin-top: 4px; line-height: 1.15; }
+.stat .sub { font-size: 12px; color: var(--text-3); margin-top: 2px; }
+
+/* ------------------------------------------------------------------ buttons & inputs */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 36px; padding: 0 14px;
+  border-radius: 10px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text);
+  font-weight: 600; font-size: 13px; white-space: nowrap; transition: background 0.15s, border-color 0.15s, transform 0.1s, box-shadow 0.15s;
+}
+.btn svg { width: 16px; height: 16px; flex: none; }
+.btn:hover { background: var(--surface-3); border-color: var(--line-3); }
+.btn:active { transform: translateY(1px); }
+.btn[disabled] { opacity: 0.45; cursor: not-allowed; transform: none; }
+.btn.primary {
+  background: #6558cf; border-color: #6558cf; color: #f4f2ff;
+  box-shadow: none;
+}
+.btn.primary:hover { background: #7266da; border-color: #7266da; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+.btn.ghost:hover { background: var(--surface-2); color: var(--text); }
+.btn.danger { color: var(--red); border-color: rgba(255, 107, 115, 0.25); background: var(--red-soft); }
+.btn.danger:hover { background: rgba(255, 107, 115, 0.2); }
+.btn.danger-text, .versus .btn.danger-text { color: var(--red); }  /* a quiet (ghost) button that deletes */
+.btn.lg { height: 44px; padding: 0 20px; font-size: 14px; border-radius: 12px; }
+.btn.sm { height: 30px; padding: 0 10px; font-size: 12.5px; border-radius: 8px; }
+.btn.pill { border-radius: 999px; }
+.icon-btn { width: 34px; height: 34px; padding: 0; border-radius: 9px; flex: none; }  /* a fixed square: never squeezed by its row */
+.icon-btn.sm { width: 28px; height: 28px; border-radius: 8px; }
+
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field > label, .field-label { font-size: 12.5px; font-weight: 600; color: var(--text-2); }
+.field .help { font-size: 12px; color: var(--text-3); }
+.input, .select, .textarea {
+  width: 100%; background: var(--bg); border: 1px solid var(--line-2); border-radius: 10px; padding: 9px 12px;
+  color: var(--text); outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.input { height: 38px; }
+/* Edge adds its own reveal eye to password fields; the app has its own show-key button. */
+input::-ms-reveal, input::-ms-clear { display: none; }
+.textarea { resize: vertical; min-height: 88px; line-height: 1.55; font-family: var(--mono); font-size: 12.5px; }
+.textarea.grow { field-sizing: content; resize: none; }  /* grows with what is typed (prompt boxes) */
+.input:focus, .select:focus, .textarea:focus { border-color: var(--accent-line); box-shadow: 0 0 0 4px var(--accent-soft); }
+.select {
+  appearance: none; height: 38px; padding-right: 34px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a9b0c1' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center;
+}
+.select option { background: var(--surface-2); }
+.input-group { display: flex; align-items: center; gap: 8px; }
+.input-group .input { flex: 1; }
+.range-pair { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; }
+.range-pair span { color: var(--text-3); }
+.search { position: relative; }
+.search svg { position: absolute; left: 11px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); color: var(--text-3); pointer-events: none; }
+.search .input { padding-left: 34px; }
+
+
+.segmented { display: inline-flex; background: var(--bg); border: 1px solid var(--line-2); border-radius: 11px; padding: 3px; gap: 2px; }
+.segmented button { border: 0; background: none; color: var(--text-2); font-weight: 600; font-size: 12.5px; padding: 6px 12px; border-radius: 8px; transition: all 0.15s; }
+.segmented button:hover { color: var(--text); }
+.segmented button.on { background: var(--surface-3); color: var(--text); box-shadow: var(--shadow-1); }
+
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border-radius: 999px;
+  border: 1px solid var(--line-2); background: transparent; color: var(--text-2); font-size: 12.5px; font-weight: 600;
+  transition: all 0.15s;
+}
+.chip:hover { border-color: var(--line-3); color: var(--text); }
+.chip.on { background: var(--accent-soft); border-color: var(--accent-line); color: var(--text); }
+/* A tier filter: the chip in the tier's color (set inline), text as on the tier badges; faded until picked. */
+.chip.tier-fill { color: #0b0d12; font-weight: 800; border-color: transparent; opacity: 0.35; }
+.chip.tier-fill.tier-B { color: #fff; }
+.chip.tier-fill:hover { opacity: 0.6; border-color: transparent; }
+.chip.tier-fill.on { opacity: 1; }
+
+/* ------------------------------------------------------------------ badges */
+.tier {
+  display: inline-flex; align-items: center; justify-content: center; white-space: nowrap; min-width: 28px; height: 22px; padding: 0 7px; border-radius: 7px;
+  font-size: 11.5px; font-weight: 800; letter-spacing: 0.02em; color: #0b0d12; background: var(--surface-4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+.tier.lg { min-width: 38px; height: 28px; font-size: 13.5px; border-radius: 9px; }
+.tier.prov::after { content: '?'; font-size: 0.85em; margin-left: 1px; opacity: 0.8; }
+.tier-S { background: var(--t-s); }
+.tier-A { background: var(--t-a); }
+.tier-B { background: var(--t-b); color: #fff; }
+.tier-C { background: var(--t-c); }
+.tier-D { background: var(--t-d); }
+/* 평가중: the tier chip of a not-yet-ranked combo looks like .badge.sky, the same state's badge. */
+.tier-new { background: var(--sky-solid); color: var(--sky); box-shadow: inset 0 0 0 1px var(--sky-line); }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 7px;
+  font-size: 11.5px; font-weight: 700; background: var(--surface-3); color: var(--text-2); white-space: nowrap;
+}
+.badge svg { width: 12px; height: 12px; }
+/* Colored badges: a dark tint of the color, the color's text and a thin line of it. Opaque enough to read on
+   top of any picture (the -soft tints alone vanished on bright images); the same look on plain surfaces. */
+.badge.accent, .badge.sky, .badge.amber, .badge.rose, .badge.mint, .badge.red { backdrop-filter: blur(8px); }
+.badge.accent { background: rgba(34, 29, 70, 0.9); color: var(--accent-2); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.badge.sky { background: var(--sky-solid); color: var(--sky); box-shadow: inset 0 0 0 1px var(--sky-line); }
+.badge.amber { background: rgba(58, 45, 16, 0.9); color: var(--amber); box-shadow: inset 0 0 0 1px rgba(255, 200, 97, 0.45); }
+.badge.rose { background: rgba(62, 24, 36, 0.9); color: var(--rose); box-shadow: inset 0 0 0 1px rgba(255, 125, 157, 0.45); }
+.badge.mint { background: rgba(12, 52, 40, 0.9); color: var(--mint); box-shadow: inset 0 0 0 1px rgba(79, 214, 160, 0.45); }
+.badge.red { background: rgba(66, 20, 26, 0.9); color: var(--red); box-shadow: inset 0 0 0 1px rgba(255, 107, 115, 0.45); }
+.badge.glass { background: rgba(11, 13, 18, 0.72); color: var(--text); backdrop-filter: blur(8px); box-shadow: inset 0 0 0 1px var(--line-2); }
+
+/* ------------------------------------------------------------------ artwork frames */
+.art {
+  position: relative; overflow: hidden; background: #0e1016; border-radius: var(--radius);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px); background-size: 14px 14px;
+}
+.art img { width: 100%; height: 100%; object-fit: contain; user-select: none; -webkit-user-drag: none; }
+.art .corner { position: absolute; display: flex; gap: 6px; align-items: center; z-index: 2; }
+.art .corner.tl { top: 10px; left: 10px; }
+.art .corner.tr { top: 10px; right: 10px; }
+.art .corner.bl { bottom: 10px; left: 10px; }
+.art .corner.br { bottom: 10px; right: 10px; }
+/* The pick checkbox (그림체): shown on hover, and always when this one is picked. */
+.tile-check { width: 22px; height: 22px; padding: 0; border-radius: 6px; display: grid; place-items: center; cursor: pointer;
+  border: 1.5px solid rgba(255, 255, 255, 0.75); background: rgba(5, 6, 10, 0.45); color: transparent;
+  opacity: 0; transition: opacity 0.15s, background 0.15s; }
+.tile:hover .tile-check, .merged-card:hover .tile-check, .tile-check.on { opacity: 1; }
+.tile-check:hover { background: rgba(5, 6, 10, 0.7); }
+.tile-check.on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.art .empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-3); font-size: 12.5px; }
+/* Waiting for a picture: explicitly (.loading) or while its image has not loaded yet (see art()). */
+.art.loading::after, .art:has(> img:not(.ready))::after {
+  content: ''; position: absolute; inset: 0;
+  background: linear-gradient(100deg, transparent 20%, rgba(255, 255, 255, 0.04) 50%, transparent 80%);
+  background-size: 200% 100%; animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* ------------------------------------------------------------------ arena */
+.arena-head { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; flex: none; }
+.arena-controls { display: flex; align-items: center; gap: 10px; }
+.arena-controls > * { flex: none; }
+.arena-controls .segmented button { white-space: nowrap; }
+.context { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.context .icon-badge { width: 40px; height: 40px; border-radius: 12px; }
+.context .title { font-size: 17px; font-weight: 700; letter-spacing: -0.02em; }
+.context .detail { font-size: 13px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.duel { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 76px 1fr; gap: 0; }
+.fighter {
+  display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--surface);
+  border: 1px solid var(--line); border-radius: var(--radius-xl); padding: 12px; gap: 12px;
+  transition: border-color 0.2s, box-shadow 0.25s var(--ease), transform 0.25s var(--ease);
+  box-shadow: var(--shadow-2);
+}
+.fighter:hover { border-color: var(--accent-line); box-shadow: 0 0 0 1px var(--accent-line), var(--shadow-2); }
+.fighter.picked { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), 0 0 48px -8px rgba(139, 125, 255, 0.55); transform: scale(0.992); }
+.fighter.dimmed { opacity: 0.5; transition: opacity 0.2s; }
+/* 비슷함: both sides get the picked look, and the = button lights up the same way */
+.fighter.even { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft), 0 0 48px -8px rgba(139, 125, 255, 0.55); transform: scale(0.992); }
+.versus .btn.pick-similar.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-2); box-shadow: 0 0 0 3px var(--accent-soft); }
+.fighter .art { flex: 1; min-height: 0; border-radius: 14px; cursor: zoom-in; }
+.fighter .art.zoomed { cursor: grab; }
+.fighter .art.zoomed:active { cursor: grabbing; }
+.fighter .art img { transform-origin: 0 0; will-change: transform; }
+.fighter-info { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 0 4px; }
+.fighter-info .fighter-actions { margin-left: auto; display: flex; gap: 2px; }
+.fighter-info .fighter-actions .btn { justify-content: flex-start; }
+.fighter-info .elo { font-size: 20px; font-weight: 700; letter-spacing: -0.03em; }
+.fighter-info .meta { font-size: 12.5px; color: var(--text-2); white-space: nowrap; }  /* one line: the buttons give way instead */
+/* Blind mode: ??? until the vote, then the Elo change for a moment */
+.tier.mask { background: var(--surface-3); color: var(--text-3); }
+.tag.mask { padding: 0 8px; }  /* no weight badge on the left: even sides */
+.fighter-info .delta { font-size: 14px; }
+.fighter-info .delta.up { color: var(--mint); }
+.fighter-info .delta.down { color: var(--rose); }
+.fighter-info .delta.same { color: var(--text-3); }
+.tags { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 2px; max-height: 58px; overflow: hidden; position: relative; }
+.tags.open { max-height: none; }
+/* Arena: the tags on one line that scrolls sideways, so the pictures keep the same size on both sides. */
+/* Fixed height with room for the scrollbar: a side with a scrollbar is exactly as tall as one without. */
+.fighter-tags { flex: none; display: flex; align-items: flex-start; gap: 8px; }
+.fighter-tags > .tags { flex: 1; min-width: 0; flex-wrap: nowrap; align-items: flex-start; height: 36px; max-height: none; overflow-x: auto; overflow-y: hidden;
+  scrollbar-width: thin; scrollbar-color: var(--surface-4) transparent; }
+.fighter-tags > .tags .tag { flex: none; }
+.tag {
+  display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px 0 3px; border-radius: 7px;
+  background: var(--surface-2); border: 1px solid var(--line); font-size: 12px; color: var(--text-2); white-space: nowrap;
+}
+.tag .w { font: 700 10.5px/18px var(--mono); padding: 0 5px; border-radius: 5px; background: var(--surface-4); color: var(--text); }
+.tag .w.hi { background: var(--accent-soft); color: var(--accent-2); }
+.tag .w.lo { color: var(--text-3); }
+.tag.lora { border-color: var(--sky-line); color: var(--text); }
+.tag .kind, .weight-row .kind { font: 700 9.5px/16px var(--mono); letter-spacing: 0.02em; padding: 0 4px; border-radius: 4px; background: var(--sky-soft); color: var(--sky); }
+.tag .kind { margin-left: -2px; }
+.weight-row .kind { margin-right: 5px; }
+.tag.diff { border-color: var(--accent-line); background: var(--accent-soft); color: var(--text); }
+.tag .arrow { font-weight: 800; font-size: 11px; margin-left: -2px; }
+.tag .arrow.up { color: var(--mint); }
+.tag .arrow.down { color: var(--rose); }
+.pick {
+  height: 52px; border-radius: 14px; font-size: 15px; font-weight: 700; width: 100%;
+  display: flex; align-items: center; justify-content: center; gap: 10px;
+}
+.pick kbd { background: rgba(0, 0, 0, 0.18); border-color: rgba(255, 255, 255, 0.2); color: #fff; }
+.versus { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+.vs-orb {
+  width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; font-weight: 800; font-size: 13px;
+  letter-spacing: 0.06em; color: var(--text-2); background: var(--surface-2); border: 1px solid var(--line-2);
+  box-shadow: 0 0 0 6px var(--bg), 0 0 0 7px var(--line);
+}
+.versus .btn { width: 56px; height: 56px; flex-direction: column; gap: 3px; padding: 0; border-radius: 14px; font-size: 10.5px; color: var(--text-2); }
+.versus .btn svg { width: 18px; height: 18px; }
+
+/* ------------------------------------------------------------------ galleries */
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 14px; }
+.gallery.lg { grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
+.gallery.cols-10, .gallery.cols-8 { grid-template-columns: repeat(auto-fill, minmax(var(--tile), 1fr)); gap: 10px; }
+/* as many tiles as fit; what is left over widens the tiles (as on 다듬기's variants), the gaps stay 10px */
+/* Dense grids: small tiles, so tighter corners and captions that never wrap. */
+:is(.cols-10, .cols-8) .tile .art .corner.tl { top: 6px; left: 6px; }
+:is(.cols-10, .cols-8) .tile .art .corner.tr { top: 6px; right: 6px; }
+:is(.cols-10, .cols-8) .tile .art .corner.bl { bottom: 6px; left: 6px; }
+:is(.cols-10, .cols-8) .tile .art .corner.br { bottom: 6px; right: 6px; }
+:is(.cols-10, .cols-8) .tile .caption { gap: 4px; padding: 7px 2px 2px; }
+:is(.cols-10, .cols-8) .tile .caption .elo { font-size: 13px; }
+:is(.cols-10, .cols-8) .tile .caption .meta { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tile {
+  position: relative; border-radius: 14px; background: var(--surface); border: 1px solid var(--line);
+  padding: 6px; cursor: pointer; transition: border-color 0.15s, transform 0.2s var(--ease), box-shadow 0.2s; user-select: none;
+}
+.tile:hover { border-color: var(--line-3); transform: translateY(-2px); box-shadow: var(--shadow-2); }
+.tile.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent), 0 10px 30px -14px rgba(139, 125, 255, 0.7); }
+.tile .art { aspect-ratio: 13 / 19; border-radius: 10px; }
+.tile.out .art img { filter: grayscale(0.85) brightness(0.55); }
+.tile .caption { display: flex; align-items: center; gap: 8px; padding: 8px 4px 3px; }
+.tile .caption .elo { font-weight: 700; font-size: 14px; letter-spacing: -0.02em; }
+.tile .caption .meta { font-size: 11.5px; color: var(--text-3); margin-left: auto; }
+
+/* ------------------------------------------------------------------ library view (list + detail) */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 20px; align-items: start; }
+.detail { position: sticky; top: 0; display: flex; flex-direction: column; gap: 14px; }
+.detail .art { aspect-ratio: 13 / 19; border-radius: 14px; cursor: zoom-in; }
+/* Fill mode (그림체): tiles as on 진화 · 다듬기, the preview two tiles wide (2 x --tile + gap).
+   The list scrolls on its own; the preview always fits the window. */
+.split.fill { height: 100%; grid-template-columns: minmax(0, 1fr) calc(2 * var(--tile) + 10px); grid-template-rows: minmax(0, 1fr); gap: 10px; align-items: stretch; }
+.split.fill .split-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.split.fill .split-list { flex: 1; overflow: auto; min-height: 0; scrollbar-gutter: stable;
+  /* hang the hover room (a hovered tile rises 2px and casts a shadow) and the scrollbar outside the column,
+     so the gallery is exactly 8 columns wide and the top row is never clipped. It also runs on through the page's
+     bottom padding to the window's edge, so tiles scroll out there instead of being cut off above an empty band. */
+  margin: -10px -10px -24px -6px; padding: 10px 0 30px 6px; }
+.split.fill .split-list::-webkit-scrollbar { width: 10px; }
+/* the bar starts level with the tiles, not in the hover room above them (7px + the thumb's 3px border = 10px) */
+.split.fill .split-list::-webkit-scrollbar-track { margin-top: 7px; }
+.split.fill .detail { position: static; min-height: 0; gap: 6px; overflow-y: auto;
+  scrollbar-width: none;  /* a scrollbar would narrow the image, which would change the height: still scrolls by wheel */
+  padding-left: 22px;  /* 10px list scrollbar + 22px = 32px from the tiles, the same as on the right */
+  margin-bottom: -24px; padding-bottom: 24px; }  /* like the list: on through the page's bottom padding to the window's edge */
+/* The image always spans the panel's width; if the panel gets taller than the window, it scrolls on its own. */
+.split.fill .detail > * { flex: none; }
+/* Four cells on one line: tier, Elo, 전적, 세대 (label and value inline, each cell as wide as it needs). */
+.split.fill .detail .kv { display: flex; gap: 3px; }
+.split.fill .detail .kv > div { flex: 1 1 auto; padding: 6px 3px; border-radius: 8px; display: flex; align-items: baseline;
+  justify-content: center; gap: 3px; white-space: nowrap; }
+/* The tier cell is the tier chip itself: it fills the cell instead of sitting inside a second box. */
+.split.fill .detail .kv > .tier-cell { flex: none; padding: 0; background: none; align-items: stretch; }
+/* The tier chip, or the 탈락 / 제외됨 badge in its place: as tall as the cells beside it. */
+.split.fill .detail .kv > .tier-cell :is(.tier, .badge) { height: auto; min-width: 36px; padding: 0 7px; border-radius: 8px; font-size: 12.5px; }
+.split.fill .detail .kv .k { font-size: 10.5px; }
+.detail .kv .v .k { font-weight: 400; }  /* the unit after a number (승 · 패 · 세대), small like "Elo" */
+.split.fill .detail .kv .v { font-size: 12.5px; margin-top: 0; }
+.split.fill .detail .row { flex-wrap: wrap; gap: 6px; }
+/* One line in the 208px panel: each button as wide as its icon and name (4px sides: 200px in all), the rest shared. */
+.preview-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.preview-actions .btn { flex: 1 1 auto; height: 30px; padding: 0 4px; gap: 5px; font-size: 12px; }
+.preview-actions .btn svg { width: 14px; height: 14px; }
+/* A small button with an icon and its name: the preview's actions, the arena cards' copy / open. */
+.btn.labeled, .detail .header-action { height: 28px; padding: 0 6px; gap: 5px; font-size: 12px; flex: none; }
+.btn.labeled svg, .detail .header-action svg { width: 14px; height: 14px; }
+/* The copy button hangs into the card's padding, so the title sits as close to the top as the rows to each other. */
+.detail .header-action { margin: -4px -8px -4px 0; }
+.split.fill .weight-row { grid-template-columns: minmax(0, 1fr) 48px 30px; gap: 6px; font-size: 12px; }
+.detail .kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.detail .kv > div { background: var(--surface-2); border-radius: 10px; padding: 9px 11px; }
+.detail .kv .k { font-size: 11.5px; color: var(--text-3); }
+.detail .kv .v { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; margin-top: 1px; }
+.weights { display: flex; flex-direction: column; gap: 7px; }
+.weight-row { display: grid; grid-template-columns: minmax(0, 1fr) 96px 38px; gap: 10px; align-items: center; font-size: 12.5px; }
+.weight-row .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-2); }
+.weight-row .track { height: 6px; border-radius: 999px; background: var(--surface-3); position: relative; }
+.weight-row .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; background: #7c70e0; }
+.weight-row .ghost { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 2px; background: var(--text-3); }
+.weight-row .val { font: 700 12px var(--mono); text-align: right; }
+.weight-row .val.up { color: var(--mint); }
+.weight-row .val.down { color: var(--rose); }
+.toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.toolbar .search { width: 260px; }
+.selection-bar {
+  position: fixed; left: calc(var(--sidebar) + (100vw - var(--sidebar)) / 2); bottom: 26px; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 16px; border-radius: 16px;
+  background: rgba(35, 41, 53, 0.92); border: 1px solid var(--line-2); box-shadow: var(--shadow-3); backdrop-filter: blur(14px);
+  z-index: 40; animation: rise 0.25s var(--ease);
+}
+.selection-bar .count { font-weight: 700; margin-right: 6px; }
+@keyframes rise { from { opacity: 0; transform: translate(-50%, 12px); } }
+
+/* ------------------------------------------------------------------ tables */
+.table-wrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface); }
+table.data { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.data th {
+  position: sticky; top: 0; background: var(--surface-2); text-align: left; font-size: 12px; font-weight: 600; color: var(--text-2);
+  padding: 10px 14px; border-bottom: 1px solid var(--line); white-space: nowrap; cursor: pointer; user-select: none; z-index: 1;
+}
+table.data th.num, table.data td.num { text-align: right; }
+table.data th .dir { color: var(--accent-2); margin-left: 4px; }
+table.data td { padding: 9px 14px; border-bottom: 1px solid var(--line); }
+/* Artists: the name takes what the numbers leave and ends in "…", so the table never scrolls sideways. */
+table.data.artists td:nth-child(2) { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.data.artists td.num { white-space: nowrap; }
+table.data.artists td .sub { color: var(--text-3); font-size: 11.5px; margin-left: 6px; }
+table.data.artists td .warn { color: var(--amber); margin-left: 6px; cursor: help; }
+.lora-pick { max-height: 46vh; overflow: auto; margin: 10px 0; border: 1px solid var(--line); border-radius: 10px; }
+.lora-pick label { display: flex; gap: 10px; align-items: center; padding: 7px 12px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; word-break: break-all; }
+.lora-pick label:last-child { border-bottom: 0; }
+.lora-pick label:hover { background: var(--surface-2); }
+.lora-pick label.done { opacity: 0.45; cursor: default; }
+table.data tr:last-child td { border-bottom: 0; }
+table.data tbody tr { cursor: pointer; transition: background 0.1s; }
+table.data tbody tr:hover { background: var(--surface-2); }
+table.data tbody tr.selected { background: var(--accent-soft); }
+table.data tbody tr.selected td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
+
+/* ------------------------------------------------------------------ charts (tier bar, generation columns) */
+.dist { display: flex; height: 12px; gap: 2px; border-radius: 4px; overflow: hidden; }
+.dist > span { display: block; height: 100%; min-width: 3px; transition: filter 0.15s; }
+.dist > span:hover { filter: brightness(1.25); }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 12px; font-size: 12.5px; color: var(--text-2); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.legend i { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.legend b { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.legend.compact { flex-wrap: nowrap; margin-top: 6px; gap: 2px 9px; font-size: 11px; font-weight: 700; letter-spacing: 0; line-height: 1.2; }
+.legend.compact span { gap: 3px; }
+.legend.compact i { width: 8px; height: 8px; border-radius: 2px; }
+.columns { display: flex; align-items: flex-end; gap: 10px; height: 112px; padding: 0 4px; border-bottom: 1px solid var(--line-2); }
+.columns .col { flex: 1; max-width: 24px; display: flex; flex-direction: column-reverse; gap: 2px; height: 100%; justify-content: flex-start; position: relative; cursor: default; }
+.columns .col > span { display: block; width: 100%; }
+.columns .col > span:last-child { border-radius: 4px 4px 0 0; }
+.columns .col:hover > span { filter: brightness(1.2); }
+.col-labels { display: flex; gap: 10px; padding: 6px 4px 0; font-size: 11px; color: var(--text-3); }
+.col-labels span { flex: 1; max-width: 24px; text-align: center; font-variant-numeric: tabular-nums; }
+.tooltip {
+  position: fixed; z-index: 100; pointer-events: none; background: rgba(35, 41, 53, 0.96); border: 1px solid var(--line-2);
+  border-radius: 10px; padding: 8px 10px; font-size: 12px; box-shadow: var(--shadow-3); backdrop-filter: blur(10px);
+  min-width: 120px; width: max-content; color: var(--text);  /* as wide as its lines, wherever it is: never squeezed by the edge */
+}
+.tooltip .t { font-weight: 700; margin-bottom: 4px; }
+.tooltip .r { display: flex; align-items: center; gap: 8px; color: var(--text-2); }
+.tooltip .r i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+.tooltip .r kbd + kbd { margin-left: -4px; }
+.tooltip .r b { margin-left: auto; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* ------------------------------------------------------------------ settings */
+/* Two columns of cards; a narrow page stacks them, so the fields keep room for their values. */
+.settings-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (width < 1112px) { .settings-columns { grid-template-columns: minmax(0, 1fr); } }
+
+/* ------------------------------------------------------------------ home */
+/* The favourites card is --fav tiles wide (same tiles and 10px gaps as 진화 · 다듬기 · 그림체, plus the card's 20px
+   padding). A narrow page shows fewer, so the artists card keeps ~260px. */
+/* The favourites and artists cards: less room above and below than a card's usual 20px. */
+.home-lower .card { padding-top: 14px; padding-bottom: 14px; }
+.home-lower { --fav: 5; grid-template-columns: calc(var(--fav) * (var(--tile) + 10px) + 30px) minmax(0, 1fr); }
+.gallery.home-top { grid-template-columns: repeat(var(--fav), var(--tile)); justify-content: start; }
+@media (width < 1230px) { .home-lower { --fav: 4; } .home-top > :nth-child(n + 5) { display: none; } }
+@media (width < 1110px) { .home-lower { --fav: 3; } .home-top > :nth-child(n + 4) { display: none; } }
+/* Beside the favourites, exactly as tall: laid over its grid cell, so it never sets the row's height. */
+.home-artists { position: absolute; inset: 0; display: flex; flex-direction: column; container-type: inline-size; }
+.home-artists h3 { white-space: nowrap; }
+/* Fills downward, then a second column; rows that do not fit move to a third column, which is clipped whole. */
+.artist-list { flex: 1; min-height: 0; display: flex; flex-direction: column; flex-wrap: wrap; align-content: flex-start;
+  column-gap: 16px; row-gap: 2px; overflow: hidden; }
+.artist-row { width: calc(50% - 8px); height: 24px; display: flex; align-items: center; gap: 8px; font-size: 12.5px; }
+.artist-row .n { width: 16px; color: var(--text-3); font-size: 11px; text-align: right; flex: none; }
+.artist-row .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); }
+.artist-row .score { color: var(--mint); font-weight: 700; flex: none; }
+@container (max-width: 380px) { .artist-row { width: 100%; } }  /* a narrow window: one column, names readable */
+.hero {
+  position: relative; overflow: hidden; border-radius: var(--radius-xl); padding: 20px 28px;
+  background: radial-gradient(1200px 400px at 90% -40%, rgba(139, 125, 255, 0.28), transparent 60%),
+              radial-gradient(700px 300px at -10% 140%, rgba(92, 194, 255, 0.12), transparent 60%), var(--surface);
+  border: 1px solid var(--line); box-shadow: var(--shadow-2);
+}
+.hero h1 { margin: 0; font-size: 26px; letter-spacing: -0.03em; line-height: 1.25; }
+.hero p { margin: 8px 0 0; color: var(--text-2); max-width: 640px; font-size: 14.5px; }
+.hero .cta { margin-top: 16px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.journey { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-top: 18px; }
+.journey .leg {
+  position: relative; border-radius: var(--radius-lg); padding: 14px 16px; background: var(--surface); border: 1px solid var(--line);
+  display: flex; flex-direction: column; gap: 6px; transition: border-color 0.2s, transform 0.2s var(--ease);
+}
+.journey .leg.current { border-color: var(--accent-line); background: linear-gradient(180deg, rgba(139, 125, 255, 0.1), transparent 70%), var(--surface); box-shadow: 0 0 0 1px var(--accent-line), var(--shadow-2); }
+.journey .leg.done { opacity: 0.75; }
+@media (width < 1032px) { .journey .leg { padding: 12px; } }  /* narrow: a little more room for the text */
+.journey .leg .n { width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; font-weight: 800; font-size: 12px; background: var(--surface-3); color: var(--text-2); }
+.journey .leg.current .n { background: var(--accent); color: var(--accent-ink); }
+.journey .leg.done .n { background: var(--accent-soft); color: var(--accent-2); }
+.journey .leg h4 { margin: 0; font-size: 14px; font-weight: 700; word-break: keep-all; }  /* wraps between words only */
+.journey .leg p { margin: 0; font-size: 12.5px; color: var(--text-2); line-height: 1.5; }
+.journey .leg .where { margin-top: auto; font-size: 11.5px; color: var(--text-3); }
+.checklist { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.check-item { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.check-item .tick { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; border: 1.5px solid var(--line-3); flex: none; }
+.check-item.ok .tick { background: var(--mint); border-color: var(--mint); color: #05140d; }
+.check-item .tick svg { width: 13px; height: 13px; }
+.check-item .txt { flex: 1; }
+.check-item.ok .txt { color: var(--text-2); text-decoration: line-through; text-decoration-color: var(--text-3); }
+
+/* ------------------------------------------------------------------ refine */
+/* A list that scrolls on its own under a fixed page head (다듬기). The hover room and the 10px scrollbar hang
+   outside it (the scrollbar in the page's right padding), so a .gallery inside is as wide as on other pages. */
+.fill-list { flex: 1; min-height: 0; overflow: auto; scrollbar-gutter: stable; margin: 0 -20px 0 -6px; padding: 0 10px 2px 6px; }
+.fill-list::-webkit-scrollbar { width: 10px; }
+.fill-list > .section-head:first-child { margin-top: 12px; }
+.refine-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 20px; align-items: start; }
+.champion .art { aspect-ratio: 13 / 19; border-radius: 16px; max-height: 70vh; margin: 0 auto; width: 100%; }
+.refine-grid.fill { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); align-items: stretch; }
+.refine-grid.fill .champion { display: flex; flex-direction: column; min-height: 0; }
+.refine-grid.fill .champion .art { flex: 1; min-height: 160px; aspect-ratio: auto; max-height: none; }
+.refine-grid.fill .champion > :not(.art) { flex: none; }
+.refine-grid.fill .fill-list { margin-left: 0; padding-left: 0; }
+.round-dots { display: flex; gap: 6px; align-items: center; }
+.round-dots i { width: 28px; height: 6px; border-radius: 999px; background: var(--surface-3); display: block; }
+.round-dots i.on { background: #7c70e0; }
+.variant-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 10px; }
+.variant { position: relative; border-radius: 12px; padding: 4px; background: var(--surface-2); border: 1px solid var(--line); }
+.variant .art { aspect-ratio: 13 / 19; border-radius: 9px; }
+.variant.win { border-color: rgba(79, 214, 160, 0.5); }
+.variant.loss .art img { filter: grayscale(0.8) brightness(0.6); }
+.finals { display: grid; gap: 14px; }
+.final-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.final-row .art { aspect-ratio: 13 / 19; border-radius: 12px; }
+.final-label { font-size: 12px; color: var(--text-3); margin: 0 0 6px 2px; display: flex; gap: 6px; align-items: center; }
+
+/* ------------------------------------------------------------------ overlays */
+/* Toasts sit in the sidebar column, stacked right above its bottom cards (job / subscription), same width and look. */
+.toasts { position: fixed; right: 18px; top: 84px; width: 340px; display: flex; flex-direction: column; gap: 10px; z-index: 200; pointer-events: none; }
+.toast {
+  pointer-events: auto; display: flex; gap: 10px; align-items: flex-start; padding: 12px; border-radius: var(--radius);
+  background: var(--surface); border: 1px solid var(--line-2); box-shadow: var(--shadow-1);
+  animation: toast-in 0.3s var(--ease); font-size: 12.5px;
+}
+.toast .ico { width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; flex: none; background: var(--accent-soft); color: var(--accent-2); }
+.toast .ico svg { width: 13px; height: 13px; }
+.toast.ok .ico { background: var(--mint-soft); color: var(--mint); }
+.toast.warn .ico { background: var(--amber-soft); color: var(--amber); }
+.toast.error { border-color: rgba(255, 107, 115, 0.35); }
+.toast.error .ico { background: var(--red-soft); color: var(--red); }
+.toast .body { flex: 1; min-width: 0; line-height: 1.5; word-break: keep-all; overflow-wrap: anywhere; }
+.toast .x { border: 0; background: none; color: var(--text-3); padding: 0; width: 20px; height: 20px; display: grid; place-items: center; }
+.toast.leaving { animation: toast-out 0.25s var(--ease) forwards; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(0.98); } }
+@keyframes toast-out { to { opacity: 0; transform: translateX(-20px); } }
+.backdrop { position: fixed; inset: 0; background: rgba(5, 6, 10, 0.66); backdrop-filter: blur(6px); z-index: 150; display: grid; place-items: center; animation: fade 0.2s; }
+@keyframes fade { from { opacity: 0; } }
+.dialog {
+  width: min(460px, calc(100vw - 48px)); background: var(--surface); border: 1px solid var(--line-2); border-radius: 20px;
+  padding: 22px; box-shadow: var(--shadow-3); animation: pop 0.25s var(--ease);
+}
+.dialog h3 { margin: 0 0 6px; font-size: 17px; letter-spacing: -0.02em; }
+.dialog p { margin: 0 0 16px; color: var(--text-2); white-space: pre-line; }
+.dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+/* Prompt viewer (a ComfyUI picture dropped on the window): the picture beside its prompts, which scroll. */
+/* As wide as the picture and the prompts need: no empty band beside a tall picture. */
+.dialog.viewer { width: fit-content; max-width: calc(100vw - 48px); max-height: calc(100vh - 48px); display: flex; flex-direction: column; }
+.viewer-body { display: grid; grid-template-columns: auto minmax(0, 560px); gap: 18px; min-height: 0; flex: 1; }
+/* As big as the window lets it be: its whole height in view, no scrolling to see the picture. */
+.viewer-body > img { max-height: calc(100vh - 200px); align-self: start; border-radius: 12px; }
+.viewer-info { display: flex; flex-direction: column; gap: 14px; min-height: 0; overflow-y: auto; padding-right: 4px; }
+.viewer-section h4 { margin: 0; font-size: 13px; }
+.viewer-section .row { margin-bottom: 6px; }
+.viewer-section > h4 { margin-bottom: 8px; }
+.viewer-text { white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: 12px; line-height: 1.55;
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; max-height: 150px; overflow-y: auto; }
+@keyframes pop { from { opacity: 0; transform: translateY(8px) scale(0.98); } }
+.lightbox { position: fixed; inset: 0; z-index: 180; background: rgba(5, 6, 10, 0.92); display: grid; place-items: center; animation: fade 0.2s; cursor: zoom-out; }
+/* As big as the window allows (small images are scaled up too), aspect kept. */
+.lightbox img { width: 100vw; height: 100vh; object-fit: contain; }
+.lightbox.with-info { grid-template-columns: minmax(0, 1fr) 340px; place-items: stretch; }
+.lightbox.with-info img { width: 100%; }
+.lightbox-info { overflow-y: auto; padding: 24px 20px; background: rgba(15, 17, 26, 0.96); border-left: 1px solid rgba(255, 255, 255, 0.08); cursor: default; user-select: text; }
+.lightbox-info h4 { margin: 0 0 8px; font-size: 13px; color: var(--text-2, #9aa0b4); }
+.lightbox-info ul { list-style: none; margin: 0 0 18px; padding: 0; display: grid; gap: 6px; }
+.lightbox-info li { font-size: 13px; line-break: anywhere; overflow-wrap: anywhere; }
+.lightbox-info li b { color: var(--accent, #9b8fff); margin-right: 4px; font-variant-numeric: tabular-nums; }  /* edge to edge: a portrait picture fills the height */
+
+.empty-state { display: grid; place-items: center; text-align: center; padding: 60px 20px; color: var(--text-2); gap: 12px; word-break: keep-all; }  /* Korean breaks between words, never inside one */
+.empty-state .icon-badge { width: 56px; height: 56px; border-radius: 16px; }
+.empty-state .icon-badge svg { width: 26px; height: 26px; }
+.empty-state h3 { margin: 4px 0 0; color: var(--text); font-size: 17px; }
+.empty-state p { margin: 0; max-width: 420px; }
+.notice { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; }
+.notice.accent { background: linear-gradient(90deg, rgba(139, 125, 255, 0.12), transparent 70%), var(--surface); border-color: var(--accent-line); }
+.notice.amber { background: linear-gradient(90deg, rgba(255, 200, 97, 0.1), transparent 70%), var(--surface); border-color: rgba(255, 200, 97, 0.3); }
+.notice .icon-badge { width: 30px; height: 30px; border-radius: 9px; }
+.notice .icon-badge svg { width: 15px; height: 15px; }
+.notice .body { flex: 1; }
+.notice .body strong { display: block; margin-bottom: 2px; }
+.notice .body span { color: var(--text-2); }
+
+.fade-in { animation: fade-up 0.35s var(--ease); }
+@keyframes fade-up { from { opacity: 0; transform: translateY(6px); } }
+.hidden { display: none !important; }
+
+@media (max-width: 1150px) {  /* narrow: the current step keeps its name; the to-do pill keeps its text and button */
+  .todo .label { display: none; }
+  .topbar { gap: 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+.scroll-y { scrollbar-width: thin; scrollbar-color: var(--surface-4) transparent; }
+
+/* 융합 · 바둑돌: pictures at their own proportions, packed in columns; the actions live on the picture. */
+.stones { column-width: 150px; column-gap: 8px; }
+.stone { position: relative; break-inside: avoid; margin-bottom: 8px; border-radius: 10px; overflow: hidden; cursor: zoom-in; background: rgba(255, 255, 255, 0.04); outline: 2px solid transparent; outline-offset: -2px; }
+.stone > img { display: block; width: 100%; height: auto; }
+.stone.on { outline-color: var(--accent, #9b8fff); }
+.stone-parents { position: absolute; left: 6px; top: 6px; display: flex; gap: 3px; }
+.stone-parents img { width: 24px; height: 24px; object-fit: cover; border-radius: 6px; border: 1px solid rgba(255, 255, 255, 0.6); }
+.stone-check { position: absolute; right: 6px; top: 6px; width: 22px; height: 22px; padding: 0; border-radius: 6px; display: grid; place-items: center; cursor: pointer;
+  color: #fff; background: rgba(5, 6, 10, 0.55); border: 1px solid rgba(255, 255, 255, 0.4); opacity: 0; transition: opacity 0.15s; }
+.stone:hover .stone-check, .stone-check.on { opacity: 1; }
+.stone-check.on { background: var(--accent, #9b8fff); border-color: transparent; }
+.stone-bar { position: absolute; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; gap: 6px; padding: 24px 6px 6px;
+  background: linear-gradient(transparent, rgba(5, 6, 10, 0.85)); opacity: 0; transition: opacity 0.15s; pointer-events: none; }
+.stone:hover .stone-bar { opacity: 1; pointer-events: auto; }
+.stone-btn { width: 30px; height: 30px; padding: 0; border: 0; border-radius: 8px; display: grid; place-items: center; cursor: pointer; color: #fff; background: rgba(255, 255, 255, 0.16); backdrop-filter: blur(6px); }
+.stone-btn:hover { background: rgba(255, 255, 255, 0.3); }
+.stone-btn.danger:hover { background: rgba(220, 70, 80, 0.75); }
+.stone-tag { position: absolute; left: 6px; bottom: 6px; display: inline-flex; gap: 3px; align-items: center; padding: 1px 6px; border-radius: 999px; font-size: 11px; color: #fff; background: rgba(5, 6, 10, 0.6); }
+
+/* ---- 조합 page: two sides, each with its own switch, rules and list ---- */
+.head-actions { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; justify-content: flex-end; }
+.inline-field { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; font-weight: 600; color: var(--text-3); }
+.inline-field .input-group .input { min-width: 0; }
+.btn.icon { padding: 0 8px; min-width: 32px; }
+.combo-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; flex: 1; min-height: 0; }
+@media (max-width: 1000px) { .combo-cols { grid-template-columns: minmax(0, 1fr); } }
+.card.side { display: flex; flex-direction: column; min-height: 0; padding: 16px 18px; }
+.side-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.side-head h3 { margin: 0; }
+.power { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-2); background: var(--surface-2); color: var(--text-3);
+  border-radius: 999px; padding: 5px 12px 5px 9px; font-size: 12px; font-weight: 700; cursor: pointer; }
+.power.on { color: var(--text); border-color: var(--accent, #7c8cff); }
+.power svg { width: 14px; height: 14px; }
+.side-body { display: flex; flex-direction: column; flex: 1; min-height: 0; transition: opacity .15s, filter .15s; }
+.side.is-off .side-body { opacity: .38; filter: grayscale(1); pointer-events: none; user-select: none; }
+.side-rules { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+.rule { background: var(--surface-2); border-radius: 10px; padding: 9px 12px; min-width: 0; }
+.rule-label { font-size: 11.5px; color: var(--text-3); margin-bottom: 6px; }
+.add-row { display: flex; gap: 8px; align-items: stretch; flex-wrap: wrap; }
+.add-row .textarea { flex: 1; min-width: 180px; resize: none; }
+.side-list { flex: 1; min-height: 160px; }
+.warn-chip { color: var(--amber); font-size: 11px; font-weight: 700; margin-left: 8px; cursor: help; white-space: nowrap; }
+.chip-none { color: var(--text-3); font-size: 11.5px; }
+table.data.artists td.lname { width: auto; max-width: 0; }
+table.data.artists td.trig { max-width: 96px; width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2); font-size: 12px; }
+table.data.artists td.trig span { display: block; overflow: hidden; text-overflow: ellipsis; }
+/* explanation text always wraps */
+.note, .desc, .page-head p, .card p, .hint { overflow-wrap: anywhere; white-space: normal; }
+
+/* ---- 다듬기 ---- */
+.tune-start, .tune-session { display: flex; flex-direction: column; gap: 16px; }
+.tune-session { flex-direction: row; align-items: center; }
+.tune-pick { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+.tune-thumb { width: 180px; flex: none; cursor: pointer; border-radius: 12px; overflow: hidden; }
+.tune-thumb.sm { width: 96px; cursor: default; }
+.tune-empty { aspect-ratio: 1; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; background: var(--surface-2); color: var(--text-3); border-radius: 12px; border: 1px dashed var(--line-2); }
+.tune-info { flex: 1; min-width: 220px; display: flex; flex-direction: column; gap: 8px; }
+.tune-info h3 { margin: 0; }
+.tune-opts { display: flex; gap: 16px; align-items: flex-end; flex-wrap: wrap; border-top: 1px solid var(--line); padding-top: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px; font-size: 12px; color: var(--text-2); }
+.pill { font-size: 11.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; background: var(--surface-3); color: var(--text-2); }
+.pill.ok { color: var(--mint, #58d6a0); } .pill.warn { color: var(--amber); }
+.stone.ref { outline: 2px solid var(--accent, #7c8cff); }
+.stone-weights { position: absolute; left: 0; right: 0; bottom: 26px; padding: 14px 6px 2px; font-size: 10.5px; line-height: 1.3; background: linear-gradient(transparent, rgba(0,0,0,.7)); color: #fff; display: flex; flex-direction: column; opacity: 0; transition: opacity .12s; pointer-events: none; }
+.stone:hover .stone-weights { opacity: 1; }
+
+.fav-cols { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.fav-col { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.fav-title { font-size: 12px; font-weight: 700; color: var(--text-3); margin-bottom: 4px; }
+.fav-col .artist-list { flex-wrap: nowrap; }
+.fav-col .artist-row { width: 100%; }
+
+/* long names (LoRA files) wrap onto a second line instead of being cut after a few letters */
+.weight-row { align-items: center; }
+.weight-row .name { white-space: normal; overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2;
+  overflow-wrap: anywhere; line-height: 1.3; }
+.weight-row .name .kind { display: inline-block; margin-right: 6px; vertical-align: 1px; }
+.split.fill .weight-row { grid-template-columns: minmax(0, 1fr) 36px 28px; }
+
+/* buttons: one calm family; primary keeps colour but no glow, sizes step 30 / 36 / 40 */
+.btn { height: 34px; font-size: 13px; border-radius: 9px; }
+.btn.primary { box-shadow: none; }
+.btn.lg { height: 40px; font-size: 13.5px; padding: 0 18px; border-radius: 10px; }
+.btn.sm { height: 30px; border-radius: 8px; }
+.preview-actions .btn { font-size: 12px; padding: 0 4px; gap: 4px; min-width: 0; }
+.btn.labeled, .detail .header-action { font-weight: 600; }
+.tune-empty svg { width: 34px; height: 34px; }
+.chip.dim { opacity: .45 }
+
+/* narrow preview panel: nothing runs off its edge */
+.split.fill .detail { min-width: 0; overflow-x: hidden; }
+.split.fill .detail .kv { flex-wrap: wrap; }
+.split.fill .detail .kv > div { min-width: auto; }
+.detail .card.pad-sm { padding: 10px 12px; }
+.detail .field-label { white-space: normal; }
+.split.fill .detail .kv { gap: 2px; }
+.split.fill .detail .kv > div { padding: 6px 2px; }
+.split.fill .detail .kv .v { font-size: 12px; }
+.split.fill .detail .kv > .tier-cell :is(.tier, .badge) { min-width: 30px; padding: 0 5px; }
+.add-row .textarea::placeholder { font-family: inherit; font-weight: 400; line-height: 1.5; }
+.add-row .textarea { font-family: inherit; }
+
+/* preview numbers: Elo (with its edit button) first and widest, then record and generation */
+.detail .kv, .split.fill .detail .kv { display: grid; grid-template-columns: auto auto auto; justify-content: stretch; gap: 6px; }
+.detail .kv { grid-template-columns: 1fr; }
+.detail .kv:has(> div:nth-child(3)) { grid-template-columns: 1.6fr 1fr 0.8fr; }
+.detail .kv:has(> div:nth-child(2):last-child) { grid-template-columns: 1.6fr 0.8fr; }
+.detail .kv > div { display: flex; align-items: center; justify-content: center; gap: 4px; padding: 7px 6px; border-radius: 9px; white-space: nowrap; min-width: 0; }
+.detail .kv-elo { justify-content: space-between !important; }
+.detail .kv .k { font-size: 11px; color: var(--text-3); }
+.detail .kv .v { font-size: 13px; margin: 0; }
+.kv-edit { display: inline-flex; align-items: center; gap: 3px; margin-left: auto; padding: 2px 6px; border-radius: 6px; border: 1px solid var(--line-2); background: var(--surface-3); color: var(--text-2); font-size: 11px; font-weight: 600; cursor: pointer; }
+.kv-edit:hover { color: var(--text); border-color: var(--line-3); }
+.preview-actions .btn { flex: 1 1 0; }
+.btn.purge { width: 96px; padding: 0; }
+
+/* 시드 · 만들 개수 beside the 만들기 button: same height and one readable size */
+.head-actions .input { height: 40px; font-size: 14px; font-weight: 500; font-family: inherit; }
+.head-actions .btn.icon { height: 40px; min-width: 40px; }
+.inline-field { font-size: 12px; font-weight: 600; }
+.rule .input { font-size: 14px; font-weight: 500; font-family: inherit; }
+
+.list-bar { display: flex; align-items: center; gap: 6px; margin-top: 10px; min-height: 30px; }
+.list-bar .note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.list-bar .btn.icon { width: 30px; padding: 0; }
+table.data.artists td.lname { min-width: 120px; }
+
+/* home: the row is never shorter than what the favourites card needs, even with nothing to show yet */
+.home-lower { min-height: 168px; }
+.home-lower > section.card { min-height: 168px; }
+
+/* 융합: the bench stays on the left, the pictures fill the rest */
+.fuse-layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; align-items: start; }
+@media (max-width: 1000px) { .fuse-layout { grid-template-columns: minmax(0, 1fr); } }
+.fuse-bench { position: sticky; top: 0; display: flex; flex-direction: column; gap: 14px; padding: 16px; }
+.fuse-slots { display: flex; align-items: center; gap: 8px; }
+.fuse-slot { flex: 1; min-width: 0; cursor: pointer; }
+.fuse-plus { color: var(--text-3); font-size: 20px; }
+.fuse-empty { width: 100%; aspect-ratio: 3 / 4; display: flex; flex-direction: column; gap: 8px; align-items: center; justify-content: center; border: 1px dashed var(--line-3, var(--line-2)); border-radius: 12px; background: var(--surface-2); color: var(--text-2); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.fuse-empty:hover { background: var(--surface-3); color: var(--text); }
+.fuse-main { min-width: 0; }
+.textarea::placeholder { font-family: inherit; }
+.fuse-empty svg { width: 24px; height: 24px; }
+.fuse-main > p.muted { padding: 70px 20px; text-align: center; border: 1px dashed var(--line-2); border-radius: 12px; margin: 0; }
+
+.fuse-main { display: flex; flex-direction: column; gap: 16px; }
+.fuse-panel { padding: 16px 18px; }
+.panel-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.panel-head h3 { margin: 0; }
+.fuse-main > .fuse-panel p.muted { border: 0; padding: 50px 20px; }
+
+/* ---- one calm look: quiet by default, colour and weight only where an action matters ---- */
+.btn { font-weight: 500; background: var(--surface-2); border-color: var(--line); border-radius: 8px; }
+.btn:hover { background: var(--surface-3); border-color: var(--line-2); }
+.btn.primary { font-weight: 600; }
+.btn.danger { background: transparent; border-color: var(--line); color: #e08b91; }
+.btn.danger:hover { background: var(--red-soft); border-color: rgba(255, 107, 115, 0.35); }
+.btn.ghost { border-color: transparent; background: transparent; }
+.btn.ghost:hover { background: var(--surface-2); }
+.btn.sm, .btn.labeled, .detail .header-action { font-weight: 500; }
+.btn.lg { font-weight: 600; }
+.segmented button, .power, .chip, .pill, .warn-chip { font-weight: 500; }
+.power { background: transparent; border-color: var(--line-2); }
+.power.on { color: var(--text-2); border-color: var(--accent-line); }
+.card h3, .side-head h3, .panel-head h3 { font-weight: 600; }
+.field-label, .inline-field, .rule-label { font-weight: 500; }
+.preview-actions .btn { font-weight: 500; }
+.preview-actions .btn.primary { font-weight: 600; }
+.purge { font-weight: 500; }
+
+/* Elo cell: the edit control is a quiet text link beside the value, not a second button */
+.kv-edit { border: 0; background: transparent; color: var(--text-3); padding: 2px 4px; font-weight: 500; }
+.kv-edit:hover { color: var(--accent-2); background: transparent; }
+.detail .kv > div { background: var(--surface-2); }
+
+/* weight list: LoRA names blue, artist names pink */
+.weight-row .name.is-lora { color: #7fc3f5; }
+.weight-row .name.is-artist { color: #f2a6c8; }
+.c-lora { color: #7fc3f5; } .c-artist { color: #f2a6c8; }
+.fav-cols > .fav-col:nth-child(1) .fav-title { color: #f2a6c8; } .fav-cols > .fav-col:nth-child(2) .fav-title { color: #7fc3f5; }
+
+/* Korean breaks between words, not inside them */
+.note, .desc, .page-head p, .card p, .hint, .leg p, .check-item p { word-break: keep-all; overflow-wrap: break-word; }
+
+/* ---- every tab uses the whole window: the page is a column, its main panels grow and scroll inside ---- */
+.page-col { display: flex; flex-direction: column; flex: 1; min-height: 0; width: 100%; }
+.page-col.scroll { overflow-y: auto; scrollbar-width: thin; padding-bottom: 4px; }
+.page-col > .page-head { flex: none; }
+.fill-grid { display: grid; flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); gap: 16px; align-items: stretch; }
+.fill-card { min-height: 0; overflow-y: auto; scrollbar-width: thin; display: flex; flex-direction: column; }
+.fill-card > .gallery { align-content: start; }
+.fill-center { margin: auto; }
+.fuse-layout { flex: 1; min-height: 0; grid-template-rows: minmax(0, 1fr); }
+.fuse-bench { position: static; align-self: start; }
+.fuse-main { height: 100%; overflow-y: auto; scrollbar-width: thin; min-height: 0; }
+.fuse-main > .fuse-panel:first-child { flex: 1 0 auto; }
+.fuse-main > .fuse-panel p.muted { margin: auto 0; }
+.home-lower { flex: 1 1 auto; }
+.page-col > .fill-grow { flex: 1 0 auto; }
+@media (max-width: 1000px) { .fill-grid { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: none; } }
+.page-col.scroll > * { flex-shrink: 0; }
+.page-col > .page-head { flex-shrink: 0; }
+.home-lower { flex: 1 0 auto; }
+
+/* tile corners: the top-right marks (memo, bookmark, rank) stack downwards so they never run into the tier chip */
+.tile .art .corner.tr { flex-direction: column; align-items: flex-end; gap: 4px; }
+.tile .art .corner.tr .badge { min-width: 24px; justify-content: center; }
+/* memo sits right under the numbers, short */
+.detail .memo-box textarea, .detail .card textarea.textarea { min-height: 0; }
+
+/* sidebar: roomier rows, a hairline between them, a stronger line between the two groups */
+.nav-item { min-height: 48px; padding-top: 12px; padding-bottom: 12px; border-radius: 10px; position: relative; }
+.nav-item:not(.active):not(:has(+ .nav-label)):not(:last-child)::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: -1px; height: 1px; background: var(--line); }
+.nav-item.active::after { display: none; }
+.nav-label { margin-top: 12px; padding-top: 18px; border-top: 1px solid var(--line-2); }
+.nav-label:first-child, nav > .nav-label:first-of-type { margin-top: 0; border-top: 0; padding-top: 14px; }
+/* keep the sidebar lines quiet */
+.nav-item:not(.active):not(:has(+ .nav-label)):not(:last-child)::after { left: 14px; right: 14px; background: rgba(255, 255, 255, 0.045); }
+.nav-label { border-top: 0; margin-top: 8px; padding-top: 16px; position: relative; }
+.nav-label::before { content: ''; position: absolute; top: 0; left: 10px; right: 10px; height: 1px; background: rgba(255, 255, 255, 0.07); }
+.nav-label:first-of-type::before { display: none; }
+.nav-label { margin-top: 0; padding-top: 12px; padding-bottom: 4px; }
+.nav-label::before { background: rgba(255, 255, 255, 0.045); left: 14px; right: 14px; }
+
+/* selection toolbar: its own strip, set apart from the card it sits in */
+.sel-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; padding: 8px 10px; min-height: 48px; background: rgba(255,255,255,0.03); border: 1px solid var(--line); border-radius: 10px; }
+.sel-bar .hint { margin-left: 4px; }
+
+/* rows sit inset from the dividers, so the active highlight never touches the lines */
+.nav-item { min-height: 44px; margin: 3px 0; }
+.nav-item:not(.active):not(:has(+ .nav-label)):not(:last-child)::after { bottom: -4px; }
+
+/* settings */
+.toggle-row { display: flex; align-items: flex-start; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,0.02); cursor: pointer; }
+.toggle-row input { margin-top: 3px; flex: none; }
+.toggle-title { font-size: 13px; font-weight: 600; color: var(--text); }
+.settings-columns .card-head { margin-bottom: 14px; }
+.fill-card .textarea.grow { flex: 1; min-height: 120px; }
+.settings-stack { max-width: 880px; gap: 16px; overflow-y: auto; scrollbar-width: thin; padding-bottom: 4px; }
+.reset-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 0; border-top: 1px solid var(--line); }
+.reset-row:first-child { border-top: 0; padding-top: 4px; }
+.fill-card > .stack { flex: 1; min-height: 0; }
+.fill-card > .stack > .field { flex: 1; min-height: 0; }
+.fill-card > .stack > .field > .textarea { flex: 1; resize: none; }
+```

@@ -1,0 +1,417 @@
+# Source Snapshot: home_server/workflows.py
+
+- Source: `C:\Users\azzib\Desktop\workspace_local\comfy-home-server\home_server\workflows.py`
+- Original Byte SHA-256: `ed0bf838ed3ef5903d2b6e9bffef704b7137077fe79596e3bd630b6ff26785d5`
+- Snapshot Text SHA-256: `ed0bf838ed3ef5903d2b6e9bffef704b7137077fe79596e3bd630b6ff26785d5`
+- 형식: UTF-8 / LF / 마지막 줄바꿈. Markdown 외곽을 제외한 코드 블록 내용이 Snapshot입니다.
+- 범위: 전체 텍스트 파일
+- 복원 시 생성 이미지·모델·인증 정보는 별도 준비합니다.
+
+```python
+"""지원하는 두 ComfyUI workflow를 요청별로 수정합니다."""
+
+from __future__ import annotations
+
+import copy
+import json
+import math
+import re
+from pathlib import Path
+from typing import Any
+
+
+WORKFLOW_FILES = {
+    "anima": "AnimaTurboV9/AnimaStandardTurboV9_empty",
+    "minimax_h3": "DasiwaMinimaxH3LoraAV/DasiwaMinimaxH3LoraAV",
+}
+
+MINIMAX_LORA_NODE_IDENTIFIERS = (
+    "2678", "2794", "2795", "2796", "2797", "2798", "2799", "2800", "2801", "2802",
+)
+
+WORKFLOW_OUTPUT_NAMES = {
+    "anima": "%time_%seed",
+    "minimax_h3": "%date:yyMMdd_HHmmss%_%seed%",
+}
+
+
+def load_workflows(workflow_directory: Path, workflow_name: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    """선택한 workflow의 API JSON과 UI JSON을 읽습니다."""
+
+    if workflow_name not in WORKFLOW_FILES:
+        raise ValueError("지원하지 않는 workflow입니다.")
+    file_prefix = workflow_directory / WORKFLOW_FILES[workflow_name]
+    api_workflow = json.loads(file_prefix.with_name(file_prefix.name + "_api.json").read_text(encoding="utf-8-sig"))
+    ui_workflow = json.loads(file_prefix.with_suffix(".json").read_text(encoding="utf-8-sig"))
+    return api_workflow, ui_workflow
+
+
+def update_ui_widget(ui_workflow: dict[str, Any], node_id: str, name: str, value: Any) -> None:
+    """Drag and drop metadata의 widget 값도 API 요청과 맞춥니다."""
+
+    for node in ui_workflow.get("nodes", []):
+        if str(node.get("id")) != node_id:
+            continue
+        named_values = node.get("widgets_values_named")
+        if not isinstance(named_values, dict):
+            return
+        widget_names = list(named_values)
+        named_values[name] = value
+        if name in widget_names:
+            widget_index = widget_names.index(name)
+            widget_values = node.get("widgets_values")
+            if isinstance(widget_values, list) and widget_index < len(widget_values):
+                widget_values[widget_index] = value
+        return
+
+
+def connect_ui_seed(metadata_workflow: dict[str, Any]) -> None:
+    """MiniMax metadata에도 sampling seed와 Saver의 연결을 기록합니다."""
+
+    source_node = None
+    target_node = None
+    for node in metadata_workflow["nodes"]:
+        if str(node["id"]) == "2739":
+            source_node = node
+        if str(node["id"]) == "2568":
+            target_node = node
+    if source_node is None or target_node is None:
+        raise ValueError("MiniMax seed 또는 Saver node가 없습니다.")
+    for input_index, node_input in enumerate(target_node["inputs"]):
+        if node_input["name"] != "seed":
+            continue
+        workflow_links = metadata_workflow.setdefault("links", [])
+        link_identifier = max([metadata_workflow.get("last_link_id", 0)] + [link[0] for link in workflow_links]) + 1
+        node_input["link"] = link_identifier
+        source_links = source_node["outputs"][0].get("links") or []
+        source_links.append(link_identifier)
+        source_node["outputs"][0]["links"] = source_links
+        workflow_links.append([link_identifier, source_node["id"], 0, target_node["id"], input_index, "INT"])
+        metadata_workflow["last_link_id"] = link_identifier
+        return
+    raise ValueError("MiniMax Saver에 seed 입력이 없습니다.")
+
+
+def validate_output_stem(output_stem: str) -> str:
+    """출력 경로가 앱 관리 폴더 아래의 단순 상대 경로인지 확인합니다."""
+
+    normalized = output_stem.replace("\\", "/")
+    components = normalized.split("/")
+    if any(component in {"", ".", ".."} for component in components):
+        raise ValueError("출력 경로에 잘못된 구성요소가 있습니다.")
+    path_components = components[:-1]
+    if components[-1] not in WORKFLOW_OUTPUT_NAMES.values():
+        path_components.append(components[-1])
+    if any(not re.fullmatch(r"[A-Za-z0-9_-]+", component) for component in path_components):
+        raise ValueError("출력 경로에는 영문, 숫자, 밑줄, 하이픈만 사용할 수 있습니다.")
+    return normalized
+
+
+def disable_anima_trigger_words(request_workflow: dict[str, Any], metadata_workflow: dict[str, Any]) -> None:
+    """생성 요청의 trigger word는 비우고 UI의 LoRA 연동과 기본 비활성 상태를 유지합니다."""
+
+    trigger_inputs = request_workflow["43"]["inputs"]
+    trigger_inputs["default_active"] = False
+    trigger_inputs["allow_strength_adjustment"] = False
+    trigger_inputs["toggle_trigger_words"] = {"__value__": []}
+    trigger_inputs["orinalMessage"] = ""
+    # 연결된 trigger_words는 Toggle 상태보다 우선하므로 빈 문자열로 고정합니다.
+    trigger_inputs["trigger_words"] = ""
+    update_ui_widget(metadata_workflow, "43", "default_active", False)
+    update_ui_widget(metadata_workflow, "43", "allow_strength_adjustment", False)
+    update_ui_widget(metadata_workflow, "43", "toggle_trigger_words", [])
+    update_ui_widget(metadata_workflow, "43", "orinalMessage", "")
+
+
+def prepare_anima(
+    api_workflow: dict[str, Any],
+    ui_workflow: dict[str, Any],
+    positive_prompt: str,
+    negative_prompt: str,
+    settings: dict[str, Any],
+    selected_loras: list[dict[str, Any]],
+    output_stem: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Anima의 Prompt, sampling, LoRA, 출력 파일 경로를 적용합니다."""
+
+    request_workflow = copy.deepcopy(api_workflow)
+    metadata_workflow = copy.deepcopy(ui_workflow)
+    output_path = validate_output_stem(output_stem)
+    output_directory, output_name = output_path.rsplit("/", 1)
+
+    width = int(settings.get("width", 1024))
+    height = int(settings.get("height", 1536))
+    seed = int(settings.get("seed", 42))
+    steps = int(settings.get("steps", 12))
+    cfg = float(settings.get("cfg", 1))
+    if min(width, height, steps) <= 0:
+        raise ValueError("해상도와 steps는 1 이상이어야 합니다.")
+
+    for node_id, prompt_text in (("3", positive_prompt), ("4", negative_prompt)):
+        prompt_inputs = request_workflow[node_id]["inputs"]
+        prompt_inputs["wildcard_text"] = prompt_text
+        prompt_inputs["populated_text"] = prompt_text
+        prompt_inputs["mode"] = "fixed"
+        for key in ("wildcard_text", "populated_text", "mode"):
+            update_ui_widget(metadata_workflow, node_id, key, prompt_inputs[key])
+
+    request_workflow["24"]["inputs"].update({"seed": seed, "steps": steps, "cfg": cfg})
+    request_workflow["45"]["inputs"]["value"] = width
+    request_workflow["48"]["inputs"]["value"] = height
+    # 요청마다 wildcard를 별도로 선택하도록 한 요청은 한 장만 생성합니다.
+    request_workflow["51"]["inputs"]["value"] = 1
+    for node_id, name, value in (
+        ("24", "seed", seed), ("24", "steps", steps), ("24", "cfg", cfg),
+        ("45", "value", width), ("48", "value", height), ("51", "value", 1),
+    ):
+        update_ui_widget(metadata_workflow, node_id, name, value)
+
+    lora_entries = []
+    for selected_lora in selected_loras:
+        model_strength = float(selected_lora.get("strength", 1))
+        clip_strength = float(selected_lora.get("clip_strength", model_strength))
+        lora_entries.append({
+            "name": str(selected_lora["name"]), "strength": model_strength,
+            "clipStrength": clip_strength,
+            "active": True, "expanded": clip_strength != model_strength, "selected": False, "locked": False,
+        })
+    request_workflow["5"]["inputs"]["loras"] = {"__value__": lora_entries}
+    request_workflow["5"]["inputs"]["text"] = " ".join(
+        f"<lora:{entry['name']}:{entry['strength']}:{entry['clipStrength']}>" for entry in lora_entries
+    )
+    metadata_lora_entries = copy.deepcopy(lora_entries)
+    for metadata_lora in metadata_lora_entries:
+        # LoRA Manager가 숫자 0을 Model 강도로 대체하므로 UI 값만 문자열로 보존합니다.
+        if metadata_lora["clipStrength"] == 0 and metadata_lora["strength"] != 0:
+            metadata_lora["clipStrength"] = "0"
+    # UI Workflow는 API의 __value__ wrapper 대신 LoRA 항목 배열을 복원합니다.
+    update_ui_widget(metadata_workflow, "5", "loras", metadata_lora_entries)
+    update_ui_widget(metadata_workflow, "5", "text", request_workflow["5"]["inputs"]["text"])
+    disable_anima_trigger_words(request_workflow, metadata_workflow)
+
+    save_inputs = request_workflow["13"]["inputs"]
+    save_inputs["path"] = output_directory
+    save_inputs["filename"] = output_name
+    save_inputs["time_format"] = "%y%m%d_%H%M%S"
+    save_inputs["embed_workflow"] = True
+    update_ui_widget(metadata_workflow, "13", "path", output_directory)
+    update_ui_widget(metadata_workflow, "13", "filename", output_name)
+    update_ui_widget(metadata_workflow, "13", "time_format", save_inputs["time_format"])
+    return request_workflow, metadata_workflow
+
+
+def build_minimax_timeline(
+    original_text: str, uploaded_image: str, prompt_text: str, width: int, height: int, duration: float,
+    generation_mode: str = "FL2VA",
+    prepared_canvas: bool = False,
+) -> str:
+    """요청 모드에 필요한 endpoint만 만들고 동일 이미지와 평문을 Timeline에 반영합니다."""
+
+    timeline = json.loads(original_text or "{}")
+    timeline.pop("continuity", None)
+    timeline["items"] = []
+    for endpoint_slot in (0, 1):
+        if (generation_mode == "F2VA" and endpoint_slot == 1) or (generation_mode == "L2VA" and endpoint_slot == 0):
+            continue
+        timeline["items"].append({
+            "id": f"home-frame-{endpoint_slot}", "type": "image", "slot": endpoint_slot,
+            "order": endpoint_slot, "enabled": True, "value": uploaded_image,
+        })
+    timeline["prompt_blocks"] = []
+    timeline.pop("refmods", None)
+    timeline["resolved_prompt"] = prompt_text
+    execution_mode = "I2VA" if generation_mode == "F2VA" else generation_mode
+    builder_state = {"mode": execution_mode, "duration": duration, "prompt_mode": "simple", "simple_prompt": prompt_text}
+    timeline["builder_state"] = builder_state
+    resolution = timeline.get("resolution") or {}
+    resolution.update({
+        "aspect": "custom", "resolution": "custom", "custom_mode": "fixed",
+        "custom_aspect_w": width, "custom_aspect_h": height, "custom_width": width, "custom_height": height,
+    })
+    if prepared_canvas:
+        resolution["input_scaling"] = "Off"
+    timeline["resolution"] = resolution
+    return json.dumps(timeline, ensure_ascii=False, separators=(",", ":"))
+
+
+def minimax_execution_settings(settings: dict[str, Any]) -> dict[str, Any]:
+    """지원 모드와 숫자 범위를 검증하고 기존 정책인 32 단위 해상도 정렬을 적용합니다."""
+
+    normalized_settings = dict(settings)
+    if normalized_settings.get("generation_mode", "FL2VA") not in {"F2VA", "L2VA", "FL2VA"}:
+        raise ValueError("MiniMax 생성 방식은 F2VA, L2VA, FL2VA 중 하나여야 합니다.")
+    for setting_name, default_value in (("width", 720), ("height", 720)):
+        try:
+            dimension = float(settings.get(setting_name, default_value))
+        except (TypeError, ValueError, OverflowError) as exception:
+            raise ValueError("MiniMax 너비와 높이는 숫자로 입력해 주세요.") from exception
+        if not math.isfinite(dimension) or not dimension.is_integer() or not 16 <= dimension <= 8192:
+            raise ValueError("MiniMax 너비와 높이는 16~8192 범위의 정수여야 합니다.")
+        normalized_settings[setting_name] = ((int(dimension) + 31) // 32) * 32 if settings.get("auto_align", True) else int(dimension)
+    for setting_name, default_value, maximum_value in (("duration", 10, 1000), ("frame_rate", 24, 240)):
+        try:
+            numeric_value = float(settings.get(setting_name, default_value))
+        except (TypeError, ValueError, OverflowError) as exception:
+            raise ValueError("MiniMax 길이와 Frame rate는 숫자로 입력해 주세요.") from exception
+        if not math.isfinite(numeric_value) or not 0.1 <= numeric_value <= maximum_value:
+            raise ValueError("MiniMax 길이 또는 Frame rate가 지원 범위를 벗어났습니다.")
+        normalized_settings[setting_name] = numeric_value
+    normalized_settings["generation_mode"] = settings.get("generation_mode", "FL2VA")
+    return normalized_settings
+
+
+def apply_minimax_upscale(workflow: dict[str, Any], mode: str, model_name: str) -> None:
+    """선택한 2배 upscale node를 video 저장 node 앞에 삽입합니다."""
+
+    if mode == "off":
+        return
+    combine_inputs = workflow["2568"]["inputs"]
+    source_images = combine_inputs["images"]
+    if mode == "simple":
+        node_id = "home_upscale_simple"
+        workflow[node_id] = {
+            "class_type": "DaSiWa_TorchResize",
+            "inputs": {
+                "image": source_images, "size_mode": "Multiplier", "aspect_mode": "Fit",
+                "target_width": 1920, "target_height": 1080, "scale_multiplier": 2,
+                "interpolation": "Lanczos", "gamma_correct": True, "divisible_by": 1,
+                "pad_color": "0, 0, 0", "crop_position": "center", "batch_size": 0,
+                "max_batch_megapixels": 16, "cache_size": 64,
+            },
+        }
+    elif mode == "model":
+        workflow["home_upscale_model_loader"] = {
+            "class_type": "UpscaleModelLoader", "inputs": {"model_name": model_name},
+        }
+        node_id = "home_upscale_model"
+        workflow[node_id] = {
+            "class_type": "ImageUpscaleWithModel",
+            "inputs": {"upscale_model": ["home_upscale_model_loader", 0], "image": source_images},
+        }
+    elif mode == "rtx":
+        node_id = "home_upscale_rtx"
+        workflow[node_id] = {
+            "class_type": "DaSiWa_RTX_UpscalerRefiner",
+            "inputs": {
+                "images": source_images, "denoise": False, "denoise_quality": "Ultra",
+                "deblur": False, "deblur_quality": "Ultra", "upscale": "VSR",
+                "upscale_quality": "Ultra", "resize_type": "Scale", "scale": 2,
+                "megapixels": 2, "width": 1920, "height": 1080, "divisible_by": "32",
+                "ratio_preset": "16:9", "resize_method": "Center Crop (Fill)",
+                "device_id": 0, "empty_cache": True, "use_mmap": False,
+                "auto_unload_models": True,
+            },
+        }
+    else:
+        raise ValueError("지원하지 않는 upscale mode입니다.")
+    combine_inputs["images"] = [node_id, 0]
+
+
+def validate_minimax_loras(selected_loras: list[dict[str, Any]]) -> None:
+    """LoRA 개수와 loader가 받는 STR·VIS·AUDIO의 숫자 범위를 확인합니다."""
+
+    if len(selected_loras) > len(MINIMAX_LORA_NODE_IDENTIFIERS):
+        raise ValueError("MiniMax workflow에는 LoRA를 최대 10개 적용할 수 있습니다.")
+    for selected_lora in selected_loras:
+        for field_name in ("strength", "video_strength", "audio_strength"):
+            try:
+                strength = float(selected_lora.get(field_name, 1))
+            except (TypeError, ValueError, OverflowError) as exception:
+                raise ValueError("LoRA의 STR·VIS·AUDIO는 숫자로 입력해 주세요.") from exception
+            if not math.isfinite(strength):
+                raise ValueError("LoRA의 STR·VIS·AUDIO는 유한한 숫자로 입력해 주세요.")
+            if field_name != "strength" and not 0 <= strength <= 5:
+                raise ValueError("MiniMax LoRA의 VIS·AUDIO는 0~5 범위여야 합니다.")
+
+
+def apply_minimax_modality_loras(
+    request_workflow: dict[str, Any], metadata_workflow: dict[str, Any],
+    selected_loras: list[dict[str, Any]],
+) -> None:
+    """LoRA마다 loader 하나를 사용해 개별 modality weight와 복원 metadata를 맞춥니다."""
+
+    validate_minimax_loras(selected_loras)
+    metadata_nodes = {str(node["id"]): node for node in metadata_workflow["nodes"]}
+    for slot_index, node_identifier in enumerate(MINIMAX_LORA_NODE_IDENTIFIERS):
+        loader_inputs = request_workflow[node_identifier]["inputs"]
+        stack_entries = []
+        video_strength = audio_strength = 1.0
+        if slot_index < len(selected_loras):
+            selected_lora = selected_loras[slot_index]
+            stack_entries.append({
+                "on": True, "lora": str(selected_lora["name"]),
+                "str": float(selected_lora.get("strength", 1)),
+            })
+            video_strength = float(selected_lora.get("video_strength", 1))
+            audio_strength = float(selected_lora.get("audio_strength", 1))
+        stack_json = json.dumps(stack_entries, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        loader_inputs.update({
+            "stack_data": stack_json, "video": video_strength, "audio": audio_strength,
+            "text": 1.0, "evict_model": False,
+        })
+        for widget_name in ("stack_data", "audio", "video", "text", "evict_model"):
+            update_ui_widget(metadata_workflow, node_identifier, widget_name, loader_inputs[widget_name])
+        # Loader의 onConfigure는 widget보다 properties의 stack_data를 먼저 읽습니다.
+        metadata_nodes[node_identifier]["properties"]["stack_data"] = stack_json
+
+
+def prepare_minimax(
+    api_workflow: dict[str, Any], ui_workflow: dict[str, Any], uploaded_image: str,
+    prompt_text: str, settings: dict[str, Any], selected_loras: list[dict[str, Any]],
+    output_stem: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """공통 템플릿에 MiniMax 모드별 endpoint, LoRA, upscale과 저장 경로를 설정합니다."""
+
+    request_workflow = copy.deepcopy(api_workflow)
+    metadata_workflow = copy.deepcopy(ui_workflow)
+    settings = minimax_execution_settings(settings)
+    generation_mode = settings["generation_mode"]
+    execution_mode = "I2VA" if generation_mode == "F2VA" else generation_mode
+    width = int(settings.get("width", 720))
+    height = int(settings.get("height", 720))
+    duration = float(settings.get("duration", 10))
+    frame_rate = float(settings.get("frame_rate", 24))
+    director_inputs = request_workflow["2730"]["inputs"]
+    director_inputs.update({
+        "mode": execution_mode, "prompt": prompt_text, "width": width, "height": height,
+        "duration": duration, "frame_rate": frame_rate,
+        "ref_image_size": str(settings.get("ref_image_size", "match")),
+        "external_prompt_overwrite": prompt_text,
+    })
+    director_inputs["timeline_data"] = build_minimax_timeline(
+        str(director_inputs.get("timeline_data", "{}")), uploaded_image,
+        prompt_text, width, height, duration, generation_mode, settings.get("resize_policy") == "fit_pad",
+    )
+    builder_state = {"mode": execution_mode, "duration": duration, "prompt_mode": "simple", "simple_prompt": prompt_text}
+    director_inputs["builder_state"] = json.dumps(builder_state, ensure_ascii=False, separators=(",", ":"))
+    for key in ("mode", "prompt", "width", "height", "duration", "frame_rate", "ref_image_size", "timeline_data", "builder_state"):
+        update_ui_widget(metadata_workflow, "2730", key, director_inputs[key])
+
+    for node in request_workflow.values():
+        if isinstance(node, dict) and node.get("class_type") == "DaSiWa_SeedControl":
+            state = json.loads(str(node["inputs"].get("seed_control_state", "{}")))
+            if "seed" in settings:
+                node["inputs"]["seed_value"] = int(settings["seed"])
+                state.update({"mode": "fixed", "last_seed": str(settings["seed"])})
+                node["inputs"]["seed_control_state"] = json.dumps(state)
+                update_ui_widget(metadata_workflow, "2739", "seed_value", int(settings["seed"]))
+                update_ui_widget(metadata_workflow, "2739", "seed_control_state", json.dumps(state))
+            elif state.get("mode") == "random":
+                node["inputs"]["seed_value"] = 0
+
+    apply_minimax_modality_loras(request_workflow, metadata_workflow, selected_loras)
+
+    output_path = validate_output_stem(output_stem)
+    combine_inputs = request_workflow["2568"]["inputs"]
+    combine_inputs["filename_prefix"] = output_path
+    combine_inputs["seed"] = ["2739", 0]
+    combine_inputs["save_metadata"] = True
+    update_ui_widget(metadata_workflow, "2568", "filename_prefix", output_path)
+    update_ui_widget(metadata_workflow, "2568", "save_metadata", True)
+    connect_ui_seed(metadata_workflow)
+    apply_minimax_upscale(
+        request_workflow, str(settings.get("upscale_mode", "off")),
+        str(settings.get("upscale_model_name", "2x-AnimeSharpV4_RCAN.safetensors")),
+    )
+    return request_workflow, metadata_workflow
+```
