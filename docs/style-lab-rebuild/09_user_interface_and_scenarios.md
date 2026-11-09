@@ -2,6 +2,8 @@
 
 ## 기본 화면 구조
 
+2026-11-10부터 UX의 비교 기준은 localhost:8389의 Style Lab Web·Mobile입니다. 아래 화면 구조는 재검토할 제안입니다. [20번 문서](20_web_ux_fusion_multi_prompt_and_component_differences.md)의 여러 Prompt 결과 Matrix/Case 전환, 성분 차이 보기·탐색 제외를 초기 흐름에 반영하고, 비율 지정·3개 이상 원본 융합은 후순위에 별도 UI부터 구상합니다.
+
 일반 생성과 스타일 구성은 상단의 별도 작업 공간으로 전환합니다. 아래는 기능 범위의 개요이며, 구체적인 Desktop·Mobile 메뉴 배치와 화면 목록은 [18번 문서](18_workspace_navigation_and_screen_mockups.md)를 따릅니다. [동작하는 목업](mockups/README.md)도 함께 관리합니다.
 
 프로젝트 목록 → 프로젝트 작업실 → 선별/진화 → 보관한 그림체 순서로 구성합니다. 기존의 여러 설정 화면을 먼저 알아야 시작할 수 있는 흐름을 줄입니다.
@@ -9,9 +11,9 @@
 | 화면 | 핵심 정보·행동 |
 | --- | --- |
 | 프로젝트 목록 | 이름, Workflow·모델, 목적, 세대, 보관 그림체 수, 최근 작업, 생성/복제/보관 |
-| 프로젝트 생성 | Fresh/점수만 복제 선택, 원본 점수 출처, 등록 Workflow, Prompt, 후보 Catalog, 생성 규칙 |
+| 프로젝트 생성 | Fresh/점수만 복제 선택, 원본 점수 출처, 등록 Workflow, Prompt Set, 후보 Catalog, 생성 규칙 |
 | 프로젝트 개요 | 고정 평가 조건, 현재 단계, 남은 비교·생성, 바로 선별/다음 세대 |
-| 선별 | A/B 이미지, 비슷함, Undo, Blind, 모바일 나란히/한 장씩 전환 |
+| 선별 | 같은 A/B의 Prompt별 결과, 비슷함, Undo, Blind, Mobile Case·배치 전환, 성분 차이·향후 사용 제외 |
 | 진화 | 부모·후보 수, 생성 진행, 남은 검증, 세대 확정과 탈락·제외 미리보기 |
 | 세대 이력 | 평가 구간별 확정 Checkpoint 목록, 선택 세대로 돌아가기, 삭제 경고 |
 | Prompt 재시험 | 상위 N개 선택, 새 Prompt, 원본/신규 보기, 시험 순위·Drop 취소·채택 |

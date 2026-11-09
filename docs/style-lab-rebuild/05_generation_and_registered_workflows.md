@@ -90,4 +90,6 @@ Sampling Seed와 Tag/Wildcard 선택 Seed는 별개입니다. 비교에서는 Pr
 
 Template는 요청별 Deep Copy합니다. API/UI Snapshot, Model Identifier와 가능하면 Hash, Adapter Version, 확정 Prompt, Seed, 성분 Weight를 기록합니다. 모델 Tensor 본체는 넣지 않습니다.
 
+새 [여러 Prompt 탐색](20_web_ux_fusion_multi_prompt_and_component_differences.md)은 하나의 Candidate에 Prompt Set Version·Case·Seed별 Render를 연결합니다. 후보 간에는 동일 Case·Seed의 조건과 공통 전개를 맞추고, Case 사이의 Prompt 내용은 각각 보존합니다. 장수·재사용·부분 실패를 Case별로 계산하고 대표 이미지 한 장만 저장하지 않습니다.
+
 CFG 1의 일반 Negative conditioning과 NegPip의 Positive 음수 Weight는 다른 기능입니다. Anima 동작을 Moss에 자동 이식하거나 일반 Negative를 Positive 음수로 임의 변환하지 않습니다.

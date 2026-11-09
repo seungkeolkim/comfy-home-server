@@ -40,6 +40,8 @@
 
 ## 필수 수락 테스트
 
+2026-11-10 추가한 [20번 수락 기준](20_web_ux_fusion_multi_prompt_and_component_differences.md)도 적용합니다. 여러 Prompt의 같은 Case·Seed 대응, 투표/집계 정책과 관측 수, Case별 실패 재시도·복원/분기 Asset, 성분 차이·세 생성 방식의 제외, 다중 원본 비율 융합을 해당 구현 단계에서 검증합니다. 기존 단일 Prompt Fixture 통과만으로 이 확장까지 완료됐다고 판단하지 않습니다.
+
 ### 프로젝트와 점수
 
 - 두 Project가 같은 작가·LoRA를 쓰더라도 한쪽 Vote·Undo·Reset·진화가 다른 쪽에 영향을 주지 않습니다.

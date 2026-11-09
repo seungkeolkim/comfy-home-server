@@ -2,6 +2,8 @@
 
 새 프로그램의 **P0 요구사항**입니다. 현재 Style Lab에 이미 구현된 기능은 아닙니다. 기존 '이번 세대 취소', 개별 Vote Undo, 점수 Reset과 구분합니다.
 
+[20번 확장](20_web_ux_fusion_multi_prompt_and_component_differences.md)에 따라 Checkpoint에는 Prompt Set·Case·투표/집계 정책, 성분 제외 정책과 각 후보의 모든 Case Render 참조를 포함합니다. 삭제 Preview는 후보 수와 이미지 수를 구분하고 이후의 융합 출처·결과·Case별 생성물도 Event 경계대로 처리합니다. 독립 분기·채택 구간과 공유 Asset 보호 원칙은 유지합니다.
+
 ## 돌아갈 시점
 
 기본 대상은 **선택한 세대가 확정된 직후의 Checkpoint**입니다. '5세대로 돌아가기'는 5세대 확정 당시 후보·점수·승패·부모 목록을 복원하는 의미입니다. 5세대 자체의 이미지와 결과는 유지하고 다음 생성은 6세대입니다.

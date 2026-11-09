@@ -22,7 +22,9 @@
 
 ## 탐색과 검증의 조건
 
-한 평가 구간의 탐색은 같은 Prompt·Sampling Seed·Workflow 조건을 사용합니다. 최종 후보는 공통의 추가 Seed 묶음에서 검증합니다. 예를 들어 2~3개 Seed로 시작할 수 있으나 최적 개수로 확정한 값은 아닙니다. 추가 Seed 검증은 기존 계획대로 P1입니다.
+한 평가 구간의 탐색은 같은 Prompt Set Version·Workflow·평가 정책을 사용하며 후보 간 동일 Case·Seed를 맞춥니다. 2026-11-10부터 [여러 Prompt의 결과를 함께 보는 일상 탐색](20_web_ux_fusion_multi_prompt_and_component_differences.md)을 구상합니다. 단일 Prompt도 지원하지만 최종 검증 때만 다른 Prompt를 보는 것으로 이 요구를 대신하지 않습니다. 투표·집계·부모 선정 정책은 사용자와 확인한 뒤 Version으로 고정합니다.
+
+최종 후보의 공통 추가 Seed·대표 Case 검증은 별도의 P1 기능입니다. 예를 들어 2~3개 Seed로 시작할 수 있으나 최적 개수로 확정한 값은 아닙니다. 일상 탐색의 Prompt 수와 최종 검증의 Seed 수를 구분합니다.
 
 Prompt를 바꿀 때는 다음 세대를 만드는 대신 [현재 조합의 Prompt 재시험](17_prompt_retests_and_reranking.md)을 P0로 제공합니다. 계보, 성분, 가중치를 바꾸는 탐색과 같은 조합의 조건 적응도를 확인하는 시험을 별도 동작으로 둡니다.
 

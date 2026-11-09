@@ -8,12 +8,15 @@
 - Fresh 또는 작가·LoRA 점수만 유지한 새 탐색을 지원합니다.
 - Anima 외 Moss 등 모델 추가를 고려합니다.
 - 선택한 확정 세대로 돌아가며, 확인창 하나에서 이후 이미지·이력·승패·Elo 변경의 삭제를 경고합니다.
-- 수동 조합·융합·다듬기는 후순위입니다.
+- 수동 조합·다듬기는 후순위입니다. 융합은 유지하며 다른 기능을 만든 뒤 비율 지정·3개 이상 원본을 지원하는 새 UI부터 확인합니다.
 - Interactive Evolution을 유지하고 여러 계보의 부모 기회를 보강합니다.
 - 현재 상위 N개 조합을 성분·Weight 변경 없이 새 Prompt로 시험하고 시험 Elo·Drop·채택을 지원합니다. 시험만으로 세대를 올리지 않습니다.
 - 성분·Weight 일부 잠금, 독립 프로젝트 분기, Ablation, 대표 Prompt·Seed 검증, 비교 후보 추천을 모두 채택합니다. [19번 문서](19_adopted_exploration_tools.md)를 구현 계약으로 사용합니다.
+- 2026-11-10부터 UX 기준은 localhost:8389의 Style Lab Web·Mobile입니다. [20번 문서](20_web_ux_fusion_multi_prompt_and_component_differences.md)의 여러 Prompt 일상 탐색과 성분 차이·향후 생성 제외를 초기 설계에 반영합니다. 투표/집계·융합 산식·구체 UI는 사용자와 확인할 설계 후보입니다.
 
 ## 권장 구현 순서
+
+실제 진행은 [development_process.md](development_process.md)의 한 단계 구현·직접 사용 확인을 따릅니다. STYLE-023/024의 아래 배치는 초기 설계·비교 단계 반영을 위한 제안이며, 미정 정책은 0단계와 해당 기능 검토에서 확정합니다.
 
 | Ticket | 단계 | 완료 조건 |
 | --- | --- | --- |
@@ -23,6 +26,8 @@
 | STYLE-004 | P0: Workflow Registry 공통화 | Home 일반 생성과 Style 경로가 같은 Adapter 사용 |
 | STYLE-005 | P0: 고정 RenderPlan | Sampling Seed·Prompt 전개 고정, 새 모델별 Capabilities |
 | STYLE-006 | P0: 초기 후보와 투표 | A/B·Skip·Undo·Blind·멀티탭 Idempotency |
+| STYLE-023 | 초기 설계·비교 단계: 여러 Prompt 일상 탐색 | Prompt Set·Case별 Render, 결과 묶음 UI, 장수·부분 실패, 투표/집계 정책 사용자 확인 후 진화 연결 |
+| STYLE-024 | 초기 비교 단계: 성분 차이·탐색 제외 | 작가/LoRA/독립 Strength 차이, Blind 보호, 프로젝트 향후 생성 제외·재허용, 세 방식 상속·잠금 검증 |
 | STYLE-019 | P0: 성분·Weight 잠금 | 프로젝트/계보 정책, 고정 축·Hash·순서, 세 생성 방식 공통 검증·충돌 거부 |
 | STYLE-007 | P0: 진화 | 부모 Snapshot·후보 생성·확정·퇴역·취소 |
 | STYLE-017 | P0: 여러 계보 보존 | 기존 1:1:1 탐색 유지, 계보 대표 부모 기회·배정 Preview·정책 Version |
@@ -37,7 +42,7 @@
 | STYLE-022 | P1: 비교 후보 추천 | 필수 대결 유지 후 규칙 기반 추천, 근거·Version·최근 Pair·Skip·Blind 검증 |
 | STYLE-012 | P1: 내보내기·재현 | Project Bundle, Import 미리보기, 실제 Workflow Metadata |
 | STYLE-013 | P1: 모델 추가 | 실제 Moss Workflow 등록 후 Adapter 검증; 이름만 등록하지 않음 |
-| STYLE-014 | P2: 수동 조합/융합 | 기존 평균·개수 제한·별도 결과 Pool 복원 |
+| STYLE-014 | P2·다른 기능 이후: 수동 조합/비율 융합 | 2개 및 3개 이상 원본, 비율 UI·합성식 확인, 성분 Preview·출처·새 후보 채택 |
 | STYLE-015 | P2: Tune/Improve | 두 상태 머신을 구분해 복원 |
 
 STYLE-013의 설계 기반은 P0부터 필요하지만, 실제 Moss 지원 완료는 해당 Workflow와 모델의 계약을 확인한 뒤 판단합니다. 임의로 다른 모델의 Node ID를 재사용하지 않습니다.
@@ -52,6 +57,8 @@ STYLE-013의 설계 기반은 P0부터 필요하지만, 실제 Moss 지원 완�
 
 성분·Weight 잠금과 독립 분기도 MVP에 포함합니다. 잠금은 후보 생성·진화 전에 공통 제약을 준비하고, 분기는 세대 복원과 같은 Snapshot·Asset 참조 기반을 재사용합니다. P1은 Ablation → STYLE-011의 대표 Prompt·Seed 검증 확장 → 규칙 기반 비교 추천 순으로 구현합니다. 고급 Pairwise Preference Learning은 효과를 측정한 뒤 검토하며 즉시 필수 의존성을 추가하지 않습니다.
 
+추가 요구의 여러 Prompt 탐색은 최종 검증만으로 대체하지 않습니다. 진화 반복 실사용 전 다중 결과 비교와 선택 정책을 확인하며, 단일 Prompt의 중간 구현 상태와 확장 완료를 구분합니다. 성분 차이·제외는 기본 비교 UX에서 검토합니다. 상세 범위·수락 기준은 20번을 따릅니다.
+
 ## 미확정 사항과 권장 기본값
 
 | 사항 | 상태·권장값 |
@@ -64,6 +71,9 @@ STYLE-013의 설계 기반은 P0부터 필요하지만, 실제 Moss 지원 완�
 | 평가 조건 변경 | 새 Revision 사용. Fresh/점수 이전/현재 조합 Prompt 재시험을 구분 |
 | 동시 생성 수 | Home Queue 정책 재사용. Project마다 무제한 독립 Worker 생성 금지 |
 | 점수 Snapshot의 기본 범위 | 선택한 Project/Evaluation 단위. 모든 Project의 합산은 명시적 선택 |
+| 여러 Prompt 투표·부모 선택 | 미정. 묶음 한 번 투표를 첫 화면안으로 제안, Case별 투표·종합과 비교 후 확인 |
+| 성분 차이에서 제외 | 현재 프로젝트의 향후 새 후보에 적용하는 안. 기존 후보 보존·부모 적격·잠금 충돌 UI 확인 |
+| 다중 원본 비율 융합 | 구현 범위 유지·후순위. 합성식·재분배·성분 순서·범위·UI는 구현 차례에 확인 |
 
 ## 구현자가 하지 말아야 할 단순화
 
@@ -81,7 +91,10 @@ STYLE-013의 설계 기반은 P0부터 필요하지만, 실제 Moss 지원 완�
 - 분기 원본과 Candidate·Vote·가변 Snapshot을 공유하거나 원본 Undo Token을 복제하기.
 - Ablation·검증 결과를 원본 Elo에 자동 합산하거나 서로 다른 Case·Seed를 한 Pair에 넣기.
 - 비교 추천이 필수 Placement/Selection을 건너뛰거나 Blind에서 점수·예상 승자를 노출하기.
+- 다중 Prompt 탐색을 최종 검증으로만 대체하거나 한 표를 이미지 수만큼 중복 가산하기.
+- 차이 표를 원인 확정으로 표현하거나 성분 제외가 Mutate/Crossover 상속에서 무시되게 하기.
+- 융합을 2개 원본으로 제한하거나 미확정 합성식으로 기존 Weight를 몰래 Clamp하기.
 
 ## 다음 작업 시작용 요청 예시
 
-> 이 문서 묶음을 기준으로 Comfy Home Server에 Style 탐색 기능을 구현한다. P0부터 시작하고 기존 생성 경로는 유지한다. 프로젝트·평가 조건 격리와 점수 Prior, 등록 Workflow 공통화, 고정 RenderPlan을 먼저 만든다. 순위 알고리즘을 원문 Snapshot으로 검증하며 수동 조합·융합·Tune/Improve는 후순위로 둔다. 실제 생성·서비스 배포 범위는 구현 시점의 사용자 지시와 운영 상태를 확인한다.
+> development_process.md에서 사용자 확인을 마친 다음 한 단계만 진행한다. UX는 localhost:8389의 Style Lab Web·Mobile을 기준으로 보고 20번의 추가 요구를 반영한다. 해당 단계의 화면·사용 흐름을 검증해 직접 확인할 수 있게 전달하고, 다음 단계는 사용자 요청을 기다린다. 미정인 다중 Prompt 투표/집계·융합 산식을 임의 확정하지 않는다.

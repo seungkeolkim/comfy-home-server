@@ -4,11 +4,13 @@
 
 예: Anima·인물 중심, Anima·배경이 있는 장면, 다른 모델·같은 소재를 별도 프로젝트로 둡니다. 프로젝트는 탐색의 단위이고 평가 조건 변경은 `EvaluationRevision`으로 구분합니다.
 
+2026-11-10 추가한 [여러 Prompt 일상 탐색](20_web_ux_fusion_multi_prompt_and_component_differences.md)은 한 평가 조건 안에 불변 Prompt Set과 Case별 결과 묶음을 둡니다. Prompt마다 프로젝트를 따로 만들어야 하는 기능으로 대체하지 않습니다. Set 구성·내용·집계 정책을 바꾸면 새 평가 계약으로 재시험하며, 보관·점수 이전·분기에도 사용한 Set과 정책 출처를 남깁니다.
+
 | 범위 | 소유 정보 |
 | --- | --- |
 | 공유 Catalog | 작가 Identifier, LoRA 파일 Identity, 등록 Workflow. 프로젝트 성적은 소유하지 않음 |
 | Project | 이름·목적, 후보 Catalog, 탐색 규칙, 보관 결과, Archive 상태 |
-| Evaluation Revision | Workflow/모델, Prompt·Negative·Seed·해상도·Sampling 조건의 불변 Snapshot |
+| Evaluation Revision | Workflow/모델, Prompt Set·Case별 Positive/Negative·Seed, 집계 정책·해상도·Sampling 조건의 불변 Snapshot |
 | 프로젝트 내 평가 | 후보·생성물·Vote·순위·세대·성분 점수·LoRA 안정성 |
 
 같은 LoRA를 두 프로젝트에서 써도 한쪽 Vote가 다른 쪽 점수를 변경하면 안 됩니다.
