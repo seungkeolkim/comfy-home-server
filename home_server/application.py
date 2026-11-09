@@ -37,6 +37,7 @@ from .output_directories import create_output_directory, list_output_directories
 from .output_listing import MEDIA_EXTENSIONS, VIDEO_OUTPUT_EXTENSIONS
 from .output_timing import OutputTimingRecorder, measure_output_step
 from .system_resources import RESOURCE_POLL_INTERVAL_SECONDS, SystemResourceMonitor
+from .style_preview import create_style_preview_router
 from .tag_builder import (
     MAX_PROMPT_LENGTH, MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt,
     resolve_anima_prompts, resolve_tag_text, validate_tag_selection,
@@ -697,6 +698,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app = FastAPI(title="Comfy Home Server", lifespan=lifespan)
     app.state.home_server = server
     app.include_router(create_administration_router(server))
+    app.include_router(create_style_preview_router())
 
     @app.middleware("http")
     async def require_authentication(request: Request, call_next):

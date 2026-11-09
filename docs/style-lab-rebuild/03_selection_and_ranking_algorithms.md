@@ -1,6 +1,6 @@
 # 선별·순위 알고리즘 복원
 
-이 문서의 수치와 Match별 처리는 기존 구현의 복원 기준입니다. 새 [여러 Prompt 탐색](20_web_ux_fusion_multi_prompt_and_component_differences.md)은 같은 후보 A/B의 Case별 결과 묶음을 비교하도록 확장합니다. 묶음 전체 한 번 투표와 Case별 투표·종합 중 어느 방식을 쓸지는 미정입니다. 선택한 정책의 Match·Elo·Placement·Selection·Undo 계약을 별도 검증하며 Prompt 수만큼 한 표를 중복 반영하지 않습니다.
+이 문서의 수치와 Match별 처리는 기존 구현의 복원 기준입니다. 새 [여러 Prompt 탐색](20_web_ux_fusion_multi_prompt_and_component_differences.md)은 같은 후보 A/B의 Case별 결과 묶음을 비교하고 조합 단위로 한 번 선택합니다. Prompt별 투표는 제공하지 않습니다. Match·Elo·Placement·Selection·Undo 계약을 별도 검증하며 Prompt 수만큼 한 표를 중복 반영하지 않습니다.
 
 ## 기본 수치와 정렬
 

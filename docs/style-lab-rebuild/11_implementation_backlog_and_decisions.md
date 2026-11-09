@@ -26,7 +26,8 @@
 | STYLE-004 | P0: Workflow Registry 공통화 | Home 일반 생성과 Style 경로가 같은 Adapter 사용 |
 | STYLE-005 | P0: 고정 RenderPlan | Sampling Seed·Prompt 전개 고정, 새 모델별 Capabilities |
 | STYLE-006 | P0: 초기 후보와 투표 | A/B·Skip·Undo·Blind·멀티탭 Idempotency |
-| STYLE-023 | 초기 설계·비교 단계: 여러 Prompt 일상 탐색 | Prompt Set·Case별 Render, 결과 묶음 UI, 장수·부분 실패, 투표/집계 정책 사용자 확인 후 진화 연결 |
+| STYLE-023 | 초기 설계·비교 단계: 여러 Prompt 일상 탐색 | Prompt Set·Case별 Render, 결과 묶음을 보고 조합 단위 한 번 선택, 장수·부분 실패·진화 연결 |
+| STYLE-025 | 초기 설계: 프로젝트 맥락·글로벌/프로젝트 설정 | 현재 작업 대상·열람 필터 분리, 글로벌 Catalog/기본값과 프로젝트 조건 Snapshot, 다른 프로젝트 그림체 시험 진입 |
 | STYLE-024 | 초기 비교 단계: 성분 차이·탐색 제외 | 작가/LoRA/독립 Strength 차이, Blind 보호, 프로젝트 향후 생성 제외·재허용, 세 방식 상속·잠금 검증 |
 | STYLE-019 | P0: 성분·Weight 잠금 | 프로젝트/계보 정책, 고정 축·Hash·순서, 세 생성 방식 공통 검증·충돌 거부 |
 | STYLE-007 | P0: 진화 | 부모 Snapshot·후보 생성·확정·퇴역·취소 |
@@ -71,7 +72,7 @@ STYLE-013의 설계 기반은 P0부터 필요하지만, 실제 Moss 지원 완�
 | 평가 조건 변경 | 새 Revision 사용. Fresh/점수 이전/현재 조합 Prompt 재시험을 구분 |
 | 동시 생성 수 | Home Queue 정책 재사용. Project마다 무제한 독립 Worker 생성 금지 |
 | 점수 Snapshot의 기본 범위 | 선택한 Project/Evaluation 단위. 모든 Project의 합산은 명시적 선택 |
-| 여러 Prompt 투표·부모 선택 | 미정. 묶음 한 번 투표를 첫 화면안으로 제안, Case별 투표·종합과 비교 후 확인 |
+| 여러 Prompt 투표·부모 선택 | 조합 단위 한 번 선택으로 확정. Prompt별 투표 없음. 기존 Vote/Selection에 중복 없이 연결 |
 | 성분 차이에서 제외 | 현재 프로젝트의 향후 새 후보에 적용하는 안. 기존 후보 보존·부모 적격·잠금 충돌 UI 확인 |
 | 다중 원본 비율 융합 | 구현 범위 유지·후순위. 합성식·재분배·성분 순서·범위·UI는 구현 차례에 확인 |
 
@@ -97,4 +98,4 @@ STYLE-013의 설계 기반은 P0부터 필요하지만, 실제 Moss 지원 완�
 
 ## 다음 작업 시작용 요청 예시
 
-> development_process.md에서 사용자 확인을 마친 다음 한 단계만 진행한다. UX는 localhost:8389의 Style Lab Web·Mobile을 기준으로 보고 20번의 추가 요구를 반영한다. 해당 단계의 화면·사용 흐름을 검증해 직접 확인할 수 있게 전달하고, 다음 단계는 사용자 요청을 기다린다. 미정인 다중 Prompt 투표/집계·융합 산식을 임의 확정하지 않는다.
+> development_process.md에서 사용자 확인을 마친 다음 한 단계만 진행한다. UX는 localhost:8389의 Style Lab Web·Mobile을 기준으로 보고 20·21번의 추가 요구를 반영한다. 해당 단계의 화면·사용 흐름을 검증해 직접 확인할 수 있게 전달하고, 다음 단계는 사용자 요청을 기다린다. 조합 단위 한 번 선택·프로젝트 맥락을 유지하고 미정인 융합 산식을 임의 확정하지 않는다.

@@ -2,7 +2,7 @@
 
 아래 산식과 생존 규칙은 기존 구현의 복원 기준입니다. 새 구현에서는 [16번 문서](16_search_strategy_and_diversity.md)처럼 기본 Interactive Evolution을 유지하면서 계보별 부모 기회를 보강합니다. Prompt 변경 검증은 변이 없이 [17번 문서](17_prompt_retests_and_reranking.md)의 고정 조합 재시험을 사용합니다.
 
-[20번의 여러 Prompt 탐색·성분 제외](20_web_ux_fusion_multi_prompt_and_component_differences.md)를 추가 반영합니다. 부모 선정·성분 점수에 사용할 다중 Prompt 투표/집계 정책은 구현 전에 확인합니다. 성분 제외는 Random·Mutate·Crossover와 상속에 공통 적용하되 기존 후보·Elo를 수정하지 않습니다. 아래 기존 단일 Prompt 산식을 새 종합 정책이 이미 검증됐다는 근거로 사용하지 않습니다.
+[20번의 여러 Prompt 탐색·성분 제외](20_web_ux_fusion_multi_prompt_and_component_differences.md)를 추가 반영합니다. 여러 Prompt 결과를 함께 보고 조합 단위로 한 번 선택하며 이를 부모 선정·성분 점수에 중복 없이 반영합니다. 성분 제외는 Random·Mutate·Crossover와 상속에 공통 적용하되 기존 후보·Elo를 수정하지 않습니다. 아래 기존 단일 Prompt 산식만으로 다중 결과 선별의 사용성까지 검증됐다고 판단하지 않습니다.
 
 ## 진화 후보 생성
 

@@ -2,7 +2,7 @@
 
 새 프로그램의 **P0 요구사항**입니다. 현재 Style Lab에 이미 구현된 기능은 아닙니다. Prompt를 바꾼 뒤 다음 세대를 만들면 성분이나 Weight도 달라지는 문제를 해결합니다.
 
-2026-11-10의 [여러 Prompt 일상 탐색](20_web_ux_fusion_multi_prompt_and_component_differences.md)에 맞춰 재시험 대상을 새 Prompt Set으로 확장합니다. Set의 일부 Case 수정·추가·삭제도 새 평가 계약으로 고정하고, 원본 조합의 성분·Weight를 모든 Case에 그대로 사용합니다. 아래 단일 Prompt 예시는 Case가 하나인 경우로 읽습니다. 원본/Trial 간 점수 비혼합 원칙은 유지하며, 같은 Set의 결과 묶음에 대한 투표/집계 방식은 별도 확인합니다.
+2026-11-10의 [여러 Prompt 일상 탐색](20_web_ux_fusion_multi_prompt_and_component_differences.md)에 맞춰 재시험 대상을 새 Prompt Set으로 확장합니다. Set의 일부 Case 수정·추가·삭제도 새 평가 계약으로 고정하고, 원본 조합의 성분·Weight를 모든 Case에 그대로 사용합니다. 아래 단일 Prompt 예시는 Case가 하나인 경우로 읽습니다. 원본/Trial 간 점수 비혼합 원칙을 유지하고 같은 Set 결과를 함께 보며 조합 단위로 한 번 선택합니다.
 
 ## 사용자 흐름
 

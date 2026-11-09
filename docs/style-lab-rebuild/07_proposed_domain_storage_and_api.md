@@ -2,6 +2,8 @@
 
 여기의 테이블과 API는 **제안**이며 현재 Home Server에 구현된 것이 아닙니다.
 
+글로벌 실행기·Endpoint·파이프라인/Catalog·STR 기본값과 프로젝트의 실제 선택·Prompt·범위 Snapshot은 [21번](21_project_context_settings_and_fork.md)의 경계로 분리합니다. 현재 프로젝트는 탭의 작업 맥락이며 요청에는 소유 Project/Evaluation/Match ID를 고정합니다. 그림체 필터 변경으로 요청 소속을 바꾸지 않습니다. 한 Match는 여러 Prompt의 같은 조합 A/B에 대한 한 표입니다.
+
 2026-11-10의 [20번 확장](20_web_ux_fusion_multi_prompt_and_component_differences.md)에 따라 평가 계약에 Prompt Set Version·Case·투표/집계 정책을, Render에 Case/Seed 소속을 보존합니다. Match는 선택한 투표 정책에 맞는 결과 묶음을 가리키며 구성 Render의 조건·소유를 검증합니다. 여러 원본 융합의 비율·출처 Snapshot과 프로젝트 성분 제외 정책 Revision도 필요합니다. 아래는 초기 테이블 제안이며 실제 Schema는 각 기능 구현 전에 갱신합니다.
 
 ## Entity

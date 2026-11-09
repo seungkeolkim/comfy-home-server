@@ -24,6 +24,10 @@
 
 ## 문서 읽는 순서
 
+**Phase 0 화면 검토:** Home Server의 `/style-preview`에서 예시 UI를 조작할 수 있습니다. [접속·확인 순서와 검토 항목](phase_zero_review.md)을 확인하세요. 사용자가 현재 목업을 확인했으며, 그림체 탭의 프로젝트 선택 UI는 후속 수정으로 남깁니다. 실제 기능 구현은 아직 시작하지 않았습니다.
+
+Mobile 피드백은 [21번 결정 기록](21_project_context_settings_and_fork.md)에 반영했습니다. 같은 창 전환·조합 단위 한 번 선택·STR 표시·프로젝트별 그림체를 적용하고, 글로벌/프로젝트 설정과 현재 프로젝트 맥락·Fork의 후속 범위를 정리합니다.
+
 2026-11-10의 [Web UX와 세 가지 개선 요구](20_web_ux_fusion_multi_prompt_and_component_differences.md)를 반영합니다. UX 기준은 현재 localhost:8389의 Style Lab Web·Mobile입니다. 여러 Prompt의 결과를 함께 보는 일상 탐색과 성분 차이 기반 탐색 제외를 초기 설계에 반영하며, 구체적인 투표 집계·UI는 사용자와 확인합니다. 과거 단일 Prompt 탐색 설명은 이 확장과 함께 읽습니다.
 
 구현을 시작할 때는 [함께 만드는 개발 과정](development_process.md)을 먼저 확인합니다. 기능을 작은 사용자 행동 단위로 구현하고 직접 사용한 결과를 확인한 뒤 다음 단계로 진행합니다. 아래 문서는 요구사항과 복원 근거이며, 기존 화면·저장 구조 제안을 한꺼번에 구현하라는 지시가 아닙니다.
@@ -50,6 +54,7 @@
 | [18 작업 공간·화면 목업](18_workspace_navigation_and_screen_mockups.md) | 일반 생성/스타일 구성 분리, Desktop·Mobile 화면 목록과 전환 |
 | [19 채택한 탐색 보조 기능](19_adopted_exploration_tools.md) | 일부 잠금·독립 분기·Ablation·Prompt/Seed 검증·비교 추천 |
 | [20 Web UX·비율 융합·여러 Prompt·성분 차이](20_web_ux_fusion_multi_prompt_and_component_differences.md) | 8389 Web·Mobile 기준, 다중 원본 융합, 일상 다중 Prompt 평가, 차이 보기·탐색 제외 |
+| [21 프로젝트 맥락·설정·Fork](21_project_context_settings_and_fork.md) | Phase 0 피드백, 단일 조합 선택, STR, 프로젝트 필터, 글로벌/프로젝트 설정, 다른 프로젝트 그림체 시험·Fork |
 | [목업 보기·편집](mockups/README.md) | 독립 HTML 미리보기, 공통 소스, 화면 Snapshot |
 | [원문 Snapshot 목록](source_reference/README.md) | 복원에 필요한 원문을 코드 블록으로 보관 |
 

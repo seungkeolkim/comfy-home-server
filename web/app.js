@@ -333,6 +333,7 @@ async function showApplication() {
     loadStatus(),
   ]);
   saveCurrentNavigationEntry();
+  restoreWorkspaceGenerationDraft();
   if (!applicationState.pollingTimer) {
     scheduleJobsPolling();
   }
@@ -5249,6 +5250,7 @@ function bindJobHistoryFolderEvents() {
 
 /** 첫 화면을 준비하고 기존 session을 확인합니다. */
 async function initializeApplication() {
+  document.querySelector("[data-workspace-style]").addEventListener("click", saveWorkspaceGenerationDraft);
   bindJobHistoryFolderEvents();
   bindOutputFolderPickerEvents();
   bindJobInputPickerEvents();
@@ -5262,6 +5264,69 @@ async function initializeApplication() {
     else showLogin();
   } catch (error) {
     showLogin();
+  }
+}
+
+/** 작업 공간 전환에 필요한 생성 입력만 탭의 임시 저장소에 보관합니다. */
+function saveWorkspaceGenerationDraft() {
+  const fields = [];
+  for (const field of element("view-generate").querySelectorAll("input[id], textarea[id], select[id]")) {
+    if (["file", "password"].includes(field.type)) continue;
+    fields.push({ identifier: field.id, value: field.value, checked: field.checked });
+  }
+  const draft = {
+    version: 1, fields, selectedLoras: applicationState.selectedLoras,
+    selectedTagIds: [...applicationState.selectedTagIds], currentBody: applicationState.currentBody,
+    currentPresetId: applicationState.currentPresetId, currentPresetVersion: applicationState.currentPresetVersion,
+    currentLoraPresetId: applicationState.currentLoraPresetId,
+    minimaxInputImages: applicationState.minimaxInputImages,
+    minimaxInputDirectory: applicationState.minimaxInputDirectory,
+    minimaxInputJob: applicationState.minimaxInputJob,
+    minimaxResolutionManual: applicationState.minimaxResolutionManual,
+  };
+  try {
+    sessionStorage.setItem("comfy-home-workspace-generation-draft", JSON.stringify(draft));
+    sessionStorage.setItem("comfy-home-general-return-url", location.pathname + location.search);
+  } catch (error) {
+    showNotice("이 Browser에서 임시 입력 보관을 사용할 수 없습니다.", true);
+  }
+}
+
+/** 작업 공간에서 돌아온 직후 생성 필드와 선택 상태를 한 번 복구합니다. */
+function restoreWorkspaceGenerationDraft() {
+  try {
+    const serializedDraft = sessionStorage.getItem("comfy-home-workspace-generation-draft");
+    if (!serializedDraft) return;
+    const draft = JSON.parse(serializedDraft);
+    if (draft.version !== 1 || !Array.isArray(draft.fields)) return;
+    for (const savedField of draft.fields) {
+      const field = document.getElementById(savedField.identifier);
+      if (!field || !field.closest("#view-generate") || ["file", "password"].includes(field.type)) continue;
+      field.value = savedField.value;
+      if (field.type === "checkbox" || field.type === "radio") field.checked = savedField.checked;
+    }
+    updateAnimaResolutionOptions();
+    for (const identifier of ["anima-resolution", "anima-width", "anima-height"]) {
+      const savedField = draft.fields.find(field => field.identifier === identifier);
+      if (savedField) element(identifier).value = savedField.value;
+    }
+    applicationState.selectedLoras = draft.selectedLoras || [];
+    applicationState.selectedTagIds = new Set(draft.selectedTagIds || []);
+    applicationState.currentBody = draft.currentBody || { prompt: "", negative: "" };
+    applicationState.currentPresetId = draft.currentPresetId;
+    applicationState.currentPresetVersion = draft.currentPresetVersion;
+    applicationState.currentLoraPresetId = draft.currentLoraPresetId;
+    applicationState.minimaxInputImages = draft.minimaxInputImages || [];
+    applicationState.minimaxInputDirectory = draft.minimaxInputDirectory;
+    applicationState.minimaxInputJob = draft.minimaxInputJob;
+    applicationState.minimaxResolutionManual = Boolean(draft.minimaxResolutionManual);
+    updateWorkflowOptions();
+    renderSelectedLoras();
+    renderGenerateTagGroups();
+    renderGenerationPromptStatus();
+    sessionStorage.removeItem("comfy-home-workspace-generation-draft");
+  } catch (error) {
+    showNotice("작업 공간의 임시 입력을 복구하지 못했습니다.", true);
   }
 }
 
