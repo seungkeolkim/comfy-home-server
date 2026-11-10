@@ -15,9 +15,10 @@ from .output_timing import OutputTimingRecorder, measure_output_step
 from .output_catalog import OutputCatalog
 from .job_folders import JobFolderStore
 from .request_favorites import RequestFavoriteStore
+from .style_projects import StyleProjectStore
 
 
-DATABASE_SCHEMA_VERSION = 14
+DATABASE_SCHEMA_VERSION = 15
 
 
 def current_timestamp() -> str:
@@ -50,9 +51,11 @@ class Database:
                 self._create_verified_database_backup(connection, "request_started_at")
             elif schema_version == 13:
                 self._create_verified_database_backup(connection, "request_favorites")
+            elif schema_version == 14:
+                self._create_verified_database_backup(connection, "style_projects")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, DATABASE_SCHEMA_VERSION}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, DATABASE_SCHEMA_VERSION}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -169,9 +172,11 @@ class Database:
                 OutputCatalog.backfill_from_requests(connection)
             JobFolderStore.prepare_schema(connection)
             RequestFavoriteStore.prepare_schema(connection)
+            StyleProjectStore.prepare_schema(connection)
             connection.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
         self.job_folders = JobFolderStore(self._connect)
         self.favorites = RequestFavoriteStore(self._connect, database_path.parent)
+        self.style_projects = StyleProjectStore(self._connect)
 
     def _separate_request_detail(
         self, detail: dict[str, Any],

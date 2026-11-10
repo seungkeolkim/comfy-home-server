@@ -1,6 +1,8 @@
 # 새 Domain·저장·API 계약안
 
-여기의 테이블과 API는 **제안**이며 현재 Home Server에 구현된 것이 아닙니다.
+아래 전체 테이블과 API 목록은 **설계 제안**입니다. 실제 구현한 부분은 다음 진행 상태와 구분합니다.
+
+2026-11-10 구현 상태: 1단계의 실제 Schema 15는 `style_projects`, `style_evaluation_revisions`, `style_workspace_settings`만 사용합니다. `/api/style-workspace`, `/api/style-projects` GET/POST, `/api/style-projects/{project_id}` GET/PUT, `/api/style-settings` PUT을 연결했습니다. 나머지 표는 후속 제안이며 [1단계 검토 안내](phase_one_review.md)를 현재 구현 기준으로 봅니다. 평가 Snapshot은 불변이며 Project의 활성 참조를 바꿉니다.
 
 글로벌 실행기·Endpoint·파이프라인/Catalog·STR 기본값과 프로젝트의 실제 선택·Prompt·범위 Snapshot은 [21번](21_project_context_settings_and_fork.md)의 경계로 분리합니다. 현재 프로젝트는 탭의 작업 맥락이며 요청에는 소유 Project/Evaluation/Match ID를 고정합니다. 그림체 필터 변경으로 요청 소속을 바꾸지 않습니다. 한 Match는 여러 Prompt의 같은 조합 A/B에 대한 한 표입니다.
 

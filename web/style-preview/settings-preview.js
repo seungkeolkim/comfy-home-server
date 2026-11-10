@@ -19,6 +19,7 @@ function createGlobalSettingsPreview() {
 
 /** 고정 예시 성분과 이번 탭에서 등록한 작가를 같은 Catalog로 조회합니다. */
 function settingsCatalogComponents(globalSettings = previewState.globalSettings) {
+  if (PERSISTENT_STYLE_WORKSPACE) return [...persistentWorkspaceMetadata.components, ...(globalSettings.additionalArtists || [])];
   return [...sampleComponents, ...(globalSettings.additionalArtists || [])];
 }
 
@@ -132,7 +133,14 @@ function settingsPreviewDraft(scope, projectIdentifier = previewState.currentPro
     previewState.settingsDrafts.global ??= structuredClone(previewState.globalSettings);
     return previewState.settingsDrafts.global;
   }
+  if (PERSISTENT_STYLE_WORKSPACE && (projectIdentifier === "new-project" || previewState.screen === "create")) {
+    previewState.creationSettings ??= newPersistentProjectSettings();
+    return previewState.creationSettings;
+  }
   const project = previewState.projects.find(project => project.identifier === projectIdentifier);
+  if (PERSISTENT_STYLE_WORKSPACE && !previewState.settingsDrafts.projects[project.identifier]) {
+    previewState.projectDraftRevisions[project.identifier] = project.revision;
+  }
   previewState.settingsDrafts.projects[project.identifier] ??= structuredClone(project.settings);
   return previewState.settingsDrafts.projects[project.identifier];
 }
@@ -148,12 +156,15 @@ function settingsNavigationMarkup(scope) {
 /** 현재 화면에서 다루는 범위와 임시 반영 상태를 명확히 표시합니다. */
 function settingsHeadingMarkup(scope) {
   const isGlobal = scope === "global";
+  const boundaryMarkup = PERSISTENT_STYLE_WORKSPACE
+    ? '<strong>서버에 저장하는 설정</strong><p>저장 버튼으로 반영합니다. 이미지 생성은 다음 단계에서 연결합니다.</p>'
+    : '<strong>설정 화면 미리보기</strong><p>변경 내용은 이 탭에만 임시 보관됩니다. 실제 서버 설정·생성·이미지에는 아직 적용되지 않습니다.</p>';
   return `${settingsNavigationMarkup(scope)}<div class="page-heading"><div>
     <p class="eyebrow">${isGlobal ? "GLOBAL DEFAULTS" : escapeMarkup(currentProject().name)}</p>
     <h1>${isGlobal ? "글로벌 설정" : "프로젝트 설정"}</h1>
     <p class="muted">${isGlobal ? "새 프로젝트가 사용할 Pipeline과 성분 기본값입니다." : "이 프로젝트에서 시험할 Prompt와 사용할 성분을 정합니다."}</p>
     </div></div><div class="settings-boundary-note">
-    <strong>설정 화면 미리보기</strong><p>변경 내용은 이 탭에만 임시 보관됩니다. 실제 서버 설정·생성·이미지에는 아직 적용되지 않습니다.</p></div>`;
+    ${boundaryMarkup}</div>`;
 }
 
 /** 범위가 분명한 단일 숫자 입력을 일관된 이름으로 만듭니다. */
@@ -166,8 +177,8 @@ function renderGlobalSettingsPreview() {
   const draft = settingsPreviewDraft("global");
   return `${settingsHeadingMarkup("global")}<form id="global-settings-form" class="form-layout settings-form">
     <section class="panel"><h2>모델·Pipeline별 성분</h2><label for="settings-pipeline">Pipeline</label>
-      <select id="settings-pipeline" data-settings-scope="global" data-settings-field="pipelineIdentifier"><option value="anima-preview">Anima Turbo · 화면 예시</option><option disabled>Moss · 등록·호환성 연결 예정</option></select>
-      <p class="form-note">아래는 호환성이 확인됐다고 가정한 예시 Catalog입니다. 실제 설치 파일이나 등록 Workflow 목록이 아닙니다.</p>
+      <select id="settings-pipeline" data-settings-scope="global" data-settings-field="pipelineIdentifier">${PERSISTENT_STYLE_WORKSPACE ? persistentWorkflowOptions(draft.pipelineIdentifier) : '<option value="anima-preview">Anima Turbo · 화면 예시</option><option disabled>Moss · 등록·호환성 연결 예정</option>'}</select>
+      <p class="form-note">${PERSISTENT_STYLE_WORKSPACE ? 'CHS 등록 이미지 Workflow와 ComfyUI 설치 LoRA 목록입니다. 파일 존재는 모델 호환성 검증과 구분하며, 사용할 LoRA를 직접 선택합니다.' : '아래는 호환성이 확인됐다고 가정한 예시 Catalog입니다. 실제 설치 파일이나 등록 Workflow 목록이 아닙니다.'}</p>
       ${globalComponentGroupMarkup("작가", "작가 태그", "artist")}
       ${globalComponentGroupMarkup("LoRA", "LoRA", "lora")}</section>
     <section class="panel"><h2>새 프로젝트의 기본 STR 범위</h2><p class="muted form-note">프로젝트 안에서 별도로 조정할 수 있습니다.</p>
@@ -187,7 +198,7 @@ function globalComponentGroupMarkup(kind, title, groupIdentifier) {
   const componentMarkup = [];
   for (const component of settingsCatalogComponents(draft)) {
     if (component.kind !== kind) continue;
-    componentMarkup.push(`<label class="settings-checkbox"><input type="checkbox" data-settings-scope="global" data-settings-available="${escapeMarkup(component.identifier)}" ${draft.availableComponents[component.identifier] ? "checked" : ""} /><span><strong>${escapeMarkup(component.name)}</strong><small>이 Pipeline에서 사용 가능</small></span></label>`);
+    componentMarkup.push(`<label class="settings-checkbox"><input type="checkbox" data-settings-scope="global" data-settings-available="${escapeMarkup(component.identifier)}" ${draft.availableComponents[component.identifier] ? "checked" : ""} /><span><strong>${escapeMarkup(component.name)}</strong><small>${PERSISTENT_STYLE_WORKSPACE ? '새 프로젝트에서 사용하도록 허용' : '이 Pipeline에서 사용 가능'}</small></span></label>`);
   }
   return `<section class="settings-component-group" data-settings-kind="${groupIdentifier}" aria-labelledby="settings-catalog-${groupIdentifier}"><h3 id="settings-catalog-${groupIdentifier}">${title}</h3>${kind === "작가" ? artistBulkInputMarkup() : ""}<div class="settings-catalog">${componentMarkup.join("")}</div></section>`;
 }
@@ -258,7 +269,7 @@ function artistBulkInputMarkup() {
     <div id="artist-bulk-preview" aria-live="polite">${artistBulkPreviewMarkup(analysis)}</div>
     <div class="form-actions"><button id="artist-bulk-register-button" type="button" data-settings-action="register-artists" ${analysis.additions.length ? "" : "disabled"}>신규 작가 ${analysis.additions.length}명 등록</button></div>
     <p id="artist-bulk-registration-result" class="form-note" role="status">${escapeMarkup(previewState.artistBulkRegistrationResult)}</p>
-    <p class="form-note">등록은 이 탭의 글로벌 작가 목록에 바로 반영됩니다. 기존 프로젝트에서는 사용을 직접 선택하세요.</p></section>`;
+    <p class="form-note">${PERSISTENT_STYLE_WORKSPACE ? '등록은 서버의 글로벌 작가 목록에 바로 저장됩니다.' : '등록은 이 탭의 글로벌 작가 목록에 바로 반영됩니다.'} 기존 프로젝트에서는 사용을 직접 선택하세요.</p></section>`;
 }
 
 /** 입력 중에는 Textarea를 교체하지 않고 분석 결과와 등록 버튼만 갱신합니다. */
@@ -340,7 +351,7 @@ function renderProjectSettingsPreview() {
     <section class="panel"><h2>함께 비교할 Prompt</h2><p class="form-note settings-section-note">모든 Prompt를 함께 보고 조합 하나를 선택합니다. 한 개부터 시작할 수 있습니다.</p>
       ${draft.promptCases.map(projectSettingsPromptMarkup).join("")}<button type="button" data-settings-action="add-prompt">＋ Prompt 추가</button>
       <label for="settings-negative-prompt">공통 Negative Prompt</label><textarea id="settings-negative-prompt" maxlength="3000" data-settings-scope="project" data-settings-field="negativePrompt">${escapeMarkup(draft.negativePrompt)}</textarea>
-      <p class="form-note">현재 예시 이미지는 그대로입니다. 실제 연결 후에는 조건 변경을 별도 평가 구간·Prompt 재시험으로 다룹니다.</p></section>
+      <p class="form-note">${PERSISTENT_STYLE_WORKSPACE ? '현재는 생성 전 설정입니다. Prompt·생성 조건을 바꿔 저장하면 새 조건 Snapshot을 만들고 이전 기록을 유지합니다.' : '현재 예시 이미지는 그대로입니다. 실제 연결 후에는 조건 변경을 별도 평가 구간·Prompt 재시험으로 다룹니다.'}</p></section>
     ${projectWorkflowOptionsMarkup(draft)}
     <section class="panel"><div class="settings-section-heading"><div><h2>이 프로젝트의 성분 범위</h2><p class="form-note">글로벌 기본값 ${draft.defaultsRevision}번에서 시작 · 현재 ${previewState.globalSettings.revision}번</p></div>
       <button type="button" data-settings-action="preview-defaults">최신 STR 기본값 가져오기</button></div>
@@ -355,7 +366,7 @@ function renderProjectSettingsPreview() {
 function projectWorkflowOptionsMarkup(draft) {
   const isCustom = draft.aspectRatio === "custom";
   return `<section class="panel settings-workflow-options"><h2>Workflow 옵션</h2>
-    <label for="settings-project-pipeline">Workflow</label><select id="settings-project-pipeline" data-settings-scope="project" data-settings-field="pipelineIdentifier"><option value="anima-preview">Anima Turbo V9 · 이미지</option><option disabled>Moss · 등록 후 선택 가능</option></select>
+    <label for="settings-project-pipeline">Workflow</label><select id="settings-project-pipeline" data-settings-scope="project" data-settings-field="pipelineIdentifier">${PERSISTENT_STYLE_WORKSPACE ? persistentWorkflowOptions(draft.pipelineIdentifier) : '<option value="anima-preview">Anima Turbo V9 · 이미지</option><option disabled>Moss · 등록 후 선택 가능</option>'}</select>
     <div class="form-row"><div><label for="settings-project-aspectRatio">비율</label><select id="settings-project-aspectRatio" data-settings-scope="project" data-settings-field="aspectRatio">${ANIMA_ASPECT_RATIO_OPTIONS.map(option => `<option value="${option.value}" ${option.value === draft.aspectRatio ? "selected" : ""}>${option.label}</option>`).join("")}</select></div>
       <div><label for="settings-project-resolution">해상도</label><select id="settings-project-resolution" data-settings-resolution ${isCustom ? "disabled" : ""}>${projectResolutionOptionsMarkup(draft)}</select></div></div>
     <div class="form-row">
@@ -394,7 +405,8 @@ function projectSamplingField(field, label, value, attributes) {
 /** 초안과 임시 반영을 구분하고 공통 오류 표시 영역을 만듭니다. */
 function settingsFormActionsMarkup(scope) {
   return `<p id="settings-form-error" class="error" role="alert"></p><div class="form-actions settings-actions"><span>입력 초안은 화면을 이동해도 유지됩니다.</span>
-    <button type="button" class="quiet" data-settings-action="reset-draft" data-settings-scope="${scope}">초안 되돌리기</button><button type="submit" class="primary">이 탭의 예시에 반영</button></div>`;
+    ${PERSISTENT_STYLE_WORKSPACE ? '<button type="button" data-persistent-action="reload">서버에서 다시 불러오기</button>' : ""}
+    <button type="button" class="quiet" data-settings-action="reset-draft" data-settings-scope="${scope}">초안 되돌리기</button><button type="submit" class="primary">${PERSISTENT_STYLE_WORKSPACE ? "서버에 저장" : "이 탭의 예시에 반영"}</button></div>`;
 }
 
 /** 범위 역전과 사용할 수 없는 성분을 저장 전에 검사하고 같은 최소·최대값은 허용합니다. */
@@ -518,10 +530,14 @@ function handleSettingsPreviewInput(event) {
 
 /** 설정의 추가·취소·기본값 적용을 기존 선별 조작과 분리해 처리합니다. */
 function handleSettingsPreviewAction(event) {
+  if (PERSISTENT_STYLE_WORKSPACE && persistentSettingsBusy) return;
   const button = event.target.closest("button[data-settings-action]");
   if (!button || button.disabled) return;
   const action = button.dataset.settingsAction;
-  if (action === "register-artists") registerBulkArtistsPreview();
+  if (action === "register-artists") {
+    if (PERSISTENT_STYLE_WORKSPACE) registerPersistentArtists();
+    else registerBulkArtistsPreview();
+  }
   if (action === "add-prompt") {
     const draft = settingsPreviewDraft("project");
     draft.promptCases.push({ name: `Prompt ${draft.promptCases.length + 1}`, prompt: "", scene: "garden" });
@@ -534,7 +550,10 @@ function handleSettingsPreviewAction(event) {
   }
   if (action === "reset-draft") {
     if (button.dataset.settingsScope === "global") previewState.settingsDrafts.global = null;
-    else delete previewState.settingsDrafts.projects[currentProject().identifier];
+    else {
+      delete previewState.settingsDrafts.projects[currentProject().identifier];
+      if (PERSISTENT_STYLE_WORKSPACE) delete previewState.projectDraftRevisions[currentProject().identifier];
+    }
     renderPreview(false);
     showToast("마지막으로 반영한 설정 예시로 되돌렸습니다.");
   }
@@ -548,6 +567,10 @@ function handleSettingsPreviewAction(event) {
 function submitSettingsPreview(event) {
   if (!["global-settings-form", "project-settings-form"].includes(event.target.id)) return;
   event.preventDefault();
+  if (PERSISTENT_STYLE_WORKSPACE) {
+    savePersistentStyleSettings(event.target);
+    return;
+  }
   const scope = event.target.id === "global-settings-form" ? "global" : "project";
   const draft = settingsPreviewDraft(scope);
   let errorMessage;

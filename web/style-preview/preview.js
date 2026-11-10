@@ -58,6 +58,10 @@ const previewState = {
 
 /** 동일 탭에서 작업 공간을 오가도 예시 프로젝트와 선택을 유지합니다. */
 function persistPreviewSession() {
+  if (PERSISTENT_STYLE_WORKSPACE) {
+    persistStyleWorkspaceSession();
+    return;
+  }
   const { toastTimeout, ...storedState } = previewState;
   try {
     sessionStorage.setItem(PREVIEW_SESSION_STORAGE_KEY, JSON.stringify({ version: 2, state: storedState }));
@@ -68,6 +72,7 @@ function persistPreviewSession() {
 
 /** 현재 형식으로 저장한 예시 상태만 복구하고 손상된 값은 사용하지 않습니다. */
 function restorePreviewSession() {
+  if (PERSISTENT_STYLE_WORKSPACE) return;
   try {
     const stored = JSON.parse(sessionStorage.getItem(PREVIEW_SESSION_STORAGE_KEY) || "null");
     if (stored?.version !== 2 || !Array.isArray(stored.state?.projects)) return;
@@ -160,6 +165,10 @@ function navigatePreview(screen) {
 /** 익숙한 선별·그림체 메뉴와 프로젝트 전환을 그립니다. */
 function renderNavigation() {
   const project = currentProject();
+  if (PERSISTENT_STYLE_WORKSPACE && !project) {
+    renderEmptyPersistentNavigation();
+    return;
+  }
   document.querySelector("#project-context").innerHTML = `
     <label for="active-project-picker">현재 프로젝트</label>
     <select id="active-project-picker" aria-label="현재 프로젝트">${previewState.projects.map(item => `<option value="${item.identifier}" ${item.identifier === project.identifier ? "selected" : ""}>${escapeMarkup(item.name)}</option>`).join("")}</select>
@@ -172,7 +181,7 @@ function renderNavigation() {
     <button data-action="navigate" data-screen="project-settings" class="${previewState.screen === "project-settings" ? "active" : ""}">⚙　프로젝트 설정</button>
     <p class="project-label">시스템 공통</p>
     <button data-action="navigate" data-screen="global-settings" class="${previewState.screen === "global-settings" ? "active" : ""}">◎　글로벌 설정</button>
-    <p class="sidebar-note">먼저 화면을 사용해 보고<br>함께 흐름을 정합니다.</p>`;
+    <p class="sidebar-note">${PERSISTENT_STYLE_WORKSPACE ? '저장한 프로젝트를<br>다른 기기에서도 열 수 있습니다.' : '먼저 화면을 사용해 보고<br>함께 흐름을 정합니다.'}</p>`;
   document.querySelector("#preview-mobile-navigation").innerHTML = [
     ["projects", "▦", "프로젝트"], ["compare", "↔", "선별"], ["candidates", "◇", "그림체"],
     ["project-settings", "⚙", "설정"],
@@ -187,6 +196,7 @@ function conditionSummary() {
 
 /** 첫 진입점에서 예시 프로젝트를 선택하거나 새 흐름을 시작합니다. */
 function renderProjects() {
+  if (PERSISTENT_STYLE_WORKSPACE) return renderPersistentProjects();
   return `<div class="page-heading"><div><p class="eyebrow">STYLE EXPLORATION</p><h1>나만의 그림체 찾기</h1><p class="muted">Prompt와 모델에 맞는 그림체를, 프로젝트별로.</p></div><button class="primary" data-action="navigate" data-screen="create">＋ 새 프로젝트</button></div>
     <p class="section-label">사용해 볼 예시 프로젝트</p><div class="project-grid">${previewState.projects.map(project => `
       <article class="panel project-card"><div class="project-cover"><img src="${illustrationSource(project.candidates[0], project.promptCases[0].scene)}" alt="${escapeMarkup(project.name)} 샘플 일러스트" /></div>
@@ -203,6 +213,7 @@ function promptEditorMarkup(promptCase, caseIndex) {
 
 /** 필수 입력과 펼쳐 보는 생성 조건으로 새 프로젝트 흐름을 보여줍니다. */
 function renderProjectCreation() {
+  if (PERSISTENT_STYLE_WORKSPACE) return renderPersistentProjectCreation();
   const draft = previewState.draft;
   return `<div class="page-heading"><div><p class="eyebrow">NEW PROJECT</p><h1>어떤 그림체를 찾을까요?</h1><p class="muted">여러 Prompt를 넣어 같은 조합을 함께 확인합니다.</p></div></div>
     <form id="project-preview-form" class="form-layout">
@@ -220,6 +231,7 @@ function generationEstimate() {
 
 /** 순위·전적·보관 필터를 그림체 목록에서 함께 보여줍니다. */
 function renderCandidates() {
+  if (PERSISTENT_STYLE_WORKSPACE) return renderPersistentEmptyResults();
   const project = currentProject();
   const visibleProjects = previewState.projects.filter(owner => {
     if (previewState.libraryFilter === "all") return true;
@@ -308,6 +320,7 @@ function comparisonCaseMarkup(promptCase, caseIndex) {
 
 /** 여러 Prompt의 같은 두 조합을 보고 조합 단위로 한 번 선택합니다. */
 function renderComparison() {
+  if (PERSISTENT_STYLE_WORKSPACE) return renderPersistentEmptyResults();
   const project = currentProject();
   const pair = currentPair();
   return `<div class="page-heading comparison-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>어느 쪽 그림체가 더 좋나요?</h1><p class="muted">같은 두 조합을 여러 Prompt에서 확인해 보세요.</p></div><button data-action="undo" ${project.decisions.length ? "" : "disabled"}>↶ 되돌리기</button></div>${conditionSummary()}
@@ -370,6 +383,7 @@ function recordPreviewDecision(choice) {
 
 /** 위임한 버튼 동작을 현재 화면과 프로젝트의 범위에서 처리합니다. */
 function handlePreviewAction(event) {
+  if (PERSISTENT_STYLE_WORKSPACE && persistentSettingsBusy) return;
   const button = event.target.closest("button[data-action]");
   if (!button || button.disabled) return;
   const action = button.dataset.action;
@@ -383,7 +397,7 @@ function handlePreviewAction(event) {
     previewState.currentProjectIdentifier = button.dataset.project;
     previewState.activeCaseIndex = 0;
     previewState.libraryFilter = "current";
-    navigatePreview("compare");
+    navigatePreview(PERSISTENT_STYLE_WORKSPACE ? "project-settings" : "compare");
   }
   if (action === "add-prompt") {
     previewState.draft.promptCases.push({ name: `Prompt ${previewState.draft.promptCases.length + 1}`, prompt: "", scene: "garden" });
@@ -506,9 +520,13 @@ function submitProjectPreview(event) {
 
 /** 화면 전환 때만 위로 이동하고 비교 조작 때 Scroll은 유지합니다. */
 function renderPreview(scrollToTop = true) {
+  if (PERSISTENT_STYLE_WORKSPACE && !currentProject() && !["projects", "create", "global-settings", "scope"].includes(previewState.screen)) {
+    previewState.screen = "projects";
+  }
+  if (PERSISTENT_STYLE_WORKSPACE && previewState.screen === "candidate-detail") previewState.screen = "candidates";
   renderNavigation();
   const screenRenderers = { projects: renderProjects, create: renderProjectCreation, candidates: renderCandidates, compare: renderComparison, scope: renderPreviewScope, "global-settings": renderGlobalSettingsPreview, "project-settings": renderProjectSettingsPreview, "candidate-detail": renderCandidateDetailPreview };
-  previewContent.innerHTML = screenRenderers[previewState.screen]();
+  previewContent.innerHTML = PERSISTENT_STYLE_WORKSPACE && previewState.screen === "scope" ? renderPersistentScope() : screenRenderers[previewState.screen]();
   if (previewState.rankingReturnScrollY !== null) {
     window.scrollTo(0, previewState.rankingReturnScrollY);
     previewState.rankingReturnScrollY = null;
@@ -532,8 +550,10 @@ function restorePreviewScreen() {
 /** Home의 기존 로그인 Session을 사용하고 예시 화면을 표시합니다. */
 async function initializePreview() {
   restorePreviewSession();
-  ensureSettingsPreviewState();
-  ensureRankingPreviewState();
+  if (!PERSISTENT_STYLE_WORKSPACE) {
+    ensureSettingsPreviewState();
+    ensureRankingPreviewState();
+  }
   try {
     const returnUrl = sessionStorage.getItem("comfy-home-general-return-url");
     if (returnUrl?.startsWith("/") && !returnUrl.startsWith("//")) document.querySelector("#general-workspace-link").href = returnUrl;
@@ -546,7 +566,10 @@ async function initializePreview() {
     const session = await response.json();
     document.querySelector("#preview-login").hidden = session.authenticated;
     document.querySelector("#preview-application").hidden = !session.authenticated;
-    if (session.authenticated) restorePreviewScreen();
+    if (session.authenticated) {
+      if (PERSISTENT_STYLE_WORKSPACE) await loadPersistentStyleWorkspace(true);
+      restorePreviewScreen();
+    }
   } catch (error) {
     document.querySelector("#preview-login").hidden = false;
     document.querySelector("#preview-login-error").textContent = `${error.message} 잠시 후 새로고침해 주세요.`;

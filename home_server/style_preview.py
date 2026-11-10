@@ -1,4 +1,4 @@
-"""실제 탐색 데이터와 분리된 Phase 0 화면 파일을 제공합니다."""
+"""스타일 프로젝트 화면과 별도의 Phase 0 예시 화면을 제공합니다."""
 
 from pathlib import Path
 
@@ -12,17 +12,19 @@ PREVIEW_ASSETS = {
     "preview.js": "text/javascript",
     "settings-preview.js": "text/javascript",
     "ranking-preview.js": "text/javascript",
+    "project-persistence.js": "text/javascript",
 }
 
 
 def create_style_preview_router() -> APIRouter:
-    """고정된 목업 파일만 제공하며 생성·저장 API를 추가하지 않습니다."""
+    """화면 자산만 제공하며 프로젝트 API는 별도 Router에서 관리합니다."""
 
     router = APIRouter()
 
+    @router.get("/style", include_in_schema=False)
     @router.get("/style-preview", include_in_schema=False)
     async def style_preview_page():
-        """일반 생성과 같은 Session을 사용하는 화면 목업을 제공합니다."""
+        """같은 UI 자산에서 실제 프로젝트와 예시 화면을 경로로 구분합니다."""
 
         return FileResponse(
             PREVIEW_DIRECTORY / "index.html", media_type="text/html",

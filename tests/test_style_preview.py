@@ -13,11 +13,13 @@ def test_preview_serves_only_allowed_files() -> None:
     application.include_router(create_style_preview_router())
     with TestClient(application) as client:
         for path, media_type in (
+            ("/style", "text/html"),
             ("/style-preview", "text/html"),
             ("/style-preview/preview.css", "text/css"),
             ("/style-preview/preview.js", "text/javascript"),
             ("/style-preview/settings-preview.js", "text/javascript"),
             ("/style-preview/ranking-preview.js", "text/javascript"),
+            ("/style-preview/project-persistence.js", "text/javascript"),
         ):
             response = client.get(path)
             assert response.status_code == 200
