@@ -168,16 +168,15 @@ function renderNavigation() {
     <button data-action="navigate" data-screen="projects" class="${previewState.screen === "projects" ? "active" : ""}">▦　모든 프로젝트</button>
     <p class="project-label">현재 프로젝트</p><p class="project-name">${escapeMarkup(project.name)}</p>
     <button data-action="navigate" data-screen="compare" class="${previewState.screen === "compare" ? "active" : ""}">↔　선별</button>
-    <button data-action="navigate" data-screen="ranking" class="${["ranking", "candidate-detail"].includes(previewState.screen) ? "active" : ""}">≡　순위</button>
-    <button data-action="navigate" data-screen="candidates" class="${previewState.screen === "candidates" ? "active" : ""}">◇　그림체 <small>　${project.candidateCount}</small></button>
+    <button data-action="navigate" data-screen="candidates" class="${["candidates", "candidate-detail"].includes(previewState.screen) ? "active" : ""}">◇　그림체 <small>　${project.candidateCount}</small></button>
     <button data-action="navigate" data-screen="project-settings" class="${previewState.screen === "project-settings" ? "active" : ""}">⚙　프로젝트 설정</button>
     <p class="project-label">시스템 공통</p>
     <button data-action="navigate" data-screen="global-settings" class="${previewState.screen === "global-settings" ? "active" : ""}">◎　글로벌 설정</button>
     <p class="sidebar-note">먼저 화면을 사용해 보고<br>함께 흐름을 정합니다.</p>`;
   document.querySelector("#preview-mobile-navigation").innerHTML = [
-    ["projects", "▦", "프로젝트"], ["compare", "↔", "선별"], ["ranking", "≡", "순위"], ["candidates", "◇", "그림체"],
+    ["projects", "▦", "프로젝트"], ["compare", "↔", "선별"], ["candidates", "◇", "그림체"],
     ["project-settings", "⚙", "설정"],
-  ].map(([screen, symbol, label]) => `<button data-action="navigate" data-screen="${screen}" class="${previewState.screen === screen || (screen === "project-settings" && previewState.screen === "global-settings") || (screen === "ranking" && previewState.screen === "candidate-detail") ? "active" : ""}"><b>${symbol}</b>${label}</button>`).join("");
+  ].map(([screen, symbol, label]) => `<button data-action="navigate" data-screen="${screen}" class="${previewState.screen === screen || (screen === "project-settings" && previewState.screen === "global-settings") || (screen === "candidates" && previewState.screen === "candidate-detail") ? "active" : ""}"><b>${symbol}</b>${label}</button>`).join("");
 }
 
 /** 현재 작업을 파악할 수 있는 작은 조건 요약을 만듭니다. */
@@ -219,7 +218,7 @@ function generationEstimate() {
   return `${previewState.draft.candidateCount}개 조합 × ${previewState.draft.promptCases.length}개 Prompt = ${previewState.draft.candidateCount * previewState.draft.promptCases.length}장 · 실제 생성 없음`;
 }
 
-/** 각 조합의 결과 묶음과 보관 조작을 한 목록에서 보여줍니다. */
+/** 순위·전적·보관 필터를 그림체 목록에서 함께 보여줍니다. */
 function renderCandidates() {
   const project = currentProject();
   const visibleProjects = previewState.projects.filter(owner => {
@@ -227,26 +226,43 @@ function renderCandidates() {
     if (previewState.libraryFilter === "current") return owner.identifier === project.identifier;
     return previewState.libraryFilter === `project:${owner.identifier}`;
   });
-  return `<div class="page-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>그림체 보관함</h1><p class="muted">다른 프로젝트를 둘러봐도 현재 선별 대상은 바뀌지 않습니다.</p></div><button class="primary" data-action="navigate" data-screen="compare">현재 프로젝트 선별 →</button></div>
-    <label for="candidate-project-filter">그림체 보기</label><select id="candidate-project-filter" class="library-filter">
+  const heading = `<div class="page-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>그림체</h1><p class="muted">순위와 결과를 살펴보고 마음에 드는 조합을 보관하세요.</p></div><button class="primary" data-action="navigate" data-screen="compare">현재 프로젝트 선별 →</button></div>`;
+  if (previewState.blind) return heading + rankingBlindNoticeMarkup();
+  return `${heading}<div class="candidate-library-controls"><div><label for="candidate-project-filter">그림체 보기</label><select id="candidate-project-filter">
       <option value="current" ${previewState.libraryFilter === "current" ? "selected" : ""}>현재 프로젝트만</option>
       <option value="all" ${previewState.libraryFilter === "all" ? "selected" : ""}>전체 프로젝트 · 프로젝트별 묶음</option>
       ${previewState.projects.map(owner => `<option value="project:${owner.identifier}" ${previewState.libraryFilter === `project:${owner.identifier}` ? "selected" : ""}>${escapeMarkup(owner.name)}</option>`).join("")}
-    </select>
+    </select></div><div><label for="candidate-sort-order">정렬</label><select id="candidate-sort-order">
+      ${[["elo", "Elo 높은 순"], ["matches", "평가 횟수 많은 순"], ["creation", "등록 순"]].map(([value, label]) => `<option value="${value}" ${previewState.candidateSortOrder === value ? "selected" : ""}>${label}</option>`).join("")}
+    </select></div><label class="candidate-saved-filter"><input id="candidate-saved-only" type="checkbox" ${previewState.savedCandidatesOnly ? "checked" : ""} />보관한 그림체만</label></div>
+    <p class="form-note candidate-library-note">프로젝트별 순위 · 미평가는 Elo 없음 · 예시 데이터${previewState.libraryFilter !== "current" ? ` · 선별 대상은 ${escapeMarkup(project.name)}` : ""}</p>
+    ${project.decisions.length ? '<div class="toolbar"><button data-action="undo">↶ 현재 프로젝트 직전 선택 되돌리기</button></div>' : ""}
+    ${previewState.libraryFilter === "current" ? lastRankingChangeMarkup(project) : ""}
     ${visibleProjects.map(renderProjectCandidateGroup).join("")}`;
 }
 
 /** 그림체의 소유 프로젝트와 현재 작업 프로젝트를 혼동하지 않게 묶습니다. */
 function renderProjectCandidateGroup(owner) {
   const isCurrentProject = owner.identifier === currentProject().identifier;
-  const candidateCards = owner.candidates.map(candidate => {
+  const entries = sortCandidateLibraryEntries(calculateRankingPreview(owner), previewState.candidateSortOrder);
+  const visibleEntries = previewState.savedCandidatesOnly ? entries.filter(entry => owner.savedCandidates.includes(entry.candidate.identifier)) : entries;
+  const candidateCards = visibleEntries.map(entry => {
+    const candidate = entry.candidate;
     const saved = owner.savedCandidates.includes(candidate.identifier);
     const actionMarkup = isCurrentProject
       ? `<button data-action="save-candidate" data-candidate="${candidate.identifier}" aria-pressed="${saved}">${saved ? "★ 보관됨" : "☆ 이 그림체 보관"}</button>`
       : `<button data-action="preview-style-transfer" data-owner="${owner.identifier}" data-candidate="${candidate.identifier}">현재 프로젝트에서 시험 ↗</button>`;
-    return `<article class="candidate-card" data-owner="${owner.identifier}"><img src="${illustrationSource(candidate, owner.promptCases[0].scene)}" alt="${escapeMarkup(candidate.name)} 샘플 일러스트" /><div class="candidate-card-body"><h2>${escapeMarkup(candidate.name)}</h2><p>${owner.promptCases.length}개 Prompt 결과 · ${owner.decisions.filter(decision => decision.candidateIdentifier === candidate.identifier).length}번 선택</p>${galleryRankingSummaryMarkup(owner, candidate)}${isCurrentProject ? `<button class="quiet" data-ranking-action="open-detail" data-candidate="${candidate.identifier}" ${previewState.blind ? "disabled" : ""}>결과·전적 상세</button>` : ""}${actionMarkup}</div></article>`;
+    return `<article class="candidate-card" data-owner="${owner.identifier}" data-ranking-candidate="${candidate.identifier}"><div class="candidate-cover"><img src="${illustrationSource(candidate, owner.promptCases[0].scene)}" alt="${escapeMarkup(candidate.name)} 샘플 일러스트" /><span class="candidate-rank-label">${entry.rank ? `${entry.rank}위` : "미평가"}</span></div><div class="candidate-card-body"><h2>${escapeMarkup(candidate.name)}</h2><div class="candidate-rating"><strong>${rankingRatingLabel(entry)}</strong><span>Elo · 예시</span></div><span class="ranking-status ${entry.matches ? "" : "unrated"}">${rankingPreviewStatus(entry, owner)}</span><p class="candidate-record">${entry.matches}회 평가 · ${entry.wins}승 ${entry.losses}패 · Skip ${entry.skips}회</p><p>${owner.promptCases.length}개 Prompt · ${saved ? "★ 보관됨" : "보관 안 함"}</p>${isCurrentProject ? `<button class="quiet" data-ranking-action="open-detail" data-candidate="${candidate.identifier}">결과·전적 상세</button>` : ""}${actionMarkup}</div></article>`;
   }).join("");
-  return `<section class="candidate-project-group" data-project-group="${owner.identifier}"><div class="group-heading"><h2>${escapeMarkup(owner.name)}</h2><span>${isCurrentProject ? "현재 프로젝트" : "둘러보는 프로젝트"} · ${owner.candidates.length}개</span></div><div class="candidate-grid">${candidateCards}</div></section>`;
+  return `<section class="candidate-project-group" data-project-group="${owner.identifier}"><div class="group-heading"><h2>${escapeMarkup(owner.name)}</h2><span>${isCurrentProject ? "현재 프로젝트" : "둘러보는 프로젝트"} · ${visibleEntries.length} / ${owner.candidates.length}개 · 프로젝트 내 순위</span></div>${candidateCards ? `<div class="candidate-grid">${candidateCards}</div>` : '<div class="panel empty-state"><p>이 프로젝트에 보관한 그림체가 없습니다.</p><button data-action="show-all-candidates">모든 그림체 보기</button></div>'}</section>`;
+}
+
+/** 표시 순서만 바꾸고 계산된 프로젝트 전체 순위는 유지합니다. */
+function sortCandidateLibraryEntries(entries, sortOrder) {
+  const sortedEntries = [...entries];
+  if (sortOrder === "creation") sortedEntries.sort((first, second) => first.creationIndex - second.creationIndex);
+  if (sortOrder === "matches") sortedEntries.sort((first, second) => second.matches - first.matches || compareRankingPreviewEntries(first, second));
+  return sortedEntries;
 }
 
 /** 다른 프로젝트의 성분을 현재 조건에서 시험할 후속 흐름을 보여줍니다. */
@@ -266,7 +282,7 @@ function renderStyleTransferPreview(ownerIdentifier, candidateIdentifier) {
 /** 화면 검토와 아직 구현하지 않은 기능의 경계를 사용자에게 보여줍니다. */
 function renderPreviewScope() {
   return `<div class="page-heading"><div><p class="eyebrow">PHASE 0</p><h1>지금 확인할 수 있는 범위</h1><p class="muted">화면 검토 단계입니다. 실제 생성·DB 저장은 아직 연결하지 않았습니다.</p></div></div>
-    <section class="panel scope-panel"><h2>지금 조작할 수 있는 화면</h2><p>같은 창의 작업 공간 전환, 프로젝트 선택·만들기 예시, 여러 Prompt를 함께 보는 A/B 선택, 되돌리기·Blind, STR 차이·제외, 프로젝트별 그림체·보관 예시입니다.</p><p>순위 화면에서는 예시 Elo·전적·미평가 상태를 보고, 그림체 상세의 모든 Prompt 결과와 성분을 확인한 뒤 선별로 돌아올 수 있습니다. 선택·Undo에 따른 점수와 순위 변화도 예시로 표시합니다.</p><p>설정 화면에서는 글로벌 성분 기본값과 프로젝트의 Prompt·성분 범위를 나누어 편집하고, 기본값 적용 전 변경 내용을 확인할 수 있습니다.</p><p class="form-note">예시 상태는 이 탭의 Session에 임시 보관됩니다. 실제 프로젝트 DB 저장과는 별개입니다. 설정 변경으로 기존 예시 결과를 재생성하지 않습니다.</p></section>
+    <section class="panel scope-panel"><h2>지금 조작할 수 있는 화면</h2><p>같은 창의 작업 공간 전환, 프로젝트 선택·만들기 예시, 여러 Prompt를 함께 보는 A/B 선택, 되돌리기·Blind, STR 차이·제외, 프로젝트별 그림체·보관 예시입니다.</p><p>그림체 화면에서는 예시 Elo·전적·미평가 상태를 보고, 그림체 상세의 모든 Prompt 결과와 성분을 확인한 뒤 선별로 돌아올 수 있습니다. 선택·Undo에 따른 점수와 순위 변화도 예시로 표시합니다.</p><p>설정 화면에서는 글로벌 성분 기본값과 프로젝트의 Prompt·성분 범위를 나누어 편집하고, 기본값 적용 전 변경 내용을 확인할 수 있습니다.</p><p class="form-note">예시 상태는 이 탭의 Session에 임시 보관됩니다. 실제 프로젝트 DB 저장과는 별개입니다. 설정 변경으로 기존 예시 결과를 재생성하지 않습니다.</p></section>
     <section class="panel scope-panel"><h2>앞으로 함께 만들 것</h2><ol class="implementation-roadmap">
       <li><strong>설정 화면 확인 후 실제 저장 연결</strong><p>설정 UI는 이번 검토 범위입니다. 실제 등록 Workflow·성분 Catalog와 프로젝트 DB 저장은 다음 단계에서 연결합니다.</p></li>
       <li><strong>프로젝트 저장과 실제 후보 생성</strong><p>등록 Workflow·공통 조건·여러 Prompt의 실제 이미지·작업 추적.</p></li>
@@ -295,7 +311,7 @@ function renderComparison() {
   const project = currentProject();
   const pair = currentPair();
   return `<div class="page-heading comparison-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>어느 쪽 그림체가 더 좋나요?</h1><p class="muted">같은 두 조합을 여러 Prompt에서 확인해 보세요.</p></div><button data-action="undo" ${project.decisions.length ? "" : "disabled"}>↶ 되돌리기</button></div>${conditionSummary()}
-    <div class="toolbar"><div class="toolbar-group"><button data-action="toggle-blind" aria-pressed="${previewState.blind}">◉ Blind ${previewState.blind ? "켜짐" : "꺼짐"}</button><button data-action="open-differences" ${previewState.blind ? "disabled" : ""}>조합 차이 보기 ↗</button><button data-action="navigate" data-screen="ranking">순위 보기 →</button></div></div>
+    <div class="toolbar"><div class="toolbar-group"><button data-action="toggle-blind" aria-pressed="${previewState.blind}">◉ Blind ${previewState.blind ? "켜짐" : "꺼짐"}</button><button data-action="open-differences" ${previewState.blind ? "disabled" : ""}>조합 차이 보기 ↗</button><button data-action="navigate" data-screen="candidates">그림체 보기 →</button></div></div>
     <div class="mobile-case-controls mobile-only"><div class="case-tabs" aria-label="비교할 Prompt">${project.promptCases.map((promptCase, caseIndex) => `<button data-action="switch-case" data-case="${caseIndex}" aria-pressed="${previewState.activeCaseIndex === caseIndex}">${escapeMarkup(promptCase.name)}</button>`).join("")}</div><button data-action="image-layout" data-layout="${previewState.singleImage ? "pair" : "single"}">${previewState.singleImage ? "나란히" : "한 장씩"}</button>${previewState.singleImage ? `<button data-action="switch-side">${previewState.visibleSide === "a" ? "B" : "A"} 보기</button>` : ""}</div>
     <div class="comparison-columns candidate-headings ${previewState.singleImage ? "single-image" : ""}">${candidateHeading(pair.a, "a")}${candidateHeading(pair.b, "b")}</div>
     ${project.promptCases.map(comparisonCaseMarkup).join("")}
@@ -359,6 +375,10 @@ function handlePreviewAction(event) {
   const action = button.dataset.action;
   const project = currentProject();
   if (action === "navigate") navigatePreview(button.dataset.screen);
+  if (action === "show-all-candidates") {
+    previewState.savedCandidatesOnly = false;
+    renderPreview(false);
+  }
   if (action === "open-project") {
     previewState.currentProjectIdentifier = button.dataset.project;
     previewState.activeCaseIndex = 0;
@@ -450,13 +470,21 @@ function handleDraftInput(event) {
     previewState.activeCaseIndex = 0;
     if (previewState.screen === "candidate-detail") {
       previewState.rankingDetail = null;
-      navigatePreview("ranking");
+      navigatePreview("candidates");
     } else {
       renderPreview(false);
     }
   }
   if (field.id === "candidate-project-filter") {
     previewState.libraryFilter = field.value;
+    renderPreview(false);
+  }
+  if (field.id === "candidate-sort-order") {
+    previewState.candidateSortOrder = field.value;
+    renderPreview(false);
+  }
+  if (field.id === "candidate-saved-only") {
+    previewState.savedCandidatesOnly = field.checked;
     renderPreview(false);
   }
   persistPreviewSession();
@@ -479,7 +507,7 @@ function submitProjectPreview(event) {
 /** 화면 전환 때만 위로 이동하고 비교 조작 때 Scroll은 유지합니다. */
 function renderPreview(scrollToTop = true) {
   renderNavigation();
-  const screenRenderers = { projects: renderProjects, create: renderProjectCreation, candidates: renderCandidates, compare: renderComparison, scope: renderPreviewScope, "global-settings": renderGlobalSettingsPreview, "project-settings": renderProjectSettingsPreview, ranking: renderRankingPreview, "candidate-detail": renderCandidateDetailPreview };
+  const screenRenderers = { projects: renderProjects, create: renderProjectCreation, candidates: renderCandidates, compare: renderComparison, scope: renderPreviewScope, "global-settings": renderGlobalSettingsPreview, "project-settings": renderProjectSettingsPreview, "candidate-detail": renderCandidateDetailPreview };
   previewContent.innerHTML = screenRenderers[previewState.screen]();
   if (previewState.rankingReturnScrollY !== null) {
     window.scrollTo(0, previewState.rankingReturnScrollY);
@@ -492,8 +520,12 @@ function renderPreview(scrollToTop = true) {
 
 /** 주소의 화면 이름을 제한하고 뒤로 가기를 지원합니다. */
 function restorePreviewScreen() {
-  const requestedScreen = window.location.hash.slice(1) || previewState.screen;
-  previewState.screen = ["projects", "create", "candidates", "compare", "scope", "global-settings", "project-settings", "ranking", "candidate-detail"].includes(requestedScreen) ? requestedScreen : "projects";
+  let requestedScreen = window.location.hash.slice(1) || previewState.screen;
+  if (requestedScreen === "ranking") {
+    requestedScreen = "candidates";
+    window.history.replaceState(window.history.state, "", "#candidates");
+  }
+  previewState.screen = ["projects", "create", "candidates", "compare", "scope", "global-settings", "project-settings", "candidate-detail"].includes(requestedScreen) ? requestedScreen : "projects";
   renderPreview();
 }
 

@@ -129,31 +129,21 @@ details[open] > summary { margin-bottom: 15px; }
 .candidate-card p { color: var(--muted); font-size: 11px; }
 .candidate-card button { width: 100%; font-size: 12px; padding: 9px; }
 .candidate-card button + button { margin-top: 7px; }
+.candidate-library-controls { display: grid; grid-template-columns: minmax(210px, 1.4fr) minmax(180px, 1fr) auto; align-items: end; gap: 18px; max-width: 1100px; margin-bottom: 16px; }
+.candidate-saved-filter { display: flex; align-items: center; gap: 9px; min-height: 44px; margin: 0; white-space: nowrap; cursor: pointer; }
+.candidate-saved-filter input { width: 20px; height: 20px; padding: 0; accent-color: #a99aff; }
+.candidate-library-note { margin-bottom: 22px; }
+.candidate-cover { position: relative; }
+.candidate-rank-label { position: absolute; top: 10px; left: 10px; padding: 4px 9px; border: 1px solid #645185; border-radius: 7px; color: #e4d7fa; background: #1b1729ed; font-size: 12px; }
+.candidate-rating { display: flex; gap: 8px; align-items: baseline; margin: 8px 0; }
+.candidate-rating strong { font-size: 23px; }
+.candidate-rating span { font-size: 10px; color: var(--muted); }
+.candidate-record { line-height: 1.8; }
 .comparison-ranking-summary { display: block; color: var(--muted); font-size: 11px; font-weight: 400; margin-top: 4px; }
 .candidate-detail-link { display: block; min-height: 32px; padding: 4px 0; font-size: 11px; background: transparent; border-color: transparent; color: var(--accent); text-align: left; }
-.ranking-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 22px 0 14px; }
-.ranking-summary > div { padding: 17px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
-.ranking-summary strong { display: block; font-size: 24px; }
-.ranking-summary span { display: block; color: var(--muted); font-size: 12px; }
 .ranking-scope-note { margin: 16px 0 24px; }
-.ranking-section { margin: 25px 0 32px; }
-.ranking-section > h2 { margin-bottom: 16px; }
-.ranking-section > .form-note { margin-bottom: 16px; }
-.ranking-entry { display: grid; grid-template-columns: 30px 132px minmax(0, 1fr) 90px 160px; align-items: center; gap: 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 18px; margin-bottom: 12px; }
-.ranking-placement { font-size: 22px; font-weight: 700; color: #bcaaff; }
-.ranking-images { display: flex; gap: 6px; min-width: 0; }
-.ranking-images img { width: calc(50% - 3px); height: 82px; object-fit: cover; border-radius: 8px; }
-.ranking-description { min-width: 0; }
-.ranking-description h3 { margin-bottom: 7px; overflow-wrap: anywhere; }
-.ranking-description p { font-size: 11px; color: var(--muted); margin: 9px 0 4px; }
-.ranking-description small { font-size: 11px; color: var(--muted); }
 .ranking-status { display: inline-block; border: 1px solid #514264; color: #cbb5eb; background: #241e32; border-radius: 20px; padding: 3px 8px; font-size: 10px; }
 .ranking-status.unrated { color: #a6adbd; border-color: #3c4453; background: #20242e; }
-.ranking-score { text-align: right; }
-.ranking-score strong { display: block; font-size: 23px; }
-.ranking-score span { display: block; color: var(--muted); font-size: 10px; }
-.ranking-actions { display: grid; gap: 7px; }
-.ranking-actions button { font-size: 12px; padding: 8px; }
 .ranking-last-choice { border: 1px solid #4e3b65; background: #1c1829; border-radius: 12px; padding: 16px; margin: 20px 0; }
 .ranking-last-choice > strong { font-size: 13px; color: #d1bde9; }
 .ranking-last-choice ul { padding: 0; margin: 12px 0 0; list-style: none; }
@@ -251,8 +241,8 @@ dialog::backdrop { background: #070911b3; backdrop-filter: blur(3px); }
 .settings-default-changes span { color: var(--muted); margin-top: 4px; }
 @media (min-width: 1700px) { .image-button img { height: 340px; } }
 @media (max-width: 1050px) {
-  .ranking-entry { grid-template-columns: 28px 100px minmax(0, 1fr) 80px; gap: 12px; }
-  .ranking-actions { grid-column: 3 / 5; grid-template-columns: 1fr 1fr; }
+  .candidate-library-controls { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  .candidate-saved-filter { grid-column: 1 / -1; }
   .ranking-detail-layout { grid-template-columns: 1fr; }
   .application-layout { grid-template-columns: 175px minmax(0, 1fr); }
   #preview-content { padding: 25px 22px 45px; }
@@ -315,7 +305,7 @@ dialog::backdrop { background: #070911b3; backdrop-filter: blur(3px); }
   .candidate-grid { gap: 10px; }
   .candidate-card img { height: 190px; }
   .candidate-card-body { padding: 12px; }
-  .mobile-navigation { display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; bottom: 0; left: 0; right: 0; padding: 7px 10px calc(7px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #11141df5; backdrop-filter: blur(18px); z-index: 5; }
+  .mobile-navigation { display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; bottom: 0; left: 0; right: 0; padding: 7px 10px calc(7px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #11141df5; backdrop-filter: blur(18px); z-index: 5; }
   .mobile-navigation button { background: transparent; border: 0; color: var(--muted); font-size: 11px; padding: 7px 3px; }
   .mobile-navigation button.active { color: #cabaff; background: #252035; }
   .mobile-navigation b { display: block; font-size: 18px; line-height: 1.4; font-weight: 400; }
@@ -329,18 +319,10 @@ dialog::backdrop { background: #070911b3; backdrop-filter: blur(3px); }
   .settings-tabs button { flex: 1; font-size: 13px; }
   .settings-actions > span { flex-basis: 100%; }
   .settings-defaults-dialog { padding: 20px 16px; }
-  .ranking-summary { gap: 8px; }
-  .ranking-summary > div { padding: 12px 9px; }
-  .ranking-summary strong { font-size: 21px; }
-  .ranking-summary span { font-size: 10px; }
-  .ranking-entry { grid-template-columns: 24px minmax(0, 1fr) 72px; align-items: start; gap: 10px; padding: 14px 12px; }
-  .ranking-placement { grid-column: 1; grid-row: 1; font-size: 19px; }
-  .ranking-description { grid-column: 2; grid-row: 1; }
-  .ranking-score { grid-column: 3; grid-row: 1; }
-  .ranking-score strong { font-size: 20px; }
-  .ranking-images { grid-column: 2 / 4; grid-row: 2; max-width: 220px; }
-  .ranking-images img { height: 95px; }
-  .ranking-actions { grid-column: 2 / 4; grid-row: 3; }
+  .candidate-library-controls { grid-template-columns: 1fr; }
+  .candidate-saved-filter { grid-column: auto; }
+  .candidate-rating { flex-wrap: wrap; gap: 3px 7px; }
+  .candidate-rating strong { font-size: 21px; }
   .ranking-detail-images { grid-template-columns: 1fr; }
   .ranking-detail-statistics { padding: 16px; gap: 16px 22px; }
   .ranking-detail-statistics > button { width: 100%; margin: 0; }

@@ -22,6 +22,9 @@ function createRankingPreviewBaseline(projectIdentifier, candidates) {
 function ensureRankingPreviewState() {
   previewState.rankingDetail ??= null;
   previewState.rankingReturnScrollY ??= null;
+  previewState.candidateSortOrder ??= "elo";
+  previewState.savedCandidatesOnly ??= false;
+  if (previewState.rankingDetail?.returnScreen === "ranking") previewState.rankingDetail.returnScreen = "candidates";
   for (const project of previewState.projects) {
     project.rankingBaseline ??= createRankingPreviewBaseline(project.identifier, project.candidates);
   }
@@ -102,33 +105,7 @@ function rankingRatingLabel(entry) {
 
 /** Blind에서 순위·상세의 이름·점수·성분을 함께 가립니다. */
 function rankingBlindNoticeMarkup() {
-  return `<section class="panel ranking-blind-notice"><h2>Blind가 켜져 있습니다</h2><p class="muted">선별에 영향을 주는 이름·순위·Elo·성분을 숨겼습니다.</p><div class="toolbar-group"><button data-ranking-action="reveal-ranking">Blind 끄고 순위 보기</button><button class="primary" data-action="navigate" data-screen="compare">선별로 돌아가기</button></div></section>`;
-}
-
-/** 현재 프로젝트의 평가된 후보와 미평가 후보를 나누어 보여줍니다. */
-function renderRankingPreview() {
-  const project = currentProject();
-  const heading = `<div class="page-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>그림체 순위</h1><p class="muted">이 프로젝트의 같은 평가 조건에서 비교한 조합입니다.</p></div><button class="primary" data-action="navigate" data-screen="compare">선별 이어가기 →</button></div>`;
-  if (previewState.blind) return heading + rankingBlindNoticeMarkup();
-  const entries = calculateRankingPreview(project);
-  const evaluated = entries.filter(entry => entry.matches);
-  const unrated = entries.filter(entry => !entry.matches);
-  return `${heading}${conditionSummary()}<div class="ranking-summary"><div><strong>${evaluated.length} / ${entries.length}</strong><span>평가된 그림체</span></div><div><strong>${unrated.length}</strong><span>미평가</span></div><div><strong>${project.decisions.length}</strong><span>이 탭의 선택 · Skip 포함</span></div></div>
-    <p class="form-note ranking-scope-note">예시 Elo·전적입니다. 기본 프로젝트에는 예시 전적이 있으며, 새 프로젝트는 미평가로 시작합니다. 여러 Prompt를 함께 보고 조합 단위로 한 번 평가합니다.</p>
-    <div class="toolbar"><span class="muted">Elo 높은 순 · 미평가는 별도 표시</span><button data-action="undo" ${project.decisions.length ? "" : "disabled"}>↶ 직전 선택 되돌리기</button></div>
-    ${lastRankingChangeMarkup(project)}<section class="ranking-section" aria-label="평가된 그림체"><h2>평가된 그림체 <small>${evaluated.length}</small></h2>${evaluated.length ? evaluated.map(entry => rankingEntryMarkup(project, entry)).join("") : '<p class="panel muted">아직 평가한 그림체가 없습니다. 선별에서 두 조합을 비교해 주세요.</p>'}</section>
-    ${unrated.length ? `<section class="ranking-section" aria-label="미평가 그림체"><h2>미평가 <small>${unrated.length}</small></h2><p class="form-note">순위와 Elo를 표시하지 않습니다. 아직 비교하지 않았거나 Skip만 한 그림체입니다.</p>${unrated.map(entry => rankingEntryMarkup(project, entry)).join("")}</section>` : ""}`;
-}
-
-/** 여러 Prompt Thumbnail·전적·보관 여부와 상세 진입을 하나의 순위 행으로 만듭니다. */
-function rankingEntryMarkup(project, entry) {
-  const candidate = entry.candidate;
-  const saved = project.savedCandidates.includes(candidate.identifier);
-  return `<article class="ranking-entry" data-ranking-candidate="${candidate.identifier}"><div class="ranking-placement">${entry.rank || "—"}</div>
-    <div class="ranking-images">${project.promptCases.slice(0, 2).map(promptCase => `<img src="${illustrationSource(candidate, promptCase.scene)}" alt="${escapeMarkup(promptCase.name)} · ${escapeMarkup(candidate.name)} 예시" />`).join("")}</div>
-    <div class="ranking-description"><h3>${escapeMarkup(candidate.name)}</h3><span class="ranking-status ${entry.matches ? "" : "unrated"}">${rankingPreviewStatus(entry, project)}</span><p>${entry.matches}회 평가 · ${entry.wins}승 ${entry.losses}패 · Skip ${entry.skips}회</p><small>1세대 · ${project.promptCases.length}개 Prompt · ${saved ? "★ 보관됨" : "보관 안 함"}</small></div>
-    <div class="ranking-score"><strong>${rankingRatingLabel(entry)}</strong><span>Elo · 예시</span></div>
-    <div class="ranking-actions"><button data-ranking-action="open-detail" data-candidate="${candidate.identifier}">결과·전적 상세 →</button><button class="quiet" data-action="save-candidate" data-candidate="${candidate.identifier}" aria-pressed="${saved}">${saved ? "★ 보관됨" : "☆ 보관"}</button></div></article>`;
+  return `<section class="panel ranking-blind-notice"><h2>Blind가 켜져 있습니다</h2><p class="muted">선별에 영향을 주는 이름·순위·Elo·성분을 숨겼습니다.</p><div class="toolbar-group"><button data-ranking-action="reveal-candidates">Blind 끄고 그림체 보기</button><button class="primary" data-action="navigate" data-screen="compare">선별로 돌아가기</button></div></section>`;
 }
 
 /** 선별의 A/B 제목 아래 최소한의 예시 점수를 표시하고 Blind에서는 생성하지 않습니다. */
@@ -137,13 +114,6 @@ function comparisonRankingSummaryMarkup(candidate) {
   const project = currentProject();
   const entry = calculateRankingPreview(project).find(item => item.candidate.identifier === candidate.identifier);
   return `<span class="comparison-ranking-summary">${entry.matches ? `Elo ${rankingRatingLabel(entry)} · ${entry.matches}회 평가` : "미평가 · Elo 없음"}</span><button class="candidate-detail-link" data-ranking-action="open-detail" data-candidate="${candidate.identifier}">상세 보기</button>`;
-}
-
-/** 그림체 보관함의 기존 프로젝트 필터를 유지하면서 소유 프로젝트의 점수만 요약합니다. */
-function galleryRankingSummaryMarkup(project, candidate) {
-  if (previewState.blind) return '<p class="gallery-ranking-summary">Blind · Elo 숨김</p>';
-  const entry = calculateRankingPreview(project).find(item => item.candidate.identifier === candidate.identifier);
-  return `<p class="gallery-ranking-summary">${entry.rank ? `프로젝트 내 ${entry.rank}위 · Elo ${rankingRatingLabel(entry)}` : "미평가 · 순위 없음"}</p>`;
 }
 
 /** 직전 대결의 두 조합에서 점수·순위가 어떻게 바뀌었는지 표시합니다. */
@@ -170,11 +140,11 @@ function renderCandidateDetailPreview() {
   const context = previewState.rankingDetail;
   const candidate = context?.projectIdentifier === project.identifier
     ? project.candidates.find(item => item.identifier === context.candidateIdentifier) : null;
-  if (!candidate) return '<section class="panel"><h1>그림체를 선택해 주세요</h1><p class="muted">현재 프로젝트의 순위에서 상세를 열 수 있습니다.</p><button data-action="navigate" data-screen="ranking">순위 보기</button></section>';
+  if (!candidate) return '<section class="panel"><h1>그림체를 선택해 주세요</h1><p class="muted">현재 프로젝트의 그림체 목록에서 상세를 열 수 있습니다.</p><button data-action="navigate" data-screen="candidates">그림체 보기</button></section>';
   const entry = calculateRankingPreview(project).find(item => item.candidate.identifier === candidate.identifier);
   const saved = project.savedCandidates.includes(candidate.identifier);
   const components = settingsCatalogComponents().filter(component => candidate.components[component.identifier]);
-  const returnLabel = context.returnScreen === "compare" ? "선별로 돌아가기" : context.returnScreen === "candidates" ? "그림체 목록으로" : "순위로 돌아가기";
+  const returnLabel = context.returnScreen === "compare" ? "선별로 돌아가기" : "그림체로 돌아가기";
   return `<div class="page-heading"><div><p class="eyebrow">${escapeMarkup(project.name)} · 1세대 · 예시 조합</p><h1>${escapeMarkup(candidate.name)}</h1><p class="muted">${entry.rank ? `${entry.rank}위 · ` : ""}${rankingPreviewStatus(entry, project)}</p></div><button data-ranking-action="return-from-detail">← ${returnLabel}</button></div>
     <div class="ranking-detail-statistics"><div><span>Elo · 예시</span><strong>${rankingRatingLabel(entry)}</strong></div><div><span>평가 전적</span><strong>${entry.wins}승 ${entry.losses}패</strong><small>${entry.matches}회 평가 · Skip ${entry.skips}회</small></div><button data-ranking-action="toggle-detail-save" aria-pressed="${saved}">${saved ? "★ 보관됨" : "☆ 이 그림체 보관"}</button></div>
     <p class="form-note ranking-scope-note">아래는 기존 예시 Prompt의 SVG 결과입니다. 프로젝트 설정의 Prompt나 생성 조건을 바꿔도 이 결과를 재생성하지 않습니다.</p>
@@ -199,14 +169,14 @@ function handleRankingPreviewAction(event) {
   if (!button || button.disabled) return;
   const action = button.dataset.rankingAction;
   if (action === "open-detail") openRankingCandidateDetail(button.dataset.candidate);
-  if (action === "reveal-ranking") {
+  if (action === "reveal-candidates") {
     previewState.blind = false;
-    navigatePreview("ranking");
+    navigatePreview("candidates");
   }
   if (action === "return-from-detail") {
     const context = previewState.rankingDetail;
     previewState.rankingReturnScrollY = context?.returnScrollY || 0;
-    navigatePreview(context?.returnScreen || "ranking");
+    navigatePreview(context?.returnScreen || "candidates");
   }
   if (action === "resume-comparison") {
     if (previewState.rankingDetail?.returnScreen === "compare") {

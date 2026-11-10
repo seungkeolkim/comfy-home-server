@@ -38,7 +38,7 @@ Comfy Home Server의 **스타일 구성 · Phase 0**를 누르면 같은 창에�
 | 프로젝트 만들기 | 이름·Prompt 묶음·조합 수 Form과 장수 예시 | 실제 Workflow·성분 Catalog 연결과 DB 저장 |
 | 선별 | SVG 예시를 여러 Prompt에서 보고 조합 단위 한 번 선택, Undo·Blind·Mobile 보기 | 실제 이미지 생성, Elo·Selection·성분 통계·유전 알고리즘 |
 | 조합 차이 | STR 차이와 제외·재허용의 조작 예시 | 실제 후보 생성의 제외/잠금 정책 적용 |
-| 순위·상세 | 예시 Elo·전적·미평가·모든 Prompt 결과·보관·선별 복귀, 선택/Skip/Undo 변화 | 실제 Match Kind별 평가·점수·추천 Pair·DB 연결 |
+| 그림체의 순위·상세 | 카드의 예시 Elo·전적·미평가, 정렬·보관 필터, 모든 Prompt 상세·보관·선별 복귀, 선택/Skip/Undo 변화 | 실제 Match Kind별 평가·점수·추천 Pair·DB 연결 |
 | 그림체 | 현재 프로젝트 기본 필터, 전체의 프로젝트별 그룹, 복수 보관 예시 | 실제 SavedStyle Snapshot·일반 생성 적용 |
 | 다른 프로젝트 그림체 시험 | 원본과 현재 대상 Prompt를 보여주는 계획 미리보기 | 호환성·장수 확인, 새 결과 생성·비교·채택 |
 | 글로벌/프로젝트 설정 | 별도 설정 Form, 프로젝트별 초안, STR 기본값 적용 Preview·취소 | 실제 운영 설정·Catalog·DB 저장 연결 |
