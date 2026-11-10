@@ -103,8 +103,26 @@ async function verifyRandomStyleGeneration() {
     await page.goto(`${baseUrl}/style#compare`);
     await expect(page.locator('.case-section')).toHaveCount(3);
     await expect(page.locator('[data-comparison-candidate]')).toHaveCount(2);
-    await page.locator('[data-comparison-candidate="0"]').selectOption(plan.candidates[2].identifier);
-    await page.locator('[data-comparison-candidate="1"]').selectOption(plan.candidates[3].identifier);
+    const firstPicker = page.locator('[data-comparison-candidate="0"]');
+    const secondPicker = page.locator('[data-comparison-candidate="1"]');
+    if (await secondPicker.inputValue() === plan.candidates[2].identifier) {
+      const currentFirstIdentifier = await firstPicker.inputValue();
+      const replacementIdentifier = plan.candidates.find(candidate => candidate.identifier !== plan.candidates[2].identifier && candidate.identifier !== currentFirstIdentifier).identifier;
+      const responsePromise = page.waitForResponse(response => response.url().endsWith('/selection-pair'));
+      await secondPicker.selectOption(replacementIdentifier);
+      assert.equal((await responsePromise).status(), 200);
+    }
+    if (await firstPicker.inputValue() !== plan.candidates[2].identifier) {
+      const responsePromise = page.waitForResponse(response => response.url().endsWith('/selection-pair'));
+      await firstPicker.selectOption(plan.candidates[2].identifier);
+      assert.equal((await responsePromise).status(), 200);
+      await expect(firstPicker).toBeEnabled();
+    }
+    if (await secondPicker.inputValue() !== plan.candidates[3].identifier) {
+      const responsePromise = page.waitForResponse(response => response.url().endsWith('/selection-pair'));
+      await secondPicker.selectOption(plan.candidates[3].identifier);
+      assert.equal((await responsePromise).status(), 200);
+    }
     await expect(page.locator('.candidate-headings')).toContainText('조합 C');
     await expect(page.locator('.candidate-headings')).toContainText('조합 D');
     await page.locator('[data-action=open-differences]').click();

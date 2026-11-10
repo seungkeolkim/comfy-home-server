@@ -126,15 +126,21 @@ function styleGenerationResultsMarkup(results) {
       const file = render?.files.find(item => item.is_available && !item.is_deleted);
       return `<article class="generation-result"><strong>조합 ${escapeMarkup(candidate.label)}</strong>${file ? `<button class="image-button" data-generation-action="enlarge" data-path="${escapeMarkup(file.path)}"><img loading="lazy" src="${styleImageUrl(file.path)}" alt="${escapeMarkup(persistentPromptCaseName(promptCase))} · 조합 ${escapeMarkup(candidate.label)}" style="aspect-ratio:${plan.sampling.width}/${plan.sampling.height}" /></button>` : `<div class="empty-state">${render ? escapeMarkup(statusLabels[render.status] || render.status) : "계획 확인 완료 · 미제출"}</div>`}${render?.error ? `<p class="error">${escapeMarkup(render.error)}</p>` : ""}<details><summary>성분·실제 생성 조건</summary><ul>${candidate.components.map(component => `<li>${escapeMarkup(component.identifier)} · STR ${component.strength}</li>`).join("")}</ul>${render?.settings ? `<p>Seed ${render.settings.seed} · ${render.settings.width}×${render.settings.height} · Steps ${render.settings.steps} · CFG ${render.settings.cfg}</p>` : ""}${render?.prompt ? `<p class="form-note">${escapeMarkup(render.prompt)}</p>` : ""}</details></article>`;
     }).join("")}</div></section>`).join("")}<div class="form-actions">${hasRetryTargets && !activeJobs.length ? `<button data-generation-action="retry" data-plan="${plan.planIdentifier}">실패·취소 항목만 재시도</button>` : ""}${activeJobs.map(jobIdentifier => `<button data-generation-action="cancel" data-job="${jobIdentifier}">이 생성 작업 취소</button>`).join("")}</div></section>`;
-  }).join("") + `<p class="form-note">${escapeMarkup(project.name)}의 실제 결과입니다. 선별·Elo는 후속 단계에서 연결합니다.</p>`;
+  }).join("") + `<p class="form-note">${escapeMarkup(project.name)}의 실제 결과입니다. 선별에서 비교하고 그림체에서 순위·Elo를 확인할 수 있습니다.</p>`;
 }
 
 /** Polling은 결과 영역만 바꾸며 작성 중 조합·Scroll·다른 프로젝트를 덮어쓰지 않습니다. */
 async function refreshStyleGenerationResults(projectIdentifier = previewState.currentProjectIdentifier) {
   if (!PERSISTENT_STYLE_WORKSPACE || !projectIdentifier) return;
-  const results = await styleProjectApi(`/api/style-projects/${projectIdentifier}/generation-results`);
   const state = currentStyleGenerationState(projectIdentifier);
+  if (state.votingCommandBusy) return;
+  const refreshSequence = (state.resultRefreshSequence || 0) + 1;
+  state.resultRefreshSequence = refreshSequence;
+  const results = await styleProjectApi(`/api/style-projects/${projectIdentifier}/generation-results`);
+  if (refreshSequence !== state.resultRefreshSequence) return;
   state.results = results;
+  await refreshStyleVoting(projectIdentifier);
+  if (refreshSequence !== state.resultRefreshSequence) return;
   const project = previewState.projects.find(project => project.identifier === projectIdentifier);
   if (project) project.candidateCount = results.candidates.filter(candidate => candidate.renders.length > 0).length;
   if (projectIdentifier !== previewState.currentProjectIdentifier) return;
@@ -146,6 +152,7 @@ async function refreshStyleGenerationResults(projectIdentifier = previewState.cu
       state.lastResultMarkup = markup;
     }
   }
+  updateStyleVotingControls();
 }
 
 /** 조합 입력을 프로젝트 허용 범위의 초안에만 반영합니다. */

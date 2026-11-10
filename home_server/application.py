@@ -40,6 +40,8 @@ from .system_resources import RESOURCE_POLL_INTERVAL_SECONDS, SystemResourceMoni
 from .style_preview import create_style_preview_router
 from .style_project_routes import create_style_project_router
 from .style_generation import StyleGenerationService
+from .style_voting import StyleVotingService
+from .style_voting_routes import create_style_voting_router
 from .output_roots import STYLE_OUTPUT_PREFIX, STYLE_OUTPUT_ROOT_NAME, resolve_managed_file
 from .tag_builder import (
     MAX_PROMPT_LENGTH, MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt,
@@ -403,6 +405,7 @@ class HomeServer:
         self.style_output_directory = config.style_output_directory
         self.style_output_directory.mkdir(parents=True, exist_ok=True)
         self.style_generation = StyleGenerationService(self)
+        self.style_voting = StyleVotingService(self)
         self.style_generation.recover_renames()
         self.output_catalog.synchronize(config.managed_output_directory, self.style_output_directory)
         self.video_previews = VideoPreviewCache(config, self.output_catalog)
@@ -714,6 +717,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     app.include_router(create_administration_router(server))
     app.include_router(create_style_preview_router())
     app.include_router(create_style_project_router(server))
+    app.include_router(create_style_voting_router(server))
 
     @app.middleware("http")
     async def require_authentication(request: Request, call_next):

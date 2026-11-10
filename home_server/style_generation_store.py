@@ -5,10 +5,11 @@ import sqlite3
 from collections.abc import Callable
 
 from .style_projects import browser_sampling_settings
+from .style_voting import ranked_candidate_statistics
 
 
 class StyleGenerationStore:
-    """이미지 상태는 CHS 요청에서 읽고 별도의 Elo를 만들지 않습니다."""
+    """이미지 상태는 CHS 요청에서 읽고 평가 구간별 저장 순위를 함께 조회합니다."""
 
     def __init__(self, connection_factory: Callable[[], sqlite3.Connection]) -> None:
         """현재 DB 파일을 여는 연결 Factory만 보관합니다."""
@@ -122,11 +123,24 @@ class StyleGenerationStore:
                         "settings": browser_sampling_settings(result["settings"]) if result.get("settings") else None, "loras": result.get("loras", []),
                     })
                 results.append({"identifier": candidate["candidate_id"], "label": candidate["label"], "planIdentifier": candidate["plan_id"],
+                                "evaluationIdentifier": candidate["evaluation_id"],
                                 "components": json.loads(candidate["components_json"]), "renders": renders})
             plan_identifiers = [row[0] for row in connection.execute(
                 "SELECT plan_id FROM style_generation_plans WHERE project_id=? AND (evaluation_id=? OR EXISTS "
-                "(SELECT 1 FROM style_candidate_renders WHERE plan_id=style_generation_plans.plan_id)) ORDER BY created_at DESC LIMIT 20",
+                "(SELECT 1 FROM style_candidate_renders WHERE plan_id=style_generation_plans.plan_id)) ORDER BY created_at DESC",
                 (project_identifier, project["active_evaluation_id"]),
             )]
-        return {"projectIdentifier": project_identifier, "candidates": results,
-                "plans": [self.plan(identifier, project_identifier) for identifier in plan_identifiers]}
+            arena_statistics = {row["evaluation_id"]: json.loads(row["state_json"])["statistics"] for row in connection.execute("SELECT evaluation_id,state_json FROM style_voting_arenas WHERE project_id=?", (project_identifier,))}
+        evaluation_identifiers = {candidate["evaluationIdentifier"] for candidate in results}
+        for evaluation_identifier in evaluation_identifiers:
+            identifiers = [candidate["identifier"] for candidate in results if candidate["evaluationIdentifier"] == evaluation_identifier and candidate["renders"]]
+            rankings = {entry["identifier"]: entry for entry in ranked_candidate_statistics(identifiers, arena_statistics.get(evaluation_identifier, {}))}
+            for candidate in results:
+                if candidate["identifier"] in rankings:
+                    candidate["statistics"] = rankings[candidate["identifier"]]
+        plans = [self.plan(identifier, project_identifier) for identifier in plan_identifiers]
+        submitted_plans = [plan for plan in reversed(plans) if plan["jobIdentifiers"]]
+        batch_numbers = {plan["planIdentifier"]: index + 1 for index, plan in enumerate(submitted_plans)}
+        for candidate in results:
+            candidate["batchNumber"] = batch_numbers.get(candidate["planIdentifier"])
+        return {"projectIdentifier": project_identifier, "activeEvaluationIdentifier": project["active_evaluation_id"], "candidates": results, "plans": plans}

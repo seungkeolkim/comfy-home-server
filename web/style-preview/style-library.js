@@ -26,7 +26,7 @@ function styleCandidateCardMarkup(candidate, plan) {
       : `<span class="style-thumbnail-status">${escapeMarkup(result.render ? styleRenderStatusLabel(result.render.status) : "미제출")}</span>`;
     return `<span class="style-card-thumbnail" data-library-case-index="${caseIndex}">${imageMarkup}<span class="style-thumbnail-name">${escapeMarkup(caseName)}</span></span>`;
   }).join("");
-  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="조합 ${escapeMarkup(candidate.label)}의 이미지 ${caseResults.length}개 자세히 보기"><span class="style-card-heading"><strong>조합 ${escapeMarkup(candidate.label)}</strong><span>${availableCount} / ${caseResults.length}장</span></span><span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button></article>`;
+  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="조합 ${escapeMarkup(candidate.label)}의 이미지 ${caseResults.length}개 자세히 보기"><span class="style-card-heading"><strong>조합 ${escapeMarkup(candidate.label)}</strong><span>${availableCount} / ${caseResults.length}장</span></span>${styleCandidateRankingMarkup(candidate)}<span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">${candidate.batchNumber}번째 생성 · 작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button></article>`;
 }
 
 /** 생성 묶음의 취소·부분 실패 재시도는 조합 카드와 별도로 유지합니다. */
@@ -41,17 +41,30 @@ function styleLibraryBatchActionsMarkup(candidates, plan) {
   return "";
 }
 
-/** 그림체 목록은 생성된 조합별로 묶고 각 카드 안에 여러 Prompt를 모읍니다. */
+/** 서버가 계산한 실제 순위·Elo·전적을 조합 카드와 상세에서 공유합니다. */
+function styleCandidateRankingMarkup(candidate) {
+  const statistics = candidate.statistics;
+  const rankLabel = statistics?.rank ? `${statistics.rank}위` : "미평가";
+  const ratingLabel = statistics?.rated ? statistics.rating.toLocaleString("ko-KR") : "—";
+  return `<span class="style-card-statistics"><strong>${rankLabel} · Elo <span data-style-rating="${candidate.identifier}">${ratingLabel}</span></strong><small>${statistics?.wins || 0}승 ${statistics?.losses || 0}패 · ${statistics?.matches || 0}회 평가 · Skip ${statistics?.skips || 0}</small></span>`;
+}
+
+/** 같은 평가 조건 안에서만 순위를 정렬하고 이전 Seed의 점수를 섞지 않습니다. */
 function styleLibraryResultsMarkup(results) {
-  const batches = [];
-  const plans = results?.plans || [];
-  for (const [planIndex, plan] of plans.entries()) {
-    const candidates = results.candidates.filter(candidate => candidate.planIdentifier === plan.planIdentifier && candidate.renders.length);
-    if (!candidates.length) continue;
-    const cards = candidates.map(candidate => styleCandidateCardMarkup(candidate, plan)).join("");
-    batches.push(`<section class="style-library-batch"><div class="settings-section-heading"><h2>${plans.length - planIndex}번째 생성 · ${candidates.length}개 그림체</h2><div class="form-actions">${styleLibraryBatchActionsMarkup(candidates, plan)}</div></div><div class="style-library-grid">${cards}</div></section>`);
+  if (previewState.blind) return rankingBlindNoticeMarkup();
+  const groups = [];
+  const plans = (results?.plans || []).filter(plan => results.candidates.some(candidate => candidate.planIdentifier === plan.planIdentifier && candidate.renders.length));
+  const evaluations = plans.filter((plan, index) => plans.findIndex(item => item.evaluationIdentifier === plan.evaluationIdentifier) === index);
+  for (const plan of evaluations) {
+    const candidates = results.candidates.filter(candidate => candidate.evaluationIdentifier === plan.evaluationIdentifier && candidate.renders.length);
+    const orderedCandidates = [...candidates];
+    if (previewState.candidateSortOrder === "matches") orderedCandidates.sort((first, second) => (second.statistics?.matches || 0) - (first.statistics?.matches || 0) || (first.statistics?.rank || Infinity) - (second.statistics?.rank || Infinity));
+    else if (previewState.candidateSortOrder !== "creation") orderedCandidates.sort((first, second) => (first.statistics?.rank || Infinity) - (second.statistics?.rank || Infinity));
+    const actions = plans.filter(item => item.evaluationIdentifier === plan.evaluationIdentifier).map(item => styleLibraryBatchActionsMarkup(candidates.filter(candidate => candidate.planIdentifier === item.planIdentifier), item)).join("");
+    const cards = orderedCandidates.map(candidate => styleCandidateCardMarkup(candidate, plans.find(item => item.planIdentifier === candidate.planIdentifier))).join("");
+    groups.push(`<section class="style-library-batch"><div class="settings-section-heading"><h2>${plan.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재 조건" : "이전 조건"} · Seed ${plan.sampling.seed} · ${candidates.length}개 그림체</h2><div class="form-actions">${actions}</div></div><div class="style-library-grid">${cards}</div></section>`);
   }
-  return batches.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>';
+  return groups.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>';
 }
 
 /** 상세 보기는 열린 프로젝트와 후보 ID로만 조회해 다른 조합으로 넘어가지 않습니다. */
@@ -80,7 +93,7 @@ function renderStyleLibraryViewer() {
     ? `<img class="style-viewer-image" src="${styleImageUrl(result.file.path, true)}" alt="조합 ${escapeMarkup(candidate.label)} · ${escapeMarkup(caseName)}" />`
     : `<div class="empty-state">${escapeMarkup(result.render ? styleRenderStatusLabel(result.render.status) : "미제출")}${result.render?.error ? `<p class="error">${escapeMarkup(result.render.error)}</p>` : ""}</div>`;
   illustrationDialog.classList.add("style-library-viewer");
-  illustrationDialog.innerHTML = `<div class="dialog-heading"><h2>조합 ${escapeMarkup(candidate.label)}</h2><button data-style-library-action="close" aria-label="그림체 상세 닫기">닫기</button></div><p class="style-viewer-case-name">${escapeMarkup(caseName)}</p><div class="style-viewer-image-frame">${imageMarkup}</div><div class="style-viewer-navigation"><button data-style-library-action="previous" ${caseIndex === 0 ? "disabled" : ""}>← 이전</button><span role="status" aria-live="polite">${caseIndex + 1} / ${caseResults.length}</span><button data-style-library-action="next" ${caseIndex === caseResults.length - 1 ? "disabled" : ""}>다음 →</button></div>`;
+  illustrationDialog.innerHTML = `<div class="dialog-heading"><h2>조합 ${escapeMarkup(candidate.label)}</h2><button data-style-library-action="close" aria-label="그림체 상세 닫기">닫기</button></div>${styleCandidateRankingMarkup(candidate)}<p class="style-viewer-case-name">${escapeMarkup(caseName)}</p><div class="style-viewer-image-frame">${imageMarkup}</div><div class="style-viewer-navigation"><button data-style-library-action="previous" ${caseIndex === 0 ? "disabled" : ""}>← 이전</button><span role="status" aria-live="polite">${caseIndex + 1} / ${caseResults.length}</span><button data-style-library-action="next" ${caseIndex === caseResults.length - 1 ? "disabled" : ""}>다음 →</button></div>`;
 }
 
 /** 카드나 그 안의 작은 이미지를 누른 위치에서 해당 조합의 상세 보기를 엽니다. */

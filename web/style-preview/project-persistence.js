@@ -32,7 +32,7 @@ async function styleProjectApi(path, options = {}) {
 /** 서버 데이터 대신 탭별 선택과 미저장 초안만 Session Storage에 보관합니다. */
 function persistStyleWorkspaceSession() {
   const sessionState = {};
-  for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "artistBulkInput"]) {
+  for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "artistBulkInput", "candidateSortOrder"]) {
     sessionState[field] = previewState[field];
   }
   try {
@@ -62,7 +62,7 @@ async function loadPersistentStyleWorkspace(restoreSession = false) {
     try {
       const storedSession = JSON.parse(sessionStorage.getItem(STYLE_WORKSPACE_SESSION_KEY) || "null");
       if (storedSession && typeof storedSession === "object") {
-        for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "artistBulkInput"]) {
+        for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "artistBulkInput", "candidateSortOrder"]) {
           if (storedSession[field] !== undefined) previewState[field] = storedSession[field];
         }
       }
@@ -113,12 +113,13 @@ function renderPersistentProjectCreation() {
 /** 프로젝트가 소유한 실제 조합을 카드 목록으로 조회합니다. */
 function renderPersistentStyleLibrary() {
   const project = currentProject();
-  return `<div class="page-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>그림체</h1><p class="muted">조합별 Prompt 결과입니다. 카드를 누르면 이미지를 넘겨 볼 수 있습니다.</p></div><button class="primary" data-action="navigate" data-screen="generation">이미지 생성</button></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
+  if (previewState.blind) return rankingBlindNoticeMarkup();
+  return `<div class="page-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>그림체</h1><p class="muted">순위·Elo와 조합별 Prompt 결과입니다. 카드를 누르면 이미지를 넘겨 볼 수 있습니다.</p></div><button class="primary" data-action="navigate" data-screen="generation">이미지 생성</button></div><div class="toolbar"><label for="candidate-sort-order">정렬</label><select id="candidate-sort-order">${[["elo", "Elo 높은 순"], ["matches", "평가 횟수 많은 순"], ["creation", "등록 순"]].map(([value, label]) => `<option value="${value}" ${previewState.candidateSortOrder === value ? "selected" : ""}>${label}</option>`).join("")}</select></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
 }
 
 /** 현재 실제 연결 범위와 후속 생성·평가 단계를 구분합니다. */
 function renderPersistentScope() {
-  return '<div class="page-heading"><h1>현재 연결 범위</h1></div><section class="panel"><h2>저장·이미지 생성</h2><p>프로젝트 설정과 여러 Prompt를 저장하고, 허용한 성분·개수·STR로 Random 초기 조합을 뽑고 Preview 확인 후 실제 이미지를 생성합니다. 같은 조합은 모든 Prompt에서 유지합니다.</p><h2>작업·출력 관리</h2><p>스타일 전용 분류·출력 루트·세대 메모를 사용합니다. 일반 목록에서는 선택해서 표시하고, 작업·이미지의 임의 이동은 막습니다. 프로젝트 이름을 바꾸면 분류와 실제 폴더도 함께 변경합니다.</p><h2>후속 단계</h2><p>공통 성분 잠금·투표·Elo·진화·세대 복원·Prompt 재시험·Fork는 아직 연결하지 않았습니다.</p><a href="/style-preview">예시 목업 별도로 열기</a></section>';
+  return '<div class="page-heading"><h1>현재 연결 범위</h1></div><section class="panel"><h2>저장·이미지 생성</h2><p>프로젝트 설정과 여러 Prompt를 저장하고, 허용한 성분·개수·STR로 Random 초기 조합을 뽑고 장수 확인 후 실제 이미지를 생성합니다. 같은 조합은 모든 Prompt에서 유지합니다.</p><h2>작업·출력 관리</h2><p>스타일 전용 분류·출력 루트·세대 메모를 사용합니다. 일반 목록에서는 선택해서 표시하고, 작업·이미지의 임의 이동은 막습니다. 프로젝트 이름을 바꾸면 분류와 실제 폴더도 함께 변경합니다.</p><h2>선별·순위</h2><p>여러 Prompt를 함께 보고 조합 단위로 투표합니다. Elo·Skip·최근 30개 선택의 Undo를 저장하며 그림체에서 순위와 전적을 확인합니다.</p><h2>후속 단계</h2><p>공통 성분 잠금·진화·세대 복원·Prompt 재시험·Fork는 아직 연결하지 않았습니다.</p><a href="/style-preview">예시 목업 별도로 열기</a></section>';
 }
 
 /** Case ID를 유지하고 화면 전용 필드가 실제 평가 조건에 들어가지 않게 합니다. */
