@@ -80,10 +80,10 @@ function updateStyleVotingControls() {
   if (status) {
     let message = "모든 이미지가 준비된 조합이 두 개 이상이면 선별을 시작합니다.";
     if (voting?.match && !imagesReady) message = images.some(image => image.complete && !image.naturalWidth) ? "이미지를 불러오지 못했습니다. 새로고침한 뒤 다시 확인해 주세요." : "모든 Prompt의 이미지를 불러오는 중입니다.";
-    else if (voting?.match?.kind === "select") message = "자녀를 부모와 비교해 배치합니다. 부모의 Elo·전적은 유지합니다. 비슷함도 자녀 배치에 반영합니다.";
+    else if (voting?.match?.kind === "select") message = "자녀 평가 중";
     else if (voting?.activeEvolutionIdentifier && !voting.match) message = "준비된 자녀의 선별을 마쳤습니다. 위에서 생성 상태와 세대 확정 가능 여부를 확인해 주세요.";
-    else if (voting?.match?.kind === "place") message = "새 조합을 기존 순위에 배치합니다. 기존 조합의 점수는 유지합니다.";
-    else if (voting?.match) message = "모든 Prompt를 함께 보고 조합 하나를 선택해 주세요. 비슷함은 Elo를 바꾸지 않습니다.";
+    else if (voting?.match?.kind === "place") message = "새 조합 평가 중";
+    else if (voting?.match) message = "";
     status.textContent = state.error || message;
   }
 }
@@ -111,7 +111,7 @@ async function executeStyleVotingAction(action, additionalFields = {}) {
     const response = await styleProjectApi(`/api/style-projects/${projectIdentifier}/${route}`, { method: "POST", body: JSON.stringify(payload) });
     applyStyleVotingResponse(projectIdentifier, response);
     if (action !== "pair") {
-      showToast(action === "undo" ? "마지막 선택과 점수·A/B 위치를 되돌렸습니다." : additionalFields.choice === "similar" ? (voting.match?.kind === "select" ? "비슷함을 자녀 배치에 반영했습니다." : "비슷함을 기록했습니다.") : "선택과 Elo를 저장했습니다.");
+      if (action === "undo") showToast("되돌렸습니다.");
       if (action === "vote") previewState.visibleSide = "a";
     }
   } catch (error) {

@@ -109,6 +109,7 @@ async function verifyStyleManagement() {
     await page.screenshot({ path: 'runtime/verification/style-usability-compare-desktop.png', fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: 'runtime/verification/style-usability-compare-mobile.png', fullPage: true });
+    await page.locator('.comparison-extra-controls summary').click();
     await page.locator('[data-style-candidate-action=delete][data-candidates]').click();
     await expect(page.locator('#component-dialog')).toContainText('2개 조합');
     await page.locator('#component-dialog button[value=confirm]').click();

@@ -1,5 +1,7 @@
 # 현재 조합의 Prompt 재시험과 순위 재평가
 
+2026-11-11 구현 갱신: [Prompt 저장·Web 사용성 수정](style_web_usability_rework.md)으로 생성 후 새 Prompt 저장과 이전 활성 조합의 고정 재생성을 연결합니다. 새 조건은 별도 Evaluation으로 평가하고 이전 조건은 보존합니다. 아래의 독립 Trial Drop/Undo·보관·채택 전체는 후속 범위입니다.
+
 새 프로그램의 **P0 요구사항**입니다. 현재 Style Lab에 이미 구현된 기능은 아닙니다. Prompt를 바꾼 뒤 다음 세대를 만들면 성분이나 Weight도 달라지는 문제를 해결합니다.
 
 2026-11-10의 [여러 Prompt 일상 탐색](20_web_ux_fusion_multi_prompt_and_component_differences.md)에 맞춰 재시험 대상을 새 Prompt Set으로 확장합니다. Set의 일부 Case 수정·추가·삭제도 새 평가 계약으로 고정하고, 원본 조합의 성분·Weight를 모든 Case에 그대로 사용합니다. 아래 단일 Prompt 예시는 Case가 하나인 경우로 읽습니다. 원본/Trial 간 점수 비혼합 원칙을 유지하고 같은 Set 결과를 함께 보며 조합 단위로 한 번 선택합니다.

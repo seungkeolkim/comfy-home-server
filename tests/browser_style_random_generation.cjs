@@ -103,6 +103,7 @@ async function verifyRandomStyleGeneration() {
     await page.goto(`${baseUrl}/style#compare`);
     await expect(page.locator('.case-section')).toHaveCount(3);
     await expect(page.locator('[data-comparison-candidate]')).toHaveCount(2);
+    await page.locator('.comparison-extra-controls summary').click();
     const firstPicker = page.locator('[data-comparison-candidate="0"]');
     const secondPicker = page.locator('[data-comparison-candidate="1"]');
     if (await secondPicker.inputValue() === plan.candidates[2].identifier) {

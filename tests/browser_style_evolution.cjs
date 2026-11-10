@@ -62,6 +62,7 @@ async function verifyStyleEvolution() {
       await clickEvolutionVote(page, selection.match.kind === 'tie' ? 'similar' : 'a');
       selection = await readEvolutionSelection(context, project, clientIdentifier);
     }
+    await page.goto(`${baseUrl}/style#generation`);
     await expect(prepare).toBeEnabled();
     const source = await readEvolutionSelection(context, project, clientIdentifier);
     const previousJobCount = (await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total;
@@ -76,10 +77,11 @@ async function verifyStyleEvolution() {
     await prepare.click();
     await dialog.locator('button[value=confirm]').click();
     await expect(page.locator('[data-style-evolution-action=cancel]')).toBeVisible();
+    await page.locator('#style-evolution-controls [data-screen=compare]').click();
     await expect(page.locator('[data-style-voting-choice=a]')).toBeEnabled();
     selection = await readEvolutionSelection(context, project, clientIdentifier);
     assert.equal(selection.match.kind, 'select');
-    await expect(page.locator('#style-voting-status')).toContainText('부모의 Elo·전적은 유지');
+    await expect(page.locator('#style-voting-status')).toContainText('자녀 평가 중');
     let evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
     const children = new Set(evolution.batch.plan.candidates.map(candidate => candidate.identifier));
     const firstPair = { ...selection.match };
@@ -115,7 +117,8 @@ async function verifyStyleEvolution() {
     await confirm.click();
     await expect(dialog).toContainText('이미지와 이력은 보존');
     await dialog.locator('button[value=confirm]').click();
-    await expect(page.locator('.evolution-panel')).toContainText('현재 2세대');
+    await expect.poll(async () => (await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json()).currentGeneration).toBe(2);
+    await expect(page.locator('.evolution-panel')).toHaveCount(0);
     await expect(page.locator('[data-style-voting-action=undo]')).toBeDisabled();
     await page.goto(`${baseUrl}/style#candidates`);
     await expect(page.locator('.style-library-card')).toHaveCount(10);
@@ -136,6 +139,7 @@ async function verifyStyleEvolution() {
     await expect(page.locator('[data-style-evolution-action=cancel]')).toBeVisible();
     await page.locator('[data-style-evolution-action=cancel]').click();
     await dialog.locator('button[value=confirm]').click();
+    await expect.poll(async () => (await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json()).currentGeneration).toBe(2);
     await expect(page.locator('.evolution-panel')).toContainText('현재 2세대');
     await page.goto(`${baseUrl}/style#candidates`);
     await page.locator('#style-library-lifecycle').selectOption('cancelled');

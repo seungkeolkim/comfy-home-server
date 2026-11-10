@@ -70,7 +70,7 @@ function createProjectSettingsPreview(name, promptCases, globalSettings) {
     const strengthRange = settingsComponentRange(component, globalSettings);
     componentPolicies[component.identifier] = {
       ...strengthRange,
-      enabled: globalSettings.availableComponents[component.identifier],
+      enabled: globalSettings.availableComponents[component.identifier] !== false,
     };
   }
   return {
@@ -190,6 +190,7 @@ function settingsNavigationMarkup(scope) {
 /** 현재 화면에서 다루는 범위와 임시 반영 상태를 명확히 표시합니다. */
 function settingsHeadingMarkup(scope) {
   const isGlobal = scope === "global";
+  if (PERSISTENT_STYLE_WORKSPACE) return `${settingsNavigationMarkup(scope)}<div class="page-heading"><h1>${isGlobal ? "글로벌 설정" : "프로젝트 설정"}</h1></div>`;
   const boundaryMarkup = PERSISTENT_STYLE_WORKSPACE
     ? '<strong>서버에 저장하는 설정</strong><p>저장 버튼으로 반영하며, 저장한 조건으로 이미지를 생성합니다.</p>'
     : '<strong>설정 화면 미리보기</strong><p>변경 내용은 이 탭에만 임시 보관됩니다. 실제 서버 설정·생성·이미지에는 아직 적용되지 않습니다.</p>';
@@ -233,7 +234,7 @@ function globalComponentGroupMarkup(kind, title, groupIdentifier) {
   const componentMarkup = [];
   for (const component of settingsCatalogComponents(draft)) {
     if (component.kind !== kind) continue;
-    componentMarkup.push(`<label class="settings-checkbox"><input type="checkbox" data-settings-scope="global" data-settings-available="${escapeMarkup(component.identifier)}" ${draft.availableComponents[component.identifier] ? "checked" : ""} /><span><strong>${escapeMarkup(component.name)}</strong><small>${PERSISTENT_STYLE_WORKSPACE ? '새 프로젝트에서 사용하도록 허용' : '이 Pipeline에서 사용 가능'}</small></span></label>`);
+    componentMarkup.push(`<label class="settings-checkbox"><input type="checkbox" data-settings-scope="global" data-settings-available="${escapeMarkup(component.identifier)}" ${draft.availableComponents[component.identifier] !== false ? "checked" : ""} /><span><strong>${escapeMarkup(component.name)}</strong><small>${PERSISTENT_STYLE_WORKSPACE ? '새 프로젝트에서 사용하도록 허용' : '이 Pipeline에서 사용 가능'}</small></span></label>`);
   }
   return `<section class="settings-component-group" data-settings-kind="${groupIdentifier}" aria-labelledby="settings-catalog-${groupIdentifier}"><h3 id="settings-catalog-${groupIdentifier}">${title}</h3>${kind === "작가" ? artistBulkInputMarkup() : ""}<div class="settings-catalog">${componentMarkup.join("")}</div></section>`;
 }
@@ -290,7 +291,7 @@ function analyzeArtistBulkInput(text) {
 /** 등록 전 신규·중복·제외 수와 정규화 결과를 제한된 길이로 보여줍니다. */
 function artistBulkPreviewMarkup(analysis) {
   if (!analysis.rows.length) return '<p class="form-note">한 줄마다 작가 태그 한 개를 등록합니다.</p>';
-  return `<p class="form-note">신규 ${analysis.additions.length}명 · 이미 등록 ${analysis.existingCount}명 · 입력 중복 ${analysis.duplicateCount}명 · 확인 필요 ${analysis.invalidCount}줄 · 빈 줄 ${analysis.blankCount}줄 제외</p>
+  return `<p class="form-note bulk-input-summary">신규 ${analysis.additions.length}명 · 이미 등록 ${analysis.existingCount}명 · 입력 중복 ${analysis.duplicateCount}명 · 확인 필요 ${analysis.invalidCount}줄 · 빈 줄 ${analysis.blankCount}줄 제외</p>
     <ol class="artist-bulk-preview-list">${analysis.rows.slice(0, 20).map(row => `<li><span>${row.lineNumber}행</span><code>${escapeMarkup(row.tag)}</code><small>${escapeMarkup(row.status)}</small></li>`).join("")}</ol>
     ${analysis.rows.length > 20 ? `<p class="form-note">미리보기는 앞 20줄만 표시합니다. 전체 ${analysis.additions.length}명의 신규 작가가 등록됩니다.</p>` : ""}`;
 }
@@ -300,7 +301,7 @@ function artistBulkInputMarkup() {
   const analysis = analyzeArtistBulkInput(previewState.artistBulkInput);
   return `<section class="artist-bulk-registration" aria-label="작가 태그 일괄 등록"><label for="artist-bulk-input">작가 태그 일괄 등록</label>
     <textarea id="artist-bulk-input" rows="5" spellcheck="false" placeholder="necomi&#10;artist:shigure_ui&#10;@mignon" aria-describedby="artist-bulk-help">${escapeMarkup(previewState.artistBulkInput)}</textarea>
-    <p id="artist-bulk-help" class="form-note">한 줄에 한 명씩 입력하세요. 이름·artist:이름·@이름을 지원하며, 공백은 _로 정리하고 중복·빈 줄은 건너뜁니다.</p>
+    <p id="artist-bulk-help" class="form-note">한 줄에 작가 태그 한 개를 입력하세요.</p>
     <div id="artist-bulk-preview" aria-live="polite">${artistBulkPreviewMarkup(analysis)}</div>
     <div class="form-actions"><button id="artist-bulk-register-button" type="button" data-settings-action="register-artists" ${analysis.additions.length ? "" : "disabled"}>신규 작가 ${analysis.additions.length}명 등록</button></div>
     <p id="artist-bulk-registration-result" class="form-note" role="status">${escapeMarkup(previewState.artistBulkRegistrationResult)}</p>
@@ -357,7 +358,7 @@ function projectSettingsPromptMarkup(promptCase, caseIndex) {
 /** 특정 성분의 허용 여부와 STR 범위를 여러 줄의 프로젝트 설정으로 표시합니다. */
 function projectComponentPolicyMarkup(component, componentIndex) {
   const policy = settingsPreviewDraft("project").componentPolicies[component.identifier];
-  const available = previewState.globalSettings.availableComponents[component.identifier];
+  const available = previewState.globalSettings.availableComponents[component.identifier] !== false;
   const inputAttributes = `min="-10" max="10" step="0.05" data-settings-component="${escapeMarkup(component.identifier)}"`;
   return `<section class="settings-component" data-policy-component="${escapeMarkup(component.identifier)}"><div class="settings-component-heading">
     <label class="settings-checkbox"><input type="checkbox" data-settings-component="${escapeMarkup(component.identifier)}" data-settings-policy="enabled" ${policy.enabled ? "checked" : ""} /><span><strong>${escapeMarkup(component.name)}</strong><small>${component.kind}${available ? "" : " · 글로벌에서 사용 불가"}</small></span></label>
@@ -379,6 +380,7 @@ function projectComponentGroupMarkup(kind, title, groupIdentifier) {
 
 /** Prompt·생성 조건·성분 탐색 범위를 현재 프로젝트에 한정해 편집합니다. */
 function renderProjectSettingsPreview() {
+  if (PERSISTENT_STYLE_WORKSPACE) return renderPersistentProjectSettings();
   const draft = settingsPreviewDraft("project");
   return `${settingsHeadingMarkup("project")}<form id="project-settings-form" data-settings-project="${currentProject().identifier}" class="form-layout settings-form">
     ${PERSISTENT_STYLE_WORKSPACE ? '<section class="panel"><h2>이미지 생성</h2><p class="form-note">서버에 저장한 Prompt·Workflow·성분 범위로 생성합니다. 미저장 설정은 먼저 저장해 주세요.</p><button type="button" data-action="navigate" data-screen="generation">생성 조합·장수 확인</button></section>' : ""}
@@ -442,6 +444,12 @@ function projectSamplingField(field, label, value, attributes) {
 
 /** 초안과 임시 반영을 구분하고 공통 오류 표시 영역을 만듭니다. */
 function settingsFormActionsMarkup(scope) {
+  if (PERSISTENT_STYLE_WORKSPACE) {
+    const draft = settingsPreviewDraft(scope);
+    const saved = scope === "global" ? previewState.globalSettings : currentProject().settings;
+    const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+    return `<div class="persistent-settings-actions"><p id="settings-form-error" class="error" role="alert"></p><div class="form-actions"><span id="style-settings-save-status" role="status" data-status="${dirty ? "dirty" : "saved"}">${dirty ? "미저장 변경" : "저장됨"}</span><button type="button" data-persistent-action="reload" hidden>최신 설정 불러오기</button><button type="button" class="quiet" data-settings-action="reset-draft" data-settings-scope="${scope}">되돌리기</button><button type="submit" class="primary">저장</button></div></div>`;
+  }
   return `<p id="settings-form-error" class="error" role="alert"></p><div class="form-actions settings-actions"><span>입력 초안은 화면을 이동해도 유지됩니다.</span>
     ${PERSISTENT_STYLE_WORKSPACE ? '<button type="button" data-persistent-action="reload">서버에서 다시 불러오기</button>' : ""}
     <button type="button" class="quiet" data-settings-action="reset-draft" data-settings-scope="${scope}">초안 되돌리기</button><button type="submit" class="primary">${PERSISTENT_STYLE_WORKSPACE ? "서버에 저장" : "이 탭의 예시에 반영"}</button></div>`;
@@ -471,7 +479,7 @@ function validateSettingsPreview(scope, draft) {
   for (const component of settingsCatalogComponents()) {
     const policy = draft.componentPolicies[component.identifier];
     if (!policy.enabled) continue;
-    if (!previewState.globalSettings.availableComponents[component.identifier]) return `${component.name}: 글로벌 설정에서 사용 불가입니다. 이 프로젝트의 사용을 해제하거나 글로벌 설정을 확인해 주세요.`;
+    if (previewState.globalSettings.availableComponents[component.identifier] === false) return `${component.name}: 글로벌 설정에서 사용 불가입니다. 이 프로젝트의 사용을 해제하거나 글로벌 설정을 확인해 주세요.`;
     if (policy.minimumStrength > policy.maximumStrength) return `${component.name}: 최소 STR은 최대 STR보다 클 수 없습니다.`;
   }
   return "";
@@ -575,6 +583,7 @@ function handleSettingsPreviewInput(event) {
     }
   }
   persistPreviewSession();
+  if (PERSISTENT_STYLE_WORKSPACE) updatePersistentSettingsStatus("미저장 변경");
 }
 
 /** 설정의 추가·취소·기본값 적용을 기존 선별 조작과 분리해 처리합니다. */
@@ -604,7 +613,7 @@ function handleSettingsPreviewAction(event) {
       if (PERSISTENT_STYLE_WORKSPACE) delete previewState.projectDraftRevisions[currentProject().identifier];
     }
     renderPreview(false);
-    showToast("마지막으로 반영한 설정 예시로 되돌렸습니다.");
+    showToast(PERSISTENT_STYLE_WORKSPACE ? "저장한 설정으로 되돌렸습니다." : "마지막으로 반영한 설정 예시로 되돌렸습니다.");
   }
   if (action === "preview-defaults") renderSettingsDefaultsPreview();
   if (action === "close-defaults") document.querySelector("#settings-defaults-dialog").close();

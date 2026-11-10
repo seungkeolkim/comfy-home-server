@@ -70,7 +70,7 @@ function styleLibraryResultsMarkup(results) {
     const cards = orderedCandidates.map(candidate => styleCandidateCardMarkup(candidate, plans.find(item => item.planIdentifier === candidate.planIdentifier))).join("");
     groups.push(`<section class="style-library-batch"><div class="settings-section-heading"><h2>${plan.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재 조건" : "이전 조건"} · Seed ${plan.sampling.seed} · ${candidates.length}개 그림체</h2><div class="form-actions">${actions}</div></div><div class="style-library-grid">${cards}</div></section>`);
   }
-  return styleCandidateSelectionToolbarMarkup(results) + styleEvolutionContainerMarkup() + (groups.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>');
+  return styleCandidateSelectionToolbarMarkup(results) + (groups.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>');
 }
 
 /** 상세 보기는 열린 프로젝트와 후보 ID로만 조회해 다른 조합으로 넘어가지 않습니다. */

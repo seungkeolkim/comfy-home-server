@@ -37,19 +37,25 @@ function persistentPromptCaseName(promptCase) {
 
 /** 검토한 선별 화면의 진입점과 결과 Polling 영역을 유지합니다. */
 function renderPersistentComparison() {
-  const project = currentProject();
-  return `${styleEvolutionContainerMarkup()}<div class="page-heading comparison-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>어느 쪽 그림체가 더 좋나요?</h1><p class="muted">같은 두 조합을 여러 Prompt에서 확인해 보세요.</p></div><button data-style-voting-action="undo" disabled>↶ 되돌리기</button></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
+  return `${styleEvolutionContainerMarkup()}<div class="page-heading comparison-heading"><h1>선별</h1><button data-style-voting-action="undo" disabled>↶ 되돌리기</button></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
 }
 
-/** 실제 이미지로 Toolbar와 모든 Prompt를 스크롤해 보는 비교 화면을 구성합니다. */
+/** 이미지 판단을 먼저 배치하고 직접 Pair 선택과 기록은 필요할 때 펼칩니다. */
 function styleComparisonResultsMarkup() {
-  const comparison = currentPersistentComparison();
-  const { plan, plans, candidates, allCandidates, voting } = comparison;
+  const { plan, plans, candidates, allCandidates, voting } = currentPersistentComparison();
   if (!plan) return '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>';
-  if (voting?.activeEvolutionIdentifier && !voting.match) return '<section class="panel empty-state"><h2>다음 자녀 선별 대기</h2><p id="style-voting-status" role="status">준비된 자녀의 선별을 마쳤습니다. 위에서 생성 상태와 세대 확정 가능 여부를 확인해 주세요.</p></section>';
-  const planSelector = plans.length > 1 ? `<label for="style-comparison-plan">비교할 평가 조건</label><select id="style-comparison-plan">${plans.map((item, index) => `<option value="${item.planIdentifier}" ${item.planIdentifier === plan.planIdentifier ? "selected" : ""}>${item.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재 조건" : "이전 조건"} · Seed ${item.sampling.seed}</option>`).join("")}</select>` : "";
-  const headings = ["a", "b"].map((side, index) => `<div class="candidate-name ${side === previewState.visibleSide ? "visible-side" : ""}"><span class="candidate-letter">${side.toUpperCase()}</span><span>${previewState.blind ? "그림체 숨김" : candidates[index] ? escapeMarkup(persistentCandidateLabel(candidates[index])) : "아직 생성하지 않음"}</span></div>`).join("");
-  return `<div class="persistent-comparison">${planSelector}${persistentComparisonPairPickerMarkup(comparison)}<div class="condition-strip"><span>${allCandidates.length}개 조합</span><span>· ${plan.cases.length}개 Prompt</span><span>· 공통 Seed ${plan.sampling.seed}</span></div><div class="toolbar"><div class="toolbar-group"><button data-action="toggle-blind" aria-pressed="${previewState.blind}">◉ Blind ${previewState.blind ? "켜짐" : "꺼짐"}</button><button data-action="open-differences" ${previewState.blind || candidates.length !== 2 ? "disabled" : ""}>조합 차이 보기 ↗</button><button data-action="navigate" data-screen="candidates">그림체 보기 →</button>${candidates.length === 2 ? `<button class="danger" data-style-candidate-action="delete" data-candidates="${candidates.map(candidate => candidate.identifier).join(",")}" ${currentStyleGenerationState().evolution?.batch ? "disabled" : ""}>둘 다 폐기</button>` : ""}</div></div><div class="mobile-case-controls mobile-only"><button data-action="image-layout" data-layout="${previewState.singleImage ? "pair" : "single"}">${previewState.singleImage ? "나란히" : "한 장씩"}</button>${previewState.singleImage ? `<button data-action="switch-side">${previewState.visibleSide === "a" ? "B" : "A"} 보기</button>` : ""}</div><div class="comparison-columns candidate-headings ${previewState.singleImage ? "single-image" : ""}">${headings}</div><div class="comparison-columns comparison-management">${candidates.map(candidate => `<div>${styleCandidateRankingMarkup(candidate)}<div class="form-actions">${styleCandidateManagementButtonsMarkup(candidate)}</div></div>`).join("")}</div>${plan.cases.map((promptCase, index) => persistentComparisonCaseMarkup(promptCase, index, candidates)).join("")}<footer class="comparison-footer"><div class="vote-buttons"><button class="vote-choice vote-choice-a" data-style-voting-choice="a" disabled>A가 더 좋아요</button><button data-style-voting-choice="similar" disabled>비슷함</button><button class="vote-choice vote-choice-b" data-style-voting-choice="b" disabled>B가 더 좋아요</button></div><p id="style-voting-status" class="vote-caption" role="status">${voting?.match?.kind === "place" ? "새 조합을 기존 순위에 배치합니다. 기존 조합의 점수는 유지합니다." : "모든 Prompt를 함께 보고 조합 하나를 선택해 주세요."}</p></footer></div>`;
+  if (voting?.activeEvolutionIdentifier && !voting.match) return '<section class="panel empty-state"><p id="style-voting-status" role="status">선별 완료</p><button data-action="navigate" data-screen="generation">세대 확인</button></section>';
+  const planSelector = plans.length > 1 ? `<label class="comparison-condition-picker">Prompt 조건<select id="style-comparison-plan">${plans.map(item => `<option value="${item.planIdentifier}" ${item.evaluationIdentifier === plan.evaluationIdentifier ? "selected" : ""}>${item.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재" : "이전"} · ${item.cases.length}개 Prompt · Seed ${item.sampling.seed}</option>`).join("")}</select></label>` : "";
+  const headings = ["a", "b"].map((side, index) => `<div class="candidate-name ${side === previewState.visibleSide ? "visible-side" : ""}"><span class="candidate-letter">${side.toUpperCase()}</span><span>${previewState.blind ? "그림체 숨김" : candidates[index] ? escapeMarkup(persistentCandidateLabel(candidates[index])) : "준비 중"}</span></div>`).join("");
+  const management = candidates.map(candidate => `<div>${styleCandidateRankingMarkup(candidate)}<div class="form-actions">${styleCandidateManagementButtonsMarkup(candidate)}</div></div>`).join("");
+  const deleteBoth = candidates.length === 2 ? `<button class="danger" data-style-candidate-action="delete" data-candidates="${candidates.map(candidate => candidate.identifier).join(",")}" ${currentStyleGenerationState().evolution?.batch ? "disabled" : ""}>둘 다 폐기</button>` : "";
+  return `<div class="persistent-comparison">${planSelector}
+    <div class="toolbar comparison-toolbar"><button data-action="toggle-blind" aria-pressed="${previewState.blind}">◉ Blind ${previewState.blind ? "켜짐" : "꺼짐"}</button><button data-action="open-differences" ${previewState.blind || candidates.length !== 2 ? "disabled" : ""}>조합 차이</button><div class="mobile-case-controls mobile-only"><button data-action="image-layout" data-layout="${previewState.singleImage ? "pair" : "single"}">${previewState.singleImage ? "나란히" : "한 장씩"}</button>${previewState.singleImage ? `<button data-action="switch-side">${previewState.visibleSide === "a" ? "B" : "A"} 보기</button>` : ""}</div></div>
+    <div class="comparison-columns candidate-headings ${previewState.singleImage ? "single-image" : ""}">${headings}</div>
+    ${plan.cases.map((promptCase, index) => persistentComparisonCaseMarkup(promptCase, index, candidates)).join("")}
+    <div class="comparison-columns comparison-management">${management}</div>
+    <details class="comparison-extra-controls" ${currentStyleGenerationState().comparisonExtrasOpen ? "open" : ""}><summary>비교 대상 · 관리</summary>${persistentComparisonPairPickerMarkup({ plan, plans, candidates, allCandidates, voting })}${deleteBoth}</details>
+    <footer class="comparison-footer"><div class="vote-buttons"><button class="vote-choice vote-choice-a" data-style-voting-choice="a" disabled>A가 더 좋아요</button><button data-style-voting-choice="similar" disabled>비슷함</button><button class="vote-choice vote-choice-b" data-style-voting-choice="b" disabled>B가 더 좋아요</button></div><p id="style-voting-status" class="vote-caption" role="status"></p></footer></div>`;
 }
 
 /** 같은 Case의 최신 Render를 A/B 위치 그대로 표시하고 이름 편집을 제공합니다. */
@@ -59,7 +65,7 @@ function persistentComparisonCaseMarkup(promptCase, caseIndex, candidates) {
     const candidate = candidates[index];
     const render = candidate?.renders.filter(item => item.caseIdentifier === promptCase.identifier).at(-1);
     const file = render?.files.find(item => item.is_available && !item.is_deleted);
-    const content = file ? `<button class="image-button" data-generation-action="enlarge" data-path="${escapeMarkup(file.path)}" aria-label="${escapeMarkup(caseName)} ${side.toUpperCase()} 이미지 확대"><img src="${styleImageUrl(file.path)}" alt="${escapeMarkup(caseName)} · ${side.toUpperCase()}" /></button>` : `<div class="empty-state">${escapeMarkup(render ? styleRenderStatusLabel(render.status) : "아직 생성하지 않음")}</div>`;
+    const content = file ? `<button class="image-button" data-generation-action="enlarge" data-path="${escapeMarkup(file.path)}" aria-label="${escapeMarkup(caseName)} ${side.toUpperCase()} 이미지 확대"><img src="${styleImageUrl(file.path, window.ComfyHomeImagePreview.defaultOriginalMode())}" alt="${escapeMarkup(caseName)} · ${side.toUpperCase()}" /></button>` : `<div class="empty-state">${escapeMarkup(render ? styleRenderStatusLabel(render.status) : "아직 생성하지 않음")}</div>`;
     return `<div class="comparison-result ${side === previewState.visibleSide ? "visible-side" : ""}">${content}${render?.error ? `<p class="error">${escapeMarkup(render.error)}</p>` : ""}</div>`;
   }).join("");
   return `<section class="case-section"><div class="case-heading"><span class="case-number">PROMPT ${String(caseIndex + 1).padStart(2, "0")}</span><strong>${escapeMarkup(caseName)}</strong><button class="quiet small" data-style-comparison-action="rename-prompt" data-case="${escapeMarkup(promptCase.identifier)}">이름 변경</button></div><div class="comparison-columns ${previewState.singleImage ? "single-image" : ""}">${imageColumns}</div></section>`;
@@ -185,3 +191,12 @@ function handlePersistentComparisonPlanChange(event) {
 document.addEventListener("click", handlePersistentComparisonAction);
 document.addEventListener("submit", handlePersistentPromptNameSubmit);
 document.addEventListener("change", handlePersistentComparisonPlanChange);
+
+/** 직접 비교 대상을 고르는 영역의 펼침 상태를 Polling·Pair 변경 뒤에도 유지합니다. */
+function rememberStyleComparisonDetails(event) {
+  if (PERSISTENT_STYLE_WORKSPACE && event.target.matches(".comparison-extra-controls")) {
+    currentStyleGenerationState().comparisonExtrasOpen = event.target.open;
+  }
+}
+
+document.addEventListener("toggle", rememberStyleComparisonDetails, true);

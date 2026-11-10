@@ -172,16 +172,17 @@ function renderNavigation() {
   document.querySelector("#project-context").innerHTML = `
     <label for="active-project-picker">현재 프로젝트</label>
     <select id="active-project-picker" aria-label="현재 프로젝트">${previewState.projects.map(item => `<option value="${item.identifier}" ${item.identifier === project.identifier ? "selected" : ""}>${escapeMarkup(item.name)}</option>`).join("")}</select>
-    <span>선별·보관의 작업 대상</span>`;
+    ${PERSISTENT_STYLE_WORKSPACE ? "" : "<span>선별·보관의 작업 대상</span>"}`;
   document.querySelector("#preview-sidebar").innerHTML = `
     <button data-action="navigate" data-screen="projects" class="${previewState.screen === "projects" ? "active" : ""}">▦　모든 프로젝트</button>
     <p class="project-label">현재 프로젝트</p><p class="project-name">${escapeMarkup(project.name)}</p>
+    ${PERSISTENT_STYLE_WORKSPACE ? '<button data-action="navigate" data-screen="generation" class="' + (previewState.screen === "generation" ? "active" : "") + '">＋　생성 · 진화</button>' : ""}
     <button data-action="navigate" data-screen="compare" class="${previewState.screen === "compare" ? "active" : ""}">↔　선별</button>
     <button data-action="navigate" data-screen="candidates" class="${["candidates", "candidate-detail"].includes(previewState.screen) ? "active" : ""}">◇　그림체 <small>　${project.candidateCount}</small></button>
     <button data-action="navigate" data-screen="project-settings" class="${previewState.screen === "project-settings" ? "active" : ""}">⚙　프로젝트 설정</button>
     <p class="project-label">시스템 공통</p>
     <button data-action="navigate" data-screen="global-settings" class="${previewState.screen === "global-settings" ? "active" : ""}">◎　글로벌 설정</button>
-    <p class="sidebar-note">${PERSISTENT_STYLE_WORKSPACE ? '저장한 프로젝트를<br>다른 기기에서도 열 수 있습니다.' : '먼저 화면을 사용해 보고<br>함께 흐름을 정합니다.'}</p>`;
+    ${PERSISTENT_STYLE_WORKSPACE ? "" : '<p class="sidebar-note">먼저 화면을 사용해 보고<br>함께 흐름을 정합니다.</p>'}`;
   document.querySelector("#preview-mobile-navigation").innerHTML = [
     ["projects", "▦", "프로젝트"], ["compare", "↔", "선별"], ["candidates", "◇", "그림체"],
     ["project-settings", "⚙", "설정"],
@@ -534,6 +535,7 @@ function renderPreview(scrollToTop = true) {
   } else if (scrollToTop) {
     window.scrollTo(0, 0);
   }
+  if (PERSISTENT_STYLE_WORKSPACE) updateStyleVotingDockLayout();
   persistPreviewSession();
   scheduleStyleGenerationRefresh();
 }

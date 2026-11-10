@@ -27,13 +27,14 @@ async function verifyStyleGeneration() {
     await expect(page.locator('#preview-application')).toBeVisible();
     if (await page.locator('#active-project-picker').count()) await page.locator('#active-project-picker').selectOption(project.identifier);
     await page.goto(`${baseUrl}/style#generation`);
-    await page.getByText('고정 A/B 조합 직접 확인', { exact: true }).click();
+    await page.getByText('직접 조합 지정', { exact: true }).click();
     await page.locator('[data-generation-action=prepare]').click();
     await expect(page.locator('.generation-component')).toHaveCount(2);
     await page.locator('[data-generation-strength]').first().fill('0.3');
     await page.locator('[data-generation-strength]').last().fill('0.7');
     await page.locator('[data-generation-action=preview]').click();
     await expect(page.locator('#style-generation-confirmation-dialog')).toContainText('4장');
+    const beforeOutputCount = (await (await context.request.get(`${baseUrl}/api/outputs?include_style=true`)).json()).total;
     const beforeJobCount = (await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total;
     const submittedResponse = page.waitForResponse(response => response.url().endsWith('/submit') && response.request().method() === 'POST');
     await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
@@ -65,7 +66,7 @@ async function verifyStyleGeneration() {
     await expect(page.locator('#include-style-outputs')).toBeVisible();
     await expect(page.locator('.output-card')).toHaveCount(0);
     await page.locator('#include-style-outputs').check();
-    await expect(page.locator('.output-card')).toHaveCount((beforeJobCount + 1) * 4);
+    await expect(page.locator('.output-card')).toHaveCount(Math.min(beforeOutputCount + 4, 64));
     await expect(page.locator('[data-move-output]').first()).toBeDisabled();
     await page.locator('#include-style-outputs').uncheck();
     await expect(page.locator('.output-card')).toHaveCount(0);

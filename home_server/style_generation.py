@@ -55,6 +55,21 @@ class StyleGenerationSubmitInput(BaseModel):
     retryFailedOnly: bool = False
 
 
+class StylePromptRegenerationInput(BaseModel):
+    """기존 조합을 고정하고 저장한 새 Prompt 조건에서 다시 그립니다."""
+
+    model_config = ConfigDict(extra="forbid")
+    expectedRevision: int = Field(ge=1)
+    operationIdentifier: str = Field(min_length=16, max_length=100)
+    candidateIdentifiers: list[str] = Field(min_length=1, max_length=32)
+
+
+class StylePromptGenerationPlanInput(StyleGenerationPlanInput):
+    """서버가 읽은 조합만 기존 생성 경로에 전달합니다."""
+
+    combinations: list[FixedCombination] = Field(min_length=1, max_length=32)
+
+
 def compose_artist_prompt(common_prompt: str, components: list[dict]) -> str:
     """작가 슬롯만 조합별로 치환하고 LoRA는 Prompt에 쓰지 않습니다."""
 
@@ -145,10 +160,47 @@ class StyleGenerationService:
                     if specification and isinstance(specification[0], list) and node["inputs"].get(input_name) not in specification[0]:
                         raise ValueError(f"등록 Workflow의 모델 파일을 찾을 수 없습니다: {node['inputs'].get(input_name)}")
 
-    async def create_plan(self, project_identifier: str, payload: StyleGenerationPlanInput | RandomStyleGenerationPlanInput, *, evolution_context: dict | None = None) -> dict:
+    async def create_prompt_regeneration_plan(self, project_identifier: str, payload: StylePromptRegenerationInput) -> dict:
+        """이전 조건의 활성 조합·독립 STR을 읽고 새 조건의 별도 평가 계획을 만듭니다."""
+
+        if len(set(payload.candidateIdentifiers)) != len(payload.candidateIdentifiers):
+            raise ValueError("같은 조합을 중복 선택할 수 없습니다.")
+        source_candidates = []
+        with self.server.database._connect() as connection:
+            for identifier in payload.candidateIdentifiers:
+                row = connection.execute(
+                    "SELECT candidates.* FROM style_candidates AS candidates JOIN style_candidate_memberships USING(candidate_id) "
+                    "WHERE project_id=? AND candidate_id=? AND lifecycle='active' "
+                    "AND EXISTS(SELECT 1 FROM style_candidate_renders WHERE candidate_id=candidates.candidate_id)",
+                    (project_identifier, identifier),
+                ).fetchone()
+                if not row:
+                    raise LookupError("다시 그릴 프로젝트의 조합을 찾을 수 없습니다.")
+                source_candidates.append(dict(row))
+        if len({candidate["evaluation_id"] for candidate in source_candidates}) != 1:
+            raise ValueError("같은 Prompt 조건의 조합을 선택해 주세요.")
+        source = {"mode": "prompt-regeneration", "sourceEvaluationIdentifier": source_candidates[0]["evaluation_id"],
+                  "sourceCandidateIdentifiers": payload.candidateIdentifiers,
+                  "sourceComponents": [json.loads(candidate["components_json"]) for candidate in source_candidates]}
+        combinations = []
+        for components in source["sourceComponents"]:
+            frozen_components = []
+            for component in components:
+                frozen_component = dict(component)
+                frozen_component.pop("file_identity", None)
+                frozen_components.append(frozen_component)
+            combinations.append({"components": frozen_components})
+        plan_input = StylePromptGenerationPlanInput(expectedRevision=payload.expectedRevision,
+            operationIdentifier=payload.operationIdentifier, combinations=combinations)
+        return await self.create_plan(project_identifier, plan_input, regeneration_source=source)
+
+    async def create_plan(self, project_identifier: str, payload: StyleGenerationPlanInput | RandomStyleGenerationPlanInput, *, evolution_context: dict | None = None, regeneration_source: dict | None = None) -> dict:
         """Case별 공통 전개를 한 번 고정하고 후보 간 동일 조건을 저장합니다."""
 
-        request_hash = snapshot_hash(payload.model_dump())
+        request_body = payload.model_dump()
+        if regeneration_source:
+            request_body["regenerationSource"] = regeneration_source
+        request_hash = snapshot_hash(request_body)
         with self.server.database._connect() as connection:
             existing = connection.execute("SELECT plan_id,payload_hash FROM style_generation_plans WHERE operation_id=?", (payload.operationIdentifier,)).fetchone()
         if existing:
@@ -160,6 +212,11 @@ class StyleGenerationService:
             raise StyleRevisionConflict("프로젝트가 변경됐습니다. 저장한 최신 설정으로 다시 계획해 주세요.")
         settings = ProjectSettings(**json.loads(project["settings_json"])).model_dump()
         selection = {"mode": "manual"}
+        if regeneration_source:
+            selection = dict(regeneration_source)
+            selection.pop("sourceComponents")
+        if regeneration_source and regeneration_source["sourceEvaluationIdentifier"] == project["active_evaluation_id"]:
+            raise ValueError("Prompt나 생성 조건을 변경해 저장한 뒤 다시 그려 주세요.")
         if isinstance(payload, RandomStyleGenerationPlanInput):
             with self.server.database._connect() as connection:
                 previous_candidates = connection.execute("SELECT components_json FROM style_candidates WHERE project_id=? AND evaluation_id=?", (project_identifier, project["active_evaluation_id"])).fetchall()
@@ -174,23 +231,23 @@ class StyleGenerationService:
         for components in component_sets:
             for kind, label in (("artist", "작가"), ("lora", "LoRA")):
                 component_count = sum(component["identifier"].startswith(kind + ":") for component in components)
-                if not settings[kind + "MinimumCount"] <= component_count <= settings[kind + "MaximumCount"]:
+                if not regeneration_source and not settings[kind + "MinimumCount"] <= component_count <= settings[kind + "MaximumCount"]:
                     raise ValueError(f"{label} 사용 개수가 프로젝트의 최소·최대 범위를 벗어났습니다.")
             identifiers = set()
             for component in components:
                 identifier = component["identifier"]
                 policy = settings["componentPolicies"].get(identifier)
-                if not policy or not policy["enabled"]:
+                if not regeneration_source and (not policy or not policy["enabled"]):
                     raise ValueError(f"프로젝트에서 사용하도록 선택하지 않은 성분입니다: {identifier}")
                 if identifier in identifiers:
                     raise ValueError("같은 조합에 성분을 중복 넣을 수 없습니다.")
                 identifiers.add(identifier)
-                if not policy["minimumStrength"] <= component["strength"] <= policy["maximumStrength"]:
+                if not regeneration_source and not policy["minimumStrength"] <= component["strength"] <= policy["maximumStrength"]:
                     raise ValueError(f"프로젝트 STR 범위를 벗어났습니다: {identifier}")
                 if "clip_strength" in component and not identifier.startswith("lora:"):
                     raise ValueError("작가에는 CLIP 강도를 별도로 지정할 수 없습니다.")
             fingerprint = combination_selection_fingerprint(components)
-            if fingerprint in fingerprints:
+            if not regeneration_source and fingerprint in fingerprints:
                 raise ValueError("A/B 조합이 동일합니다. 범위 안에서 강도나 포함 성분을 다르게 선택해 주세요.")
             fingerprints.add(fingerprint)
         with self.server.database._connect() as connection:
@@ -202,6 +259,15 @@ class StyleGenerationService:
         await self.preflight(contract["workflow"]["api"], [component for components in component_sets for component in components])
         lora_names = [component["identifier"][5:] for components in component_sets for component in components if component["identifier"].startswith("lora:")]
         identities = await self.server.comfy.lora_identities(lora_names)
+        if regeneration_source:
+            for components in regeneration_source["sourceComponents"]:
+                for component in components:
+                    previous_identity = component.get("file_identity")
+                    if not previous_identity or not previous_identity.get("sha256"):
+                        continue
+                    current_identity = identities.get(component["identifier"][5:].replace("\\", "/"))
+                    if not current_identity or any(previous_identity.get(field) != current_identity.get(field) for field in ("sha256", "file_size", "modified")):
+                        raise ValueError("기존 조합의 LoRA 파일이 변경됐습니다. 파일을 확인한 뒤 다시 시도해 주세요.")
         for components in component_sets:
             for component in components:
                 if component["identifier"].startswith("lora:"):
@@ -237,6 +303,11 @@ class StyleGenerationService:
             current = connection.execute("SELECT revision FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
             if current[0] != project["revision"]:
                 raise StyleRevisionConflict("계획 중 프로젝트가 변경됐습니다. 새 설정으로 다시 계획해 주세요.")
+            if regeneration_source:
+                for identifier in regeneration_source["sourceCandidateIdentifiers"]:
+                    membership = connection.execute("SELECT lifecycle FROM style_candidate_memberships WHERE candidate_id=?", (identifier,)).fetchone()
+                    if not membership or membership[0] != "active":
+                        raise StyleRevisionConflict("원본 조합이 변경됐습니다. 최신 목록에서 다시 선택해 주세요.")
             if not evolution_context and (self.server.style_evolution.store.find_open_evolution_batch(connection, project["active_evaluation_id"]) or generation_number != self.server.style_evolution.store.current_generation_number(connection, project["active_evaluation_id"])):
                 raise StyleRevisionConflict("계획 중 세대 상태가 바뀌었습니다. 최신 세대에서 다시 시작해 주세요.")
             if selection["mode"] == "random":

@@ -10,6 +10,8 @@
 
 ## 이번에 바꾸는 개발 방식
 
+2026-11-11 사용자 피드백으로 [Prompt 저장 오류와 8389 기준 Web 사용성](style_web_usability_rework.md)을 우선 수정합니다. 이미지 생성 후 설정 저장 거부·미기록 LoRA 사용 불가 오판을 제거하고, 같은 조합으로 새 Prompt 전체 생성·고정 저장 상태·이미지 중심 선별을 검증합니다. 보관 기능 등 후속 확장은 이번 요청에 포함하지 않습니다.
+
 01~19번 문서를 모두 읽고 정리한 **단계별 개발 제안**입니다. 이전 구현은 사용자가 사용하기 복잡하고 의도와 다르다고 판단해 롤백했습니다. 이번에는 **작게 구현 → 개발자 검증 → 사용자가 직접 사용 → 수정 또는 다음 단계 선택**을 반복합니다.
 
 개발 단위는 사용자가 완료할 수 있는 행동 하나로 정합니다. 예를 들어 `프로젝트 하나를 만들고 다시 열기`, `현재 두 조합을 같은 조건으로 생성하기`, `비교하고 되돌리기`입니다. 각 행동에 필요한 UI·API·저장을 함께 만들고 확인합니다.
@@ -348,3 +350,7 @@ DB Migration이 필요한 단계에서는 적용 전 일관된 Backup의 경로�
 2026-11-11 / 그림체 관리·Viewer 사용성 수정 / ca447d9 이후 변경 / Python 476 Passed·1 Skipped, 스타일 Browser 8개·기존 CHS Browser 16개, 운영 32개 업무 테이블·이미지 28장 Hash 보존·상태 변경 요청 0건·healthy / 8389 실제 기능 비교·파일 규칙 표시·Elo/폐기 접근성·선호 버튼 고정·CHS Viewer/Cache 재사용 요청 / 카드·상세·선별 관리와 일괄 관리, 수동 Elo의 진화 반영, 영속 조합 폐기, 공통 Viewer와 Mobile Preview 연결 후 Backup·재기동 / 사용자 사용성 확인 대기, Commit·Push 없음. 상세는 style_usability_review.md
 
 2026-11-11 / 그림체 관리·Viewer 사용성 수정 Commit / ca447d9 이후 변경 / 기존 검증 기록 확인·Diff 검사 통과 / 사용자 Commit 및 다음 작업 추천 요청 / 이번 코드·테스트·문서를 함께 Commit, 그림체 보관·일반 생성 적용을 다음 단위로 추천 / Push 없음, 후속 구현 요청 대기
+
+2026-11-11 / Prompt 저장·Web 사용성 재정리 / 2cab3d1 이후 변경 / Python 480 Passed·1 Skipped, 스타일 Browser 9개, 운영 32개 업무 테이블·이미지 14장 Hash 보존·상태 변경 요청 0건·healthy / 생성 후 Prompt 저장 실패·Refresh 유실 해결, 8389 실제 UI와 Web 소스를 기준으로 불필요 설명·조작 재정리 요청 / 설정 저장 제한·LoRA 미기록 오판 수정, 같은 조합의 새 Prompt 전체 생성, 고정 저장 상태, 이미지 중심 선별과 Desktop 원본 연결 후 Backup·재기동 / 사용자 사용성 확인 대기, Commit·Push 없음. 상세는 style_web_usability_rework.md
+
+2026-11-11 / Prompt 저장·Web 사용성 수정 Commit / 2cab3d1 이후 변경 / 기존 Python·Browser·운영 검증 기록과 배포 소스 Hash 확인, Diff 검사 통과 / 사용자 Commit 요청 / 이번 코드·테스트·문서를 함께 Commit / Push 없음, 후속 작업 요청 대기

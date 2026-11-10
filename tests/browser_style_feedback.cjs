@@ -61,8 +61,8 @@ async function verifyStyleFeedback() {
     const project = await saveStyleFeedbackForm(page, '#persistent-project-form', 'POST');
     assert.equal(project.settings.artistMaximumCount, 1);
     assert.equal(project.settings.seed, '18446744073709551615');
-    await page.locator('[data-screen=generation]').click();
-    await page.getByText('고정 A/B 조합 직접 확인', { exact: true }).click();
+    await page.locator('.phase-badge[data-screen=generation]').click();
+    await page.getByText('직접 조합 지정', { exact: true }).click();
     await page.locator('[data-generation-action=prepare]').click();
     await page.locator('[data-generation-component="artist:feedback_alpha"][data-generation-combination="1"]').uncheck();
     await page.locator('[data-generation-component="artist:feedback_beta"][data-generation-combination="1"]').check();
@@ -123,7 +123,7 @@ async function verifyStyleFeedback() {
     assert.notEqual(updated.evaluationIdentifier, project.evaluationIdentifier);
     await page.goto(`${baseUrl}/style#compare`);
     await expect(page.locator('.persistent-comparison img')).toHaveCount(4, { timeout: 10000 });
-    await expect(page.locator('.condition-strip')).toContainText('18446744073709551615');
+    assert.equal(await page.evaluate(() => String(currentPersistentComparison().plan.sampling.seed)), '18446744073709551615');
     await page.reload();
     await expect(page.locator('.persistent-comparison img')).toHaveCount(4, { timeout: 10000 });
     await page.setViewportSize({ width: 1280, height: 1000 });

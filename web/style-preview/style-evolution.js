@@ -24,18 +24,19 @@ async function refreshStyleEvolution(projectIdentifier, force = false) {
 function styleEvolutionPanelMarkup() {
   const state = currentStyleGenerationState();
   const evolution = state.evolution;
-  if (!evolution) return '<section class="panel"><h2>다음 세대</h2><p>선별 상태를 확인하는 중입니다.</p></section>';
+  if (!evolution) return '';
   const batch = evolution.batch;
+  if (!batch && previewState.screen !== "generation") return "";
   if (!batch) {
     const count = state.evolutionChildCount ?? 6;
     const reasons = evolution.blockers.map(message => `<li>${escapeMarkup(message)}</li>`).join("");
     const latest = evolution.lastConfirmed;
-    return `<section class="panel evolution-panel"><h2>현재 ${evolution.currentGeneration}세대 · 다음 세대 만들기</h2><p>평가된 상위 30%를 부모로 선택하고 Mutate·Crossover·Random으로 자녀를 만듭니다. 모든 Prompt에 같은 조합과 Seed를 사용합니다.</p>${latest ? `<p class="evolution-summary">지난 진화: 자녀 ${latest.enteredCount}개 진입 · 자녀 ${latest.failedCount}개 탈락 · 기존 ${latest.retiredExistingCount}개 퇴역</p>` : ""}<label for="style-evolution-child-count">자녀 조합 수 (1 ~ 32개)</label><input id="style-evolution-child-count" type="number" min="1" max="32" step="1" value="${escapeMarkup(count)}" /><p class="form-note">평가 완료 ${evolution.evaluatedCount}개 · 최소 ${evolution.minimumEvaluatedCount}개 필요</p>${reasons ? `<ul class="evolution-blockers">${reasons}</ul>` : ""}<button class="primary" data-style-evolution-action="prepare" ${!evolution.canPrepare ? "disabled" : ""}>다음 세대 이미지 생성</button></section>`;
+    return `<section class="panel evolution-panel"><div class="settings-section-heading"><h2>현재 ${evolution.currentGeneration}세대</h2><span class="muted">평가 ${evolution.evaluatedCount}개</span></div><div class="evolution-start-controls"><label for="style-evolution-child-count">자녀 수</label><input id="style-evolution-child-count" type="number" min="1" max="32" step="1" value="${escapeMarkup(count)}" /><button class="primary" data-style-evolution-action="prepare" title="${escapeMarkup(evolution.blockers.join(" · "))}" ${!evolution.canPrepare ? "disabled" : ""}>다음 세대 생성</button></div>${reasons ? `<details class="evolution-blockers"><summary>진화 조건</summary><ul>${reasons}</ul></details>` : ""}${latest ? `<p class="evolution-summary">지난 진화 · 생존 ${latest.enteredCount} · 탈락 ${latest.failedCount}</p>` : ""}</section>`;
   }
   const phaseLabels = { planned: "생성 확인 대기", generating: "자녀 이미지 생성 중", selecting: "자녀 선별 중", failed: "생성 상태 확인 필요", ready: "선별 완료 · 확정 대기" };
   const resume = batch.status === "planned" ? '<button class="primary" data-style-evolution-action="resume">자녀 이미지 생성</button>' : '<button data-action="navigate" data-screen="compare">자녀 선별하기</button>';
   const confirmation = batch.status === "active" ? `<button class="primary" data-style-evolution-action="confirm" ${!batch.canConfirm ? "disabled" : ""}>${batch.targetGeneration}세대로 확정</button>` : "";
-  return `<section class="panel evolution-panel"><h2>${batch.sourceGeneration} → ${batch.targetGeneration}세대 · ${phaseLabels[batch.phase] || "진행 중"}</h2><p>자녀 ${batch.childCount}개 중 이미지 준비 ${batch.readyChildCount}개 · 배치 완료 ${batch.completedSelectionCount}개</p><p class="form-note">선별 중 부모의 Elo·전적은 유지됩니다. 모든 자녀를 확인한 뒤 세대를 확정합니다.</p>${batch.failedRequestCount ? '<p class="error">실패·취소한 생성이 있습니다. 아래 생성 결과에서 해당 항목만 재시도하거나 이번 진화를 취소해 주세요.</p>' : ""}<div class="form-actions">${resume}${confirmation}<button data-style-evolution-action="cancel">이번 진화 취소</button></div><p class="form-note">확정 후 탈락·퇴역한 그림체도 이미지와 이력을 보존합니다.</p></section>`;
+  return `<section class="panel evolution-panel"><h2>${batch.sourceGeneration} → ${batch.targetGeneration}세대 · ${phaseLabels[batch.phase] || "진행 중"}</h2><p>자녀 ${batch.childCount}개 중 이미지 준비 ${batch.readyChildCount}개 · 배치 완료 ${batch.completedSelectionCount}개</p>${batch.failedRequestCount ? '<p class="error">실패·취소한 생성이 있습니다. 아래 생성 결과에서 해당 항목만 재시도하거나 이번 진화를 취소해 주세요.</p>' : ""}<div class="form-actions">${resume}${confirmation}<button data-style-evolution-action="cancel">이번 진화 취소</button></div><p class="form-note">확정 후 탈락·퇴역한 그림체도 이미지와 이력을 보존합니다.</p></section>`;
 }
 
 /** 현재 세대 화면에 같은 진행 Panel을 배치해 새 탭 없이 생성·선별을 이어갑니다. */

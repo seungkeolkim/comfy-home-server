@@ -82,6 +82,7 @@ async function verifyStyleVoting() {
     await expect(undoButton).toBeEnabled();
     await undoButton.click();
     await expect(undoButton).toBeDisabled();
+    await expect.poll(async () => (await readBrowserSelection(context, project, clientIdentifier)).rankings).toEqual(initialSelection.rankings);
     const undone = await readBrowserSelection(context, project, clientIdentifier);
     assert.deepEqual(undone.rankings, initialSelection.rankings);
     assert.deepEqual([undone.match.a, undone.match.b], [initialSelection.match.a, initialSelection.match.b]);

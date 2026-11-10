@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from .style_projects import GlobalStyleSettings, ProjectWriteInput, StyleRevisionConflict
 from .workflows import load_workflows
-from .style_generation import StyleGenerationPlanInput, StyleGenerationSubmitInput
+from .style_generation import StyleGenerationPlanInput, StyleGenerationSubmitInput, StylePromptRegenerationInput
 from .style_random_generation import RandomStyleGenerationPlanInput
 from .style_project_rename import StyleProjectRenameService
 
@@ -119,6 +119,21 @@ def create_style_project_router(server) -> APIRouter:
             raise HTTPException(502, str(exception)) from exception
         except httpx.HTTPError as exception:
             raise HTTPException(502, "ComfyUI 사전 확인에 연결하지 못했습니다. 생성 작업은 접수하지 않았습니다.") from exception
+
+    @router.post("/api/style-projects/{project_identifier}/prompt-regeneration-plans", status_code=201)
+    async def create_prompt_regeneration_plan(project_identifier: str, payload: StylePromptRegenerationInput):
+        """저장과 GPU 제출을 분리하고 같은 조합의 새 Prompt 장수만 준비합니다."""
+
+        try:
+            return await server.style_generation.create_prompt_regeneration_plan(project_identifier, payload)
+        except StyleRevisionConflict as exception:
+            raise HTTPException(409, str(exception)) from exception
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except (RuntimeError, httpx.HTTPError) as exception:
+            raise HTTPException(502, "ComfyUI를 확인하지 못했습니다. 생성 작업은 접수하지 않았습니다.") from exception
 
     @router.post("/api/style-projects/{project_identifier}/generation-plans/{plan_identifier}/submit")
     async def submit_style_generation_plan(project_identifier: str, plan_identifier: str, payload: StyleGenerationSubmitInput):

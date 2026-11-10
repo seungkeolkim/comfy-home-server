@@ -80,8 +80,9 @@ async function loadPersistentStyleWorkspace(restoreSession = false) {
   ensureSettingsPreviewState();
   ensureRankingPreviewState();
   document.title = "스타일 구성 · Comfy Home";
-  document.querySelector(".phase-badge").textContent = "이미지 생성";
-  document.querySelector(".preview-notice").innerHTML = '<span class="notice-dot"></span><strong>프로젝트 이미지 생성</strong><span>저장한 조건으로 생성하고 실제 결과를 확인합니다.</span><a href="#scope">현재 범위</a>';
+  document.body.classList.add("persistent-workspace");
+  document.querySelector(".phase-badge").outerHTML = '<button class="phase-badge" data-action="navigate" data-screen="generation">생성 · 진화</button>';
+  document.querySelector(".preview-notice").hidden = true;
   if (workspace.catalogNotice) showToast(workspace.catalogNotice);
 }
 
@@ -114,7 +115,19 @@ function renderPersistentProjectCreation() {
 function renderPersistentStyleLibrary() {
   const project = currentProject();
   if (previewState.blind) return rankingBlindNoticeMarkup();
-  return `<div class="page-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>그림체</h1><p class="muted">순위·Elo와 조합별 Prompt 결과입니다. 카드를 누르면 이미지를 넘겨 볼 수 있습니다.</p></div><button class="primary" data-action="navigate" data-screen="generation">이미지 생성</button></div><div class="toolbar"><label for="style-library-lifecycle">표시</label><select id="style-library-lifecycle">${[["active", "활성·진화 중"], ["retired", "퇴역"], ["cancelled", "취소"], ["all", "전체"]].map(([value, label]) => `<option value="${value}" ${(currentStyleGenerationState().libraryLifecycle || "active") === value ? "selected" : ""}>${label}</option>`).join("")}</select><label for="candidate-sort-order">정렬</label><select id="candidate-sort-order">${[["elo", "Elo 높은 순"], ["matches", "평가 횟수 많은 순"], ["creation", "등록 순"]].map(([value, label]) => `<option value="${value}" ${previewState.candidateSortOrder === value ? "selected" : ""}>${label}</option>`).join("")}</select></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
+  return `<div class="page-heading"><h1>그림체</h1><button class="primary" data-action="navigate" data-screen="generation">이미지 생성</button></div><div class="toolbar"><label for="style-library-lifecycle">표시</label><select id="style-library-lifecycle">${[["active", "활성·진화 중"], ["retired", "퇴역"], ["cancelled", "취소"], ["all", "전체"]].map(([value, label]) => `<option value="${value}" ${(currentStyleGenerationState().libraryLifecycle || "active") === value ? "selected" : ""}>${label}</option>`).join("")}</select><label for="candidate-sort-order">정렬</label><select id="candidate-sort-order">${[["elo", "Elo 높은 순"], ["matches", "평가 횟수 많은 순"], ["creation", "등록 순"]].map(([value, label]) => `<option value="${value}" ${previewState.candidateSortOrder === value ? "selected" : ""}>${label}</option>`).join("")}</select></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
+}
+
+/** 실제 설정은 Prompt부터 바로 편집하고 기존 공통 Workflow·성분 입력을 재사용합니다. */
+function renderPersistentProjectSettings() {
+  const project = currentProject();
+  const draft = settingsPreviewDraft("project");
+  return `${settingsNavigationMarkup("project")}<div class="page-heading"><h1>프로젝트 설정</h1></div><form id="project-settings-form" data-settings-project="${project.identifier}" class="form-layout settings-form">
+    <section class="panel"><h2>Prompt</h2>${draft.promptCases.map(projectSettingsPromptMarkup).join("")}<button type="button" data-settings-action="add-prompt">＋ Prompt 추가</button><label for="settings-negative-prompt">공통 Negative Prompt</label><textarea id="settings-negative-prompt" maxlength="3000" data-settings-field="negativePrompt">${escapeMarkup(draft.negativePrompt)}</textarea></section>
+    ${projectWorkflowOptionsMarkup(draft)}${componentCountSettingsMarkup(draft, "project")}
+    <section class="panel"><div class="settings-section-heading"><h2>작가 · LoRA</h2><button type="button" data-settings-action="preview-defaults">기본값 가져오기</button></div>${projectComponentGroupMarkup("작가", "작가 태그", "artist")}${projectComponentGroupMarkup("LoRA", "LoRA", "lora")}</section>
+    <section class="panel"><h2>프로젝트</h2><label for="settings-project-name">이름</label><input id="settings-project-name" required maxlength="80" value="${escapeMarkup(draft.name)}" data-settings-field="name" /><label for="settings-project-purpose">메모</label><textarea id="settings-project-purpose" maxlength="2000" data-settings-field="purpose">${escapeMarkup(draft.purpose)}</textarea></section>
+    ${settingsFormActionsMarkup("project")}</form>`;
 }
 
 /** 현재 실제 연결 범위와 후속 생성·평가 단계를 구분합니다. */
@@ -143,6 +156,14 @@ function setPersistentSettingsBusy(busy, form) {
   if (submitButton) submitButton.disabled = busy;
 }
 
+/** 저장 결과와 미저장 상태를 항상 같은 위치에서 보여 줍니다. */
+function updatePersistentSettingsStatus(message, status = "dirty") {
+  const indicator = document.querySelector("#style-settings-save-status");
+  if (!indicator) return;
+  indicator.textContent = message;
+  indicator.dataset.status = status;
+}
+
 /** 서버가 확인한 프로젝트만 화면에 반영하며 실패하면 초안과 요청 ID를 유지합니다. */
 async function savePersistentStyleSettings(form) {
   if (persistentSettingsBusy) return;
@@ -153,9 +174,12 @@ async function savePersistentStyleSettings(form) {
   const validationMessage = validateSettingsPreview(isGlobal ? "global" : "project", draft);
   if (validationMessage) {
     document.querySelector("#settings-form-error").textContent = validationMessage;
+    updatePersistentSettingsStatus("저장하지 못했습니다", "error");
+    showToast(validationMessage);
     return;
   }
   setPersistentSettingsBusy(true, form);
+  updatePersistentSettingsStatus("저장 중…", "saving");
   try {
     if (isGlobal) {
       previewState.globalSettings = await styleProjectApi("/api/style-settings", { method: "PUT", body: JSON.stringify(draft) });
@@ -174,6 +198,12 @@ async function savePersistentStyleSettings(form) {
       const projectIndex = previewState.projects.findIndex(project => project.identifier === savedProject.identifier);
       if (projectIndex === -1) previewState.projects.unshift(savedProject);
       else previewState.projects[projectIndex] = savedProject;
+      const generationState = currentStyleGenerationState(savedProject.identifier);
+      generationState.options = null;
+      generationState.pendingRandomPlan = null;
+      generationState.pendingRandomRequest = null;
+      generationState.pendingPromptRegeneration = null;
+      generationState.comparisonPlanIdentifier = null;
       delete previewState.settingsDrafts.projects[projectIdentifier];
       delete previewState.projectDraftRevisions[projectIdentifier];
       delete previewState.pendingProjectSaves[projectIdentifier];
@@ -185,9 +215,14 @@ async function savePersistentStyleSettings(form) {
       }
     }
     renderPreview(false);
-    showToast(isCreation ? "새 프로젝트를 서버에 저장했습니다." : "설정을 서버에 저장했습니다.");
+    updatePersistentSettingsStatus("저장됨", "saved");
+    showToast("저장했습니다.");
   } catch (error) {
-    if (form.isConnected) document.querySelector("#settings-form-error").textContent = `${error.message} 초안은 유지됩니다.`;
+    if (form.isConnected) document.querySelector("#settings-form-error").textContent = error.message;
+    updatePersistentSettingsStatus("저장 실패 · 입력 유지", "error");
+    const reloadButton = form.querySelector("[data-persistent-action=reload]");
+    if (reloadButton && error.status === 409) reloadButton.hidden = false;
+    showToast(error.message);
   } finally {
     setPersistentSettingsBusy(false, form);
     persistStyleWorkspaceSession();

@@ -310,13 +310,6 @@ class StyleProjectStore:
                     (existing["active_evaluation_id"], project_identifier),
                 ).fetchone()[0])
             contract = self.evaluation_contract(settings, workflow_directory, previous_contract)
-            if existing and previous_contract and snapshot_hash(contract) != snapshot_hash(previous_contract):
-                has_renders = connection.execute(
-                    "SELECT 1 FROM style_candidate_renders JOIN style_candidates USING(candidate_id) WHERE project_id=? LIMIT 1",
-                    (project_identifier,),
-                ).fetchone()
-                if has_renders and evaluation_without_seed(contract) != evaluation_without_seed(previous_contract):
-                    raise StyleRevisionConflict("이미지가 있는 프로젝트의 Prompt·생성 조건 변경은 후속 재시험 기능에서 지원합니다. 기존 결과는 유지했습니다.")
             evaluation_identifier = existing["active_evaluation_id"] if existing else uuid.uuid4().hex
             if previous_contract is None or snapshot_hash(contract) != snapshot_hash(previous_contract):
                 evaluation_identifier = uuid.uuid4().hex
@@ -350,6 +343,14 @@ class StyleProjectStore:
                 connection.execute("INSERT INTO style_evaluation_revisions VALUES(?,?,?,?,?)", (
                     evaluation_identifier, project_identifier, snapshot_hash(contract), encode_snapshot(contract), saved_at,
                 ))
+                if existing:
+                    previous_generation = connection.execute(
+                        "SELECT generation_number FROM style_evolution_timelines WHERE evaluation_id=?",
+                        (existing["active_evaluation_id"],),
+                    ).fetchone()
+                    connection.execute("INSERT INTO style_evolution_timelines VALUES(?,?,?)", (
+                        evaluation_identifier, project_identifier, previous_generation[0] if previous_generation else 1,
+                    ))
             row = connection.execute("SELECT * FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
         return self.project_from_row(row)
 

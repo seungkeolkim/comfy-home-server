@@ -6,6 +6,8 @@
 
 **사용성 보완:** [8389 비교·Elo 수정·조합 폐기·공통 Viewer·고정 선호 버튼](style_usability_review.md)을 연결합니다. 표시 이름은 파일의 세대·조합 규칙을 따르고 Mobile Viewer는 CHS의 기존 Thumbnail Cache를 사용합니다.
 
+**저장·Web 조작 재정리:** [Prompt 저장 오류와 8389 기준 사용성 재정리](style_web_usability_rework.md). 생성 후 Prompt 저장 차단과 미기록 LoRA 오판을 수정하고, 같은 조합의 새 Prompt 생성과 간결한 선별·저장 화면을 연결합니다.
+
 작성일: 2026-11-08, Asia/Seoul. 실제 설치본과 Comfy Home Server 소스를 읽어 작성했습니다.
 
 ## 목적과 확정한 방향

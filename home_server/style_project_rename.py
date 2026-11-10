@@ -5,7 +5,7 @@ import logging
 
 from .output_directories import resolve_output_directory
 from .output_roots import STYLE_OUTPUT_PREFIX
-from .style_projects import ProjectWriteInput, StyleRevisionConflict, encode_snapshot, evaluation_without_seed
+from .style_projects import ProjectWriteInput, StyleRevisionConflict, encode_snapshot
 
 
 LOGGER = logging.getLogger(__name__)
@@ -43,11 +43,6 @@ class StyleProjectRenameService:
                 return self.server.database.style_projects.save_project(payload, self.server.config.workflow_directory, project_identifier)
             if project["revision"] != payload.expectedRevision:
                 raise StyleRevisionConflict("프로젝트가 변경됐습니다. 최신 설정을 다시 불러와 주세요.")
-            with self.server.database._connect() as connection:
-                previous_contract = json.loads(connection.execute("SELECT contract_json FROM style_evaluation_revisions WHERE evaluation_id=?", (project["active_evaluation_id"],)).fetchone()[0])
-            next_contract = self.server.database.style_projects.evaluation_contract(payload.settings.model_dump(), self.server.config.workflow_directory, previous_contract)
-            if evaluation_without_seed(previous_contract) != evaluation_without_seed(next_contract):
-                raise StyleRevisionConflict("이미지가 있는 프로젝트의 이름 변경과 Prompt·생성 조건 변경을 함께 적용할 수 없습니다.")
             with self.server.database._connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")
                 if connection.execute(
