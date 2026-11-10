@@ -1,8 +1,8 @@
 # Style Lab 복원·프로젝트 확장 설계 문서
 
-**현재 실제 연결:** `/style`에 [2단계 프로젝트 이미지 생성](phase_two_review.md)을 연결했습니다. 저장한 프로젝트 조건의 고정 조합·여러 Prompt를 실제 생성하고 작업·출력을 분리합니다. 개발자 검증과 운영 4장 생성은 완료했으며 사용자 결과·사용성 확인을 기다립니다. [1단계 프로젝트 저장](phase_one_review.md)은 확인 완료, 기존 `/style-preview`는 예시 목업입니다.
+**현재 실제 연결:** `/style`에 프로젝트 설정 저장, Random 조합·여러 Prompt 이미지 생성, 작업·출력 분리, [투표·Elo·Undo](phase_four_review.md)를 연결했습니다. 사용자 진행 요청으로 [진화 1회: 부모 선정·자녀 생성·Selection·세대 확정/취소](phase_five_review.md)를 추가하며, 작은 Cycle의 사용자 확인을 기다립니다. 기존 `/style-preview`는 예시 목업입니다.
 
-**그림체 통합 목업 확인 완료:** [순위를 그림체 탭에 병합](ranking_preview_review.md)했습니다. 카드의 순위·Elo·전적, 정렬·보관 필터, 모든 Prompt 상세와 선별 복귀를 확인할 수 있습니다. Mobile 메뉴는 네 개이며 사용자가 병합 화면을 확인하고 Commit을 요청했습니다. 실제 DB 저장은 미착수입니다.
+**그림체 통합:** [검토한 목업](ranking_preview_review.md)에 따라 실제 순위·Elo·전적, 조합별 여러 Prompt의 작은 이미지와 Viewer를 그림체 탭에 통합했습니다. 진화 후 퇴역·취소 조합도 필터로 조회합니다. Mobile 메뉴는 네 개를 유지합니다.
 
 작성일: 2026-11-08, Asia/Seoul. 실제 설치본과 Comfy Home Server 소스를 읽어 작성했습니다.
 

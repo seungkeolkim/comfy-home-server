@@ -26,11 +26,12 @@ function styleCandidateCardMarkup(candidate, plan) {
       : `<span class="style-thumbnail-status">${escapeMarkup(result.render ? styleRenderStatusLabel(result.render.status) : "미제출")}</span>`;
     return `<span class="style-card-thumbnail" data-library-case-index="${caseIndex}">${imageMarkup}<span class="style-thumbnail-name">${escapeMarkup(caseName)}</span></span>`;
   }).join("");
-  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="조합 ${escapeMarkup(candidate.label)}의 이미지 ${caseResults.length}개 자세히 보기"><span class="style-card-heading"><strong>조합 ${escapeMarkup(candidate.label)}</strong><span>${availableCount} / ${caseResults.length}장</span></span>${styleCandidateRankingMarkup(candidate)}<span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">${candidate.batchNumber}번째 생성 · 작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button></article>`;
+  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="조합 ${escapeMarkup(candidate.label)}의 이미지 ${caseResults.length}개 자세히 보기"><span class="style-card-heading"><strong>조합 ${escapeMarkup(candidate.label)}</strong><span>${availableCount} / ${caseResults.length}장</span></span>${styleCandidateRankingMarkup(candidate)}<span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">${candidate.generationNumber || 1}세대 · ${{active: "활성", evolving: "진화 중", retired: "퇴역", cancelled: "취소"}[candidate.lifecycle] || "활성"} · ${candidate.batchNumber}번째 생성 · 작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button></article>`;
 }
 
 /** 생성 묶음의 취소·부분 실패 재시도는 조합 카드와 별도로 유지합니다. */
 function styleLibraryBatchActionsMarkup(candidates, plan) {
+  if (!candidates.length || ["cancelled", "confirmed"].includes(plan.evolutionStatus)) return "";
   const latestRenders = [];
   for (const candidate of candidates) {
     latestRenders.push(...styleCandidateCaseResults(candidate, plan).map(result => result.render).filter(Boolean));
@@ -44,7 +45,7 @@ function styleLibraryBatchActionsMarkup(candidates, plan) {
 /** 서버가 계산한 실제 순위·Elo·전적을 조합 카드와 상세에서 공유합니다. */
 function styleCandidateRankingMarkup(candidate) {
   const statistics = candidate.statistics;
-  const rankLabel = statistics?.rank ? `${statistics.rank}위` : "미평가";
+  const rankLabel = candidate.lifecycle === "retired" ? "퇴역" : candidate.lifecycle === "cancelled" ? "취소" : statistics?.rank ? `${statistics.rank}위` : "미평가";
   const ratingLabel = statistics?.rated ? statistics.rating.toLocaleString("ko-KR") : "—";
   return `<span class="style-card-statistics"><strong>${rankLabel} · Elo <span data-style-rating="${candidate.identifier}">${ratingLabel}</span></strong><small>${statistics?.wins || 0}승 ${statistics?.losses || 0}패 · ${statistics?.matches || 0}회 평가 · Skip ${statistics?.skips || 0}</small></span>`;
 }
@@ -53,10 +54,12 @@ function styleCandidateRankingMarkup(candidate) {
 function styleLibraryResultsMarkup(results) {
   if (previewState.blind) return rankingBlindNoticeMarkup();
   const groups = [];
+  const lifecycleFilter = currentStyleGenerationState().libraryLifecycle || "active";
   const plans = (results?.plans || []).filter(plan => results.candidates.some(candidate => candidate.planIdentifier === plan.planIdentifier && candidate.renders.length));
   const evaluations = plans.filter((plan, index) => plans.findIndex(item => item.evaluationIdentifier === plan.evaluationIdentifier) === index);
   for (const plan of evaluations) {
-    const candidates = results.candidates.filter(candidate => candidate.evaluationIdentifier === plan.evaluationIdentifier && candidate.renders.length);
+    const candidates = results.candidates.filter(candidate => candidate.evaluationIdentifier === plan.evaluationIdentifier && candidate.renders.length && (lifecycleFilter === "all" || (lifecycleFilter === "active" ? ["active", "evolving"].includes(candidate.lifecycle) : candidate.lifecycle === lifecycleFilter)));
+    if (!candidates.length) continue;
     const orderedCandidates = [...candidates];
     if (previewState.candidateSortOrder === "matches") orderedCandidates.sort((first, second) => (second.statistics?.matches || 0) - (first.statistics?.matches || 0) || (first.statistics?.rank || Infinity) - (second.statistics?.rank || Infinity));
     else if (previewState.candidateSortOrder !== "creation") orderedCandidates.sort((first, second) => (first.statistics?.rank || Infinity) - (second.statistics?.rank || Infinity));
@@ -64,7 +67,7 @@ function styleLibraryResultsMarkup(results) {
     const cards = orderedCandidates.map(candidate => styleCandidateCardMarkup(candidate, plans.find(item => item.planIdentifier === candidate.planIdentifier))).join("");
     groups.push(`<section class="style-library-batch"><div class="settings-section-heading"><h2>${plan.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재 조건" : "이전 조건"} · Seed ${plan.sampling.seed} · ${candidates.length}개 그림체</h2><div class="form-actions">${actions}</div></div><div class="style-library-grid">${cards}</div></section>`);
   }
-  return groups.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>';
+  return styleEvolutionContainerMarkup() + (groups.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>');
 }
 
 /** 상세 보기는 열린 프로젝트와 후보 ID로만 조회해 다른 조합으로 넘어가지 않습니다. */
@@ -146,3 +149,12 @@ function clearStyleLibraryViewer() {
 document.addEventListener("click", handleStyleLibraryAction);
 document.addEventListener("keydown", handleStyleLibraryViewerKey);
 document.querySelector("#illustration-dialog").addEventListener("close", clearStyleLibraryViewer);
+
+/** 퇴역·취소 조합도 파일을 지우지 않고 명시적으로 찾아볼 수 있게 합니다. */
+function handleStyleLibraryLifecycleFilter(event) {
+  if (event.target.id !== "style-library-lifecycle") return;
+  currentStyleGenerationState().libraryLifecycle = event.target.value;
+  renderPreview(false);
+}
+
+document.addEventListener("change", handleStyleLibraryLifecycleFilter);

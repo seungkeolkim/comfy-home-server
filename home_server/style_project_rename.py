@@ -35,6 +35,8 @@ class StyleProjectRenameService:
                     raise StyleRevisionConflict("다른 이름 변경 요청에 사용한 ID입니다.")
                 return self.finish_operation(payload.operationIdentifier)
             with self.server.database._connect() as connection:
+                if connection.execute("SELECT 1 FROM style_evolution_batches WHERE project_id=? AND status IN ('planned','active')", (project_identifier,)).fetchone():
+                    raise StyleRevisionConflict("준비·진행 중인 진화를 확정하거나 취소한 뒤 프로젝트 설정을 변경해 주세요.")
                 if connection.execute("SELECT 1 FROM style_project_renames WHERE project_id=? AND state!='completed'", (project_identifier,)).fetchone():
                     raise StyleRevisionConflict("진행 중인 폴더 이름 변경을 먼저 복구해야 합니다.")
             if binding["state"] != "created" or old_settings["name"] == payload.settings.name:

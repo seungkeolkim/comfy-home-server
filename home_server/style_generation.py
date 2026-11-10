@@ -145,7 +145,7 @@ class StyleGenerationService:
                     if specification and isinstance(specification[0], list) and node["inputs"].get(input_name) not in specification[0]:
                         raise ValueError(f"등록 Workflow의 모델 파일을 찾을 수 없습니다: {node['inputs'].get(input_name)}")
 
-    async def create_plan(self, project_identifier: str, payload: StyleGenerationPlanInput | RandomStyleGenerationPlanInput) -> dict:
+    async def create_plan(self, project_identifier: str, payload: StyleGenerationPlanInput | RandomStyleGenerationPlanInput, *, evolution_context: dict | None = None) -> dict:
         """Case별 공통 전개를 한 번 고정하고 후보 간 동일 조건을 저장합니다."""
 
         request_hash = snapshot_hash(payload.model_dump())
@@ -195,6 +195,9 @@ class StyleGenerationService:
             fingerprints.add(fingerprint)
         with self.server.database._connect() as connection:
             evaluation = connection.execute("SELECT contract_json FROM style_evaluation_revisions WHERE evaluation_id=? AND project_id=?", (project["active_evaluation_id"], project_identifier)).fetchone()
+            generation_number = self.server.style_evolution.store.current_generation_number(connection, project["active_evaluation_id"])
+            if not evolution_context and self.server.style_evolution.store.find_open_evolution_batch(connection, project["active_evaluation_id"]):
+                raise StyleRevisionConflict("진화를 확정하거나 취소한 뒤 일반 조합을 추가해 주세요.")
         contract = json.loads(evaluation[0])
         await self.preflight(contract["workflow"]["api"], [component for components in component_sets for component in components])
         lora_names = [component["identifier"][5:] for components in component_sets for component in components if component["identifier"].startswith("lora:")]
@@ -204,7 +207,7 @@ class StyleGenerationService:
                 if component["identifier"].startswith("lora:"):
                     component["file_identity"] = identities.get(component["identifier"][5:].replace("\\", "/"))
         resolved_cases = []
-        for case_index, prompt_case in enumerate(contract["prompt_cases"]):
+        for case_index, prompt_case in enumerate(contract["prompt_cases"] if not evolution_context else []):
             resolution_seed = random.Random(f"{contract['sampling']['seed']}:{prompt_case['identifier']}").randrange(2**31)
             body = {"prompt": prompt_case["prompt"].replace("{artist}", ARTIST_INSERTION_MARKER),
                     "negative": "\n".join(part for part in [contract["negative_prompt"], prompt_case.get("negativePrompt", "")] if part)}
@@ -215,11 +218,15 @@ class StyleGenerationService:
                 "negative": await self.server.comfy.populate_wildcards(negative_template, resolution_seed),
                 "resolutionSeed": resolution_seed,
             })
+        if evolution_context:
+            resolved_cases = evolution_context["resolvedCases"]
+            generation_number = evolution_context["targetGeneration"]
+            selection = {"mode": "evolution", **evolution_context["provenance"], "batchIdentifier": evolution_context["identifier"]}
         plan_identifier = uuid.uuid4().hex
         candidates = [{"identifier": uuid.uuid4().hex, "label": chr(65 + index) if index < 26 else "A" + chr(65 + index - 26), "components": components} for index, components in enumerate(component_sets)]
         plan = {"projectIdentifier": project_identifier, "evaluationIdentifier": project["active_evaluation_id"],
                 "cases": resolved_cases, "candidates": candidates, "sampling": contract["sampling"],
-                "workflowHash": contract["workflow"]["api_hash"], "imageCount": len(candidates) * len(resolved_cases), "selection": selection}
+                "workflowHash": contract["workflow"]["api_hash"], "imageCount": len(candidates) * len(resolved_cases), "selection": selection, "generationNumber": generation_number}
         with self.mutation_lock, self.server.database._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute("SELECT plan_id,payload_hash FROM style_generation_plans WHERE operation_id=?", (payload.operationIdentifier,)).fetchone()
@@ -230,6 +237,8 @@ class StyleGenerationService:
             current = connection.execute("SELECT revision FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
             if current[0] != project["revision"]:
                 raise StyleRevisionConflict("계획 중 프로젝트가 변경됐습니다. 새 설정으로 다시 계획해 주세요.")
+            if not evolution_context and (self.server.style_evolution.store.find_open_evolution_batch(connection, project["active_evaluation_id"]) or generation_number != self.server.style_evolution.store.current_generation_number(connection, project["active_evaluation_id"])):
+                raise StyleRevisionConflict("계획 중 세대 상태가 바뀌었습니다. 최신 세대에서 다시 시작해 주세요.")
             if selection["mode"] == "random":
                 previous_candidates = connection.execute("SELECT components_json FROM style_candidates WHERE project_id=? AND evaluation_id=?", (project_identifier, project["active_evaluation_id"])).fetchall()
                 current_fingerprints = {combination_selection_fingerprint(json.loads(candidate[0])) for candidate in previous_candidates}
@@ -244,6 +253,10 @@ class StyleGenerationService:
                     candidate["identifier"], project_identifier, project["active_evaluation_id"], plan_identifier,
                     candidate["label"], encode_snapshot(candidate["components"]), snapshot_hash(candidate["components"]),
                 ))
+                if not evolution_context:
+                    connection.execute("INSERT INTO style_candidate_memberships VALUES(?,?,?,?,?,?,?)", (candidate["identifier"], project["active_evaluation_id"], generation_number, "active", None, selection["mode"], "[]"))
+            if evolution_context:
+                self.server.style_evolution.register_evolution_plan(connection, plan_identifier, candidates, evolution_context)
         return self.store.plan(plan_identifier, project_identifier)
 
     async def preflight_plan(self, project_identifier: str, plan_identifier: str, retry: bool) -> None:
@@ -284,6 +297,8 @@ class StyleGenerationService:
                 raise StyleRevisionConflict("프로젝트 폴더 이름 변경을 마친 뒤 생성해 주세요.")
             if plan["jobIdentifiers"] and not payload.retryFailedOnly:
                 return plan["jobIdentifiers"][0], []
+            self.server.style_evolution.prepare_plan_submission(connection, project_identifier, plan, payload.retryFailedOnly)
+            generation_number = plan.get("generationNumber", 1)
             binding = json.loads(project["storage_binding_json"])
             project_directory = resolve_output_directory(self.server.style_output_directory, f"{binding['model_folder']}/{binding['project_folder']}", must_exist=False)
             project_directory.mkdir(parents=True, exist_ok=True)
@@ -306,15 +321,15 @@ class StyleGenerationService:
                         continue
                     render_identifier = uuid.uuid4().hex
                     request_identifier = uuid.uuid4().hex
-                    output_stem = f"{STYLE_OUTPUT_PREFIX}{binding['model_folder']}/{binding['project_folder']}/세대001-조합{candidate_index:02}-Prompt{prompt_case['index']:02}-{render_identifier}"
+                    output_stem = f"{STYLE_OUTPUT_PREFIX}{binding['model_folder']}/{binding['project_folder']}/세대{generation_number:03}-조합{candidate_index:02}-Prompt{prompt_case['index']:02}-{render_identifier}"
                     render_plan = {"projectIdentifier": project_identifier, "candidateIdentifier": candidate["identifier"], "components": candidate["components"],
-                                   "case": prompt_case, "sampling": plan["sampling"], "evaluationIdentifier": plan["evaluationIdentifier"]}
+                                   "case": prompt_case, "sampling": plan["sampling"], "evaluationIdentifier": plan["evaluationIdentifier"], "generationNumber": generation_number}
                     detail = {**common_detail, "resolved": {"style_render_identifier": render_identifier}}
                     requests.append({"request_id": request_identifier, "job_id": job_identifier, "workflow": "anima", "status": "submitting", "output_stem": output_stem, "detail": detail})
                     render_records.append((render_identifier, candidate["identifier"], plan_identifier, prompt_case["identifier"], request_identifier, encode_snapshot(render_plan)))
             if not requests:
                 raise StyleRevisionConflict("실패·취소가 확인된 재시도 대상이 없습니다. 미확인 요청은 자동 재제출하지 않습니다.")
-            self.server.database.add_job(job_identifier, "anima", f"세대001-{sequence:02} 이미지 생성", requests, binding["folder_id"], origin="style", connection=connection)
+            self.server.database.add_job(job_identifier, "anima", f"세대{generation_number:03}-{sequence:02} 이미지 생성", requests, binding["folder_id"], origin="style", connection=connection)
             connection.execute("INSERT INTO style_job_ownership VALUES(?,?,?,?,?)", (job_identifier, project_identifier, plan_identifier, payload.operationIdentifier, sequence))
             connection.executemany("INSERT INTO style_candidate_renders VALUES(?,?,?,?,?,?)", render_records)
         return job_identifier, requests
@@ -359,7 +374,7 @@ class StyleGenerationService:
                     "prepared_graph": request_workflow, "metadata_workflow": metadata_workflow}
         prepared["style_context"] = {"project_id": render_plan["projectIdentifier"], "evaluation_id": render_plan["evaluationIdentifier"],
                                      "candidate_id": render_plan["candidateIdentifier"], "render_id": render_identifier,
-                                     "case_id": render_plan["case"]["identifier"], "generation": 1}
+                                     "case_id": render_plan["case"]["identifier"], "generation": render_plan.get("generationNumber", 1)}
         prepared["style_context"]["component_identities"] = {component["identifier"]: component.get("file_identity") for component in render_plan["components"] if component["identifier"].startswith("lora:")}
         with self.server.database._connect() as connection:
             connection.execute("UPDATE request_results SET result_json=? WHERE request_id=?", (encode_snapshot(prepared), request["request_id"]))

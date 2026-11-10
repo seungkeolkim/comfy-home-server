@@ -15,6 +15,7 @@ PREVIEW_ASSETS = {
     "project-persistence.js": "text/javascript",
     "style-generation.js": "text/javascript",
     "style-voting.js": "text/javascript",
+    "style-evolution.js": "text/javascript",
     "style-comparison.js": "text/javascript",
     "style-library.js": "text/javascript",
 }

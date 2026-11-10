@@ -85,9 +85,11 @@ class StyleGenerationStore:
             job_rows = connection.execute(
                 "SELECT job_id FROM style_job_ownership WHERE plan_id=? ORDER BY sequence", (plan_identifier,),
             ).fetchall()
+            evolution = connection.execute("SELECT status FROM style_evolution_batches WHERE plan_id=?", (plan_identifier,)).fetchone()
         plan = json.loads(row["plan_json"])
+        plan.setdefault("generationNumber", 1)
         plan["sampling"] = browser_sampling_settings(plan["sampling"])
-        return {**plan, "planIdentifier": plan_identifier,
+        return {**plan, "evolutionStatus": evolution[0] if evolution else None, "planIdentifier": plan_identifier,
                 "projectRevision": row["project_revision"], "jobIdentifiers": [row[0] for row in job_rows]}
 
     def results(self, project_identifier: str) -> dict:
@@ -95,6 +97,8 @@ class StyleGenerationStore:
 
         project = self.project(project_identifier)
         with self.connection_factory() as connection:
+            memberships = {row["candidate_id"]: dict(row) for row in connection.execute("SELECT memberships.* FROM style_candidate_memberships AS memberships JOIN style_candidates USING(candidate_id) WHERE project_id=?", (project_identifier,))}
+            current_generation = connection.execute("SELECT generation_number FROM style_evolution_timelines WHERE evaluation_id=?", (project["active_evaluation_id"],)).fetchone()
             candidates = connection.execute(
                 "SELECT * FROM style_candidates WHERE project_id=? AND (evaluation_id=? OR EXISTS "
                 "(SELECT 1 FROM style_candidate_renders WHERE candidate_id=style_candidates.candidate_id)) ORDER BY rowid",
@@ -124,6 +128,9 @@ class StyleGenerationStore:
                     })
                 results.append({"identifier": candidate["candidate_id"], "label": candidate["label"], "planIdentifier": candidate["plan_id"],
                                 "evaluationIdentifier": candidate["evaluation_id"],
+                                "generationNumber": memberships[candidate["candidate_id"]]["generation_number"], "lifecycle": memberships[candidate["candidate_id"]]["lifecycle"],
+                                "evolutionBatchIdentifier": memberships[candidate["candidate_id"]]["batch_id"], "breedingMode": memberships[candidate["candidate_id"]]["breeding_mode"],
+                                "parentIdentifiers": json.loads(memberships[candidate["candidate_id"]]["parent_ids_json"]),
                                 "components": json.loads(candidate["components_json"]), "renders": renders})
             plan_identifiers = [row[0] for row in connection.execute(
                 "SELECT plan_id FROM style_generation_plans WHERE project_id=? AND (evaluation_id=? OR EXISTS "
@@ -131,16 +138,22 @@ class StyleGenerationStore:
                 (project_identifier, project["active_evaluation_id"]),
             )]
             arena_statistics = {row["evaluation_id"]: json.loads(row["state_json"])["statistics"] for row in connection.execute("SELECT evaluation_id,state_json FROM style_voting_arenas WHERE project_id=?", (project_identifier,))}
+            for row in connection.execute("SELECT evaluation_id,result_json FROM style_evolution_batches WHERE project_id=? AND status='cancelled' AND result_json IS NOT NULL", (project_identifier,)):
+                statistics = json.loads(row["result_json"]).get("cancelledStatistics", {})
+                arena_statistics.setdefault(row["evaluation_id"], {}).update({identifier: value for identifier, value in statistics.items() if value is not None})
         evaluation_identifiers = {candidate["evaluationIdentifier"] for candidate in results}
         for evaluation_identifier in evaluation_identifiers:
-            identifiers = [candidate["identifier"] for candidate in results if candidate["evaluationIdentifier"] == evaluation_identifier and candidate["renders"]]
+            identifiers = [candidate["identifier"] for candidate in results if candidate["evaluationIdentifier"] == evaluation_identifier and candidate["renders"] and candidate["lifecycle"] in {"active", "evolving"}]
             rankings = {entry["identifier"]: entry for entry in ranked_candidate_statistics(identifiers, arena_statistics.get(evaluation_identifier, {}))}
             for candidate in results:
                 if candidate["identifier"] in rankings:
                     candidate["statistics"] = rankings[candidate["identifier"]]
+                elif candidate["evaluationIdentifier"] == evaluation_identifier and candidate["renders"]:
+                    archived = ranked_candidate_statistics([candidate["identifier"]], arena_statistics.get(evaluation_identifier, {}))[0]
+                    candidate["statistics"] = {**archived, "rank": None}
         plans = [self.plan(identifier, project_identifier) for identifier in plan_identifiers]
         submitted_plans = [plan for plan in reversed(plans) if plan["jobIdentifiers"]]
         batch_numbers = {plan["planIdentifier"]: index + 1 for index, plan in enumerate(submitted_plans)}
         for candidate in results:
             candidate["batchNumber"] = batch_numbers.get(candidate["planIdentifier"])
-        return {"projectIdentifier": project_identifier, "activeEvaluationIdentifier": project["active_evaluation_id"], "candidates": results, "plans": plans}
+        return {"projectIdentifier": project_identifier, "activeEvaluationIdentifier": project["active_evaluation_id"], "currentGeneration": current_generation[0] if current_generation else 1, "candidates": results, "plans": plans}

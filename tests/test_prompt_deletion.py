@@ -58,7 +58,7 @@ def test_delete_prompt_removes_all_versions_and_preserves_snapshots(tmp_path: Pa
         assert output_path.read_bytes() == original_output
         assert list(server.administration.backup_directory.iterdir()) == []
         with database._connect() as connection:
-            assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
+            assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
             assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
             assert json.loads(connection.execute("SELECT input_json FROM job_inputs").fetchone()[0])["preset_id"] == "portrait"
 

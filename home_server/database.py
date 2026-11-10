@@ -18,9 +18,10 @@ from .request_favorites import RequestFavoriteStore
 from .style_projects import StyleProjectStore
 from .style_generation_store import StyleGenerationStore
 from .style_voting import StyleVotingService
+from .style_evolution_store import StyleEvolutionStore
 
 
-DATABASE_SCHEMA_VERSION = 17
+DATABASE_SCHEMA_VERSION = 18
 
 
 def current_timestamp() -> str:
@@ -59,9 +60,11 @@ class Database:
                 self._create_verified_database_backup(connection, "style_generation")
             elif schema_version == 16:
                 self._create_verified_database_backup(connection, "style_voting")
+            elif schema_version == 17:
+                self._create_verified_database_backup(connection, "style_evolution")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, DATABASE_SCHEMA_VERSION}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, DATABASE_SCHEMA_VERSION}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -183,6 +186,7 @@ class Database:
             StyleProjectStore.prepare_schema(connection)
             StyleGenerationStore.prepare_schema(connection)
             StyleVotingService.prepare_schema(connection)
+            StyleEvolutionStore.prepare_schema(connection)
             connection.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
         self.job_folders = JobFolderStore(self._connect)
         self.favorites = RequestFavoriteStore(self._connect, database_path.parent)

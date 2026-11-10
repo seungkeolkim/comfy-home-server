@@ -4,6 +4,8 @@ import math
 import random
 import uuid
 
+from .style_evolution_selection import apply_selection_choice, next_selection_pair
+
 
 VOTING_POLICY_VERSION = "style-arena-v1"
 
@@ -126,6 +128,9 @@ def league_match_weights(state: dict, identifiers: list[str], rated_identifiers:
 def choose_next_match(state: dict, ready_identifiers: list[str]) -> dict | None:
     """진행 중 Placement·신규끼리 비교·배치·경계 동점·일반 리그 순으로 선택합니다."""
 
+    if state.get("evolution"):
+        pair = next_selection_pair(state["evolution"], ready_identifiers)
+        return new_match("select", *pair, batchIdentifier=state["evolution"]["batch_id"]) if pair else None
     statistics = state["statistics"]
     rated_identifiers = [identifier for identifier in ready_identifiers if candidate_is_rated(statistics[identifier])]
     newcomers = [identifier for identifier in ready_identifiers if not candidate_is_rated(statistics[identifier])]
@@ -165,6 +170,9 @@ def apply_match_choice(state: dict, choice: str, components_by_candidate: dict) 
     """Match Kind별 승패·Skip·배치와 공통 성분을 제외한 관측 통계를 갱신합니다."""
 
     match = state["match"]
+    if match["kind"] == "select":
+        apply_selection_choice(state, choice)
+        return
     first_statistics = state["statistics"][match["a"]]
     second_statistics = state["statistics"][match["b"]]
     if choice == "similar":

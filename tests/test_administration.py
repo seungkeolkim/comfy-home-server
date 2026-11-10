@@ -310,7 +310,7 @@ def test_restore_preparation_failure_keeps_operational_db(tmp_path: Path) -> Non
     server = application.state.home_server
     invalid_path = server.administration.backup_directory / "incomplete.sqlite3"
     with closing(sqlite3.connect(invalid_path)) as connection:
-        connection.execute("PRAGMA user_version = 17")
+        connection.execute("PRAGMA user_version = 18")
     server.database.save_preset("keep", "보존", "anima", {"prompt": "keep"})
     with TestClient(application) as client:
         client.post("/api/login", json={"password": "test"})

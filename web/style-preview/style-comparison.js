@@ -8,7 +8,7 @@ function currentPersistentComparison() {
   const selectedPlan = submittedPlans.find(plan => plan.planIdentifier === state.comparisonPlanIdentifier) || submittedPlans[0];
   const plans = submittedPlans.filter((plan, index) => submittedPlans.findIndex(item => item.evaluationIdentifier === plan.evaluationIdentifier) === index);
   const plan = plans.find(plan => plan.evaluationIdentifier === selectedPlan?.evaluationIdentifier);
-  const allCandidates = plan ? results.candidates.filter(candidate => candidate.evaluationIdentifier === plan.evaluationIdentifier && candidate.renders.length) : [];
+  const allCandidates = plan ? results.candidates.filter(candidate => candidate.evaluationIdentifier === plan.evaluationIdentifier && candidate.renders.length && ["active", "evolving"].includes(candidate.lifecycle)) : [];
   const voting = state.votingEvaluations?.[plan?.evaluationIdentifier];
   const selectedIdentifiers = voting?.match ? [voting.match.a, voting.match.b] : allCandidates.slice(0, 2).map(candidate => candidate.identifier);
   const candidates = selectedIdentifiers.map(identifier => allCandidates.find(candidate => candidate.identifier === identifier)).filter(Boolean);
@@ -18,7 +18,7 @@ function currentPersistentComparison() {
 /** 후보 이름이 다른 생성 묶음과 겹쳐도 실제 어느 조합인지 구별합니다. */
 function persistentCandidateLabel(candidate, includeBatch = true) {
   const batchLabel = includeBatch && candidate.batchNumber ? ` · ${candidate.batchNumber}번째 생성` : "";
-  return `조합 ${candidate.label}${batchLabel}`;
+  return `조합 ${candidate.label}${batchLabel}${candidate.generationNumber > 1 ? ` · ${candidate.generationNumber}세대` : ""}`;
 }
 
 /** 일반 비교는 같은 평가 상태의 준비된 후보 중 A/B를 직접 바꿀 수 있습니다. */
@@ -39,7 +39,7 @@ function persistentPromptCaseName(promptCase) {
 /** 검토한 선별 화면의 진입점과 결과 Polling 영역을 유지합니다. */
 function renderPersistentComparison() {
   const project = currentProject();
-  return `<div class="page-heading comparison-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>어느 쪽 그림체가 더 좋나요?</h1><p class="muted">같은 두 조합을 여러 Prompt에서 확인해 보세요.</p></div><button data-style-voting-action="undo" disabled>↶ 되돌리기</button></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
+  return `${styleEvolutionContainerMarkup()}<div class="page-heading comparison-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>어느 쪽 그림체가 더 좋나요?</h1><p class="muted">같은 두 조합을 여러 Prompt에서 확인해 보세요.</p></div><button data-style-voting-action="undo" disabled>↶ 되돌리기</button></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
 }
 
 /** 실제 이미지로 Toolbar와 모든 Prompt를 스크롤해 보는 비교 화면을 구성합니다. */
@@ -47,6 +47,7 @@ function styleComparisonResultsMarkup() {
   const comparison = currentPersistentComparison();
   const { plan, plans, candidates, allCandidates, voting } = comparison;
   if (!plan) return '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>';
+  if (voting?.activeEvolutionIdentifier && !voting.match) return '<section class="panel empty-state"><h2>다음 자녀 선별 대기</h2><p id="style-voting-status" role="status">준비된 자녀의 선별을 마쳤습니다. 위에서 생성 상태와 세대 확정 가능 여부를 확인해 주세요.</p></section>';
   const planSelector = plans.length > 1 ? `<label for="style-comparison-plan">비교할 평가 조건</label><select id="style-comparison-plan">${plans.map((item, index) => `<option value="${item.planIdentifier}" ${item.planIdentifier === plan.planIdentifier ? "selected" : ""}>${item.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재 조건" : "이전 조건"} · Seed ${item.sampling.seed}</option>`).join("")}</select>` : "";
   const headings = ["a", "b"].map((side, index) => `<div class="candidate-name ${side === previewState.visibleSide ? "visible-side" : ""}"><span class="candidate-letter">${side.toUpperCase()}</span><span>${previewState.blind ? "그림체 숨김" : candidates[index] ? escapeMarkup(persistentCandidateLabel(candidates[index], allCandidates.some(candidate => candidate.planIdentifier !== plan.planIdentifier))) : "아직 생성하지 않음"}</span></div>`).join("");
   return `<div class="persistent-comparison">${planSelector}${persistentComparisonPairPickerMarkup(comparison)}<div class="condition-strip"><span>${allCandidates.length}개 조합</span><span>· ${plan.cases.length}개 Prompt</span><span>· 공통 Seed ${plan.sampling.seed}</span></div><div class="toolbar"><div class="toolbar-group"><button data-action="toggle-blind" aria-pressed="${previewState.blind}">◉ Blind ${previewState.blind ? "켜짐" : "꺼짐"}</button><button data-action="open-differences" ${previewState.blind || candidates.length !== 2 ? "disabled" : ""}>조합 차이 보기 ↗</button><button data-action="navigate" data-screen="candidates">그림체 보기 →</button></div></div><div class="mobile-case-controls mobile-only"><button data-action="image-layout" data-layout="${previewState.singleImage ? "pair" : "single"}">${previewState.singleImage ? "나란히" : "한 장씩"}</button>${previewState.singleImage ? `<button data-action="switch-side">${previewState.visibleSide === "a" ? "B" : "A"} 보기</button>` : ""}</div><div class="comparison-columns candidate-headings ${previewState.singleImage ? "single-image" : ""}">${headings}</div>${plan.cases.map((promptCase, index) => persistentComparisonCaseMarkup(promptCase, index, candidates)).join("")}<footer class="comparison-footer"><div class="vote-buttons"><button class="vote-choice vote-choice-a" data-style-voting-choice="a" disabled>A가 더 좋아요</button><button data-style-voting-choice="similar" disabled>비슷함</button><button class="vote-choice vote-choice-b" data-style-voting-choice="b" disabled>B가 더 좋아요</button></div><p id="style-voting-status" class="vote-caption" role="status">${voting?.match?.kind === "place" ? "새 조합을 기존 순위에 배치합니다. 기존 조합의 점수는 유지합니다." : "모든 Prompt를 함께 보고 조합 하나를 선택해 주세요."}</p></footer></div>`;

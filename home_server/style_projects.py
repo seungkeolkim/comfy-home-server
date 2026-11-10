@@ -251,20 +251,22 @@ class StyleProjectStore:
 
         with self.connection_factory() as connection:
             rows = connection.execute("SELECT * FROM style_projects ORDER BY created_at DESC, project_id").fetchall()
+            generation_numbers = dict(connection.execute("SELECT evaluation_id,generation_number FROM style_evolution_timelines"))
             candidate_counts = dict(connection.execute(
                 "SELECT project_id,COUNT(DISTINCT candidate_id) FROM style_candidates JOIN style_candidate_renders USING(candidate_id) "
-                "JOIN style_projects USING(project_id) GROUP BY project_id"
+                "JOIN style_projects USING(project_id) JOIN style_candidate_memberships USING(candidate_id) WHERE lifecycle IN ('active','evolving') GROUP BY project_id"
             ).fetchall())
-        return [{**self.project_from_row(row), "candidateCount": candidate_counts.get(row["project_id"], 0)} for row in rows]
+        return [{**self.project_from_row(row), "generation": generation_numbers.get(row["active_evaluation_id"], 1), "candidateCount": candidate_counts.get(row["project_id"], 0)} for row in rows]
 
-    @staticmethod
-    def project_from_row(row: sqlite3.Row) -> dict:
-        """아직 생성하지 않은 Fresh 프로젝트를 빈 후보 목록으로 반환합니다."""
+    def project_from_row(self, row: sqlite3.Row) -> dict:
+        """설정 저장 응답에도 현재 세대를 반영하고 후보 목록은 별도로 조회합니다."""
 
         settings = browser_sampling_settings(ProjectSettings(**json.loads(row["settings_json"])).model_dump())
+        with self.connection_factory() as connection:
+            timeline = connection.execute("SELECT generation_number FROM style_evolution_timelines WHERE evaluation_id=?", (row["active_evaluation_id"],)).fetchone()
         return {
             "identifier": row["project_id"], "revision": row["revision"], "settings": settings,
-            "name": settings["name"], "promptCases": settings["promptCases"], "generation": 1,
+            "name": settings["name"], "promptCases": settings["promptCases"], "generation": timeline[0] if timeline else 1,
             "evaluationIdentifier": row["active_evaluation_id"], "candidateCount": 0,
             "candidates": [], "decisions": [], "savedCandidates": [], "excludedComponents": [], "pairIndex": 0,
             "storageBinding": json.loads(row["storage_binding_json"]),
@@ -296,6 +298,8 @@ class StyleProjectStore:
                     if payload_hash != expected_hash:
                         raise StyleRevisionConflict("같은 요청 Identifier로 다른 설정을 저장할 수 없습니다.")
                     return self.project_from_row(existing)
+                if connection.execute("SELECT 1 FROM style_evolution_batches WHERE project_id=? AND status IN ('planned','active')", (project_identifier,)).fetchone():
+                    raise StyleRevisionConflict("준비·진행 중인 진화를 확정하거나 취소한 뒤 프로젝트 설정을 변경해 주세요.")
                 if payload.expectedRevision != existing["revision"]:
                     raise StyleRevisionConflict("다른 탭에서 프로젝트를 변경했습니다. 초안을 보존한 채 다시 불러와 주세요.")
             project_identifier = existing["project_id"] if existing else uuid.uuid4().hex

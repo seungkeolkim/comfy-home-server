@@ -40,9 +40,9 @@ async function prepareRandomStyleGeneration(projectIdentifier, combinationCount)
   const expectedRevision = currentProject().revision;
   let savedPlan = state.pendingRandomPlan;
   if (!savedPlan && !state.pendingRandomRequest) {
-    savedPlan = state.results?.plans.find(plan => !plan.jobIdentifiers.length && plan.selection?.mode === "random" && plan.projectRevision === expectedRevision && plan.selection.requestedCount === combinationCount);
+    savedPlan = state.results?.plans.find(plan => !plan.jobIdentifiers.length && plan.selection?.mode === "random" && plan.projectRevision === expectedRevision && plan.selection.requestedCount === combinationCount && (plan.generationNumber || 1) === (state.results?.currentGeneration || 1));
   }
-  if (savedPlan?.projectRevision === expectedRevision && savedPlan.selection.requestedCount === combinationCount) {
+  if (savedPlan?.projectRevision === expectedRevision && savedPlan.selection.requestedCount === combinationCount && (savedPlan.generationNumber || 1) === (state.results?.currentGeneration || 1)) {
     state.pendingRandomPlan = savedPlan;
     return savedPlan;
   }
@@ -92,7 +92,8 @@ function renderStyleGeneration() {
   if (state.options) {
     controls = `<div class="form-row"><label>확인할 조합 수<select id="style-generation-count"><option value="2" ${state.options.combinations.length === 2 ? "selected" : ""}>2개</option><option value="1" ${state.options.combinations.length === 1 ? "selected" : ""}>1개</option></select></label></div>${state.options.combinations.map((combination, index) => styleCombinationEditorMarkup(combination, index, state.options.settings)).join("")}<button class="primary" data-generation-action="preview" ${styleGenerationViewState.busy ? "disabled" : ""}>이미지 생성</button>`;
   }
-  return `<div class="page-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>프로젝트 이미지 생성</h1><p class="muted">저장한 프로젝트 설정으로 모든 Prompt의 이미지를 생성합니다.</p></div><button data-action="navigate" data-screen="project-settings">프로젝트 설정</button></div>${controls}<p id="style-generation-error" class="error" role="alert">${escapeMarkup(state.error)}</p><div id="style-render-results">${initialStyleResultsMarkup(state.results)}</div>`;
+  if (state.evolution?.batch) controls = '<section class="panel"><p>진화를 확정하거나 취소한 뒤 일반 조합을 추가할 수 있습니다.</p></section>';
+  return `${styleEvolutionContainerMarkup()}<div class="page-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>프로젝트 이미지 생성</h1><p class="muted">저장한 프로젝트 설정으로 모든 Prompt의 이미지를 생성합니다.</p></div><button data-action="navigate" data-screen="project-settings">프로젝트 설정</button></div>${controls}<p id="style-generation-error" class="error" role="alert">${escapeMarkup(state.error)}</p><div id="style-render-results">${initialStyleResultsMarkup(state.results)}</div>`;
 }
 
 /** 현재 화면의 결과 영역을 같은 경로로 구성해 첫 Polling의 중복 교체를 막습니다. */
@@ -121,11 +122,11 @@ function styleGenerationResultsMarkup(results) {
     const latestRenders = candidates.flatMap(candidate => plan.cases.map(promptCase => candidate.renders.filter(render => render.caseIdentifier === promptCase.identifier).at(-1))).filter(Boolean);
     const hasRetryTargets = latestRenders.some(render => ["failed", "cancelled"].includes(render.status));
     const activeJobs = [...new Set(renders.filter(render => ["submitting", "pending", "running", "cancelling"].includes(render.status)).map(render => render.jobIdentifier))];
-    return `<section class="panel generation-results"><div class="settings-section-heading"><h2>${plan.candidates.length}개 조합 · ${plan.cases.length}개 Prompt</h2></div>${plan.cases.map(promptCase => `<section><h3>${escapeMarkup(persistentPromptCaseName(promptCase))}</h3><div class="generation-result-grid">${candidates.map(candidate => {
+    return `<section class="panel generation-results"><div class="settings-section-heading"><h2>${plan.generationNumber || 1}세대 · ${plan.candidates.length}개 조합 · ${plan.cases.length}개 Prompt</h2></div>${plan.cases.map(promptCase => `<section><h3>${escapeMarkup(persistentPromptCaseName(promptCase))}</h3><div class="generation-result-grid">${candidates.map(candidate => {
       const render = candidate.renders.filter(item => item.caseIdentifier === promptCase.identifier).at(-1);
       const file = render?.files.find(item => item.is_available && !item.is_deleted);
       return `<article class="generation-result"><strong>조합 ${escapeMarkup(candidate.label)}</strong>${file ? `<button class="image-button" data-generation-action="enlarge" data-path="${escapeMarkup(file.path)}"><img loading="lazy" src="${styleImageUrl(file.path)}" alt="${escapeMarkup(persistentPromptCaseName(promptCase))} · 조합 ${escapeMarkup(candidate.label)}" style="aspect-ratio:${plan.sampling.width}/${plan.sampling.height}" /></button>` : `<div class="empty-state">${render ? escapeMarkup(statusLabels[render.status] || render.status) : "계획 확인 완료 · 미제출"}</div>`}${render?.error ? `<p class="error">${escapeMarkup(render.error)}</p>` : ""}<details><summary>성분·실제 생성 조건</summary><ul>${candidate.components.map(component => `<li>${escapeMarkup(component.identifier)} · STR ${component.strength}</li>`).join("")}</ul>${render?.settings ? `<p>Seed ${render.settings.seed} · ${render.settings.width}×${render.settings.height} · Steps ${render.settings.steps} · CFG ${render.settings.cfg}</p>` : ""}${render?.prompt ? `<p class="form-note">${escapeMarkup(render.prompt)}</p>` : ""}</details></article>`;
-    }).join("")}</div></section>`).join("")}<div class="form-actions">${hasRetryTargets && !activeJobs.length ? `<button data-generation-action="retry" data-plan="${plan.planIdentifier}">실패·취소 항목만 재시도</button>` : ""}${activeJobs.map(jobIdentifier => `<button data-generation-action="cancel" data-job="${jobIdentifier}">이 생성 작업 취소</button>`).join("")}</div></section>`;
+    }).join("")}</div></section>`).join("")}<div class="form-actions">${hasRetryTargets && !activeJobs.length && !["cancelled", "confirmed"].includes(plan.evolutionStatus) ? `<button data-generation-action="retry" data-plan="${plan.planIdentifier}">실패·취소 항목만 재시도</button>` : ""}${activeJobs.map(jobIdentifier => `<button data-generation-action="cancel" data-job="${jobIdentifier}">이 생성 작업 취소</button>`).join("")}</div></section>`;
   }).join("") + `<p class="form-note">${escapeMarkup(project.name)}의 실제 결과입니다. 선별에서 비교하고 그림체에서 순위·Elo를 확인할 수 있습니다.</p>`;
 }
 
@@ -133,16 +134,17 @@ function styleGenerationResultsMarkup(results) {
 async function refreshStyleGenerationResults(projectIdentifier = previewState.currentProjectIdentifier) {
   if (!PERSISTENT_STYLE_WORKSPACE || !projectIdentifier) return;
   const state = currentStyleGenerationState(projectIdentifier);
-  if (state.votingCommandBusy) return;
+  if (state.votingCommandBusy || state.evolutionCommandBusy) return;
   const refreshSequence = (state.resultRefreshSequence || 0) + 1;
   state.resultRefreshSequence = refreshSequence;
   const results = await styleProjectApi(`/api/style-projects/${projectIdentifier}/generation-results`);
   if (refreshSequence !== state.resultRefreshSequence) return;
   state.results = results;
   await refreshStyleVoting(projectIdentifier);
+  await refreshStyleEvolution(projectIdentifier);
   if (refreshSequence !== state.resultRefreshSequence) return;
   const project = previewState.projects.find(project => project.identifier === projectIdentifier);
-  if (project) project.candidateCount = results.candidates.filter(candidate => candidate.renders.length > 0).length;
+  if (project) project.candidateCount = results.candidates.filter(candidate => candidate.renders.length > 0 && ["active", "evolving"].includes(candidate.lifecycle)).length;
   if (projectIdentifier !== previewState.currentProjectIdentifier) return;
   const resultContainer = document.querySelector("#style-render-results");
   if (resultContainer) {

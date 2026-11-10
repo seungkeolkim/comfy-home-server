@@ -100,7 +100,9 @@ class StyleVotingService:
             raise LookupError("프로젝트의 평가 조건을 찾을 수 없습니다.")
         rows = connection.execute(
             "SELECT candidates.*,plans.plan_json FROM style_candidates AS candidates "
-            "JOIN style_generation_plans AS plans USING(plan_id) WHERE candidates.project_id=? AND candidates.evaluation_id=? ORDER BY candidates.rowid",
+            "JOIN style_generation_plans AS plans USING(plan_id) JOIN style_candidate_memberships AS memberships USING(candidate_id) "
+            "LEFT JOIN style_evolution_batches AS batches ON batches.batch_id=memberships.batch_id "
+            "WHERE candidates.project_id=? AND candidates.evaluation_id=? AND (memberships.lifecycle='active' OR (memberships.lifecycle='evolving' AND batches.status='active')) ORDER BY candidates.rowid",
             (project_identifier, evaluation_identifier),
         ).fetchall()
         candidates = []
@@ -169,6 +171,7 @@ class StyleVotingService:
         return {
             "projectIdentifier": project_identifier, "evaluationIdentifier": evaluation_identifier, "revision": revision,
             "policyVersion": VOTING_POLICY_VERSION, "match": state["match"],
+            "activeEvolutionIdentifier": state["evolution"]["batch_id"] if state.get("evolution") else None,
             "rankings": ranked_candidate_statistics([candidate["identifier"] for candidate in candidates], state["statistics"]),
             "readyCandidateIdentifiers": ready_identifiers, "componentStatistics": state["componentStatistics"],
             "undoEventIdentifier": latest_event_identifier,

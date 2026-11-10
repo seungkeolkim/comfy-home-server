@@ -2,7 +2,7 @@
 
 작성일: 2026-11-09, Asia/Seoul.
 
-**현재 진행:** 사용자 요청에 따라 공통 성분 잠금보다 **생성 → 선별 → 순위 → Undo**를 우선합니다. [4단계 실제 선별·Elo·Undo](phase_four_review.md)를 연결하고 작은 Batch의 사용자 확인을 기다립니다. [3A Random 초기 조합과 생성 확인창](phase_three_review.md)은 `29f4d80`에 Commit했습니다. 3B 공통 성분 잠금은 후순위로 미루며 진화·다음 세대 생성은 별도 다음 구현 단위입니다. 현재 접속은 `/style`, 예시 목업은 `/style-preview`입니다.
+**현재 진행:** 실제 선별·Elo·Undo는 `0148dee`에 Commit했습니다. 사용자 진행 요청에 따라 **부모 선정 → 자녀 생성 → Selection → 세대 확정/취소**의 [진화 1회](phase_five_review.md)를 연결하고 개발자 검증·CHS 재기동을 마쳤습니다. 사용자 확인을 기다리며 공통 성분 잠금·북마크 보호·계보별 부모 기회는 후속으로 두고 한 Cycle을 확인합니다. 현재 접속은 `/style`, 예시 목업은 `/style-preview`입니다.
 
 요구사항 갱신: 2026-11-10. [20번 문서](20_web_ux_fusion_multi_prompt_and_component_differences.md)의 Web UX 기준과 세 가지 확장을 반영했습니다. Phase 0 목업은 구현·개발자 검증·[사용자 화면 검토](phase_zero_review.md)를 마쳤으며, 그림체 탭의 프로젝트 선택 UI는 후속 수정으로 남깁니다.
 
@@ -338,3 +338,7 @@ DB Migration이 필요한 단계에서는 적용 전 일관된 Backup의 경로�
 2026-11-10 / 그림체 카드·스크롤 선별 피드백 / 62e6e7a 이후 미Commit 변경 위에 수정 / Prompt 1·3·5개 격리 Browser·기존 Browser 회귀 검증 / 조합별 작은 이미지 카드·상세 넘겨보기, Prompt 전환 버튼 제거, A/B 버튼 색상 개선 요청 / 조합 카드와 후보 내부 Viewer, 전체 Prompt 세로 스크롤, 고대비 선택 버튼, 변경 없는 Polling의 DOM 보존 / 사용자 화면 확인 대기, 데이터·투표 알고리즘 변경 없음
 
 2026-11-10 / 설정·선별·그림체 카드 수정 Commit / 62e6e7a 이후 변경 / 기존 개발자·운영 검증 기록 유지 / 사용자 Commit 요청 / 사용 개수·고정 Seed·목업 기반 선별과 조합별 카드·스크롤·버튼 색상 및 관련 테스트·문서를 함께 Commit / Push 없음, 다음 단계 진행 요청 대기
+
+2026-11-11 / 진화 1회 / 0148dee 이후 변경 / Python 466 Passed·1 Skipped, 마지막 보강 관련 37개·Browser 7개, 운영 기존 업무 행·이미지 20장·Vote 5건 보존, Schema 18·HTTP 200·healthy / 사용자 진행 요청 / 부모 고정·Mutate/Crossover/Random·자녀 Selection/Undo·확정/취소·퇴역 필터·Checkpoint 연결 / 사용자 실제 Cycle 확인 대기, Commit·Push 없음. 상세는 phase_five_review.md
+
+2026-11-11 / 진화 1회 Commit / 0148dee 이후 변경 / 기존 개발자·운영 검증 기록 유지, diff 검사 통과 / 사용자 Commit 요청 / 진화 Cycle 코드·UI·Migration·테스트·문서를 함께 Commit / Push 없음, 사용자 사용성 확인과 다음 진행 요청 대기
