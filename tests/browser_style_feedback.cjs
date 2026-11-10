@@ -62,13 +62,14 @@ async function verifyStyleFeedback() {
     assert.equal(project.settings.artistMaximumCount, 1);
     assert.equal(project.settings.seed, '18446744073709551615');
     await page.locator('[data-screen=generation]').click();
+    await page.getByText('고정 A/B 조합 직접 확인', { exact: true }).click();
     await page.locator('[data-generation-action=prepare]').click();
     await page.locator('[data-generation-component="artist:feedback_alpha"][data-generation-combination="1"]').uncheck();
     await page.locator('[data-generation-component="artist:feedback_beta"][data-generation-combination="1"]').check();
     await page.locator('[data-generation-strength="lora:example.safetensors"][data-generation-combination="0"]').fill('0.4');
     await page.locator('[data-generation-strength="lora:example.safetensors"][data-generation-combination="1"]').fill('0.8');
     await page.locator('[data-generation-action=preview]').click();
-    await page.locator('[data-generation-action=submit]').click();
+    await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
     await expect(page.locator('.generation-result img')).toHaveCount(4, { timeout: 15000 });
     await page.goto(`${baseUrl}/style#project-settings`);
     await page.locator('#settings-project-purpose').fill('선별 왕복 후에도 남아야 하는 미저장 메모');

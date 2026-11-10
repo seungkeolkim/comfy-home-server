@@ -27,15 +27,16 @@ async function verifyStyleGeneration() {
     await expect(page.locator('#preview-application')).toBeVisible();
     if (await page.locator('#active-project-picker').count()) await page.locator('#active-project-picker').selectOption(project.identifier);
     await page.goto(`${baseUrl}/style#generation`);
+    await page.getByText('고정 A/B 조합 직접 확인', { exact: true }).click();
     await page.locator('[data-generation-action=prepare]').click();
     await expect(page.locator('.generation-component')).toHaveCount(2);
     await page.locator('[data-generation-strength]').first().fill('0.3');
     await page.locator('[data-generation-strength]').last().fill('0.7');
     await page.locator('[data-generation-action=preview]').click();
-    await expect(page.locator('#preview-content')).toContainText('4장');
+    await expect(page.locator('#style-generation-confirmation-dialog')).toContainText('4장');
     const beforeJobCount = (await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total;
     const submittedResponse = page.waitForResponse(response => response.url().endsWith('/submit') && response.request().method() === 'POST');
-    await page.locator('[data-generation-action=submit]').click();
+    await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
     const submitted = await submittedResponse;
     assert.equal(submitted.status(), 200, await submitted.text());
     await expect(page.locator('.generation-result img')).toHaveCount(4, { timeout: 15000 });

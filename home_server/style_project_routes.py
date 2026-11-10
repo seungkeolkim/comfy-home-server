@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from .style_projects import GlobalStyleSettings, ProjectWriteInput, StyleRevisionConflict
 from .workflows import load_workflows
 from .style_generation import StyleGenerationPlanInput, StyleGenerationSubmitInput
+from .style_random_generation import RandomStyleGenerationPlanInput
 from .style_project_rename import StyleProjectRenameService
 
 
@@ -95,6 +96,12 @@ def create_style_project_router(server) -> APIRouter:
             return server.style_generation.options(project_identifier)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
+
+    @router.post("/api/style-projects/{project_identifier}/random-generation-plans", status_code=201)
+    async def create_random_style_generation_plan(project_identifier: str, payload: RandomStyleGenerationPlanInput):
+        """허용 범위에서 초기 조합을 추첨하되 Preview에서는 GPU 작업을 만들지 않습니다."""
+
+        return await create_style_generation_plan(project_identifier, payload)
 
     @router.post("/api/style-projects/{project_identifier}/generation-plans", status_code=201)
     async def create_style_generation_plan(project_identifier: str, payload: StyleGenerationPlanInput):

@@ -14,6 +14,7 @@ from .output_directories import resolve_output_directory
 from .output_roots import STYLE_OUTPUT_PREFIX, STYLE_OUTPUT_ROOT_NAME
 from .style_generation_store import StyleGenerationStore
 from .style_projects import ProjectSettings, StyleRevisionConflict, browser_sampling_settings, encode_snapshot, snapshot_hash
+from .style_random_generation import RandomStyleGenerationPlanInput, combination_selection_fingerprint, draw_initial_combinations
 from .tag_builder import resolve_anima_prompts
 from .workflows import prepare_anima
 
@@ -144,7 +145,7 @@ class StyleGenerationService:
                     if specification and isinstance(specification[0], list) and node["inputs"].get(input_name) not in specification[0]:
                         raise ValueError(f"등록 Workflow의 모델 파일을 찾을 수 없습니다: {node['inputs'].get(input_name)}")
 
-    async def create_plan(self, project_identifier: str, payload: StyleGenerationPlanInput) -> dict:
+    async def create_plan(self, project_identifier: str, payload: StyleGenerationPlanInput | RandomStyleGenerationPlanInput) -> dict:
         """Case별 공통 전개를 한 번 고정하고 후보 간 동일 조건을 저장합니다."""
 
         request_hash = snapshot_hash(payload.model_dump())
@@ -158,7 +159,17 @@ class StyleGenerationService:
         if project["revision"] != payload.expectedRevision:
             raise StyleRevisionConflict("프로젝트가 변경됐습니다. 저장한 최신 설정으로 다시 계획해 주세요.")
         settings = ProjectSettings(**json.loads(project["settings_json"])).model_dump()
-        component_sets = [combination.model_dump(exclude_none=True)["components"] for combination in payload.combinations]
+        selection = {"mode": "manual"}
+        if isinstance(payload, RandomStyleGenerationPlanInput):
+            with self.server.database._connect() as connection:
+                previous_candidates = connection.execute("SELECT components_json FROM style_candidates WHERE project_id=? AND evaluation_id=?", (project_identifier, project["active_evaluation_id"])).fetchall()
+            existing_fingerprints = {combination_selection_fingerprint(json.loads(candidate[0])) for candidate in previous_candidates}
+            selection_seed = snapshot_hash({"projectIdentifier": project_identifier, "operationIdentifier": payload.operationIdentifier})
+            component_sets, selection = draw_initial_combinations(settings, payload.combinationCount, selection_seed, existing_fingerprints)
+            if not component_sets:
+                raise ValueError("중복을 제외하고 새 조합을 찾지 못했습니다. 사용 성분·개수·STR 범위를 넓히거나 다른 추첨을 시도해 주세요. 생성 작업은 접수하지 않았습니다.")
+        else:
+            component_sets = [combination.model_dump(exclude_none=True)["components"] for combination in payload.combinations]
         fingerprints = set()
         for components in component_sets:
             for kind, label in (("artist", "작가"), ("lora", "LoRA")):
@@ -178,7 +189,7 @@ class StyleGenerationService:
                     raise ValueError(f"프로젝트 STR 범위를 벗어났습니다: {identifier}")
                 if "clip_strength" in component and not identifier.startswith("lora:"):
                     raise ValueError("작가에는 CLIP 강도를 별도로 지정할 수 없습니다.")
-            fingerprint = snapshot_hash(sorted(components, key=lambda component: component["identifier"]))
+            fingerprint = combination_selection_fingerprint(components)
             if fingerprint in fingerprints:
                 raise ValueError("A/B 조합이 동일합니다. 범위 안에서 강도나 포함 성분을 다르게 선택해 주세요.")
             fingerprints.add(fingerprint)
@@ -205,10 +216,10 @@ class StyleGenerationService:
                 "resolutionSeed": resolution_seed,
             })
         plan_identifier = uuid.uuid4().hex
-        candidates = [{"identifier": uuid.uuid4().hex, "label": chr(65 + index), "components": components} for index, components in enumerate(component_sets)]
+        candidates = [{"identifier": uuid.uuid4().hex, "label": chr(65 + index) if index < 26 else "A" + chr(65 + index - 26), "components": components} for index, components in enumerate(component_sets)]
         plan = {"projectIdentifier": project_identifier, "evaluationIdentifier": project["active_evaluation_id"],
                 "cases": resolved_cases, "candidates": candidates, "sampling": contract["sampling"],
-                "workflowHash": contract["workflow"]["api_hash"], "imageCount": len(candidates) * len(resolved_cases)}
+                "workflowHash": contract["workflow"]["api_hash"], "imageCount": len(candidates) * len(resolved_cases), "selection": selection}
         with self.mutation_lock, self.server.database._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute("SELECT plan_id,payload_hash FROM style_generation_plans WHERE operation_id=?", (payload.operationIdentifier,)).fetchone()
@@ -219,6 +230,11 @@ class StyleGenerationService:
             current = connection.execute("SELECT revision FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
             if current[0] != project["revision"]:
                 raise StyleRevisionConflict("계획 중 프로젝트가 변경됐습니다. 새 설정으로 다시 계획해 주세요.")
+            if selection["mode"] == "random":
+                previous_candidates = connection.execute("SELECT components_json FROM style_candidates WHERE project_id=? AND evaluation_id=?", (project_identifier, project["active_evaluation_id"])).fetchall()
+                current_fingerprints = {combination_selection_fingerprint(json.loads(candidate[0])) for candidate in previous_candidates}
+                if fingerprints & current_fingerprints:
+                    raise StyleRevisionConflict("다른 Preview에서 같은 조합을 먼저 준비했습니다. 다시 뽑아 확인해 주세요.")
             connection.execute("INSERT INTO style_generation_plans VALUES(?,?,?,?,?,?,?,?)", (
                 plan_identifier, project_identifier, project["active_evaluation_id"], project["revision"], payload.operationIdentifier,
                 request_hash, encode_snapshot(plan), datetime.now(timezone.utc).isoformat(),

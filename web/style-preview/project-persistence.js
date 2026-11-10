@@ -22,7 +22,9 @@ async function styleProjectApi(path, options = {}) {
       document.querySelector("#preview-application").hidden = true;
     }
     const message = Array.isArray(result.detail) ? result.detail.map(detail => detail.msg).join(" · ") : result.detail;
-    throw new Error(message || "서버에 저장하지 못했습니다. 작성한 초안은 유지됩니다.");
+    const error = new Error(message || "서버에 저장하지 못했습니다. 작성한 초안은 유지됩니다.");
+    error.status = response.status;
+    throw error;
   }
   return result;
 }
@@ -116,7 +118,7 @@ function renderPersistentStyleLibrary() {
 
 /** 현재 실제 연결 범위와 후속 생성·평가 단계를 구분합니다. */
 function renderPersistentScope() {
-  return '<div class="page-heading"><h1>현재 연결 범위</h1></div><section class="panel"><h2>저장·이미지 생성</h2><p>프로젝트 설정과 여러 Prompt를 저장하고, 허용한 성분·STR로 고정 조합을 준비해 실제 이미지를 생성합니다. 같은 조합은 모든 Prompt에서 유지합니다.</p><h2>작업·출력 관리</h2><p>스타일 전용 분류·출력 루트·세대 메모를 사용합니다. 일반 목록에서는 선택해서 표시하고, 작업·이미지의 임의 이동은 막습니다. 프로젝트 이름을 바꾸면 분류와 실제 폴더도 함께 변경합니다.</p><h2>후속 단계</h2><p>무작위 초기 조합·선별·Elo·진화·세대 복원·Prompt 재시험·Fork는 아직 연결하지 않았습니다.</p><a href="/style-preview">예시 목업 별도로 열기</a></section>';
+  return '<div class="page-heading"><h1>현재 연결 범위</h1></div><section class="panel"><h2>저장·이미지 생성</h2><p>프로젝트 설정과 여러 Prompt를 저장하고, 허용한 성분·개수·STR로 Random 초기 조합을 뽑고 Preview 확인 후 실제 이미지를 생성합니다. 같은 조합은 모든 Prompt에서 유지합니다.</p><h2>작업·출력 관리</h2><p>스타일 전용 분류·출력 루트·세대 메모를 사용합니다. 일반 목록에서는 선택해서 표시하고, 작업·이미지의 임의 이동은 막습니다. 프로젝트 이름을 바꾸면 분류와 실제 폴더도 함께 변경합니다.</p><h2>후속 단계</h2><p>공통 성분 잠금·투표·Elo·진화·세대 복원·Prompt 재시험·Fork는 아직 연결하지 않았습니다.</p><a href="/style-preview">예시 목업 별도로 열기</a></section>';
 }
 
 /** Case ID를 유지하고 화면 전용 필드가 실제 평가 조건에 들어가지 않게 합니다. */
