@@ -35,6 +35,8 @@ Style UI → StyleProjectService → Ranking/Evolution 계산
 
 ## 단순 호출만으로 해결되지 않는 지점
 
+작업·출력 분리는 [22번 결정](22_style_job_output_separation_and_project_rename.md)을 추가 적용합니다. 스타일 전용 루트를 정식 관리하고 일반 목록의 필터를 조회·건수·Preview·일괄 처리까지 공유합니다. 프로젝트 이름 변경에 따른 폴더·분류 Rename과 참조 갱신은 허용하되 사용자의 스타일 Job·출력 임의 이동은 막습니다. 기존 단일 출력 루트와 Docker Mount·History 수집의 전제를 함께 검토합니다.
+
 1. `WORKFLOW_FILES`, `/api/batches` 검증, 제출 Branch가 현재 Anima/MiniMax 중심입니다.
 2. `_submit_requests`는 Anima 이외를 MiniMax로 처리합니다. Moss를 이름만 추가하면 안 됩니다.
 3. `_history_output_paths`의 Saver ID는 Anima13/나머지2568로 고정됩니다. Adapter의 Output Binding이 필요합니다.

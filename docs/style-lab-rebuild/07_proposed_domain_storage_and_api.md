@@ -127,6 +127,8 @@ Trial Vote에는 `trial_id`와 Trial의 `evaluation_revision_id`를 함께 검�
 
 ## Job과 중단
 
+작업·출력의 생성 출처, Project 소유와 관리 경로는 [22번](22_style_job_output_separation_and_project_rename.md)을 따릅니다. 메모는 세대부터 작성하고 프로젝트 Rename 시 폴더·분류명과 실제 파일 참조를 함께 갱신합니다. 스타일 구성 Job의 분류 변경·출력 이동은 서버에서도 금지하며 관리 Rename은 별도 Operation으로 복구 가능하게 처리합니다.
+
 모든 생성 요청에 Project/Evaluation/Generation/Candidate/Render 소속을 기록합니다. Browser를 닫아도 Home 감시가 추적합니다. 기동 시 미완료 요청을 발견해도 자동 재제출하지 않고 ComfyUI prompt_id/History와 대조합니다. 확정하지 못하면 Interrupted/Unknown으로 남깁니다.
 
 취소는 프로젝트가 소유한 Request ID에 한정합니다. 다른 프로젝트나 일반 생성까지 전체 Interrupt하지 않습니다. HTTP Timeout도 생성 실패 확정으로 간주하지 않고 재접속 후 확인합니다.

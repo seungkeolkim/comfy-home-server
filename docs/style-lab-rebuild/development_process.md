@@ -73,6 +73,8 @@ Comfy Home Server 내장, 일반 생성과 스타일 구성 분리, 등록 Workf
 
 ### 1. Fresh 프로젝트 하나를 만들고 다시 열기
 
+[22번 작업·출력 분리 결정](22_style_job_output_separation_and_project_rename.md)을 저장 경계에 반영합니다. 프로젝트 이름과 안정적인 소유 ID를 분리하고 자동 작업분류·출력 위치 및 Rename Operation을 연결할 수 있게 합니다. 웹에서 이름을 바꾸면 출력 폴더·분류명도 따라 바뀌어야 하며, 작업 메모는 이름 변경의 영향을 받지 않도록 세대부터 작성합니다.
+
 프로젝트 이름·목적, 등록 Workflow, Prompt/Negative, 지원되는 생성 조건을 저장하고 조회합니다. 프로젝트 생성만으로 GPU 작업을 제출하지 않습니다. 처음에는 Fresh만 연결하며 점수 이전·분기는 각 단계에서 붙입니다.
 
 Prompt Set은 처음 필요한 저장 구조에 포함합니다. 2개 이상 Case를 저장·다시 열 수 있고, 한 Prompt 사용도 가능합니다. Case 구성·내용·평가 정책의 불변 Version 경계를 정의합니다.
@@ -84,6 +86,8 @@ Prompt Set은 처음 필요한 저장 구조에 포함합니다. 2개 이상 Cas
 **사용자 확인:** 서로 다른 Prompt의 프로젝트 두 개를 만들고 오가면서 설정 위치와 저장 결과를 확인합니다. 다음 행동이 불분명하면 이 단계에서 화면을 줄이거나 바꿉니다.
 
 ### 2. 평소 Workflow와 같은 실제 결과가 나오는지 먼저 확인
+
+[22번](22_style_job_output_separation_and_project_rename.md)의 모델/프로젝트 자동 작업분류, `세대003-01 이미지 생성` 메모, 전용 출력 루트와 일반 작업·이미지 탭의 기본 숨김 Checkbox를 연결합니다. 기존 Workflow 출력 형식을 유지하며 스타일 구성 Job·출력의 임의 이동을 UI/API에서 막습니다. 실제 파일이 생긴 뒤 프로젝트 이름 변경 시 폴더·분류·조회 참조의 일관성과 중단 복구도 검증합니다.
 
 알려진 고정 조합 두 개로 작은 실제 생성 검증을 합니다. 이 검증을 위해 수동 조합 편집 도구 전체를 만들지는 않습니다. 공통 Prompt 전개·Sampling Seed·설정을 고정하고 Home의 등록 Workflow/Adapter 경로를 사용합니다.
 
@@ -269,6 +273,7 @@ DB Migration이 필요한 단계에서는 적용 전 일관된 Backup의 경로�
 | [19 보조 기능](19_adopted_exploration_tools.md) | 잠금·분기 P0, 진단·검증·추천은 각각 후속 검토 |
 | [20 Web UX와 확장](20_web_ux_fusion_multi_prompt_and_component_differences.md) | 실제 Web·Mobile 기준, 비율·다중 원본 융합, 다중 Prompt 탐색, 성분 차이·탐색 제외 |
 | [21 프로젝트 맥락·설정·Fork](21_project_context_settings_and_fork.md) | Mobile 피드백 반영, 프로젝트 필터·선별 대상 분리, 단일 선택·STR, 설정 경계와 남은 범위 |
+| [22 작업·출력 분리와 이름 변경](22_style_job_output_separation_and_project_rename.md) | 모델/프로젝트 분류·전용 출력·세대 메모·선택적 표시, 관리 Rename과 수동 이동 제한 |
 
 ## 현재 진행 기록
 
@@ -282,6 +287,7 @@ DB Migration이 필요한 단계에서는 적용 전 일관된 Backup의 경로�
 | 그림체 탭 프로젝트 선택 UI | 사용자 요청으로 현 UI 유지, 구체적인 변경 방식은 후속 검토 |
 | 글로벌·프로젝트 설정 UI | CHS Workflow 옵션·작가 Bulk 등록까지 구현·개발자 검증·사용자 확인 완료, Commit 요청. [설정 검토 기록](settings_preview_review.md) |
 | 1단계 이후 실제 구현 | 미시작 |
+| 작업·출력 분리와 프로젝트 Rename | 22번 요구사항 기록 완료. 기존 출력 형식 유지·세대 메모·관리 Rename·임의 이동 금지, 실제 구현 미착수 |
 | 그림체·순위 통합 및 상세·선별 왕복 목업 | 예시 Elo·전적·미평가·선택/Skip/Undo·Blind와 정렬·보관 필터 구현, 개발자 검증·사용자 확인 완료. [검토 안내](ranking_preview_review.md) |
 | 이 작업의 서비스·DB 변경 | 8388 목업 Route·진입점 추가 및 서버 재시작. DB Migration 없음 |
 
