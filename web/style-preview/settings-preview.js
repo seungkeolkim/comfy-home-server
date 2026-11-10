@@ -1,9 +1,39 @@
 "use strict";
 
+/** 기존 설정에도 새 사용 개수 기본값을 독립 사본으로 제공합니다. */
+function componentCountDefaults(settings = {}) {
+  return {
+    artistMinimumCount: settings.artistMinimumCount ?? 0,
+    artistMaximumCount: settings.artistMaximumCount ?? 8,
+    loraMinimumCount: settings.loraMinimumCount ?? 0,
+    loraMaximumCount: settings.loraMaximumCount ?? 2,
+  };
+}
+
+/** 기존 Session 초안에는 누락한 필드만 보충하고 이미 입력한 0도 보존합니다. */
+function ensureComponentCountDefaults(settings, defaults = {}) {
+  for (const [field, value] of Object.entries(componentCountDefaults(defaults))) settings[field] ??= value;
+}
+
+/** 글로벌 기본값과 프로젝트별 사용 개수 범위를 같은 구조로 표시합니다. */
+function componentCountSettingsMarkup(draft, scope) {
+  const groups = [];
+  for (const [kind, label] of [["artist", "작가 태그"], ["lora", "LoRA"]]) {
+    const numberFields = [];
+    for (const [bound, fieldLabel] of [["Minimum", "최소 사용 개수"], ["Maximum", "최대 사용 개수"]]) {
+      const field = `${kind}${bound}Count`;
+      numberFields.push(settingsNumberField(`settings-${scope}-${field}`, fieldLabel, draft[field], `min="0" max="100" step="1" data-settings-scope="${scope}" data-settings-field="${field}"`));
+    }
+    groups.push(`<div class="settings-range-group"><h3>${label}</h3><div class="form-row">${numberFields.join("")}</div></div>`);
+  }
+  return `<section class="panel"><h2>${scope === "global" ? "새 프로젝트의 기본 조합당 사용 개수" : "이 프로젝트의 조합당 사용 개수"}</h2><p class="form-note">작가와 LoRA를 각각 제한합니다. 0 ~ 0은 해당 종류를 사용하지 않습니다.${scope === "global" ? " 저장해도 기존 프로젝트에는 소급 적용하지 않습니다." : " 이후 새 조합부터 적용하며 기존 조합은 유지합니다."}</p>${groups.join("")}</section>`;
+}
+
 /** Pipeline과 성분 기본값을 가진 글로벌 설정 예시를 만듭니다. */
 function createGlobalSettingsPreview() {
   return {
     revision: 1,
+    artistMinimumCount: 0, artistMaximumCount: 8, loraMinimumCount: 0, loraMaximumCount: 2,
     pipelineIdentifier: "anima-preview",
     artistMinimumStrength: 0.5,
     artistMaximumStrength: 1.2,
@@ -48,7 +78,7 @@ function createProjectSettingsPreview(name, promptCases, globalSettings) {
     promptCases: structuredClone(promptCases), negativePrompt: "",
     seed: 42, aspectRatio: "2:3", steps: 12, cfg: 1,
     width: ANIMA_RESOLUTIONS["2:3"][0][0], height: ANIMA_RESOLUTIONS["2:3"][0][1],
-    componentPolicies, defaultsRevision: globalSettings.revision,
+    ...componentCountDefaults(globalSettings), componentPolicies, defaultsRevision: globalSettings.revision,
   };
 }
 
@@ -59,6 +89,8 @@ function ensureSettingsPreviewState() {
   previewState.artistBulkInput ??= "";
   previewState.artistBulkRegistrationResult ??= "";
   previewState.globalSettings.additionalArtists ??= [];
+  ensureComponentCountDefaults(previewState.globalSettings);
+  if (previewState.settingsDrafts.global) ensureComponentCountDefaults(previewState.settingsDrafts.global);
   if (previewState.settingsDrafts.global) {
     previewState.settingsDrafts.global.additionalArtists ??= structuredClone(previewState.globalSettings.additionalArtists);
   }
@@ -73,11 +105,13 @@ function ensureSettingsPreviewState() {
         }
       }
     }
+    ensureComponentCountDefaults(project.settings);
     migrateProjectStrengthRanges(project.settings);
     migrateProjectWorkflowOptions(project.settings);
     ensureProjectCatalogPolicies(project.settings);
     const projectDraft = previewState.settingsDrafts.projects[project.identifier];
     if (projectDraft) {
+      ensureComponentCountDefaults(projectDraft, project.settings);
       migrateProjectStrengthRanges(projectDraft);
       migrateProjectWorkflowOptions(projectDraft);
       ensureProjectCatalogPolicies(projectDraft);
@@ -188,7 +222,8 @@ function renderGlobalSettingsPreview() {
       <div class="settings-range-group"><h3>LoRA</h3><div class="form-row">
       ${globalStrengthField("loraMinimumStrength", "최소 STR", draft.loraMinimumStrength)}
       ${globalStrengthField("loraMaximumStrength", "최대 STR", draft.loraMaximumStrength)}</div></div>
-      <p class="form-note">반영해도 기존 프로젝트는 바뀌지 않습니다. 프로젝트 설정에서 변경 내용을 확인한 뒤 STR 기본값만 가져올 수 있습니다.</p></section>
+      <p class="form-note">반영해도 기존 프로젝트는 바뀌지 않습니다. 프로젝트 설정에서 변경 내용을 확인한 뒤 성분 기본값을 가져올 수 있습니다.</p></section>
+    ${componentCountSettingsMarkup(draft, "global")}
     ${settingsFormActionsMarkup("global")}</form>`;
 }
 
@@ -352,10 +387,11 @@ function renderProjectSettingsPreview() {
     <section class="panel"><h2>함께 비교할 Prompt</h2><p class="form-note settings-section-note">모든 Prompt를 함께 보고 조합 하나를 선택합니다. 한 개부터 시작할 수 있습니다.</p>
       ${draft.promptCases.map(projectSettingsPromptMarkup).join("")}<button type="button" data-settings-action="add-prompt">＋ Prompt 추가</button>
       <label for="settings-negative-prompt">공통 Negative Prompt</label><textarea id="settings-negative-prompt" maxlength="3000" data-settings-scope="project" data-settings-field="negativePrompt">${escapeMarkup(draft.negativePrompt)}</textarea>
-      <p class="form-note">${PERSISTENT_STYLE_WORKSPACE ? '생성한 이미지의 조건은 보존합니다. 이미지가 있는 프로젝트의 Prompt·생성 조건 변경은 후속 재시험에서 지원합니다.' : '현재 예시 이미지는 그대로입니다. 실제 연결 후에는 조건 변경을 별도 평가 구간·Prompt 재시험으로 다룹니다.'}</p></section>
+      <p class="form-note">${PERSISTENT_STYLE_WORKSPACE ? '생성한 이미지의 조건은 보존합니다. Prompt 내용·해상도 변경은 후속 재시험에서 지원합니다. 이름은 자유롭게 바꾸고 Seed는 이후 생성부터 적용합니다.' : '현재 예시 이미지는 그대로입니다. 실제 연결 후에는 조건 변경을 별도 평가 구간·Prompt 재시험으로 다룹니다.'}</p></section>
     ${projectWorkflowOptionsMarkup(draft)}
+    ${componentCountSettingsMarkup(draft, "project")}
     <section class="panel"><div class="settings-section-heading"><div><h2>이 프로젝트의 성분 범위</h2><p class="form-note">글로벌 기본값 ${draft.defaultsRevision}번에서 시작 · 현재 ${previewState.globalSettings.revision}번</p></div>
-      <button type="button" data-settings-action="preview-defaults">최신 STR 기본값 가져오기</button></div>
+      <button type="button" data-settings-action="preview-defaults">최신 성분 기본값 가져오기</button></div>
       <p class="form-note settings-section-note">체크를 끄면 향후 새 조합에서 제외합니다. 같은 강도로 사용하려면 최소·최대 STR을 같게 입력합니다. 예: 0.4 ~ 0.4.</p>
       ${projectComponentGroupMarkup("작가", "작가 태그", "artist")}
       ${projectComponentGroupMarkup("LoRA", "LoRA", "lora")}
@@ -376,7 +412,8 @@ function projectWorkflowOptionsMarkup(draft) {
     <p class="form-note">직접 입력하려면 비율에서 사용자 지정을 선택하세요.</p>
     <div class="form-row">
       ${projectSamplingField("steps", "Steps", draft.steps, 'min="1"')}
-      ${projectSamplingField("cfg", "CFG", draft.cfg, 'step="0.1"')}</div></section>`;
+      ${projectSamplingField("cfg", "CFG", draft.cfg, 'step="0.1"')}</div>
+    <label for="settings-project-seed">고정 Seed</label><input id="settings-project-seed" type="text" inputmode="numeric" pattern="[0-9]+" required data-settings-scope="project" data-settings-field="seed" value="${escapeMarkup(String(draft.seed))}" /><p class="form-note">모든 조합과 Prompt에 같은 Seed를 사용합니다. 변경하면 이후 생성부터 적용하며 기존 이미지는 그대로 유지합니다.</p></section>`;
 }
 
 /** 선택한 비율의 해상도 목록과 현재 선택값을 CHS 공통 후보로 만듭니다. */
@@ -412,12 +449,22 @@ function settingsFormActionsMarkup(scope) {
 
 /** 범위 역전과 사용할 수 없는 성분을 저장 전에 검사하고 같은 최소·최대값은 허용합니다. */
 function validateSettingsPreview(scope, draft) {
+  for (const [kind, label] of [["artist", "작가"], ["lora", "LoRA"]]) {
+    const minimumCount = draft[kind + "MinimumCount"];
+    const maximumCount = draft[kind + "MaximumCount"];
+    if (![minimumCount, maximumCount].every(value => Number.isInteger(value) && value >= 0 && value <= 100) || minimumCount > maximumCount) return `${label} 최소·최대 사용 개수는 0~100의 정수이며 최소가 최대보다 클 수 없습니다.`;
+    if (scope === "project") {
+      const enabledCount = Object.entries(draft.componentPolicies).filter(([identifier, policy]) => identifier.startsWith(kind + ":") && policy.enabled).length;
+      if (enabledCount < minimumCount) return `${label} 최소 사용 개수보다 허용한 성분이 부족합니다.`;
+    }
+  }
   if (scope === "global") {
     if (draft.artistMinimumStrength > draft.artistMaximumStrength || draft.loraMinimumStrength > draft.loraMaximumStrength) {
       return "최소 STR은 최대 STR보다 클 수 없습니다.";
     }
     return "";
   }
+  if (!/^\d+$/.test(String(draft.seed)) || BigInt(draft.seed) > 18446744073709551615n) return "고정 Seed는 0~18446744073709551615의 정수로 입력해 주세요.";
   if (!draft.name.trim() || draft.promptCases.some(promptCase => !promptCase.name.trim() || !promptCase.prompt.trim())) {
     return "프로젝트 이름과 각 Prompt의 이름·내용을 입력해 주세요.";
   }
@@ -438,7 +485,7 @@ function synchronizeSettingsComponentExclusion(project, componentIdentifier) {
   if (draft) draft.componentPolicies[componentIdentifier].enabled = enabled;
 }
 
-/** 글로벌 STR 기본값만 가져올 때의 변경 내용을 먼저 보여줍니다. */
+/** 글로벌 사용 개수와 STR 기본값을 가져올 때의 변경 내용을 먼저 보여줍니다. */
 function renderSettingsDefaultsPreview() {
   const project = currentProject();
   const draft = settingsPreviewDraft("project");
@@ -451,9 +498,9 @@ function renderSettingsDefaultsPreview() {
   }
   const dialog = document.querySelector("#settings-defaults-dialog");
   dialog.dataset.projectIdentifier = project.identifier;
-  dialog.innerHTML = `<div class="dialog-heading"><h2 id="settings-defaults-title">STR 기본값 적용 미리보기</h2><button data-settings-action="close-defaults" aria-label="기본값 적용 닫기">✕</button></div>
+  dialog.innerHTML = `<div class="dialog-heading"><h2 id="settings-defaults-title">성분 기본값 적용 미리보기</h2><button data-settings-action="close-defaults" aria-label="기본값 적용 닫기">✕</button></div>
     <p>대상: <strong>${escapeMarkup(project.name)}</strong></p><p class="muted">현재 글로벌 기본값 ${globalSettings.revision}번을 이 프로젝트의 설정 초안에 가져옵니다.</p>
-    <ul class="settings-default-changes">${defaultChanges.join("")}</ul><p class="form-note">STR 범위만 바꿉니다. 최소·최대가 같은 범위도 새 기본값으로 바뀝니다. Prompt·Workflow·사용 여부·기존 이미지·점수·다른 프로젝트는 유지됩니다.</p>
+    <p>작가 ${draft.artistMinimumCount} ~ ${draft.artistMaximumCount}개 → ${globalSettings.artistMinimumCount} ~ ${globalSettings.artistMaximumCount}개 · LoRA ${draft.loraMinimumCount} ~ ${draft.loraMaximumCount}개 → ${globalSettings.loraMinimumCount} ~ ${globalSettings.loraMaximumCount}개</p><ul class="settings-default-changes">${defaultChanges.join("")}</ul><p class="form-note">조합당 작가·LoRA 사용 개수와 STR 범위를 바꿉니다. 최소·최대가 같은 범위도 새 기본값으로 바뀝니다. Prompt·Workflow·사용 여부·기존 이미지·점수·다른 프로젝트는 유지됩니다.</p>
     <p id="settings-defaults-error" class="error" role="alert"></p><div class="form-actions"><button data-settings-action="close-defaults">취소</button><button class="primary" data-settings-action="apply-defaults">이 프로젝트 초안에 적용</button></div>`;
   dialog.showModal();
 }
@@ -467,6 +514,7 @@ function applySettingsDefaultsPreview() {
   }
   const draft = settingsPreviewDraft("project");
   const updatedDraft = structuredClone(draft);
+  Object.assign(updatedDraft, componentCountDefaults(previewState.globalSettings));
   for (const component of settingsCatalogComponents()) {
     Object.assign(updatedDraft.componentPolicies[component.identifier], settingsComponentRange(component, previewState.globalSettings));
   }
@@ -479,7 +527,7 @@ function applySettingsDefaultsPreview() {
   previewState.settingsDrafts.projects[currentProject().identifier] = updatedDraft;
   dialog.close();
   renderPreview(false);
-  showToast("STR 기본값을 프로젝트 초안에 가져왔습니다.");
+  showToast("성분 기본값을 프로젝트 초안에 가져왔습니다.");
 }
 
 /** 입력을 초안에만 반영하고 프로젝트를 오갈 때 서로 섞이지 않게 합니다. */

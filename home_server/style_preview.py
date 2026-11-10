@@ -14,6 +14,8 @@ PREVIEW_ASSETS = {
     "ranking-preview.js": "text/javascript",
     "project-persistence.js": "text/javascript",
     "style-generation.js": "text/javascript",
+    "style-comparison.js": "text/javascript",
+    "style-library.js": "text/javascript",
 }
 
 

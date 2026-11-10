@@ -4,6 +4,8 @@ import json
 import sqlite3
 from collections.abc import Callable
 
+from .style_projects import browser_sampling_settings
+
 
 class StyleGenerationStore:
     """이미지 상태는 CHS 요청에서 읽고 별도의 Elo를 만들지 않습니다."""
@@ -82,16 +84,19 @@ class StyleGenerationStore:
             job_rows = connection.execute(
                 "SELECT job_id FROM style_job_ownership WHERE plan_id=? ORDER BY sequence", (plan_identifier,),
             ).fetchall()
-        return {**json.loads(row["plan_json"]), "planIdentifier": plan_identifier,
+        plan = json.loads(row["plan_json"])
+        plan["sampling"] = browser_sampling_settings(plan["sampling"])
+        return {**plan, "planIdentifier": plan_identifier,
                 "projectRevision": row["project_revision"], "jobIdentifiers": [row[0] for row in job_rows]}
 
     def results(self, project_identifier: str) -> dict:
-        """현재 평가의 실제 Render와 상태만 조회하고 실패·미확인을 구분합니다."""
+        """기존 실제 Render와 현재 미제출 계획을 조회하며 Seed 변경 뒤에도 결과를 보존합니다."""
 
         project = self.project(project_identifier)
         with self.connection_factory() as connection:
             candidates = connection.execute(
-                "SELECT * FROM style_candidates WHERE project_id=? AND evaluation_id=? ORDER BY rowid",
+                "SELECT * FROM style_candidates WHERE project_id=? AND (evaluation_id=? OR EXISTS "
+                "(SELECT 1 FROM style_candidate_renders WHERE candidate_id=style_candidates.candidate_id)) ORDER BY rowid",
                 (project_identifier, project["active_evaluation_id"]),
             ).fetchall()
             results = []
@@ -114,12 +119,13 @@ class StyleGenerationStore:
                         "requestIdentifier": render_row["request_id"], "jobIdentifier": render_row["job_id"],
                         "status": render_row["status"], "error": render_row["error_message"], "files": files,
                         "prompt": result.get("prompt"), "negative": result.get("negative"),
-                        "settings": result.get("settings"), "loras": result.get("loras", []),
+                        "settings": browser_sampling_settings(result["settings"]) if result.get("settings") else None, "loras": result.get("loras", []),
                     })
                 results.append({"identifier": candidate["candidate_id"], "label": candidate["label"], "planIdentifier": candidate["plan_id"],
                                 "components": json.loads(candidate["components_json"]), "renders": renders})
             plan_identifiers = [row[0] for row in connection.execute(
-                "SELECT plan_id FROM style_generation_plans WHERE project_id=? AND evaluation_id=? ORDER BY created_at DESC LIMIT 20",
+                "SELECT plan_id FROM style_generation_plans WHERE project_id=? AND (evaluation_id=? OR EXISTS "
+                "(SELECT 1 FROM style_candidate_renders WHERE plan_id=style_generation_plans.plan_id)) ORDER BY created_at DESC LIMIT 20",
                 (project_identifier, project["active_evaluation_id"]),
             )]
         return {"projectIdentifier": project_identifier, "candidates": results,

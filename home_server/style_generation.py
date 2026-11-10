@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .output_directories import resolve_output_directory
 from .output_roots import STYLE_OUTPUT_PREFIX, STYLE_OUTPUT_ROOT_NAME
 from .style_generation_store import StyleGenerationStore
-from .style_projects import StyleRevisionConflict, encode_snapshot, snapshot_hash
+from .style_projects import ProjectSettings, StyleRevisionConflict, browser_sampling_settings, encode_snapshot, snapshot_hash
 from .tag_builder import resolve_anima_prompts
 from .workflows import prepare_anima
 
@@ -34,7 +34,7 @@ class FixedCombination(BaseModel):
     """이번 단계의 한 조합은 명시적인 성분 목록으로만 구성합니다."""
 
     model_config = ConfigDict(extra="forbid")
-    components: list[GenerationComponent] = Field(min_length=1, max_length=100)
+    components: list[GenerationComponent] = Field(default_factory=list, max_length=100)
 
 
 class StyleGenerationPlanInput(BaseModel):
@@ -91,19 +91,24 @@ class StyleGenerationService:
         """저장된 범위 안의 두 강도 예시를 만들고 생성 전에 편집하게 합니다."""
 
         project = self.store.project(project_identifier)
-        settings = json.loads(project["settings_json"])
+        settings = ProjectSettings(**json.loads(project["settings_json"])).model_dump()
         combinations = []
         for strength_fraction in [1 / 3, 2 / 3]:
             components = []
+            selected_counts = {"artist": 0, "lora": 0}
             for identifier, policy in settings["componentPolicies"].items():
                 if not policy["enabled"]:
                     continue
+                kind = identifier.split(":", 1)[0]
+                if selected_counts[kind] >= settings[kind + "MaximumCount"]:
+                    continue
+                selected_counts[kind] += 1
                 strength = policy["minimumStrength"] + (policy["maximumStrength"] - policy["minimumStrength"]) * strength_fraction
                 components.append({"identifier": identifier, "strength": round(strength, 6)})
             combinations.append({"components": components})
         if combinations[0] == combinations[1]:
             combinations = combinations[:1]
-        return {"projectRevision": project["revision"], "settings": settings, "combinations": combinations}
+        return {"projectRevision": project["revision"], "settings": browser_sampling_settings(settings), "combinations": combinations}
 
     async def preflight(self, workflow: dict, components: list[dict]) -> None:
         """현재 설치된 LoRA와 실제 Saver 의존 Node를 제출 전에 확인합니다."""
@@ -152,10 +157,14 @@ class StyleGenerationService:
         project = self.store.project(project_identifier)
         if project["revision"] != payload.expectedRevision:
             raise StyleRevisionConflict("프로젝트가 변경됐습니다. 저장한 최신 설정으로 다시 계획해 주세요.")
-        settings = json.loads(project["settings_json"])
+        settings = ProjectSettings(**json.loads(project["settings_json"])).model_dump()
         component_sets = [combination.model_dump(exclude_none=True)["components"] for combination in payload.combinations]
         fingerprints = set()
         for components in component_sets:
+            for kind, label in (("artist", "작가"), ("lora", "LoRA")):
+                component_count = sum(component["identifier"].startswith(kind + ":") for component in components)
+                if not settings[kind + "MinimumCount"] <= component_count <= settings[kind + "MaximumCount"]:
+                    raise ValueError(f"{label} 사용 개수가 프로젝트의 최소·최대 범위를 벗어났습니다.")
             identifiers = set()
             for component in components:
                 identifier = component["identifier"]
@@ -253,7 +262,7 @@ class StyleGenerationService:
                 return existing["job_id"], []
             plan = self.store.plan(plan_identifier, project_identifier)
             project = connection.execute("SELECT * FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
-            if project["active_evaluation_id"] != plan["evaluationIdentifier"] or (not payload.retryFailedOnly and project["revision"] != plan["projectRevision"]):
+            if not payload.retryFailedOnly and (project["active_evaluation_id"] != plan["evaluationIdentifier"] or project["revision"] != plan["projectRevision"]):
                 raise StyleRevisionConflict("계획 이후 프로젝트가 변경됐습니다. 새 계획을 확인해 주세요.")
             if connection.execute("SELECT 1 FROM style_project_renames WHERE project_id=? AND state!='completed'", (project_identifier,)).fetchone():
                 raise StyleRevisionConflict("프로젝트 폴더 이름 변경을 마친 뒤 생성해 주세요.")

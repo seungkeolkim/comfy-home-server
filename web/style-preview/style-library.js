@@ -1,0 +1,135 @@
+"use strict";
+
+let styleLibraryViewerState = null;
+
+/** 같은 조합의 Prompt 순서와 최신 생성 결과를 카드·상세 보기에서 공유합니다. */
+function styleCandidateCaseResults(candidate, plan) {
+  const caseResults = [];
+  for (const promptCase of plan.cases) {
+    const render = candidate.renders.filter(item => item.caseIdentifier === promptCase.identifier).at(-1);
+    const file = render?.files.find(item => item.is_available && !item.is_deleted);
+    caseResults.push({ promptCase, render, file });
+  }
+  return caseResults;
+}
+
+/** Prompt 개수와 관계없이 조합 하나를 작은 이미지가 있는 카드 하나로 표시합니다. */
+function styleCandidateCardMarkup(candidate, plan) {
+  const caseResults = styleCandidateCaseResults(candidate, plan);
+  const availableCount = caseResults.filter(result => result.file).length;
+  const artistCount = candidate.components.filter(component => component.identifier.startsWith("artist:")).length;
+  const loraCount = candidate.components.filter(component => component.identifier.startsWith("lora:")).length;
+  const thumbnails = caseResults.map((result, caseIndex) => {
+    const caseName = persistentPromptCaseName(result.promptCase);
+    const imageMarkup = result.file
+      ? `<img loading="lazy" src="${styleImageUrl(result.file.path)}" alt="${escapeMarkup(caseName)}" />`
+      : `<span class="style-thumbnail-status">${escapeMarkup(result.render ? styleRenderStatusLabel(result.render.status) : "미제출")}</span>`;
+    return `<span class="style-card-thumbnail" data-library-case-index="${caseIndex}">${imageMarkup}<span class="style-thumbnail-name">${escapeMarkup(caseName)}</span></span>`;
+  }).join("");
+  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="조합 ${escapeMarkup(candidate.label)}의 이미지 ${caseResults.length}개 자세히 보기"><span class="style-card-heading"><strong>조합 ${escapeMarkup(candidate.label)}</strong><span>${availableCount} / ${caseResults.length}장</span></span><span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button></article>`;
+}
+
+/** 생성 묶음의 취소·부분 실패 재시도는 조합 카드와 별도로 유지합니다. */
+function styleLibraryBatchActionsMarkup(candidates, plan) {
+  const latestRenders = [];
+  for (const candidate of candidates) {
+    latestRenders.push(...styleCandidateCaseResults(candidate, plan).map(result => result.render).filter(Boolean));
+  }
+  const activeJobs = [...new Set(latestRenders.filter(render => ["submitting", "pending", "running", "cancelling"].includes(render.status)).map(render => render.jobIdentifier))];
+  if (activeJobs.length) return activeJobs.map(jobIdentifier => `<button data-generation-action="cancel" data-job="${jobIdentifier}">이 생성 작업 취소</button>`).join("");
+  if (latestRenders.some(render => ["failed", "cancelled"].includes(render.status))) return `<button data-generation-action="retry" data-plan="${plan.planIdentifier}">이 묶음의 실패·취소 항목만 재시도</button>`;
+  return "";
+}
+
+/** 그림체 목록은 생성된 조합별로 묶고 각 카드 안에 여러 Prompt를 모읍니다. */
+function styleLibraryResultsMarkup(results) {
+  const batches = [];
+  const plans = results?.plans || [];
+  for (const [planIndex, plan] of plans.entries()) {
+    const candidates = results.candidates.filter(candidate => candidate.planIdentifier === plan.planIdentifier && candidate.renders.length);
+    if (!candidates.length) continue;
+    const cards = candidates.map(candidate => styleCandidateCardMarkup(candidate, plan)).join("");
+    batches.push(`<section class="style-library-batch"><div class="settings-section-heading"><h2>${plans.length - planIndex}번째 생성 · ${candidates.length}개 그림체</h2><div class="form-actions">${styleLibraryBatchActionsMarkup(candidates, plan)}</div></div><div class="style-library-grid">${cards}</div></section>`);
+  }
+  return batches.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>';
+}
+
+/** 상세 보기는 열린 프로젝트와 후보 ID로만 조회해 다른 조합으로 넘어가지 않습니다. */
+function currentStyleLibraryViewerResults() {
+  if (!styleLibraryViewerState) return null;
+  const results = currentStyleGenerationState(styleLibraryViewerState.projectIdentifier).results;
+  const candidate = results?.candidates.find(item => item.identifier === styleLibraryViewerState.candidateIdentifier);
+  const plan = results?.plans.find(item => item.planIdentifier === candidate?.planIdentifier);
+  if (!candidate || !plan) return null;
+  return { candidate, caseResults: styleCandidateCaseResults(candidate, plan) };
+}
+
+/** 원본 이미지·Prompt 이름·순번과 이전/다음 조작을 같은 Dialog에 표시합니다. */
+function renderStyleLibraryViewer() {
+  const viewerResults = currentStyleLibraryViewerResults();
+  if (!viewerResults) {
+    illustrationDialog.close();
+    return;
+  }
+  const { candidate, caseResults } = viewerResults;
+  const caseIndex = Math.max(0, Math.min(styleLibraryViewerState.caseIndex, caseResults.length - 1));
+  styleLibraryViewerState.caseIndex = caseIndex;
+  const result = caseResults[caseIndex];
+  const caseName = persistentPromptCaseName(result.promptCase);
+  const imageMarkup = result.file
+    ? `<img class="style-viewer-image" src="${styleImageUrl(result.file.path, true)}" alt="조합 ${escapeMarkup(candidate.label)} · ${escapeMarkup(caseName)}" />`
+    : `<div class="empty-state">${escapeMarkup(result.render ? styleRenderStatusLabel(result.render.status) : "미제출")}${result.render?.error ? `<p class="error">${escapeMarkup(result.render.error)}</p>` : ""}</div>`;
+  illustrationDialog.classList.add("style-library-viewer");
+  illustrationDialog.innerHTML = `<div class="dialog-heading"><h2>조합 ${escapeMarkup(candidate.label)}</h2><button data-style-library-action="close" aria-label="그림체 상세 닫기">닫기</button></div><p class="style-viewer-case-name">${escapeMarkup(caseName)}</p><div class="style-viewer-image-frame">${imageMarkup}</div><div class="style-viewer-navigation"><button data-style-library-action="previous" ${caseIndex === 0 ? "disabled" : ""}>← 이전</button><span role="status" aria-live="polite">${caseIndex + 1} / ${caseResults.length}</span><button data-style-library-action="next" ${caseIndex === caseResults.length - 1 ? "disabled" : ""}>다음 →</button></div>`;
+}
+
+/** 카드나 그 안의 작은 이미지를 누른 위치에서 해당 조합의 상세 보기를 엽니다. */
+function openStyleLibraryViewer(candidateIdentifier, caseIndex) {
+  styleLibraryViewerState = { projectIdentifier: previewState.currentProjectIdentifier, candidateIdentifier, caseIndex };
+  if (!currentStyleLibraryViewerResults()) {
+    styleLibraryViewerState = null;
+    return;
+  }
+  renderStyleLibraryViewer();
+  illustrationDialog.showModal();
+}
+
+/** 이전/다음은 해당 조합 안의 Prompt 범위에서만 이동합니다. */
+function moveStyleLibraryViewer(direction) {
+  const viewerResults = currentStyleLibraryViewerResults();
+  if (!viewerResults) return;
+  const nextIndex = styleLibraryViewerState.caseIndex + direction;
+  if (nextIndex < 0 || nextIndex >= viewerResults.caseResults.length) return;
+  styleLibraryViewerState.caseIndex = nextIndex;
+  renderStyleLibraryViewer();
+}
+
+/** 카드 상세의 버튼을 처리하며 생성·투표 요청을 발생시키지 않습니다. */
+function handleStyleLibraryAction(event) {
+  if (!PERSISTENT_STYLE_WORKSPACE) return;
+  const button = event.target.closest("[data-style-library-action]");
+  if (!button || button.disabled) return;
+  const action = button.dataset.styleLibraryAction;
+  if (action === "open") openStyleLibraryViewer(button.dataset.candidate, Number(event.target.closest("[data-library-case-index]")?.dataset.libraryCaseIndex || 0));
+  if (action === "previous") moveStyleLibraryViewer(-1);
+  if (action === "next") moveStyleLibraryViewer(1);
+  if (action === "close") illustrationDialog.close();
+}
+
+/** 상세 보기가 열렸을 때만 좌우 방향키를 사용하며 다른 입력 조작은 유지합니다. */
+function handleStyleLibraryViewerKey(event) {
+  if (!styleLibraryViewerState || !illustrationDialog.open || event.target.closest("input, textarea, select, [contenteditable=true]")) return;
+  if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+  event.preventDefault();
+  moveStyleLibraryViewer(event.key === "ArrowLeft" ? -1 : 1);
+}
+
+/** Escape로 닫은 경우에도 상세 상태와 전용 Style이 다음 이미지 확대에 남지 않게 합니다. */
+function clearStyleLibraryViewer() {
+  styleLibraryViewerState = null;
+  document.querySelector("#illustration-dialog").classList.remove("style-library-viewer");
+}
+
+document.addEventListener("click", handleStyleLibraryAction);
+document.addEventListener("keydown", handleStyleLibraryViewerKey);
+document.querySelector("#illustration-dialog").addEventListener("close", clearStyleLibraryViewer);

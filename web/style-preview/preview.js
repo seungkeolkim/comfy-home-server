@@ -231,7 +231,7 @@ function generationEstimate() {
 
 /** 순위·전적·보관 필터를 그림체 목록에서 함께 보여줍니다. */
 function renderCandidates() {
-  if (PERSISTENT_STYLE_WORKSPACE) return renderPersistentEmptyResults();
+  if (PERSISTENT_STYLE_WORKSPACE) return renderPersistentStyleLibrary();
   const project = currentProject();
   const visibleProjects = previewState.projects.filter(owner => {
     if (previewState.libraryFilter === "all") return true;
@@ -320,15 +320,15 @@ function comparisonCaseMarkup(promptCase, caseIndex) {
 
 /** 여러 Prompt의 같은 두 조합을 보고 조합 단위로 한 번 선택합니다. */
 function renderComparison() {
-  if (PERSISTENT_STYLE_WORKSPACE) return renderPersistentEmptyResults();
+  if (PERSISTENT_STYLE_WORKSPACE) return renderPersistentComparison();
   const project = currentProject();
   const pair = currentPair();
   return `<div class="page-heading comparison-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>어느 쪽 그림체가 더 좋나요?</h1><p class="muted">같은 두 조합을 여러 Prompt에서 확인해 보세요.</p></div><button data-action="undo" ${project.decisions.length ? "" : "disabled"}>↶ 되돌리기</button></div>${conditionSummary()}
     <div class="toolbar"><div class="toolbar-group"><button data-action="toggle-blind" aria-pressed="${previewState.blind}">◉ Blind ${previewState.blind ? "켜짐" : "꺼짐"}</button><button data-action="open-differences" ${previewState.blind ? "disabled" : ""}>조합 차이 보기 ↗</button><button data-action="navigate" data-screen="candidates">그림체 보기 →</button></div></div>
-    <div class="mobile-case-controls mobile-only"><div class="case-tabs" aria-label="비교할 Prompt">${project.promptCases.map((promptCase, caseIndex) => `<button data-action="switch-case" data-case="${caseIndex}" aria-pressed="${previewState.activeCaseIndex === caseIndex}">${escapeMarkup(promptCase.name)}</button>`).join("")}</div><button data-action="image-layout" data-layout="${previewState.singleImage ? "pair" : "single"}">${previewState.singleImage ? "나란히" : "한 장씩"}</button>${previewState.singleImage ? `<button data-action="switch-side">${previewState.visibleSide === "a" ? "B" : "A"} 보기</button>` : ""}</div>
+    <div class="mobile-case-controls mobile-only"><button data-action="image-layout" data-layout="${previewState.singleImage ? "pair" : "single"}">${previewState.singleImage ? "나란히" : "한 장씩"}</button>${previewState.singleImage ? `<button data-action="switch-side">${previewState.visibleSide === "a" ? "B" : "A"} 보기</button>` : ""}</div>
     <div class="comparison-columns candidate-headings ${previewState.singleImage ? "single-image" : ""}">${candidateHeading(pair.a, "a")}${candidateHeading(pair.b, "b")}</div>
     ${project.promptCases.map(comparisonCaseMarkup).join("")}
-    <footer class="comparison-footer"><div class="vote-buttons"><button class="vote-choice" data-action="bundle-vote" data-choice="a">A가 더 좋아요</button><button data-action="bundle-vote" data-choice="similar">비슷함</button><button class="vote-choice" data-action="bundle-vote" data-choice="b">B가 더 좋아요</button></div><p class="vote-caption">모든 Prompt를 함께 보고 조합 하나를 선택 · 예시 선택 ${project.decisions.length}회</p></footer>${lastRankingChangeMarkup(project)}`;
+    <footer class="comparison-footer"><div class="vote-buttons"><button class="vote-choice vote-choice-a" data-action="bundle-vote" data-choice="a">A가 더 좋아요</button><button data-action="bundle-vote" data-choice="similar">비슷함</button><button class="vote-choice vote-choice-b" data-action="bundle-vote" data-choice="b">B가 더 좋아요</button></div><p class="vote-caption">모든 Prompt를 함께 보고 조합 하나를 선택 · 예시 선택 ${project.decisions.length}회</p></footer>${lastRankingChangeMarkup(project)}`;
 }
 
 /** 같은 성분의 독립 Weight 축을 비교해 차이와 동일 항목을 나눕니다. */
@@ -352,6 +352,7 @@ function weightLabel(component, weights) {
 
 /** 차이 표에서 프로젝트 단위의 향후 사용 제외 조작을 보여줍니다. */
 function renderComponentDialog() {
+  if (PERSISTENT_STYLE_WORKSPACE) return renderPersistentComponentDialog();
   const project = currentProject();
   const differences = componentDifferences();
   const changedComponents = differences.filter(component => component.differenceKind !== "STR 동일");

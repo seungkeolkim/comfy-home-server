@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
 import sqlite3
 import uuid
@@ -45,7 +46,24 @@ class PromptCase(BaseModel):
     negativePrompt: str = Field(default="", max_length=3000)
 
 
-class ProjectSettings(BaseModel):
+class ComponentCountSettings(BaseModel):
+    """조합 하나에 포함할 작가·LoRA 개수를 각각 제한합니다."""
+
+    artistMinimumCount: int = Field(default=0, ge=0, le=100)
+    artistMaximumCount: int = Field(default=8, ge=0, le=100)
+    loraMinimumCount: int = Field(default=0, ge=0, le=100)
+    loraMaximumCount: int = Field(default=2, ge=0, le=100)
+
+    @model_validator(mode="after")
+    def validate_component_counts(self):
+        """개수 범위의 역전을 거부하고 0~0은 해당 종류의 미사용으로 허용합니다."""
+
+        if self.artistMinimumCount > self.artistMaximumCount or self.loraMinimumCount > self.loraMaximumCount:
+            raise ValueError("최소 사용 개수는 최대 사용 개수보다 클 수 없습니다.")
+        return self
+
+
+class ProjectSettings(ComponentCountSettings):
     """현재 이미지 Adapter가 제어하는 설정만 저장합니다."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -79,6 +97,10 @@ class ProjectSettings(BaseModel):
         for component_identifier in self.componentPolicies:
             if not component_identifier.startswith(("artist:", "lora:")):
                 raise ValueError("알 수 없는 성분 Identifier입니다.")
+        for kind, label in (("artist", "작가"), ("lora", "LoRA")):
+            enabled_count = sum(policy.enabled for identifier, policy in self.componentPolicies.items() if identifier.startswith(kind + ":"))
+            if getattr(self, kind + "MinimumCount") > enabled_count:
+                raise ValueError(f"{label} 최소 사용 개수보다 허용한 성분이 부족합니다.")
         return self
 
 
@@ -108,7 +130,7 @@ class ArtistRegistration(BaseModel):
         return self
 
 
-class GlobalStyleSettings(BaseModel):
+class GlobalStyleSettings(ComponentCountSettings):
     """전역 기본값과 등록 작가를 프로젝트 성적과 분리합니다."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -135,6 +157,23 @@ class GlobalStyleSettings(BaseModel):
 
 class StyleRevisionConflict(Exception):
     """다른 탭에서 바뀐 내용을 오래된 초안으로 덮어쓰지 않습니다."""
+
+
+def browser_sampling_settings(settings: dict) -> dict:
+    """JavaScript 정수 정밀도 밖의 Seed만 십진 문자열로 전달합니다."""
+
+    public_settings = copy.deepcopy(settings)
+    if int(public_settings.get("seed", 0)) > 9007199254740991:
+        public_settings["seed"] = str(public_settings["seed"])
+    return public_settings
+
+
+def evaluation_without_seed(contract: dict) -> dict:
+    """기존 이미지 보존 여부를 판단할 때 Seed 이외의 실제 생성 조건을 비교합니다."""
+
+    normalized_contract = copy.deepcopy(contract)
+    normalized_contract["sampling"].pop("seed", None)
+    return normalized_contract
 
 
 def encode_snapshot(value: Any) -> str:
@@ -187,7 +226,7 @@ class StyleProjectStore:
 
         with self.connection_factory() as connection:
             row = connection.execute("SELECT settings_json FROM style_workspace_settings WHERE identifier=1").fetchone()
-        return json.loads(row[0]) if row else GlobalStyleSettings().model_dump()
+        return GlobalStyleSettings(**json.loads(row[0])).model_dump() if row else GlobalStyleSettings().model_dump()
 
     def save_global_settings(self, settings: GlobalStyleSettings) -> dict:
         """기존 프로젝트를 변경하지 않고 글로벌 기본값만 저장합니다."""
@@ -214,7 +253,7 @@ class StyleProjectStore:
             rows = connection.execute("SELECT * FROM style_projects ORDER BY created_at DESC, project_id").fetchall()
             candidate_counts = dict(connection.execute(
                 "SELECT project_id,COUNT(DISTINCT candidate_id) FROM style_candidates JOIN style_candidate_renders USING(candidate_id) "
-                "JOIN style_projects USING(project_id) WHERE style_candidates.evaluation_id=style_projects.active_evaluation_id GROUP BY project_id"
+                "JOIN style_projects USING(project_id) GROUP BY project_id"
             ).fetchall())
         return [{**self.project_from_row(row), "candidateCount": candidate_counts.get(row["project_id"], 0)} for row in rows]
 
@@ -222,7 +261,7 @@ class StyleProjectStore:
     def project_from_row(row: sqlite3.Row) -> dict:
         """아직 생성하지 않은 Fresh 프로젝트를 빈 후보 목록으로 반환합니다."""
 
-        settings = json.loads(row["settings_json"])
+        settings = browser_sampling_settings(ProjectSettings(**json.loads(row["settings_json"])).model_dump())
         return {
             "identifier": row["project_id"], "revision": row["revision"], "settings": settings,
             "name": settings["name"], "promptCases": settings["promptCases"], "generation": 1,
@@ -272,7 +311,7 @@ class StyleProjectStore:
                     "SELECT 1 FROM style_candidate_renders JOIN style_candidates USING(candidate_id) WHERE project_id=? LIMIT 1",
                     (project_identifier,),
                 ).fetchone()
-                if has_renders:
+                if has_renders and evaluation_without_seed(contract) != evaluation_without_seed(previous_contract):
                     raise StyleRevisionConflict("이미지가 있는 프로젝트의 Prompt·생성 조건 변경은 후속 재시험 기능에서 지원합니다. 기존 결과는 유지했습니다.")
             evaluation_identifier = existing["active_evaluation_id"] if existing else uuid.uuid4().hex
             if previous_contract is None or snapshot_hash(contract) != snapshot_hash(previous_contract):
@@ -326,7 +365,14 @@ class StyleProjectStore:
             }
         return {
             "schema_version": 1, "workflow": workflow_snapshot, "vote_policy": "prompt-set-bundle-v1",
-            "prompt_cases": settings["promptCases"], "negative_prompt": settings["negativePrompt"],
+            "prompt_cases": StyleProjectStore.frozen_case_labels(settings["promptCases"], previous_contract), "negative_prompt": settings["negativePrompt"],
             "sampling": {field: settings[field] for field in ("seed", "width", "height", "steps", "cfg")},
             "prompt_resolution_policy": "freeze-per-case-before-render",
         }
+
+    @staticmethod
+    def frozen_case_labels(prompt_cases: list[dict], previous_contract: dict | None) -> list[dict]:
+        """표시 이름만 바꿀 때 기존 불변 Snapshot과 평가 ID를 유지합니다."""
+
+        previous_names = {prompt_case["identifier"]: prompt_case["name"] for prompt_case in (previous_contract or {}).get("prompt_cases", [])}
+        return [{**prompt_case, "name": previous_names.get(prompt_case["identifier"], prompt_case["name"])} for prompt_case in prompt_cases]

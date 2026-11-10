@@ -186,7 +186,8 @@ def test_style_visibility_filters_counts_selection_neighbors_and_moves(tmp_path:
         client.__exit__(None, None, None)
 
 
-def test_project_rename_moves_files_and_preserves_ids_memos_snapshots(tmp_path: Path) -> None:
+@pytest.mark.parametrize("next_seed", [None, 98765])
+def test_project_rename_moves_files_and_preserves_ids_memos_snapshots(tmp_path: Path, next_seed: int | None) -> None:
     """폴더·분류명·조회 참조를 바꾸되 생성 기록과 메모는 수정하지 않습니다."""
 
     application, client, project, plan_input = prepare_style_generation(tmp_path, StyleComfyClient())
@@ -198,11 +199,13 @@ def test_project_rename_moves_files_and_preserves_ids_memos_snapshots(tmp_path: 
         original_bytes = old_path.read_bytes()
         settings = copy.deepcopy(project["settings"])
         settings["name"] = "바꾼 프로젝트"
+        if next_seed is not None:
+            settings["seed"] = next_seed
         payload = {"settings": settings, "operationIdentifier": uuid.uuid4().hex, "expectedRevision": project["revision"]}
         response = client.put(f"/api/style-projects/{project['identifier']}", json=payload)
         assert response.status_code == 200, response.text
         renamed = response.json()
-        assert renamed["evaluationIdentifier"] == project["evaluationIdentifier"]
+        assert (renamed["evaluationIdentifier"] == project["evaluationIdentifier"]) == (next_seed is None)
         new_results = client.get(f"/api/style-projects/{project['identifier']}/generation-results").json()
         new_file = new_results["candidates"][0]["renders"][0]["files"][0]
         assert new_file["output_id"] == old_file["output_id"]
@@ -430,5 +433,111 @@ def test_style_cancellation_preserves_general_queue_request(tmp_path: Path) -> N
         assert statuses == ["cancelled"] * 4
         assert database.get_request("general-keep-request")["status"] == "pending"
         assert "prompt-5" not in fake_client.history_records
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_component_count_limits_apply_to_future_plans_only(tmp_path: Path) -> None:
+    """작가·LoRA 사용 개수 제한을 검사하고 기존 후보는 소급 수정하지 않습니다."""
+
+    application, client, project, plan_input = prepare_style_generation(tmp_path, StyleComfyClient())
+    endpoint = f"/api/style-projects/{project['identifier']}"
+    try:
+        _, _, results = submit_and_wait(client, project, plan_input)
+        original_candidates = copy.deepcopy(results["candidates"])
+        settings = copy.deepcopy(project["settings"])
+        settings.update(artistMinimumCount=1, artistMaximumCount=1, loraMinimumCount=0, loraMaximumCount=0)
+        response = client.put(endpoint, json={"settings": settings, "expectedRevision": project["revision"], "operationIdentifier": uuid.uuid4().hex})
+        assert response.status_code == 200, response.text
+        updated = response.json()
+        assert updated["evaluationIdentifier"] == project["evaluationIdentifier"]
+        options = client.get(endpoint + "/generation-options").json()
+        assert all(component["identifier"].startswith("artist:") for combination in options["combinations"] for component in combination["components"])
+        plan_input.update(expectedRevision=updated["revision"], operationIdentifier=uuid.uuid4().hex)
+        response = client.post(endpoint + "/generation-plans", json=plan_input)
+        assert response.status_code == 422
+        assert "LoRA 사용 개수" in response.json()["detail"]
+        assert client.get(endpoint + "/generation-results").json()["candidates"] == original_candidates
+        invalid_settings = copy.deepcopy(settings)
+        invalid_settings["artistMinimumCount"] = 2
+        invalid_settings["artistMaximumCount"] = 2
+        response = client.put(endpoint, json={"settings": invalid_settings, "expectedRevision": updated["revision"], "operationIdentifier": uuid.uuid4().hex})
+        assert response.status_code == 422
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_prompt_display_name_changes_preserve_evaluation_and_render_snapshots(tmp_path: Path) -> None:
+    """Prompt 이름만 바꿔도 생성 조건·평가 ID·기존 이미지는 그대로입니다."""
+
+    application, client, project, plan_input = prepare_style_generation(tmp_path, StyleComfyClient())
+    endpoint = f"/api/style-projects/{project['identifier']}"
+    try:
+        plan, _, original_results = submit_and_wait(client, project, plan_input)
+        settings = copy.deepcopy(project["settings"])
+        settings["promptCases"][0]["name"] = "새 표시 이름"
+        response = client.put(endpoint, json={"settings": settings, "expectedRevision": project["revision"], "operationIdentifier": uuid.uuid4().hex})
+        assert response.status_code == 200, response.text
+        updated = response.json()
+        assert updated["evaluationIdentifier"] == project["evaluationIdentifier"]
+        assert updated["settings"]["promptCases"][0]["name"] == "새 표시 이름"
+        assert client.get(endpoint + "/generation-results").json() == original_results
+        assert application.state.home_server.style_generation.store.plan(plan["planIdentifier"], project["identifier"])["cases"][0]["name"] == "인물"
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_seed_changes_preserve_old_images_and_apply_to_new_generation(tmp_path: Path) -> None:
+    """Seed를 바꾸면 새 Snapshot부터 적용하고 이전 실패 재시도는 원래 Seed를 씁니다."""
+
+    fake_client = StyleComfyClient()
+    fake_client.fail_first_submission = True
+    application, client, project, plan_input = prepare_style_generation(tmp_path, fake_client)
+    endpoint = f"/api/style-projects/{project['identifier']}"
+    try:
+        previous_plan, _, original_results = submit_and_wait(client, project, plan_input)
+        settings = copy.deepcopy(project["settings"])
+        settings["seed"] = "18446744073709551615"
+        response = client.put(endpoint, json={"settings": settings, "expectedRevision": project["revision"], "operationIdentifier": uuid.uuid4().hex})
+        assert response.status_code == 200, response.text
+        updated = response.json()
+        assert updated["evaluationIdentifier"] != project["evaluationIdentifier"]
+        assert updated["settings"]["seed"] == "18446744073709551615"
+        assert client.get(endpoint + "/generation-results").json()["candidates"] == original_results["candidates"]
+        assert client.get("/api/style-projects").json()["projects"][0]["candidateCount"] == 2
+        retry = client.post(endpoint + f"/generation-plans/{previous_plan['planIdentifier']}/submit", json={"operationIdentifier": uuid.uuid4().hex, "retryFailedOnly": True})
+        assert retry.status_code == 200, retry.text
+        deadline = time.monotonic() + 5
+        while len(fake_client.submissions) < 5 and time.monotonic() < deadline:
+            time.sleep(0.05)
+        assert fake_client.submissions[4][0]["24"]["inputs"]["seed"] == 123456
+        plan_input.update(expectedRevision=updated["revision"], operationIdentifier=uuid.uuid4().hex)
+        _, _, results = submit_and_wait(client, updated, plan_input)
+        assert len(results["candidates"]) == 4
+        assert len(fake_client.submissions) == 9
+        assert all(graph["24"]["inputs"]["seed"] == 18446744073709551615 for graph, _ in fake_client.submissions[5:])
+    finally:
+        client.__exit__(None, None, None)
+
+
+def test_zero_component_counts_generate_one_base_model_combination(tmp_path: Path) -> None:
+    """작가·LoRA 사용 개수를 모두 0으로 정하면 기본 모델 한 조합을 허용합니다."""
+
+    fake_client = StyleComfyClient()
+    application, client, project, plan_input = prepare_style_generation(tmp_path, fake_client)
+    endpoint = f"/api/style-projects/{project['identifier']}"
+    try:
+        settings = copy.deepcopy(project["settings"])
+        settings.update(artistMaximumCount=0, loraMaximumCount=0)
+        response = client.put(endpoint, json={"settings": settings, "expectedRevision": project["revision"], "operationIdentifier": uuid.uuid4().hex})
+        assert response.status_code == 200, response.text
+        updated = response.json()
+        options = client.get(endpoint + "/generation-options").json()
+        assert options["combinations"] == [{"components": []}]
+        plan_input.update(expectedRevision=updated["revision"], operationIdentifier=uuid.uuid4().hex, combinations=options["combinations"])
+        _, _, results = submit_and_wait(client, updated, plan_input)
+        assert len(fake_client.submissions) == 2
+        assert len(results["candidates"]) == 1
+        assert results["candidates"][0]["components"] == []
     finally:
         client.__exit__(None, None, None)
