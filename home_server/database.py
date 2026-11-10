@@ -6,7 +6,7 @@ import json
 import sqlite3
 import uuid
 from collections.abc import Callable
-from contextlib import closing
+from contextlib import closing, nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -16,9 +16,10 @@ from .output_catalog import OutputCatalog
 from .job_folders import JobFolderStore
 from .request_favorites import RequestFavoriteStore
 from .style_projects import StyleProjectStore
+from .style_generation_store import StyleGenerationStore
 
 
-DATABASE_SCHEMA_VERSION = 15
+DATABASE_SCHEMA_VERSION = 16
 
 
 def current_timestamp() -> str:
@@ -53,9 +54,11 @@ class Database:
                 self._create_verified_database_backup(connection, "request_favorites")
             elif schema_version == 14:
                 self._create_verified_database_backup(connection, "style_projects")
+            elif schema_version == 15:
+                self._create_verified_database_backup(connection, "style_generation")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, DATABASE_SCHEMA_VERSION}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, DATABASE_SCHEMA_VERSION}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -103,6 +106,8 @@ class Database:
                 )"""
             )
             job_columns = {column[1] for column in connection.execute("PRAGMA table_info(jobs)")}
+            if "origin" not in job_columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN origin TEXT NOT NULL DEFAULT 'general'")
             if "deletion_protected" not in job_columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN deletion_protected INTEGER NOT NULL DEFAULT 0")
             if "cancellation_requested" not in job_columns:
@@ -173,6 +178,7 @@ class Database:
             JobFolderStore.prepare_schema(connection)
             RequestFavoriteStore.prepare_schema(connection)
             StyleProjectStore.prepare_schema(connection)
+            StyleGenerationStore.prepare_schema(connection)
             connection.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
         self.job_folders = JobFolderStore(self._connect)
         self.favorites = RequestFavoriteStore(self._connect, database_path.parent)
@@ -648,17 +654,18 @@ class Database:
 
     def add_job(
         self, job_id: str, workflow: str, description: str, requests: list[dict[str, Any]], folder_id: str | None = None,
+        *, origin: str = "general", connection: sqlite3.Connection | None = None,
     ) -> None:
         """공통 입력은 작업당 한 번, 확정 결과는 요청별로 같은 transaction에 저장합니다."""
 
         timestamp = current_timestamp()
         common_inputs, selected_tags, _, _ = self._separate_request_detail(requests[0]["detail"] if requests else {})
-        with self._connect() as connection:
+        with nullcontext(connection) if connection is not None else self._connect() as connection:
             connection.execute(
-                "INSERT INTO jobs (job_id, workflow, request_count, created_at, description) VALUES (?, ?, ?, ?, ?)",
-                (job_id, workflow, len(requests), timestamp, description),
+                "INSERT INTO jobs (job_id, workflow, request_count, created_at, description, origin) VALUES (?, ?, ?, ?, ?, ?)",
+                (job_id, workflow, len(requests), timestamp, description, origin),
             )
-            JobFolderStore.assign_jobs(connection, [job_id], folder_id)
+            JobFolderStore.assign_jobs(connection, [job_id], folder_id, allow_style_managed=origin == "style")
             connection.execute(
                 "INSERT INTO job_inputs (job_id, input_json, selected_tags_json) VALUES (?, ?, ?)",
                 (job_id, json.dumps(common_inputs, ensure_ascii=False), json.dumps(selected_tags, ensure_ascii=False)),
@@ -683,13 +690,13 @@ class Database:
                 )
 
     def list_jobs(
-        self, page: int = 1, page_size: int = 10, job_id: str = "", folder_id: str = "", search: str = "",
+        self, page: int = 1, page_size: int = 10, job_id: str = "", folder_id: str = "", search: str = "", include_style: bool = False,
     ) -> dict[str, Any]:
         """상위 작업을 페이지 단위로 조회하고 전체 활성 작업 수를 반환합니다."""
 
         with self._connect() as connection:
             connection.execute("BEGIN")
-            filter_clause, filter_values = JobFolderStore.build_job_filter(connection, job_id, folder_id, search)
+            filter_clause, filter_values = JobFolderStore.build_job_filter(connection, job_id, folder_id, search, include_style=include_style)
             total = connection.execute("SELECT COUNT(*) FROM jobs" + filter_clause, filter_values).fetchone()[0]
             active_count = connection.execute(
                 "SELECT COUNT(DISTINCT job_id) FROM job_requests "
@@ -731,13 +738,13 @@ class Database:
             ).fetchone()[0]
 
     def list_job_summaries(
-        self, page: int = 1, page_size: int = 10, job_id: str = "", folder_id: str = "", search: str = "",
+        self, page: int = 1, page_size: int = 10, job_id: str = "", folder_id: str = "", search: str = "", include_style: bool = False,
     ) -> dict[str, Any]:
         """공통 입력과 상태 집계만 읽으며 선택 후보 JSON은 읽지 않습니다."""
 
         with self._connect() as connection:
             connection.execute("BEGIN")
-            filter_clause, filter_values = JobFolderStore.build_job_filter(connection, job_id, folder_id, search)
+            filter_clause, filter_values = JobFolderStore.build_job_filter(connection, job_id, folder_id, search, include_style=include_style)
             total = connection.execute("SELECT COUNT(*) FROM jobs" + filter_clause, filter_values).fetchone()[0]
             job_rows = connection.execute(
                 "SELECT jobs.*, job_inputs.input_json, "
@@ -773,7 +780,7 @@ class Database:
                     summary_detail["resolved"] = {"settings": resolved_settings}
                 items.append({
                     "job_id": job_row["job_id"], "workflow": job_row["workflow"],
-                    "description": job_row["description"], "request_count": job_row["request_count"],
+                    "origin": job_row["origin"], "description": job_row["description"], "request_count": job_row["request_count"],
                     "folder_id": job_row["folder_id"],
                     "preview_files": self._job_preview_files(connection, job_row["job_id"]),
                     "created_at": job_row["created_at"],
@@ -811,27 +818,27 @@ class Database:
             "inputs": inputs,
         }
 
-    def list_job_selection_candidates(self, job_id: str = "", folder_id: str = "", search: str = "") -> dict[str, list[str]]:
+    def list_job_selection_candidates(self, job_id: str = "", folder_id: str = "", search: str = "", include_style: bool = False) -> dict[str, list[str]]:
         """이동 가능한 전체 작업과 삭제 가능한 작업을 같은 조회 범위에서 구분합니다."""
 
         with self._connect() as connection:
             connection.execute("BEGIN")
-            filter_clause, filter_values = JobFolderStore.build_job_filter(connection, job_id, folder_id, search)
+            filter_clause, filter_values = JobFolderStore.build_job_filter(connection, job_id, folder_id, search, include_style=include_style)
             job_rows = connection.execute(
-                "SELECT jobs.job_id, jobs.deletion_protected, "
+                "SELECT jobs.job_id, jobs.deletion_protected, jobs.origin, "
                 "EXISTS (SELECT 1 FROM job_requests WHERE job_requests.job_id=jobs.job_id "
                 "AND status IN ('submitting', 'pending', 'running', 'cancelling')) AS is_active "
                 "FROM jobs" + filter_clause + " ORDER BY jobs.created_at DESC, jobs.rowid DESC", filter_values,
             ).fetchall()
         return {
             "job_ids": [row["job_id"] for row in job_rows],
-            "deletable_job_ids": [row["job_id"] for row in job_rows if not row["deletion_protected"] and not row["is_active"]],
+            "deletable_job_ids": [row["job_id"] for row in job_rows if row["origin"] != "style" and not row["deletion_protected"] and not row["is_active"]],
         }
 
-    def list_deletable_job_ids(self, job_id: str = "", folder_id: str = "", search: str = "") -> list[str]:
+    def list_deletable_job_ids(self, job_id: str = "", folder_id: str = "", search: str = "", include_style: bool = False) -> list[str]:
         """모든 페이지에서 보호되지 않고 활성 요청이 없는 작업 ID를 반환합니다."""
 
-        return self.list_job_selection_candidates(job_id, folder_id, search)["deletable_job_ids"]
+        return self.list_job_selection_candidates(job_id, folder_id, search, include_style=include_style)["deletable_job_ids"]
 
     def _job_preview_files(self, connection: sqlite3.Connection, job_id: str) -> list[dict[str, Any]]:
         """가용 Catalog에서 대표 결과물 4개만 읽고 파일 조회·영상 변환은 실행하지 않습니다."""
@@ -1086,6 +1093,8 @@ class Database:
 
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
+            if connection.execute("SELECT 1 FROM jobs WHERE job_id=? AND origin='style'", (job_id,)).fetchone():
+                raise ValueError("스타일 구성 작업 이력은 프로젝트가 관리하므로 일반 작업 탭에서 삭제할 수 없습니다.")
             job_row = connection.execute("SELECT deletion_protected FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
             if job_row is None:
                 return False
@@ -1177,7 +1186,7 @@ class Database:
         return {
             "job_id": row["job_id"], "workflow": row["workflow"],
             "inputs": json.loads(row["input_json"]),
-            "description": row["description"],
+            "description": row["description"], "origin": row["origin"],
             "folder_id": row["folder_id"] if "folder_id" in row.keys() else None,
             "deletion_protected": bool(row["deletion_protected"]),
             "cancellation_requested": bool(row["cancellation_requested"]),

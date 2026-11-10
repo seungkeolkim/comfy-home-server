@@ -121,7 +121,7 @@ async function verifyPersistentStyleProjects() {
     await mobilePage.screenshot({ path: 'runtime/verification/style-projects-mobile.png', fullPage: true });
     await desktopPage.screenshot({ path: 'runtime/verification/style-projects-desktop.png', fullPage: true });
     await desktopPage.locator('#preview-sidebar [data-screen=compare]').click();
-    await expect(desktopPage.locator('#preview-content')).toContainText('아직 생성한 그림체가 없습니다');
+    await expect(desktopPage.locator('#preview-content')).toContainText('아직 생성한 이미지가 없습니다');
     await expect(desktopPage.locator('#preview-content img')).toHaveCount(0);
     await desktopPage.goto(`${verificationBaseUrl}/`);
     await desktopPage.locator('#generate-anima-prompt').fill('일반 생성의 미저장 입력');

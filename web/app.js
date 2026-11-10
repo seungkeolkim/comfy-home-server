@@ -54,7 +54,15 @@ const managerHistoryState = {
   restoring: false, traversalPending: false, rejectedEntry: null,
 };
 
+/** 일반 목록의 스타일 포함 여부만 기기별로 기억합니다. */
+function storedStyleVisibility(scope) {
+  try { return localStorage.getItem(`comfy-home-style-visible-${scope}`) === "true"; }
+  catch (error) { return false; }
+}
+
 const applicationState = {
+  includeStyleJobs: storedStyleVisibility("jobs"),
+  includeStyleOutputs: storedStyleVisibility("outputs"),
   presets: [],
   presetsLoadRevision: 0,
   currentPresetId: null,
@@ -2708,7 +2716,7 @@ function canDeleteJobHistory(job) {
   const hasActiveRequests = job.requests
     ? job.requests.some(request => activeStatuses.includes(request.status))
     : activeStatuses.some(status => job.status_counts[status]);
-  return !job.deletion_protected && !hasActiveRequests;
+  return job.origin !== "style" && !job.deletion_protected && !hasActiveRequests;
 }
 
 /** 선택 모드의 카드 본문·썸네일 클릭을 기존 Checkbox 동작으로 연결합니다. */
@@ -3088,7 +3096,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
         <h3>${escapeHtml(job.workflow)}${job.workflow === "minimax_h3" ? ` · ${escapeHtml(requestSettings.generation_mode || "FL2VA")} · ${requestSettings.input_scope === "job" ? "작업 결과 일괄" : requestSettings.input_scope === "folder" ? "폴더 일괄" : "이미지 입력"}` : ""} · 작업 ${escapeHtml(job.job_id)}</h3>
         <p>${escapeHtml(formatKoreanTimestamp(job.created_at))} · ${dimensions.ratio} · ${dimensions.resolution} · CFG ${escapeHtml(requestSettings.cfg ?? "—")} · Steps ${escapeHtml(requestSettings.steps ?? "—")} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
         <p class="job-description"><span class="job-description-text">${job.description ? escapeHtml(job.description) : "(작업 설명 없음)"}</span><button class="job-description-edit" type="button" data-edit-job-description="${escapeHtml(job.job_id)}" aria-label="작업 설명 수정" title="작업 설명 수정" ${jobSelectionIsBusy() ? "disabled" : ""}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m16 3 5 5-12 12-6 1 1-6Z"></path><path d="m14 5 5 5"></path></svg></button></p>
-        <button class="job-folder-location" data-move-job-folder="${escapeHtml(job.job_id)}" type="button" title="분류 변경" ${jobSelectionIsBusy() ? "disabled" : ""}>📁 ${escapeHtml(jobHistoryFolderLabel(job.folder_id))} <span aria-hidden="true">↗</span></button>
+        <button class="job-folder-location" data-move-job-folder="${escapeHtml(job.job_id)}" type="button" title="분류 변경" ${job.origin === "style" || jobSelectionIsBusy() ? "disabled" : ""}>📁 ${escapeHtml(jobHistoryFolderLabel(job.folder_id))} <span aria-hidden="true">↗</span></button>
         ${requestSettings.input_scope === "job" ? `<p class="hint">입력 출처: 작업 ${escapeHtml(requestSettings.input_job_id)}</p>` : ""}
         </div>
       </div>
@@ -3102,7 +3110,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
       <div class="job-actions inline-actions">
         ${job.workflow === "anima" && completedCount > 0 ? `<button class="button subtle small" data-use-job-input="${escapeHtml(job.job_id)}" ${jobSelectionIsBusy() || applicationState.restoringJobId || element("submit-button").disabled ? "disabled" : ""}>MiniMax 입력으로 사용</button>` : ""}
         <a class="button subtle small" data-navigation data-show-job-results="${escapeHtml(job.job_id)}" href="${escapeHtml(navigationUrl({ viewName: "outputs", pageNumber: 1, outputFilter: { type: "job", id: job.job_id } }))}">작업 결과 보기</a>
-        <button class="button subtle small" data-move-job-outputs="${escapeHtml(job.job_id)}" ${canCancel || jobSelectionIsBusy() || outputSelectionIsBusy() ? "disabled" : ""} ${canCancel ? 'title="생성이 끝난 뒤 결과물을 이동할 수 있습니다."' : ""}>${applicationState.movingJobId === job.job_id ? "파일 이동 중…" : "파일 이동"}</button>
+        <button class="button subtle small" data-move-job-outputs="${escapeHtml(job.job_id)}" ${job.origin === "style" || canCancel || jobSelectionIsBusy() || outputSelectionIsBusy() ? "disabled" : ""} ${canCancel ? 'title="생성이 끝난 뒤 결과물을 이동할 수 있습니다."' : ""}>${applicationState.movingJobId === job.job_id ? "파일 이동 중…" : "파일 이동"}</button>
         <button class="button ${job.deletion_protected ? "job-protected" : "subtle"} small" data-toggle-job-protection="${escapeHtml(job.job_id)}" aria-pressed="${Boolean(job.deletion_protected)}" ${jobSelectionIsBusy() ? "disabled" : ""}>${job.deletion_protected ? "보호 해제" : "삭제 보호"}</button>
         ${canCancel ? `<button class="button subtle small" data-cancel-job="${escapeHtml(job.job_id)}" ${cancellationIsBusy ? "disabled" : ""}>${cancellationIsBusy ? "취소 처리 중" : job.cancellation_requested ? "취소 재시도" : "작업 취소"}</button>` : ""}
         ${canDelete && !applicationState.jobSelectionMode ? `<button class="button subtle small" data-delete-job="${escapeHtml(job.job_id)}">이력만 삭제</button><button class="button danger small" data-delete-job-outputs="${escapeHtml(job.job_id)}">이력·결과물 삭제</button>` : ""}
@@ -3305,7 +3313,7 @@ async function refreshJobPages() {
       const [response, candidates, folders] = await Promise.all([
         apiRequest(`/api/jobs?${query}`).catch(error => ({ error })),
         selectionMode ? apiRequest(`/api/jobs/selection-candidates?${jobHistoryQuery()}`).catch(error => ({ error })) : Promise.resolve(null),
-        apiRequest("/api/job-folders"),
+        apiRequest(`/api/job-folders?include_style=${applicationState.currentView === "outputs" ? applicationState.includeStyleOutputs : applicationState.includeStyleJobs}`),
       ]);
       if (loadRevision !== applicationState.jobsLoadRevision || selectionMode !== applicationState.jobSelectionMode ||
           jobsPage !== applicationState.jobsPage || selectionScope !== currentJobHistoryScope()) {
@@ -3496,7 +3504,7 @@ async function loadOutputs() {
     const outputFilter = applicationState.outputFilter;
     const favoritesOnly = applicationState.outputsFavoritesOnly;
     const selectionMode = applicationState.outputSelectionMode && !favoritesOnly;
-    const selectionScope = JSON.stringify([outputFilter, favoritesOnly]);
+    const selectionScope = JSON.stringify([outputFilter, favoritesOnly, applicationState.includeStyleOutputs]);
     if (applicationState.outputSelectionScope !== selectionScope) {
       applicationState.selectedOutputIds.clear();
       applicationState.selectableOutputIds.clear();
@@ -3506,6 +3514,8 @@ async function loadOutputs() {
     }
     const query = new URLSearchParams({ page: String(applicationState.outputsPage), page_size: "64" });
     const candidateQuery = new URLSearchParams();
+    query.set("include_style", String(applicationState.includeStyleOutputs));
+    candidateQuery.set("include_style", String(applicationState.includeStyleOutputs));
     if (outputFilter)
       query.set(outputFilterParameterName(outputFilter.type), outputFilter.id);
     if (outputFilter)
@@ -3513,7 +3523,7 @@ async function loadOutputs() {
     const [listingResult, candidates, folders] = await Promise.all([
       apiRequest(`${favoritesOnly ? "/api/favorites" : "/api/outputs"}?${query}`).then(response => ({ response }), error => ({ error })),
       selectionMode ? apiRequest(`/api/outputs/selection-candidates?${candidateQuery}`).catch(error => ({ error })) : Promise.resolve(null),
-      apiRequest("/api/job-folders"),
+      apiRequest(`/api/job-folders?include_style=${applicationState.currentView === "outputs" ? applicationState.includeStyleOutputs : applicationState.includeStyleJobs}`),
     ]);
     if (loadRevision !== applicationState.outputsLoadRevision) return;
     applyJobHistoryFolders(folders);
@@ -3647,7 +3657,7 @@ function renderOutputsList() {
               ? `<label class="output-selection-control"><input class="output-selection-checkbox" type="checkbox" data-select-output="${outputFile.output_id}" aria-label="결과물 ${escapeHtml(outputFile.name)} 선택" ${isSelected ? "checked" : ""} ${selectionIsBusy ? "disabled" : ""}>선택</label>`
               : "";
             const protectionLabel = outputFile.deletion_protected ? '<span class="output-protection-label">삭제 보호</span>' : "";
-            return `<article class="output-card${isSelected ? " output-selected" : ""}"><div class="output-preview">${media}${selectionCheckbox}</div><div class="output-info"><strong>${escapeHtml(outputFile.name)}</strong>${favoriteOutputButtonMarkup(outputFile)}${protectionLabel}<small>${escapeHtml(outputFile.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(outputFile.path)}" ${selectionIsBusy ? "disabled" : ""}>파일 이동</button>${deleteButton}${jobButton}</div></div></article>`;
+            return `<article class="output-card${isSelected ? " output-selected" : ""}"><div class="output-preview">${media}${selectionCheckbox}</div><div class="output-info"><strong>${escapeHtml(outputFile.name)}</strong>${favoriteOutputButtonMarkup(outputFile)}${protectionLabel}<small>${escapeHtml(outputFile.path)} · ${dimensions.ratio} · ${dimensions.resolution}${dimensionSource}</small><div class="inline-actions"><a class="button subtle" href="${url}" target="_blank" rel="noopener">열기</a><button class="button subtle" data-move-output="${escapeHtml(outputFile.path)}" ${(outputFile.origin === "style" || outputFile.path.startsWith("from_comfy_home_style/")) || selectionIsBusy ? "disabled" : ""}>파일 이동</button>${deleteButton}${jobButton}</div></div></article>`;
           })
           .join("")
       : `<p class="empty-state">관리 폴더에 결과물이 없습니다.</p>`;
@@ -3787,6 +3797,7 @@ async function loadOutputPreviewNeighbors(outputIdentifier, revision) {
   const navigationState = outputPreviewNavigationState;
   const query = new URLSearchParams();
   if (navigationState.filter) query.set(outputFilterParameterName(navigationState.filter.type), navigationState.filter.id);
+  query.set("include_style", String(applicationState.includeStyleOutputs || navigationState.currentFile?.path?.startsWith("from_comfy_home_style/")));
   try {
     const neighbors = await apiRequest(`/api/outputs/${outputIdentifier}/neighbors?${query}`, { signal: navigationState.controller.signal });
     if (revision !== navigationState.revision) return;
@@ -3983,16 +3994,17 @@ async function toggleEveryOutputSelection() {
   }
   applicationState.selectingEveryOutput = true;
   applicationState.outputsLoadRevision += 1;
-  const selectionScope = JSON.stringify(applicationState.outputFilter);
+  const selectionScope = JSON.stringify([applicationState.outputFilter, applicationState.includeStyleOutputs]);
   renderOutputsList();
   try {
     const query = new URLSearchParams();
+    query.set("include_style", String(applicationState.includeStyleOutputs));
     if (applicationState.outputFilter) {
       const outputFilter = applicationState.outputFilter;
       query.set(outputFilterParameterName(outputFilter.type), outputFilter.id);
     }
     const candidates = await apiRequest(`/api/outputs/selection-candidates?${query}`);
-    if (selectionScope === JSON.stringify(applicationState.outputFilter)) {
+    if (selectionScope === JSON.stringify([applicationState.outputFilter, applicationState.includeStyleOutputs])) {
       applicationState.selectedOutputIds = new Set(candidates.output_ids.map(String));
     }
   } finally {
@@ -4956,6 +4968,7 @@ function bindLoraPresetEvents() {
 /** 작업 조회·전체 선택에서 분류·설명·특정 작업 범위를 동일하게 전달합니다. */
 function jobHistoryQuery() {
   const query = new URLSearchParams();
+  if (applicationState.includeStyleJobs) query.set("include_style", "true");
   if (applicationState.jobFilterId) query.set("job_id", applicationState.jobFilterId);
   if (applicationState.jobFolderId) query.set("folder_id", applicationState.jobFolderId);
   if (applicationState.jobSearch) query.set("search", applicationState.jobSearch);
@@ -5020,8 +5033,9 @@ function renderJobHistoryFolders() {
     ? `${count}개 작업${currentFolder?.descendant_folder_count ? " · 하위 분류 포함" : ""}${applicationState.jobSearch ? ` · 검색 결과 ${applicationState.jobsMatchedCount}개` : ""}` : "";
   element("jobs-folder-menu").classList.toggle("hidden", !currentFolder);
   element("edit-job-folder").classList.toggle("hidden", !currentFolder);
-  element("edit-job-folder").disabled = jobSelectionIsBusy() || !state.loaded;
-  element("create-job-folder").disabled = jobSelectionIsBusy() || !state.loaded || currentFolder?.depth === 3;
+  element("edit-job-folder").disabled = currentFolder?.managed_by_style || jobSelectionIsBusy() || !state.loaded;
+  element("delete-job-folder").disabled = Boolean(currentFolder?.managed_by_style);
+  element("create-job-folder").disabled = currentFolder?.managed_by_style || jobSelectionIsBusy() || !state.loaded || currentFolder?.depth === 3;
   element("create-job-folder").title = currentFolder?.depth === 3 ? "최대 3단계입니다. 상위 분류를 선택해 주세요." : "선택한 분류 아래에 새 분류 만들기";
   element("clear-jobs-search").classList.toggle("hidden", !applicationState.jobSearch);
   element("jobs-folder-status").textContent = !state.loaded ? "분류를 불러오는 중입니다." : currentFolder?.depth === 3 ? "최대 깊이 3단계입니다." : "";
@@ -5130,7 +5144,7 @@ async function openJobHistoryFolderMove(jobIdentifiers) {
   jobHistoryFolderState.movingJobIds = [...jobIdentifiers];
   const firstJob = applicationState.visibleJobs.find(job => job.job_id === jobIdentifiers[0]);
   const initialFolder = firstJob?.folder_id || "";
-  const choices = [{ folder_id: "", path: "미분류", depth: 1 }, ...jobHistoryFolderState.folders];
+  const choices = [{ folder_id: "", path: "미분류", depth: 1 }, ...jobHistoryFolderState.folders.filter(folder => !folder.managed_by_style)];
   element("job-folder-move-tree").innerHTML = choices.map(folder =>
     `<label class="job-folder-destination" style="--folder-depth:${folder.depth - 1}"><input type="radio" name="history-folder-destination" value="${escapeHtml(folder.folder_id)}" ${folder.folder_id === initialFolder ? "checked" : ""} /><span>📁 ${escapeHtml(folder.path)}</span></label>`).join("");
   element("job-folder-move-summary").textContent = `작업 ${jobIdentifiers.length}개의 분류를 변경합니다.`;
@@ -5728,4 +5742,30 @@ function bindAdministrationControls() {
   element("inspect-administration-storage").addEventListener("click", () => runAdministrationInspection("inspect-administration-storage", "/api/administration/storage", renderAdministrationStorage));
 }
 
+/** 표시 범위 변경은 선택·Preview를 정리한 뒤 서버 필터로 다시 조회합니다. */
+function initializeStyleVisibilityControls() {
+  for (const [scope, elementIdentifier, stateField] of [["jobs", "include-style-jobs", "includeStyleJobs"], ["outputs", "include-style-outputs", "includeStyleOutputs"]]) {
+    const checkbox = element(elementIdentifier);
+    checkbox.checked = applicationState[stateField];
+    checkbox.addEventListener("change", () => {
+      applicationState[stateField] = checkbox.checked;
+      try { localStorage.setItem(`comfy-home-style-visible-${scope}`, String(checkbox.checked)); } catch (error) {}
+      if (scope === "jobs") {
+        applicationState.selectedJobIds.clear();
+        applicationState.jobsPage = 1;
+        applicationState.jobFolderId = "";
+        loadJobs({ refreshAfterCurrentRequest: true });
+      } else {
+        closeImagePreview(false);
+        closeVideoPreview(false);
+        applicationState.selectedOutputIds.clear();
+        applicationState.outputsPage = 1;
+        applicationState.outputFilter = null;
+        loadOutputs();
+      }
+    });
+  }
+}
+
+initializeStyleVisibilityControls();
 initializeApplication();

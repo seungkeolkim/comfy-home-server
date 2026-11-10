@@ -3,17 +3,20 @@
 import asyncio
 import logging
 
+import httpx
 from fastapi import APIRouter, HTTPException
 
 from .style_projects import GlobalStyleSettings, ProjectWriteInput, StyleRevisionConflict
 from .workflows import load_workflows
+from .style_generation import StyleGenerationPlanInput, StyleGenerationSubmitInput
+from .style_project_rename import StyleProjectRenameService
 
 
 LOGGER = logging.getLogger(__name__)
 
 
 def create_style_project_router(server) -> APIRouter:
-    """생성 Worker를 시작하지 않는 프로젝트 조회·설정 API만 등록합니다."""
+    """프로젝트 조회·설정과 명시적으로 확인한 생성 계획의 제출 API를 등록합니다."""
 
     router = APIRouter()
 
@@ -72,6 +75,8 @@ def create_style_project_router(server) -> APIRouter:
         """저장 오류를 기존 초안을 보존할 수 있는 HTTP 응답으로 변환합니다."""
 
         try:
+            if project_identifier:
+                return StyleProjectRenameService(server.style_generation).save_project(project_identifier, payload)
             return server.database.style_projects.save_project(payload, server.config.workflow_directory, project_identifier)
         except StyleRevisionConflict as exception:
             raise HTTPException(409, str(exception)) from exception
@@ -79,6 +84,68 @@ def create_style_project_router(server) -> APIRouter:
             raise HTTPException(404, str(exception)) from exception
         except ValueError as exception:
             raise HTTPException(422, str(exception)) from exception
+        except OSError as exception:
+            raise HTTPException(409, "출력 폴더 이름을 변경하지 못했습니다. 파일 사용 상태를 확인하고 같은 요청을 다시 시도해 주세요.") from exception
+
+    @router.get("/api/style-projects/{project_identifier}/generation-options")
+    def style_generation_options(project_identifier: str):
+        """프로젝트에서 허용한 성분·STR로만 A/B 조합을 준비합니다."""
+
+        try:
+            return server.style_generation.options(project_identifier)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+
+    @router.post("/api/style-projects/{project_identifier}/generation-plans", status_code=201)
+    async def create_style_generation_plan(project_identifier: str, payload: StyleGenerationPlanInput):
+        """GPU 제출 없이 실제 공통 조건과 장수를 고정합니다."""
+
+        try:
+            return await server.style_generation.create_plan(project_identifier, payload)
+        except StyleRevisionConflict as exception:
+            raise HTTPException(409, str(exception)) from exception
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except RuntimeError as exception:
+            raise HTTPException(502, str(exception)) from exception
+        except httpx.HTTPError as exception:
+            raise HTTPException(502, "ComfyUI 사전 확인에 연결하지 못했습니다. 생성 작업은 접수하지 않았습니다.") from exception
+
+    @router.post("/api/style-projects/{project_identifier}/generation-plans/{plan_identifier}/submit")
+    async def submit_style_generation_plan(project_identifier: str, plan_identifier: str, payload: StyleGenerationSubmitInput):
+        """확인한 RenderPlan을 Home 제출·감시 경로에 연결합니다."""
+
+        from .application import _submit_requests
+
+        try:
+            await server.style_generation.preflight_plan(project_identifier, plan_identifier, payload.retryFailedOnly)
+            job_identifier, requests = await asyncio.to_thread(server.style_generation.submit_plan, project_identifier, plan_identifier, payload)
+        except StyleRevisionConflict as exception:
+            raise HTTPException(409, str(exception)) from exception
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except (ValueError, OSError) as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except RuntimeError as exception:
+            raise HTTPException(502, str(exception)) from exception
+        except httpx.HTTPError as exception:
+            raise HTTPException(502, "ComfyUI 사전 확인에 연결하지 못했습니다. 생성 작업은 접수하지 않았습니다.") from exception
+        if requests:
+            submission_task = asyncio.create_task(_submit_requests(server, requests))
+            server.submission_tasks.add(submission_task)
+            submission_task.add_done_callback(server.submission_tasks.discard)
+        return {"jobIdentifier": job_identifier, "requestIdentifiers": [request["request_id"] for request in requests]}
+
+    @router.get("/api/style-projects/{project_identifier}/generation-results")
+    def style_generation_results(project_identifier: str):
+        """Browser 종료 뒤에도 추적된 실제 이미지와 실패 상태를 조회합니다."""
+
+        try:
+            return server.style_generation.store.results(project_identifier)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
 
     @router.put("/api/style-settings")
     def update_style_global_settings(payload: GlobalStyleSettings):

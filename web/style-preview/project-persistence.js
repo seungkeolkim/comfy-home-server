@@ -78,8 +78,8 @@ async function loadPersistentStyleWorkspace(restoreSession = false) {
   ensureSettingsPreviewState();
   ensureRankingPreviewState();
   document.title = "스타일 구성 · Comfy Home";
-  document.querySelector(".phase-badge").textContent = "프로젝트 저장";
-  document.querySelector(".preview-notice").innerHTML = '<span class="notice-dot"></span><strong>프로젝트 저장 연결</strong><span>설정은 서버에 저장됩니다. 이미지 생성은 다음 단계입니다.</span><a href="#scope">현재 범위</a>';
+  document.querySelector(".phase-badge").textContent = "이미지 생성";
+  document.querySelector(".preview-notice").innerHTML = '<span class="notice-dot"></span><strong>프로젝트 이미지 생성</strong><span>저장한 조건으로 생성하고 실제 결과를 확인합니다.</span><a href="#scope">현재 범위</a>';
   if (workspace.catalogNotice) showToast(workspace.catalogNotice);
 }
 
@@ -97,7 +97,7 @@ function renderEmptyPersistentNavigation() {
 
 /** 저장된 실제 프로젝트와 빈 시작 상태를 표시합니다. */
 function renderPersistentProjects() {
-  const projectCards = previewState.projects.map(project => `<article class="panel project-card"><div class="project-card-body"><p class="eyebrow">FRESH PROJECT</p><h2>${escapeMarkup(project.name)}</h2><p class="muted">${escapeMarkup(project.settings.purpose || "새 그림체 탐색")}</p><p>${project.promptCases.map(promptCase => escapeMarkup(promptCase.name)).join(" · ")}</p><div class="card-meta"><span>${escapeMarkup(project.settings.pipelineIdentifier)}</span><span>1세대 · 조합 0개 · 투표 0회</span><span>${project.promptCases.length}개 Prompt</span></div><button data-action="open-project" data-project="${project.identifier}">프로젝트 열기 →</button></div></article>`).join("");
+  const projectCards = previewState.projects.map(project => `<article class="panel project-card"><div class="project-card-body"><p class="eyebrow">FRESH PROJECT</p><h2>${escapeMarkup(project.name)}</h2><p class="muted">${escapeMarkup(project.settings.purpose || "새 그림체 탐색")}</p><p>${project.promptCases.map(promptCase => escapeMarkup(promptCase.name)).join(" · ")}</p><div class="card-meta"><span>${escapeMarkup(project.settings.pipelineIdentifier)}</span><span>1세대 · 조합 ${project.candidateCount}개 · 투표 0회</span><span>${project.promptCases.length}개 Prompt</span></div><button data-action="open-project" data-project="${project.identifier}">프로젝트 열기 →</button></div></article>`).join("");
   return `<div class="page-heading"><div><p class="eyebrow">STYLE EXPLORATION</p><h1>나만의 그림체 찾기</h1><p class="muted">Prompt와 모델에 맞는 그림체를, 프로젝트별로.</p></div><button class="primary" data-action="navigate" data-screen="create">＋ 새 프로젝트</button></div><div class="toolbar"><button data-persistent-action="reload">서버에서 다시 불러오기</button></div>${projectCards ? `<div class="project-grid">${projectCards}</div>` : '<section class="panel empty-state"><h2>아직 프로젝트가 없습니다</h2><p>프로젝트를 만들면 Prompt와 설정을 다른 기기에서도 다시 열 수 있습니다.</p><button class="primary" data-action="navigate" data-screen="create">새 프로젝트 만들기</button></section>'}`;
 }
 
@@ -105,18 +105,18 @@ function renderPersistentProjects() {
 function renderPersistentProjectCreation() {
   const draft = settingsPreviewDraft("project", "new-project");
   ensureProjectCatalogPolicies(draft);
-  return `<div class="page-heading"><div><p class="eyebrow">NEW PROJECT</p><h1>어떤 그림체를 찾을까요?</h1><p class="muted">새로 시작 · 조합 0개 · 투표 0회 · 1세대</p></div></div><form id="persistent-project-form" data-settings-project="new-project" class="form-layout settings-form"><section class="panel"><label for="settings-project-name">프로젝트 이름</label><input id="settings-project-name" data-settings-field="name" required maxlength="80" value="${escapeMarkup(draft.name)}" /><label for="settings-project-purpose">찾고 싶은 그림체 · 메모</label><textarea id="settings-project-purpose" data-settings-field="purpose" maxlength="2000">${escapeMarkup(draft.purpose)}</textarea></section><section class="panel"><h2>함께 비교할 Prompt</h2>${draft.promptCases.map(projectSettingsPromptMarkup).join("")}<button type="button" data-settings-action="add-prompt">＋ Prompt 추가</button><label for="settings-negative-prompt">공통 Negative Prompt</label><textarea id="settings-negative-prompt" data-settings-field="negativePrompt" maxlength="3000">${escapeMarkup(draft.negativePrompt)}</textarea></section>${projectWorkflowOptionsMarkup(draft)}<section class="panel"><h2>사용할 성분</h2><p class="form-note">등록된 작가와 설치 LoRA 중 사용할 성분을 고릅니다. 생성 전 호환성 검증은 다음 단계에서 연결합니다.</p>${projectComponentGroupMarkup("작가", "작가 태그", "artist")}${projectComponentGroupMarkup("LoRA", "LoRA", "lora")}</section><p id="settings-form-error" class="error" role="alert"></p><div class="form-actions"><span>프로젝트 저장은 이미지 생성을 실행하지 않습니다.</span><button type="button" data-action="navigate" data-screen="projects">목록으로</button><button class="primary" type="submit">프로젝트 저장</button></div></form>`;
+  return `<div class="page-heading"><div><p class="eyebrow">NEW PROJECT</p><h1>어떤 그림체를 찾을까요?</h1><p class="muted">새로 시작 · 조합 0개 · 투표 0회 · 1세대</p></div></div><form id="persistent-project-form" data-settings-project="new-project" class="form-layout settings-form"><section class="panel"><label for="settings-project-name">프로젝트 이름</label><input id="settings-project-name" data-settings-field="name" required maxlength="80" value="${escapeMarkup(draft.name)}" /><label for="settings-project-purpose">찾고 싶은 그림체 · 메모</label><textarea id="settings-project-purpose" data-settings-field="purpose" maxlength="2000">${escapeMarkup(draft.purpose)}</textarea></section><section class="panel"><h2>함께 비교할 Prompt</h2>${draft.promptCases.map(projectSettingsPromptMarkup).join("")}<button type="button" data-settings-action="add-prompt">＋ Prompt 추가</button><label for="settings-negative-prompt">공통 Negative Prompt</label><textarea id="settings-negative-prompt" data-settings-field="negativePrompt" maxlength="3000">${escapeMarkup(draft.negativePrompt)}</textarea></section>${projectWorkflowOptionsMarkup(draft)}<section class="panel"><h2>사용할 성분</h2><p class="form-note">등록된 작가와 설치 LoRA 중 사용할 성분을 고릅니다. 생성 계획 확인 시 ComfyUI의 파일·필수 Node를 검사합니다.</p>${projectComponentGroupMarkup("작가", "작가 태그", "artist")}${projectComponentGroupMarkup("LoRA", "LoRA", "lora")}</section><p id="settings-form-error" class="error" role="alert"></p><div class="form-actions"><span>프로젝트 저장은 이미지 생성을 실행하지 않습니다.</span><button type="button" data-action="navigate" data-screen="projects">목록으로</button><button class="primary" type="submit">프로젝트 저장</button></div></form>`;
 }
 
 /** 실제 이미지가 없는 단계에서는 예시 이미지나 가상 Elo를 표시하지 않습니다. */
 function renderPersistentEmptyResults() {
   const project = currentProject();
-  return `<div class="page-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>${previewState.screen === "compare" ? "선별" : "그림체"}</h1></div></div><section class="panel empty-state"><h2>아직 생성한 그림체가 없습니다</h2><p>1세대 · 조합 0개 · 투표 0회</p><p>${project.promptCases.length}개 Prompt와 생성 조건이 저장되어 있습니다. 이미지 생성은 다음 단계에서 연결합니다.</p><button data-action="navigate" data-screen="project-settings">프로젝트 설정 확인</button></section>`;
+  return `<div class="page-heading"><div><p class="eyebrow">${escapeMarkup(project.name)}</p><h1>${previewState.screen === "compare" ? "생성 결과 확인" : "그림체"}</h1><p class="muted">실제 이미지 결과입니다. 선별·Elo는 후속 단계입니다.</p></div><button class="primary" data-action="navigate" data-screen="generation">이미지 생성</button></div><div id="style-render-results">${styleGenerationResultsMarkup(currentStyleGenerationState().results)}</div>`;
 }
 
 /** 현재 실제 연결 범위와 후속 생성·평가 단계를 구분합니다. */
 function renderPersistentScope() {
-  return '<div class="page-heading"><h1>현재 연결 범위</h1></div><section class="panel"><h2>서버에 저장되는 것</h2><p>Fresh 프로젝트, 여러 Prompt, 등록 Workflow와 생성 조건 Snapshot, 작가 등록·글로벌 기본값, 프로젝트 성분 범위.</p><h2>다음 단계</h2><p>실제 이미지 생성·자동 작업분류·출력 경로·이동 제한, 선별·Elo·Undo·진화·세대 복원·Fork는 아직 연결하지 않았습니다.</p><p>현재 프로젝트에는 생성 작업과 출력 폴더가 없습니다. 프로젝트 이름을 바꾸면 저장된 이름과 예정 폴더명이 함께 바뀝니다.</p><a href="/style-preview">예시 목업 별도로 열기</a></section>';
+  return '<div class="page-heading"><h1>현재 연결 범위</h1></div><section class="panel"><h2>저장·이미지 생성</h2><p>프로젝트 설정과 여러 Prompt를 저장하고, 허용한 성분·STR로 고정 조합을 준비해 실제 이미지를 생성합니다. 같은 조합은 모든 Prompt에서 유지합니다.</p><h2>작업·출력 관리</h2><p>스타일 전용 분류·출력 루트·세대 메모를 사용합니다. 일반 목록에서는 선택해서 표시하고, 작업·이미지의 임의 이동은 막습니다. 프로젝트 이름을 바꾸면 분류와 실제 폴더도 함께 변경합니다.</p><h2>후속 단계</h2><p>무작위 초기 조합·선별·Elo·진화·세대 복원·Prompt 재시험·Fork는 아직 연결하지 않았습니다.</p><a href="/style-preview">예시 목업 별도로 열기</a></section>';
 }
 
 /** Case ID를 유지하고 화면 전용 필드가 실제 평가 조건에 들어가지 않게 합니다. */

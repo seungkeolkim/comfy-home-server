@@ -525,7 +525,7 @@ function renderPreview(scrollToTop = true) {
   }
   if (PERSISTENT_STYLE_WORKSPACE && previewState.screen === "candidate-detail") previewState.screen = "candidates";
   renderNavigation();
-  const screenRenderers = { projects: renderProjects, create: renderProjectCreation, candidates: renderCandidates, compare: renderComparison, scope: renderPreviewScope, "global-settings": renderGlobalSettingsPreview, "project-settings": renderProjectSettingsPreview, "candidate-detail": renderCandidateDetailPreview };
+  const screenRenderers = { projects: renderProjects, create: renderProjectCreation, candidates: renderCandidates, compare: renderComparison, scope: renderPreviewScope, "global-settings": renderGlobalSettingsPreview, "project-settings": renderProjectSettingsPreview, "candidate-detail": renderCandidateDetailPreview, generation: renderStyleGeneration };
   previewContent.innerHTML = PERSISTENT_STYLE_WORKSPACE && previewState.screen === "scope" ? renderPersistentScope() : screenRenderers[previewState.screen]();
   if (previewState.rankingReturnScrollY !== null) {
     window.scrollTo(0, previewState.rankingReturnScrollY);
@@ -534,6 +534,7 @@ function renderPreview(scrollToTop = true) {
     window.scrollTo(0, 0);
   }
   persistPreviewSession();
+  scheduleStyleGenerationRefresh();
 }
 
 /** 주소의 화면 이름을 제한하고 뒤로 가기를 지원합니다. */
@@ -543,7 +544,7 @@ function restorePreviewScreen() {
     requestedScreen = "candidates";
     window.history.replaceState(window.history.state, "", "#candidates");
   }
-  previewState.screen = ["projects", "create", "candidates", "compare", "scope", "global-settings", "project-settings", "candidate-detail"].includes(requestedScreen) ? requestedScreen : "projects";
+  previewState.screen = ["projects", "create", "candidates", "compare", "scope", "global-settings", "project-settings", "candidate-detail", "generation"].includes(requestedScreen) ? requestedScreen : "projects";
   renderPreview();
 }
 

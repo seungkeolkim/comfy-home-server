@@ -40,11 +40,13 @@ class JobFolderStore:
 
     @staticmethod
     def build_job_filter(
-        connection: sqlite3.Connection, job_id: str = "", folder_id: str = "", search: str = "",
+        connection: sqlite3.Connection, job_id: str = "", folder_id: str = "", search: str = "", include_style: bool = True,
     ) -> tuple[str, list[str]]:
         """목록·전체 선택·삭제 후보에 같은 분류 및 설명 검색 범위를 적용합니다."""
 
         conditions = []
+        if not include_style:
+            conditions.append("jobs.origin != 'style'")
         parameters = []
         if job_id:
             conditions.append("jobs.job_id = ?")
@@ -98,22 +100,26 @@ class JobFolderStore:
             folder_id = folders[folder_id]["parent_id"]
         return identifiers
 
-    def list_folders(self) -> dict[str, Any]:
+    def list_folders(self, include_style: bool = False) -> dict[str, Any]:
         """하위 포함 작업 수와 분류 경로를 함께 반환합니다."""
 
         with self.connection_factory() as connection:
             connection.execute("BEGIN")
             folders = self.read_folder_rows(connection)
             direct_counts = dict(connection.execute(
-                "SELECT folder_id, COUNT(*) FROM job_folder_assignments GROUP BY folder_id"
+                "SELECT folder_id, COUNT(*) FROM job_folder_assignments JOIN jobs USING(job_id) "
+                + ("" if include_style else "WHERE jobs.origin != 'style' ") + "GROUP BY folder_id"
             ).fetchall())
-            total_count = connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+            total_count = connection.execute("SELECT COUNT(*) FROM jobs" + ("" if include_style else " WHERE origin != 'style'")).fetchone()[0]
+            managed_folders = {row[0] for row in connection.execute("SELECT folder_id FROM style_managed_folders")}
         items = []
         for folder in folders.values():
+            if not include_style and folder["folder_id"] in managed_folders:
+                continue
             path_identifiers = self.folder_path(folders, folder["folder_id"])
             descendant_identifiers = self.descendant_identifiers(folders, folder["folder_id"])
             items.append({
-                **folder, "depth": len(path_identifiers),
+                **folder, "managed_by_style": folder["folder_id"] in managed_folders, "depth": len(path_identifiers),
                 "path": " / ".join(folders[identifier]["name"] for identifier in path_identifiers),
                 "path_ids": path_identifiers,
                 "job_count": sum(direct_counts.get(identifier, 0) for identifier in descendant_identifiers),
@@ -132,6 +138,9 @@ class JobFolderStore:
         with self.connection_factory() as connection:
             connection.execute("BEGIN IMMEDIATE")
             folders = self.read_folder_rows(connection)
+            protected_identifiers = {row[0] for row in connection.execute("SELECT folder_id FROM style_managed_folders")}
+            if folder_id in protected_identifiers or parent_id in protected_identifiers:
+                raise ValueError("스타일 구성의 프로젝트 관리에서 분류 이름을 변경해 주세요.")
             if folder_id is not None and folder_id not in folders:
                 raise LookupError("작업 분류를 찾을 수 없습니다.")
             descendants = self.descendant_identifiers(folders, identifier) if folder_id else []
@@ -161,6 +170,9 @@ class JobFolderStore:
         with self.connection_factory() as connection:
             connection.execute("BEGIN IMMEDIATE")
             folders = self.read_folder_rows(connection)
+            protected_identifiers = {row[0] for row in connection.execute("SELECT folder_id FROM style_managed_folders")}
+            if folder_id in protected_identifiers:
+                raise ValueError("스타일 구성의 프로젝트 관리에서 분류 이름을 변경해 주세요.")
             if folder_id not in folders:
                 raise LookupError("작업 분류를 찾을 수 없습니다.")
             identifiers = self.descendant_identifiers(folders, folder_id)
@@ -172,13 +184,19 @@ class JobFolderStore:
         return {"deleted_folder_count": len(identifiers), "moved_job_count": moved_count}
 
     @staticmethod
-    def assign_jobs(connection: sqlite3.Connection, job_ids: list[str], folder_id: str | None) -> None:
+    def assign_jobs(connection: sqlite3.Connection, job_ids: list[str], folder_id: str | None, *, allow_style_managed: bool = False) -> None:
         """모든 대상을 먼저 검증한 뒤 보호·진행 상태와 무관하게 소속만 변경합니다."""
 
         if folder_id is not None and connection.execute(
             "SELECT 1 FROM job_folders WHERE folder_id=?", (folder_id,),
         ).fetchone() is None:
             raise ValueError("작업 분류를 찾을 수 없습니다. 분류 목록을 새로 확인해 주세요.")
+        if not allow_style_managed:
+            if folder_id and connection.execute("SELECT 1 FROM style_managed_folders WHERE folder_id=?", (folder_id,)).fetchone():
+                raise ValueError("스타일 구성 전용 분류로 작업을 이동할 수 없습니다.")
+            for selected_job_identifier in job_ids:
+                if connection.execute("SELECT 1 FROM jobs WHERE job_id=? AND origin='style'", (selected_job_identifier,)).fetchone():
+                    raise ValueError("스타일 구성 작업의 분류는 이동할 수 없습니다.")
         for job_id in job_ids:
             if connection.execute("SELECT 1 FROM jobs WHERE job_id=?", (job_id,)).fetchone() is None:
                 raise LookupError("이동할 작업을 찾을 수 없습니다. 목록을 새로 확인해 주세요.")

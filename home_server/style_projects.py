@@ -7,6 +7,7 @@ import json
 import sqlite3
 import uuid
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -211,7 +212,11 @@ class StyleProjectStore:
 
         with self.connection_factory() as connection:
             rows = connection.execute("SELECT * FROM style_projects ORDER BY created_at DESC, project_id").fetchall()
-        return [self.project_from_row(row) for row in rows]
+            candidate_counts = dict(connection.execute(
+                "SELECT project_id,COUNT(DISTINCT candidate_id) FROM style_candidates JOIN style_candidate_renders USING(candidate_id) "
+                "JOIN style_projects USING(project_id) WHERE style_candidates.evaluation_id=style_projects.active_evaluation_id GROUP BY project_id"
+            ).fetchall())
+        return [{**self.project_from_row(row), "candidateCount": candidate_counts.get(row["project_id"], 0)} for row in rows]
 
     @staticmethod
     def project_from_row(row: sqlite3.Row) -> dict:
@@ -226,14 +231,16 @@ class StyleProjectStore:
             "storageBinding": json.loads(row["storage_binding_json"]),
         }
 
-    def save_project(self, payload: ProjectWriteInput, workflow_directory: Path, project_identifier: str | None = None) -> dict:
+    def save_project(self, payload: ProjectWriteInput, workflow_directory: Path, project_identifier: str | None = None,
+                     *, connection: sqlite3.Connection | None = None, storage_binding_override: dict | None = None) -> dict:
         """설정 저장과 평가 Snapshot 추가를 하나의 Transaction으로 처리합니다."""
 
         settings = payload.settings.model_dump()
         payload_hash = snapshot_hash(settings)
         saved_at = datetime.now(timezone.utc).isoformat()
-        with self.connection_factory() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        with nullcontext(connection) if connection is not None else self.connection_factory() as connection:
+            if not connection.in_transaction:
+                connection.execute("BEGIN IMMEDIATE")
             if project_identifier:
                 existing = connection.execute("SELECT * FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
                 if existing is None:
@@ -260,6 +267,13 @@ class StyleProjectStore:
                     (existing["active_evaluation_id"], project_identifier),
                 ).fetchone()[0])
             contract = self.evaluation_contract(settings, workflow_directory, previous_contract)
+            if existing and previous_contract and snapshot_hash(contract) != snapshot_hash(previous_contract):
+                has_renders = connection.execute(
+                    "SELECT 1 FROM style_candidate_renders JOIN style_candidates USING(candidate_id) WHERE project_id=? LIMIT 1",
+                    (project_identifier,),
+                ).fetchone()
+                if has_renders:
+                    raise StyleRevisionConflict("이미지가 있는 프로젝트의 Prompt·생성 조건 변경은 후속 재시험 기능에서 지원합니다. 기존 결과는 유지했습니다.")
             evaluation_identifier = existing["active_evaluation_id"] if existing else uuid.uuid4().hex
             if previous_contract is None or snapshot_hash(contract) != snapshot_hash(previous_contract):
                 evaluation_identifier = uuid.uuid4().hex
@@ -271,6 +285,14 @@ class StyleProjectStore:
                 "model_folder": model_folder, "project_folder": f"{settings['name']}__{project_identifier}",
                 "root": "from_comfy_home_style", "state": "not_created", "folder_id": None,
             }
+            if storage_binding_override is not None:
+                storage_binding = storage_binding_override
+            elif existing:
+                previous_binding = json.loads(existing["storage_binding_json"])
+                if previous_binding["state"] == "created":
+                    if settings["name"] != json.loads(existing["settings_json"])["name"]:
+                        raise StyleRevisionConflict("실제 출력 폴더는 프로젝트 관리 Rename으로 변경해야 합니다.")
+                    storage_binding = previous_binding
             connection.execute(
                 "INSERT INTO style_projects VALUES(?,?,?,?,?,?,?,?,?,?,?) "
                 "ON CONFLICT(project_id) DO UPDATE SET revision=excluded.revision, settings_json=excluded.settings_json, "

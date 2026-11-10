@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .job_folders import JobFolderStore
+from .output_roots import STYLE_OUTPUT_PREFIX
 from .output_listing import (
     IMAGE_OUTPUT_EXTENSIONS, MEDIA_EXTENSIONS, VIDEO_OUTPUT_EXTENSIONS,
     iterate_output_directory_entries, output_filename_metadata,
@@ -120,6 +121,8 @@ class OutputCatalog:
             )"""
         )
         output_columns = {column[1] for column in connection.execute("PRAGMA table_info(output_files)")}
+        if "origin" not in output_columns:
+            connection.execute("ALTER TABLE output_files ADD COLUMN origin TEXT NOT NULL DEFAULT 'general'")
         if "is_deleted" not in output_columns:
             connection.execute(
                 "ALTER TABLE output_files ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0 "
@@ -154,7 +157,7 @@ class OutputCatalog:
         generated_at, generation_seed = output_filename_metadata(Path(relative_path))
         connection.execute(
             "INSERT INTO output_files (original_relative_path,relative_path,request_id,job_id,"
-            "generated_at,seed,requested_width,requested_height,is_available) VALUES (?,?,?,?,?,?,?,?,1) "
+            "generated_at,seed,requested_width,requested_height,is_available,origin) VALUES (?,?,?,?,?,?,?,?,1,?) "
             "ON CONFLICT(relative_path) DO UPDATE SET original_relative_path=excluded.original_relative_path,"
             "request_id=excluded.request_id,job_id=excluded.job_id,generated_at=excluded.generated_at,"
             "seed=excluded.seed,requested_width=excluded.requested_width,"
@@ -162,6 +165,7 @@ class OutputCatalog:
             (
                 relative_path, relative_path, request_id, job_id, generated_at,
                 str(generation_seed) if generation_seed is not None else None, width, height,
+                "style" if relative_path.startswith(STYLE_OUTPUT_PREFIX) else "general",
             ),
         )
 
@@ -196,6 +200,12 @@ class OutputCatalog:
                 OutputCatalog._store_output(
                     connection, relative_path, request_id, request_row["job_id"], width, height,
                 )
+                if relative_path.startswith(STYLE_OUTPUT_PREFIX):
+                    connection.execute(
+                        "UPDATE output_files SET generated_at=(SELECT CAST(strftime('%s',created_at) AS REAL) FROM job_requests WHERE request_id=?), "
+                        "seed=? WHERE relative_path=?",
+                        (request_id, str(settings.get("seed", "")), relative_path),
+                    )
 
     @staticmethod
     def backfill_from_requests(connection: sqlite3.Connection) -> None:
@@ -215,7 +225,7 @@ class OutputCatalog:
             len(source_rows), (time.perf_counter() - backfill_started_at) * 1000,
         )
 
-    def synchronize(self, managed_directory: Path) -> dict[str, int]:
+    def synchronize(self, managed_directory: Path, style_directory: Path | None = None) -> dict[str, int]:
         """서버 시작·수동 새로고침 때 FS 목록을 대조하며 실제 해상도·크기는 읽지 않습니다."""
 
         scan_started_at = time.perf_counter()
@@ -224,6 +234,11 @@ class OutputCatalog:
             output_path = Path(directory_entry.path)
             if directory_entry.is_file(follow_symlinks=False) and output_path.suffix.lower() in MEDIA_EXTENSIONS:
                 physical_paths.add(output_path.relative_to(managed_directory).as_posix())
+        if style_directory is not None and style_directory.is_dir():
+            for directory_entry in iterate_output_directory_entries(style_directory):
+                output_path = Path(directory_entry.path)
+                if directory_entry.is_file(follow_symlinks=False) and output_path.suffix.lower() in MEDIA_EXTENSIONS:
+                    physical_paths.add(STYLE_OUTPUT_PREFIX + output_path.relative_to(style_directory).as_posix())
         scan_elapsed_ms = (time.perf_counter() - scan_started_at) * 1000
         synchronization_started_at = time.perf_counter()
         with self._connect() as connection:
@@ -281,11 +296,13 @@ class OutputCatalog:
         job_id: str = "",
         request_id: str = "",
         output_timing: OutputTimingRecorder | None = None,
-        folder_id: str = "",
+        folder_id: str = "", include_style: bool = False,
     ) -> dict[str, Any]:
         """JSON을 읽지 않고 index에서 필터·정렬·pagination 및 요청 해상도를 조회합니다."""
 
         conditions = ["is_available = 1", "is_deleted = 0"]
+        if not include_style:
+            conditions.append("origin != 'style'")
         query_values = []
         if job_id:
             conditions.append("job_id = ?")
@@ -330,7 +347,7 @@ class OutputCatalog:
             generation_seed = int(page_row["seed"]) if page_row["seed"] is not None else None
             page_files.append({
                 "output_id": page_row["output_id"],
-                "path": page_row["relative_path"],
+                "path": page_row["relative_path"], "origin": "style" if page_row["relative_path"].startswith(STYLE_OUTPUT_PREFIX) else "general",
                 "name": output_path.name,
                 "generated_at": page_row["generated_at"],
                 "seed": generation_seed,
@@ -350,11 +367,13 @@ class OutputCatalog:
     def get_file_neighbors(
         self, output_id: int, job_id: str = "", request_id: str = "", prefix: str = "",
         folder_id: str = "",
-        favorite_id: str = "",
+        favorite_id: str = "", include_style: bool = False,
     ) -> dict[str, dict[str, Any] | None]:
         """현재 파일의 보호 상태와 같은 범위의 인접 파일을 페이지·FS·이력 JSON 없이 읽습니다."""
 
         conditions = ["is_available=1", "is_deleted=0"]
+        if not include_style:
+            conditions.append("origin != 'style'")
         parameters = []
         if job_id:
             conditions.append("job_id=?")
@@ -534,17 +553,19 @@ class OutputCatalog:
         image_files.sort(key=lambda image: (image["name"].casefold(), image["name"], image["path"]))
         return image_files
 
-    def list_deletable_output_ids(self, job_id: str = "", request_id: str = "", folder_id: str = "") -> list[int]:
+    def list_deletable_output_ids(self, job_id: str = "", request_id: str = "", folder_id: str = "", include_style: bool = False) -> list[int]:
         """현재 필터의 모든 페이지에서 삭제 보호되지 않은 결과물 ID만 조회합니다."""
 
-        return self.list_selection_candidates(job_id, request_id, folder_id)["deletable_output_ids"]
+        return self.list_selection_candidates(job_id, request_id, folder_id, include_style=include_style)["deletable_output_ids"]
 
     def list_selection_candidates(
-        self, job_id: str = "", request_id: str = "", folder_id: str = "",
+        self, job_id: str = "", request_id: str = "", folder_id: str = "", include_style: bool = False,
     ) -> dict[str, list[int]]:
         """작업 상태와 무관하게 현재 필터의 전체 결과물과 삭제 보호되지 않은 ID를 조회합니다."""
 
         conditions = ["is_available=1", "is_deleted=0"]
+        if not include_style:
+            conditions.append("origin != 'style'")
         query_values = []
         if job_id:
             conditions.append("job_id=?")
@@ -603,9 +624,20 @@ class OutputCatalog:
             ).fetchone()
         if output_row is None:
             raise LookupError("결과물을 찾을 수 없습니다.")
+        if output_row["relative_path"].startswith(STYLE_OUTPUT_PREFIX):
+            raise ValueError("스타일 구성 이미지의 출력 폴더는 이동할 수 없습니다.")
         if output_row["is_deleted"]:
             raise ValueError("삭제된 결과물은 이동할 수 없습니다.")
         return output_row["relative_path"]
+
+    def contains_style_outputs(self, output_ids: list[int]) -> bool:
+        """일괄 이동 전에 스타일 출력 포함 여부를 검사합니다."""
+
+        with self._connect() as connection:
+            for output_identifier in output_ids:
+                if connection.execute("SELECT 1 FROM output_files WHERE output_id=? AND origin='style'", (output_identifier,)).fetchone():
+                    return True
+        return False
 
     def is_deleted(self, relative_path: str) -> bool:
         """삭제 표시된 경로인지 확인하여 원본과 썸네일 접근을 차단합니다."""

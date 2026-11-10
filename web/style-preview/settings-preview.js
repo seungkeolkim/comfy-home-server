@@ -157,7 +157,7 @@ function settingsNavigationMarkup(scope) {
 function settingsHeadingMarkup(scope) {
   const isGlobal = scope === "global";
   const boundaryMarkup = PERSISTENT_STYLE_WORKSPACE
-    ? '<strong>서버에 저장하는 설정</strong><p>저장 버튼으로 반영합니다. 이미지 생성은 다음 단계에서 연결합니다.</p>'
+    ? '<strong>서버에 저장하는 설정</strong><p>저장 버튼으로 반영하며, 저장한 조건으로 이미지를 생성합니다.</p>'
     : '<strong>설정 화면 미리보기</strong><p>변경 내용은 이 탭에만 임시 보관됩니다. 실제 서버 설정·생성·이미지에는 아직 적용되지 않습니다.</p>';
   return `${settingsNavigationMarkup(scope)}<div class="page-heading"><div>
     <p class="eyebrow">${isGlobal ? "GLOBAL DEFAULTS" : escapeMarkup(currentProject().name)}</p>
@@ -346,12 +346,13 @@ function projectComponentGroupMarkup(kind, title, groupIdentifier) {
 function renderProjectSettingsPreview() {
   const draft = settingsPreviewDraft("project");
   return `${settingsHeadingMarkup("project")}<form id="project-settings-form" data-settings-project="${currentProject().identifier}" class="form-layout settings-form">
+    ${PERSISTENT_STYLE_WORKSPACE ? '<section class="panel"><h2>이미지 생성</h2><p class="form-note">서버에 저장한 Prompt·Workflow·성분 범위로 생성합니다. 미저장 설정은 먼저 저장해 주세요.</p><button type="button" data-action="navigate" data-screen="generation">생성 조합·장수 확인</button></section>' : ""}
     <section class="panel"><h2>프로젝트 목적</h2><label for="settings-project-name">프로젝트 이름</label><input id="settings-project-name" required maxlength="80" value="${escapeMarkup(draft.name)}" data-settings-scope="project" data-settings-field="name" />
       <label for="settings-project-purpose">찾고 싶은 그림체 · 메모</label><textarea id="settings-project-purpose" maxlength="2000" placeholder="예: 전신에서도 선이 선명한 수채 느낌" data-settings-scope="project" data-settings-field="purpose">${escapeMarkup(draft.purpose)}</textarea></section>
     <section class="panel"><h2>함께 비교할 Prompt</h2><p class="form-note settings-section-note">모든 Prompt를 함께 보고 조합 하나를 선택합니다. 한 개부터 시작할 수 있습니다.</p>
       ${draft.promptCases.map(projectSettingsPromptMarkup).join("")}<button type="button" data-settings-action="add-prompt">＋ Prompt 추가</button>
       <label for="settings-negative-prompt">공통 Negative Prompt</label><textarea id="settings-negative-prompt" maxlength="3000" data-settings-scope="project" data-settings-field="negativePrompt">${escapeMarkup(draft.negativePrompt)}</textarea>
-      <p class="form-note">${PERSISTENT_STYLE_WORKSPACE ? '현재는 생성 전 설정입니다. Prompt·생성 조건을 바꿔 저장하면 새 조건 Snapshot을 만들고 이전 기록을 유지합니다.' : '현재 예시 이미지는 그대로입니다. 실제 연결 후에는 조건 변경을 별도 평가 구간·Prompt 재시험으로 다룹니다.'}</p></section>
+      <p class="form-note">${PERSISTENT_STYLE_WORKSPACE ? '생성한 이미지의 조건은 보존합니다. 이미지가 있는 프로젝트의 Prompt·생성 조건 변경은 후속 재시험에서 지원합니다.' : '현재 예시 이미지는 그대로입니다. 실제 연결 후에는 조건 변경을 별도 평가 구간·Prompt 재시험으로 다룹니다.'}</p></section>
     ${projectWorkflowOptionsMarkup(draft)}
     <section class="panel"><div class="settings-section-heading"><div><h2>이 프로젝트의 성분 범위</h2><p class="form-note">글로벌 기본값 ${draft.defaultsRevision}번에서 시작 · 현재 ${previewState.globalSettings.revision}번</p></div>
       <button type="button" data-settings-action="preview-defaults">최신 STR 기본값 가져오기</button></div>

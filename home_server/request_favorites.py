@@ -150,13 +150,15 @@ class RequestFavoriteStore:
         return {"deleted": True}
 
     def list_favorites(
-        self, page: int, page_size: int, folder_id: str = "", job_id: str = "", request_id: str = "",
+        self, page: int, page_size: int, folder_id: str = "", job_id: str = "", request_id: str = "", include_style: bool = False,
     ) -> dict[str, Any]:
         """현재 작업 분류와 조회 범위에서 요청당 한 건씩 작은 목록을 페이지 조회합니다."""
 
         with self.connection_factory() as connection:
             connection.execute("BEGIN")
             conditions = []
+            if not include_style:
+                conditions.append("NOT EXISTS (SELECT 1 FROM favorite_output_links JOIN output_files USING(output_id) WHERE favorite_id=request_favorites.favorite_id AND origin='style')")
             parameters = []
             if folder_id == "unassigned":
                 conditions.append("NOT EXISTS (SELECT 1 FROM job_folder_assignments WHERE job_id=source_job_id)")

@@ -25,7 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .comfy_client import ComfyClient
+from .comfy_client import ComfyClient, ComfyHttpError
 from .administration import AdministrationMaintenance, AdministrationStore, create_administration_router
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database, current_timestamp
@@ -39,6 +39,8 @@ from .output_timing import OutputTimingRecorder, measure_output_step
 from .system_resources import RESOURCE_POLL_INTERVAL_SECONDS, SystemResourceMonitor
 from .style_preview import create_style_preview_router
 from .style_project_routes import create_style_project_router
+from .style_generation import StyleGenerationService
+from .output_roots import STYLE_OUTPUT_PREFIX, STYLE_OUTPUT_ROOT_NAME, resolve_managed_file
 from .tag_builder import (
     MAX_PROMPT_LENGTH, MAX_SELECTED_TAGS, anima_negative_prompt, anima_prompt,
     resolve_anima_prompts, resolve_tag_text, validate_tag_selection,
@@ -398,7 +400,11 @@ class HomeServer:
         self.administration = AdministrationStore(self.database.database_path)
         self.administration_maintenance = AdministrationMaintenance()
         self.output_catalog = OutputCatalog(self.database.database_path)
-        self.output_catalog.synchronize(config.managed_output_directory)
+        self.style_output_directory = config.style_output_directory
+        self.style_output_directory.mkdir(parents=True, exist_ok=True)
+        self.style_generation = StyleGenerationService(self)
+        self.style_generation.recover_renames()
+        self.output_catalog.synchronize(config.managed_output_directory, self.style_output_directory)
         self.video_previews = VideoPreviewCache(config, self.output_catalog)
         self.comfy = ComfyClient(config.comfy_endpoint)
         self.system_resources = SystemResourceMonitor()
@@ -444,14 +450,17 @@ class HomeServer:
         """관리 output 밖으로 나가는 경로와 symlink를 거부합니다."""
 
         normalized = relative_path.replace("\\", "/").strip("/")
-        if not normalized or any(component in {"", ".", ".."} for component in normalized.split("/")):
-            raise ValueError("관리 폴더 안의 상대 경로가 필요합니다.")
-        candidate = (self.config.managed_output_directory / normalized).resolve()
-        if self.config.managed_output_directory not in candidate.parents:
-            raise ValueError("관리 폴더 밖의 경로에는 접근할 수 없습니다.")
-        if must_exist and not candidate.exists():
-            raise FileNotFoundError(relative_path)
-        return candidate
+        if normalized == STYLE_OUTPUT_ROOT_NAME:
+            return self.style_output_directory
+        return resolve_managed_file(self.config.managed_output_directory, self.style_output_directory, normalized, must_exist)
+
+    def expected_managed_path(self, relative_path: str) -> Path:
+        """검증한 상대 경로의 링크 해석 전 위치를 삭제·이동 경계 검사에 제공합니다."""
+
+        if relative_path.startswith(STYLE_OUTPUT_PREFIX):
+            return self.style_output_directory / relative_path[len(STYLE_OUTPUT_PREFIX):]
+        return self.config.managed_output_directory / relative_path
+
 
 
 def move_managed_output(
@@ -460,6 +469,8 @@ def move_managed_output(
 ) -> dict[str, Any]:
     """단건·작업·다중 이동에 공통으로 파일 경계와 충돌을 검사하고 FS·DB 경로를 변경합니다."""
 
+    if source_relative_path.startswith(STYLE_OUTPUT_PREFIX) or destination_folder.startswith(STYLE_OUTPUT_ROOT_NAME):
+        raise HTTPException(422, "스타일 구성 이미지의 출력 폴더는 이동할 수 없습니다.")
     try:
         source_path = server.managed_path(source_relative_path, must_exist=True)
         destination_directory = resolve_output_directory(server.config.managed_output_directory, destination_folder, must_exist=False)
@@ -516,6 +527,8 @@ def move_recorded_outputs(server: HomeServer, output_ids: list[int], destination
         raise HTTPException(422, str(exception)) from exception
     except OSError as exception:
         raise HTTPException(409, "목적지 폴더에 접근할 수 없습니다.") from exception
+    if server.output_catalog.contains_style_outputs(output_ids):
+        raise HTTPException(422, "스타일 구성 이미지가 포함된 일괄 이동은 수행할 수 없습니다.")
     moved_output_ids = []
     skipped_output_ids = []
     failures = []
@@ -1183,6 +1196,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         summary: bool = False,
         folder_id: str = Query(default="", max_length=64),
         search: str = Query(default="", max_length=200),
+        include_style: bool = False,
     ):
         """작업 이력을 페이지 단위로 반환하고 필요하면 요청 상태를 갱신합니다."""
 
@@ -1194,7 +1208,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             """목록 조회부터 최종 JSON 직렬화까지 같은 Worker에서 완료합니다."""
 
             try:
-                response = read_jobs(page=page, page_size=page_size, job_id=job_id, folder_id=folder_id, search=search)
+                response = read_jobs(page=page, page_size=page_size, job_id=job_id, folder_id=folder_id, search=search, include_style=include_style)
             except LookupError as exception:
                 raise HTTPException(404, str(exception)) from exception
             response["server_time"] = current_timestamp()
@@ -1203,10 +1217,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return await asyncio.to_thread(read_job_page_response)
 
     @app.get("/api/jobs/deletion-candidates")
-    def job_deletion_candidates(job_id: str = "", folder_id: str = "", search: str = ""):
+    def job_deletion_candidates(job_id: str = "", folder_id: str = "", search: str = "", include_style: bool = False):
         """현재 목록의 모든 페이지에서 삭제 가능한 작업 ID만 반환합니다."""
 
-        return job_folder_operation(lambda: {"job_ids": server.database.list_deletable_job_ids(job_id, folder_id, search)})
+        return job_folder_operation(lambda: {"job_ids": server.database.list_deletable_job_ids(job_id, folder_id, search, include_style=include_style)})
 
     def job_folder_operation(operation: Callable[[], Any], status_code: int = 200) -> JSONResponse:
         """분류 오류를 사용자에게 보이는 404·422 응답으로 변환합니다."""
@@ -1219,10 +1233,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(422, str(exception)) from exception
 
     @app.get("/api/job-folders")
-    def job_folders():
+    def job_folders(include_style: bool = False):
         """분류 트리와 하위 포함 작업 수를 조회합니다."""
 
-        return JSONResponse(server.database.job_folders.list_folders())
+        return JSONResponse(server.database.job_folders.list_folders(include_style=include_style))
 
     @app.post("/api/job-folders", status_code=201)
     def create_job_folder(payload: JobFolderInput):
@@ -1247,10 +1261,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         return job_folder_operation(lambda: server.database.job_folders.delete_folder(folder_id))
 
     @app.get("/api/jobs/selection-candidates")
-    def job_selection_candidates(job_id: str = "", folder_id: str = "", search: str = ""):
+    def job_selection_candidates(job_id: str = "", folder_id: str = "", search: str = "", include_style: bool = False):
         """현재 분류·검색의 전체 이동 후보와 삭제 후보를 분리해 반환합니다."""
 
-        return job_folder_operation(lambda: server.database.list_job_selection_candidates(job_id, folder_id, search))
+        return job_folder_operation(lambda: server.database.list_job_selection_candidates(job_id, folder_id, search, include_style=include_style))
 
     @app.post("/api/jobs/folder")
     def move_jobs_to_folder(payload: JobFolderAssignmentInput):
@@ -1381,7 +1395,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 except ValueError:
                     LOGGER.warning("결과물 삭제 경로 제외: job_id=%s path=%s", job_id, relative_path)
                     continue
-                original_path = server.config.managed_output_directory / relative_path
+                original_path = server.expected_managed_path(relative_path)
                 if output_path != original_path or output_path.suffix.lower() not in MEDIA_EXTENSIONS:
                     LOGGER.warning("결과물 삭제 경로 제외: job_id=%s path=%s", job_id, relative_path)
                     continue
@@ -1417,6 +1431,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         job_id: str = "",
         request_id: str = "",
         folder_id: str = "",
+        include_style: bool = False,
     ):
         """작업 분류·작업·요청 범위의 결과물을 index에서 페이지 조회합니다."""
 
@@ -1438,7 +1453,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         try:
             with measure_output_step(output_timing, "catalog_listing", emit=True):
                 listing = server.output_catalog.list_files(
-                    page, page_size, normalized_prefix, job_id, request_id, output_timing, folder_id=folder_id,
+                    page, page_size, normalized_prefix, job_id, request_id, output_timing, folder_id=folder_id, include_style=include_style,
                 )
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
@@ -1446,7 +1461,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             for output_file in listing["files"]:
                 if output_file["dimensions_source"] is not None or output_file["kind"] != "image":
                     continue
-                file_path = server.config.managed_output_directory / output_file["path"]
+                file_path = server.expected_managed_path(output_file["path"])
                 with measure_output_step(output_timing, "image_dimensions_fallback", output_file["path"], emit=True):
                     dimensions = cached_image_dimensions(file_path)
                 if dimensions:
@@ -1471,11 +1486,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/favorites")
     def output_favorites(
         page: int = Query(default=1, ge=1), page_size: int = Query(default=64, ge=1, le=100),
-        folder_id: str = "", job_id: str = "", request_id: str = "",
+        folder_id: str = "", job_id: str = "", request_id: str = "", include_style: bool = False,
     ):
         """분류에 맞는 즐겨찾기를 요청당 한 건씩 반환합니다."""
 
-        return job_folder_operation(lambda: server.database.favorites.list_favorites(page, page_size, folder_id, job_id, request_id))
+        return job_folder_operation(lambda: server.database.favorites.list_favorites(page, page_size, folder_id, job_id, request_id, include_style=include_style))
 
     @app.get("/api/favorites/{favorite_id}")
     def favorite_details(favorite_id: str):
@@ -1528,7 +1543,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     @app.get("/api/outputs/{output_id}/neighbors")
     def output_neighbors(
         output_id: int, job_id: str = "", request_id: str = "", prefix: str = "", folder_id: str = "",
-        favorite_id: str = "",
+        favorite_id: str = "", include_style: bool = False,
     ):
         """미리보기 현재 파일의 삭제 보호 상태와 같은 범위의 이전·다음 파일을 반환합니다."""
 
@@ -1541,30 +1556,30 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             except ValueError as exception:
                 raise HTTPException(422, str(exception)) from exception
         try:
-            return server.output_catalog.get_file_neighbors(output_id, job_id, request_id, normalized_prefix, folder_id, favorite_id)
+            return server.output_catalog.get_file_neighbors(output_id, job_id, request_id, normalized_prefix, folder_id, favorite_id, include_style=include_style)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
 
     @app.get("/api/outputs/deletion-candidates")
-    def output_deletion_candidates(job_id: str = "", request_id: str = "", folder_id: str = ""):
+    def output_deletion_candidates(job_id: str = "", request_id: str = "", folder_id: str = "", include_style: bool = False):
         """현재 작업 분류·작업·요청 범위에서 삭제 보호되지 않은 전체 결과물 ID를 반환합니다."""
 
         if job_id and request_id:
             raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
         try:
-            output_ids = server.output_catalog.list_deletable_output_ids(job_id, request_id, folder_id)
+            output_ids = server.output_catalog.list_deletable_output_ids(job_id, request_id, folder_id, include_style=include_style)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
         return JSONResponse({"output_ids": output_ids})
 
     @app.get("/api/outputs/selection-candidates")
-    def output_selection_candidates(job_id: str = "", request_id: str = "", folder_id: str = ""):
+    def output_selection_candidates(job_id: str = "", request_id: str = "", folder_id: str = "", include_style: bool = False):
         """현재 필터의 전체 선택용 ID와 삭제 가능한 ID를 함께 반환합니다."""
 
         if job_id and request_id:
             raise HTTPException(422, "작업과 요청 필터를 동시에 사용할 수 없습니다.")
         try:
-            candidates = server.output_catalog.list_selection_candidates(job_id, request_id, folder_id)
+            candidates = server.output_catalog.list_selection_candidates(job_id, request_id, folder_id, include_style=include_style)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
         return JSONResponse(candidates)
@@ -1631,7 +1646,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
         output_timing = getattr(request.state, "output_timing", None)
         with measure_output_step(output_timing, "catalog_sync", emit=True):
-            result = server.output_catalog.synchronize(server.config.managed_output_directory)
+            result = server.output_catalog.synchronize(server.config.managed_output_directory, server.style_output_directory)
         server.video_previews.invalidate_missing()
         if server.config.video_preview_warmup_enabled:
             server.video_previews.request_scan(priority=2, cleanup=True)
@@ -1700,7 +1715,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 file_path = server.managed_path(relative_path)
         except (ValueError, FileNotFoundError) as exception:
             raise HTTPException(404, str(exception)) from exception
-        if server.output_catalog.is_deleted(file_path.relative_to(server.config.managed_output_directory).as_posix()):
+        if server.output_catalog.is_deleted(relative_path.replace("\\", "/")):
             raise HTTPException(404, "삭제된 결과물입니다.")
         if file_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS:
             try:
@@ -1757,7 +1772,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             file_path = server.managed_path(relative_path)
         except (ValueError, FileNotFoundError) as exception:
             raise HTTPException(404, str(exception)) from exception
-        if server.output_catalog.is_deleted(file_path.relative_to(server.config.managed_output_directory).as_posix()):
+        if server.output_catalog.is_deleted(relative_path.replace("\\", "/")):
             raise HTTPException(404, "삭제된 결과물입니다.")
         if not file_path.is_file() or file_path.suffix.lower() not in MEDIA_EXTENSIONS:
             raise HTTPException(404, "지원하지 않는 결과물입니다.")
@@ -1774,7 +1789,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 output_path = server.managed_path(relative_path)
             except ValueError as exception:
                 raise HTTPException(422, str(exception)) from exception
-            if output_path != server.config.managed_output_directory / relative_path:
+            if output_path != server.expected_managed_path(relative_path):
                 raise HTTPException(422, "symlink 경로의 결과물은 삭제할 수 없습니다.")
             if output_path.suffix.lower() not in MEDIA_EXTENSIONS:
                 raise HTTPException(422, "지원하는 이미지·영상 결과물만 삭제할 수 있습니다.")
@@ -1795,7 +1810,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         except sqlite3.Error as exception:
             LOGGER.exception("결과물 삭제 DB 오류: output_id=%s", output_id)
             raise HTTPException(409, "결과물 삭제 상태를 DB에 반영하지 못했습니다.") from exception
-        output_path = server.config.managed_output_directory / deletion_result["path"]
+        output_path = server.managed_path(deletion_result["path"])
         IMAGE_DIMENSION_CACHE.invalidate(output_path)
         server.thumbnail_cache.invalidate(output_path)
         if output_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS:
@@ -1890,8 +1905,17 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
             try:
                 if await _skip_cancelled_submission(server, request_id):
                     continue
+                style_prepared = None
+                if detail.get("style_plan_identifier"):
+                    style_prepared = await asyncio.to_thread(server.style_generation.prepare_request, request)
                 favorite_restore = detail.get("favorite_restore")
-                if favorite_restore and favorite_restore["mode"] == "exact":
+                if style_prepared:
+                    prompt_text = style_prepared["prompt"]
+                    negative_text = style_prepared["negative"]
+                    selected_path = negative_selected_path = []
+                    wildcard_seed = style_prepared["wildcard_seed"]
+                    tag_seed = style_prepared["tag_seed"]
+                elif favorite_restore and favorite_restore["mode"] == "exact":
                     prompt_text = detail["body"]["prompt"]
                     negative_text = detail["body"].get("negative", "")
                     saved_resolved = favorite_restore["resolved"]
@@ -1918,12 +1942,16 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                     )
                     negative_selected_path = []
                     negative_text = ""
-                if request["workflow"] not in workflow_templates:
+                if not style_prepared and request["workflow"] not in workflow_templates:
                     workflow_templates[request["workflow"]] = await asyncio.to_thread(
                         load_workflows, server.config.workflow_directory, request["workflow"],
                     )
-                api_workflow, ui_workflow = workflow_templates[request["workflow"]]
-                if request["workflow"] == "anima":
+                if style_prepared:
+                    request_workflow = style_prepared["prepared_graph"]
+                    metadata_workflow = style_prepared["metadata_workflow"]
+                    request_settings = style_prepared["settings"]
+                elif request["workflow"] == "anima":
+                    api_workflow, ui_workflow = workflow_templates[request["workflow"]]
                     request_settings = dict(detail["settings"])
                     request_settings["seed"] = detail["favorite_seed"] if "favorite_seed" in detail else secrets.randbelow(2**31)
                     request_workflow, metadata_workflow = await asyncio.to_thread(
@@ -1932,6 +1960,7 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                         request_settings, detail["loras"], request["output_stem"],
                     )
                 else:
+                    api_workflow, ui_workflow = workflow_templates[request["workflow"]]
                     request_settings = minimax_execution_settings(detail["settings"])
                     upload_id = detail["upload_id"]
                     upload_path = await asyncio.to_thread(find_uploaded_image, server.upload_directory, upload_id)
@@ -1954,17 +1983,19 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                         "selected_path": selected_path,
                         "negative_selected_path": negative_selected_path,
                         "wildcard_seed": wildcard_seed, "tag_seed": tag_seed, "settings": request_settings,
-                        "loras": detail["loras"],
+                        "loras": style_prepared["loras"] if style_prepared else detail["loras"],
                         "source_image": detail.get("resolved", {}).get("source_image"),
                     },
                 }
+                if style_prepared:
+                    metadata["home_server_request"]["style_context"] = style_prepared["style_context"]
                 if await _skip_cancelled_submission(server, request_id):
                     continue
                 submission_started = True
                 prompt_id = await server.comfy.submit(request_workflow, metadata)
                 await asyncio.to_thread(
                     server.database.set_request_accepted,
-                    request_id, prompt_id, {**detail.get("resolved", {}), "prompt": prompt_text, "negative": negative_text,
+                    request_id, prompt_id, {**detail.get("resolved", {}), **(style_prepared or {}), "prompt": prompt_text, "negative": negative_text,
                                             "selected_path": selected_path,
                                             "negative_selected_path": negative_selected_path,
                                             "wildcard_seed": wildcard_seed, "tag_seed": tag_seed, "settings": request_settings},
@@ -1982,7 +2013,11 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                     else:
                         await asyncio.to_thread(server.database.cancel_unsubmitted_request, request_id)
                 else:
-                    await asyncio.to_thread(server.database.update_request, request_id, "failed", str(exception))
+                    rejected_before_acceptance = isinstance(exception, ComfyHttpError) and 400 <= exception.status_code < 500
+                    if detail.get("style_plan_identifier") and submission_started and not rejected_before_acceptance:
+                        await asyncio.to_thread(server.database.update_request, request_id, "stopped", "ComfyUI 접수 여부가 미확인입니다. 자동 재시도하지 않습니다.")
+                    else:
+                        await asyncio.to_thread(server.database.update_request, request_id, "failed", str(exception))
                 LOGGER.error("요청 제출 실패: request_id=%s error_type=%s", request_id, type(exception).__name__)
     finally:
         await asyncio.to_thread(clear_batch_uploads, server.upload_directory, requests)
@@ -2014,6 +2049,16 @@ def comfy_execution_started_at(status_info: dict[str, Any]) -> str | None:
         except (ValueError, OverflowError, OSError):
             continue
     return None
+
+
+def comfy_execution_error(status_info: dict[str, Any]) -> str:
+    """실제 실패 Node와 오류를 표시하고 모든 LoRA를 원인으로 단정하지 않습니다."""
+
+    for message in status_info.get("messages", []):
+        if isinstance(message, (list, tuple)) and len(message) >= 2 and message[0] == "execution_error" and isinstance(message[1], dict):
+            failure = message[1]
+            return f"{failure.get('node_type', 'Node')} {failure.get('node_id', '')}: {str(failure.get('exception_message', '실행 실패'))[:2000]}"
+    return str(status_info.get("status_str", "실행 실패"))
 
 
 async def _refresh_requests(server: HomeServer) -> None:
@@ -2094,7 +2139,7 @@ async def _refresh_requests_before_restore(server: HomeServer) -> None:
                 next_status = "cancelled" if status_name == "interrupted" or interruption_recorded else "failed"
                 return {"request_id": request["request_id"], "status": next_status,
                         "started_at": started_at,
-                        "error_message": None if next_status == "cancelled" else status_name}
+                        "error_message": None if next_status == "cancelled" else comfy_execution_error(status_info)}
             return None
 
         history_updates = await asyncio.gather(*(read_history_state(request) for request in history_requests))
@@ -2133,9 +2178,12 @@ def _history_output_paths(server: HomeServer, record: dict[str, Any], workflow: 
             if output_asset.get("type") != "output":
                 continue
             subfolder = str(output_asset.get("subfolder", "")).replace("\\", "/")
-            if not subfolder.startswith(f"{managed_folder_name}/"):
+            if subfolder.startswith(STYLE_OUTPUT_PREFIX):
+                relative_folder = subfolder
+            elif subfolder.startswith(f"{managed_folder_name}/"):
+                relative_folder = subfolder[len(managed_folder_name) + 1:]
+            else:
                 continue
-            relative_folder = subfolder[len(managed_folder_name) + 1:]
             filename = str(output_asset.get("filename", ""))
             if not filename or "/" in filename or "\\" in filename:
                 continue

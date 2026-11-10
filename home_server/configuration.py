@@ -40,6 +40,12 @@ class AppConfig:
     video_preview_timeout_seconds: int = 300
     video_preview_shutdown_timeout_seconds: int = 10
 
+    @property
+    def style_output_directory(self) -> Path:
+        """일반 출력의 형제 폴더를 스타일 구성 전용 관리 루트로 사용합니다."""
+
+        return self.comfy_output_directory / "from_comfy_home_style"
+
 
 def video_preview_settings(output_data: dict) -> dict:
     """영상 설정의 타입·범위를 검증하고 누락된 항목에는 기본값을 적용합니다."""

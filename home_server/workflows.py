@@ -8,6 +8,7 @@ import math
 import re
 from pathlib import Path
 from typing import Any
+from .output_directories import validate_directory_name
 
 
 WORKFLOW_FILES = {
@@ -87,6 +88,10 @@ def validate_output_stem(output_stem: str) -> str:
 
     normalized = output_stem.replace("\\", "/")
     components = normalized.split("/")
+    if components[0] == "from_comfy_home_style":
+        for component in components:
+            validate_directory_name(component)
+        return normalized
     if any(component in {"", ".", ".."} for component in components):
         raise ValueError("출력 경로에 잘못된 구성요소가 있습니다.")
     path_components = components[:-1]

@@ -9,6 +9,7 @@ from PIL import Image, ImageOps, UnidentifiedImageError
 
 from .output_catalog import OutputCatalog
 from .output_directories import resolve_output_directory, validate_directory_name
+from .output_roots import STYLE_OUTPUT_PREFIX, STYLE_OUTPUT_ROOT_NAME, resolve_managed_file
 
 
 MAX_INPUT_BYTES = 50 * 1024 * 1024
@@ -18,6 +19,8 @@ def resolve_input_image(output_root: Path, relative_path: str) -> Path:
     """폴더 경계와 파일 자체의 링크 여부를 확인하여 루트 안의 일반 파일만 허용합니다."""
 
     normalized_path = relative_path.replace("\\", "/")
+    if normalized_path.startswith(STYLE_OUTPUT_PREFIX):
+        return resolve_managed_file(output_root, output_root.parent / STYLE_OUTPUT_ROOT_NAME, normalized_path, must_exist=True)
     parent_path, _, image_name = normalized_path.rpartition("/")
     validate_directory_name(image_name)
     parent_directory = resolve_output_directory(output_root, parent_path)

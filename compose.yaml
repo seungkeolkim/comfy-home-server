@@ -38,6 +38,11 @@ services:
         target: /comfy-output/from_home_server
         bind:
           create_host_path: false
+      - type: bind
+        source: ${COMFY_MANAGED_OUTPUT_DIRECTORY:?Set COMFY_MANAGED_OUTPUT_DIRECTORY in .env}/../from_comfy_home_style
+        target: /comfy-output/from_comfy_home_style
+        bind:
+          create_host_path: false
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8388/api/session', timeout=3).read()"]
       interval: 30s

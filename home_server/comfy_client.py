@@ -10,6 +10,16 @@ from typing import Any
 import httpx
 
 
+class ComfyHttpError(RuntimeError):
+    """확정적인 HTTP 거부와 접수 여부가 모호한 연결 오류를 구분합니다."""
+
+    def __init__(self, status_code: int, message: str) -> None:
+        """응답 상태와 기존 오류 메시지를 함께 보관합니다."""
+
+        self.status_code = status_code
+        super().__init__(message)
+
+
 def encode_json_payload(payload: Any) -> bytes:
     """큰 Workflow JSON의 직렬화와 UTF-8 변환을 Worker에서 완료합니다."""
 
@@ -53,7 +63,7 @@ class ComfyClient:
             kwargs["headers"] = request_headers
         response = await self.client.request(method, path, **kwargs)
         if response.is_error:
-            raise RuntimeError(f"ComfyUI {path}: HTTP {response.status_code} {response.text[:1000]}")
+            raise ComfyHttpError(response.status_code, f"ComfyUI {path}: HTTP {response.status_code} {response.text[:1000]}")
         return await asyncio.to_thread(response.json)
 
     async def list_loras(self) -> list[str]:
@@ -73,6 +83,29 @@ class ComfyClient:
         result = await asyncio.to_thread(response.json)
         if result.get("status") != "success":
             raise RuntimeError(f"ComfyUI LoRA 목록 재검색 실패: {result.get('message') or result}")
+
+    async def lora_identities(self, file_names: list[str]) -> dict[str, dict]:
+        """LoRA Manager가 제공하는 파일 Hash·크기·수정 시각을 출처와 함께 읽습니다."""
+
+        identities = {}
+        requested_names = {name.replace("\\", "/") for name in file_names}
+        page_number = 1
+        try:
+            while requested_names - identities.keys():
+                response = await self.request_json("GET", "/api/lm/loras/list", params={"page": page_number, "page_size": 100})
+                for item in response.get("items", []):
+                    base_name = str(item.get("file_path", "")).replace("\\", "/").rsplit("/", 1)[-1]
+                    folder_name = str(item.get("folder", "")).replace("\\", "/").strip("/")
+                    relative_name = f"{folder_name}/{base_name}" if folder_name else base_name
+                    if relative_name in requested_names:
+                        identities[relative_name] = {"sha256": item.get("sha256"), "file_size": item.get("file_size"),
+                                                     "modified": item.get("modified"), "source": "lora-manager-metadata"}
+                if page_number >= response.get("total_pages", 1):
+                    break
+                page_number += 1
+        except (RuntimeError, httpx.HTTPError):
+            return {}
+        return identities
 
     async def populate_wildcards(self, text: str, seed: int) -> str:
         """설치된 Impact Pack으로 Prompt wildcard를 확장합니다."""
