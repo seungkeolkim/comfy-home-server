@@ -38,9 +38,9 @@ function createElapsedTimeHandler(fixtures) {
     const requestUrl = new URL(route.request().url());
     const requestPath = requestUrl.pathname;
     if (await handleJobFolderReadRequest(route, fixtures.jobs)) return;
-    if (["/", "/app.js", "/app.css"].includes(requestPath)) {
+    if (["/", "/workflow-options.js", "/app.js", "/app.css"].includes(requestPath)) {
       const filename = requestPath === "/" ? "index.html" : requestPath.slice(1);
-      await route.fulfill({ contentType: { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css" }[filename],
+      await route.fulfill({ contentType: { "index.html": "text/html", "workflow-options.js": "text/javascript", "app.js": "text/javascript", "app.css": "text/css" }[filename],
         body: filesystem.readFileSync(path.join(projectDirectory, "web", filename), "utf8") });
       return;
     }

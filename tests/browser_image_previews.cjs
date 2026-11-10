@@ -29,9 +29,9 @@ function createImagePreviewHandler(fixtures) {
     const matchingFiles = fixtures.files.filter(output =>
       (!requestUrl.searchParams.get("job_id") || output.job_id === requestUrl.searchParams.get("job_id")) &&
       (!requestUrl.searchParams.get("request_id") || output.request_id === requestUrl.searchParams.get("request_id")));
-    if (["/", "/app.js", "/app.css", "/favicon.svg"].includes(requestPath)) {
+    if (["/", "/workflow-options.js", "/app.js", "/app.css", "/favicon.svg"].includes(requestPath)) {
       const filename = requestPath === "/" ? "index.html" : requestPath.slice(1);
-      const contentTypes = { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css", "favicon.svg": "image/svg+xml" };
+      const contentTypes = { "index.html": "text/html", "workflow-options.js": "text/javascript", "app.js": "text/javascript", "app.css": "text/css", "favicon.svg": "image/svg+xml" };
       await route.fulfill({ contentType: contentTypes[filename], body: filesystem.readFileSync(path.join(projectDirectory, "web", filename), "utf8") });
       return;
     }

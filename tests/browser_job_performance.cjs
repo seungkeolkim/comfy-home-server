@@ -33,7 +33,7 @@ function createPerformanceHandler(mockState) {
     const requestUrl = new URL(request.url());
     const requestPath = requestUrl.pathname;
     if (await handleJobFolderReadRequest(route, mockState.jobs || [])) return;
-    if (["/", "/app.js", "/app.css"].includes(requestPath)) {
+    if (["/", "/workflow-options.js", "/app.js", "/app.css"].includes(requestPath)) {
       const filename = requestPath === "/" ? "index.html" : requestPath.slice(1);
       await route.fulfill({ contentType: filename.endsWith("html") ? "text/html" : filename.endsWith("js")
         ? "text/javascript" : "text/css", body: filesystem.readFileSync(path.join(projectDirectory, "web", filename), "utf8") });

@@ -151,6 +151,56 @@ dialog::backdrop { background: #070911b3; backdrop-filter: blur(3px); }
 .login-panel .brand-icon { margin-bottom: 24px; }
 .login-panel button { width: 100%; margin-top: 18px; }
 .error { color: #f3b8a7; font-size: 13px; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+.settings-tabs { display: flex; gap: 8px; margin-bottom: 24px; }
+.settings-tabs button { flex: 0 1 180px; }
+.settings-tabs [aria-current="page"] { background: #302841; border-color: #8570be; color: #e1d8ff; }
+.settings-boundary-note { max-width: 840px; background: #1b1928; border: 1px solid #40324e; border-radius: 12px; padding: 16px 20px; margin-bottom: 20px; }
+.settings-boundary-note strong { color: #cfbde5; font-size: 13px; }
+.settings-boundary-note p { color: var(--muted); font-size: 12px; margin: 6px 0 0; }
+.settings-form > .panel > label:not(:first-child) { margin-top: 20px; }
+.settings-form .form-row { row-gap: 16px; }
+.settings-workflow-options > .form-row { margin-top: 18px; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.settings-workflow-options input:read-only { color: var(--muted); }
+.prompt-editor-heading > button { flex: none; white-space: nowrap; }
+.settings-range-group { margin-top: 22px; }
+.settings-range-group h3 { color: #c9c1dd; margin-bottom: 12px; }
+.settings-catalog { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 18px; }
+.settings-component-group { margin-top: 24px; }
+.settings-component-group > h3 { color: #c9c1dd; margin-bottom: 12px; }
+.artist-bulk-registration { border: 1px solid var(--line); border-radius: 12px; background: #10131c; padding: 16px; margin-bottom: 18px; }
+.artist-bulk-registration textarea { min-height: 135px; }
+.artist-bulk-registration .form-actions { margin-top: 14px; }
+.artist-bulk-preview-list { list-style: none; padding: 0; margin: 12px 0; max-height: 250px; overflow-y: auto; }
+.artist-bulk-preview-list li { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 3px 10px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+.artist-bulk-preview-list li > span { color: var(--muted); }
+.artist-bulk-preview-list code { overflow-wrap: anywhere; }
+.artist-bulk-preview-list small { grid-column: 2; color: var(--muted); }
+.settings-checkbox { display: flex; align-items: center; gap: 10px; margin: 0; cursor: pointer; min-height: 44px; }
+.settings-checkbox input { width: 20px; height: 20px; flex: none; accent-color: #a99aff; padding: 0; }
+.settings-checkbox span { min-width: 0; }
+.settings-checkbox strong { display: block; font-size: 13px; overflow-wrap: anywhere; }
+.settings-checkbox small { display: block; font-size: 11px; color: var(--muted); }
+.settings-catalog .settings-checkbox { border: 1px solid var(--line); border-radius: 10px; padding: 12px; }
+.settings-section-heading { display: flex; flex-wrap: wrap; align-items: start; justify-content: space-between; gap: 12px; }
+.settings-section-heading button { font-size: 12px; }
+.settings-section-note { margin: 14px 0 18px; }
+.settings-component { margin: 12px 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: #10131c; }
+.settings-component-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 15px; }
+.settings-component fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.settings-component fieldset:disabled { opacity: .4; }
+.settings-strength-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.settings-strength-grid label { font-size: 12px; }
+.settings-strength-grid input:disabled { color: #787e92; }
+.settings-actions { padding-bottom: 15px; }
+.settings-actions > span { color: var(--muted); font-size: 12px; margin-right: auto; }
+.settings-defaults-dialog { width: min(580px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 24px; border-radius: 16px; overflow-y: auto; }
+.settings-defaults-dialog p { font-size: 13px; }
+.settings-defaults-dialog .dialog-heading h2 { font-size: 18px; }
+.settings-default-changes { padding: 0; list-style: none; }
+.settings-default-changes li { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.settings-default-changes strong, .settings-default-changes span { display: block; font-size: 13px; overflow-wrap: anywhere; }
+.settings-default-changes span { color: var(--muted); margin-top: 4px; }
 @media (min-width: 1700px) { .image-button img { height: 340px; } }
 @media (max-width: 1050px) {
   .application-layout { grid-template-columns: 175px minmax(0, 1fr); }
@@ -214,12 +264,20 @@ dialog::backdrop { background: #070911b3; backdrop-filter: blur(3px); }
   .candidate-grid { gap: 10px; }
   .candidate-card img { height: 190px; }
   .candidate-card-body { padding: 12px; }
-  .mobile-navigation { display: grid; grid-template-columns: repeat(3, 1fr); position: fixed; bottom: 0; left: 0; right: 0; padding: 7px 10px calc(7px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #11141df5; backdrop-filter: blur(18px); z-index: 5; }
+  .mobile-navigation { display: grid; grid-template-columns: repeat(4, 1fr); position: fixed; bottom: 0; left: 0; right: 0; padding: 7px 10px calc(7px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: #11141df5; backdrop-filter: blur(18px); z-index: 5; }
   .mobile-navigation button { background: transparent; border: 0; color: var(--muted); font-size: 11px; padding: 7px 3px; }
   .mobile-navigation button.active { color: #cabaff; background: #252035; }
   .mobile-navigation b { display: block; font-size: 18px; line-height: 1.4; font-weight: 400; }
   .component-dialog { border-radius: 0; padding: 20px 16px; }
   .toast { bottom: calc(140px + env(safe-area-inset-bottom)); }
+  .settings-catalog { grid-template-columns: 1fr; }
+  .settings-component { padding: 12px; }
+  .settings-strength-grid { gap: 7px; }
+  .settings-strength-grid input { padding: 10px 7px; }
+  .settings-workflow-options > .form-row { gap: 8px; }
+  .settings-tabs button { flex: 1; font-size: 13px; }
+  .settings-actions > span { flex-basis: 100%; }
+  .settings-defaults-dialog { padding: 20px 16px; }
 }
 @media (max-width: 360px) {
   .candidate-name { font-size: 11px; }

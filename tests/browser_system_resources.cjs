@@ -43,10 +43,10 @@ async function verifySystemResources(browser, viewport) {
       return;
     }
     if (await handleJobFolderReadRequest(route)) return;
-    if (["/", "/app.js", "/app.css"].includes(requestPath)) {
+    if (["/", "/workflow-options.js", "/app.js", "/app.css"].includes(requestPath)) {
       const fileName = requestPath === "/" ? "index.html" : requestPath.slice(1);
       await route.fulfill({
-        contentType: { "index.html": "text/html", "app.js": "text/javascript", "app.css": "text/css" }[fileName],
+        contentType: { "index.html": "text/html", "workflow-options.js": "text/javascript", "app.js": "text/javascript", "app.css": "text/css" }[fileName],
         body: filesystem.readFileSync(path.join(projectDirectory, "web", fileName), "utf8"),
       });
       return;

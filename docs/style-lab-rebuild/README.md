@@ -28,6 +28,8 @@
 
 Mobile 피드백은 [21번 결정 기록](21_project_context_settings_and_fork.md)에 반영했습니다. 같은 창 전환·조합 단위 한 번 선택·STR 표시·프로젝트별 그림체를 적용하고, 글로벌/프로젝트 설정과 현재 프로젝트 맥락·Fork의 후속 범위를 정리합니다.
 
+**설정 목업 확인 완료:** [글로벌·프로젝트 설정 화면](settings_preview_review.md)에서 프로젝트별 Prompt·성분 범위, 글로벌 기본값 적용 Preview, CHS와 같은 Workflow 옵션과 작가 Bulk 등록을 사용할 수 있습니다. 사용자가 이 범위까지 확인하고 Commit을 요청했습니다. 실제 DB 저장은 아직 연결하지 않았습니다.
+
 2026-11-10의 [Web UX와 세 가지 개선 요구](20_web_ux_fusion_multi_prompt_and_component_differences.md)를 반영합니다. UX 기준은 현재 localhost:8389의 Style Lab Web·Mobile입니다. 여러 Prompt의 결과를 함께 보는 일상 탐색과 성분 차이 기반 탐색 제외를 초기 설계에 반영하며, 구체적인 투표 집계·UI는 사용자와 확인합니다. 과거 단일 Prompt 탐색 설명은 이 확장과 함께 읽습니다.
 
 구현을 시작할 때는 [함께 만드는 개발 과정](development_process.md)을 먼저 확인합니다. 기능을 작은 사용자 행동 단위로 구현하고 직접 사용한 결과를 확인한 뒤 다음 단계로 진행합니다. 아래 문서는 요구사항과 복원 근거이며, 기존 화면·저장 구조 제안을 한꺼번에 구현하라는 지시가 아닙니다.

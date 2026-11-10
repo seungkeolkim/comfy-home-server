@@ -747,11 +747,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             asset_version = secrets.token_hex(16)
         else:
             modified_timestamps = []
-            for file_name in ("index.html", "app.js", "app.css", "favicon.svg"):
+            for file_name in ("index.html", "app.js", "app.css", "favicon.svg", "workflow-options.js"):
                 modified_timestamps.append((web_directory / file_name).stat().st_mtime_ns)
             asset_version = str(max(modified_timestamps))
         page_content = (web_directory / "index.html").read_text(encoding="utf-8")
-        for asset_name in ("app.js", "app.css", "favicon.svg"):
+        for asset_name in ("app.js", "app.css", "favicon.svg", "workflow-options.js"):
             page_content = page_content.replace(f'"/{asset_name}"', f'"/{asset_name}?v={asset_version}"')
         return Response(page_content, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
@@ -774,6 +774,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """웹 앱 JavaScript를 제공합니다."""
 
         return FileResponse(PROJECT_DIRECTORY / "web" / "app.js", media_type="text/javascript",
+                            headers={"Cache-Control": "no-cache"})
+
+    @app.get("/workflow-options.js")
+    async def workflow_options_javascript():
+        """일반 생성과 스타일 구성이 공유하는 Workflow 옵션 정의를 제공합니다."""
+
+        return FileResponse(PROJECT_DIRECTORY / "web" / "workflow-options.js", media_type="text/javascript",
                             headers={"Cache-Control": "no-cache"})
 
     @app.post("/api/login")

@@ -7,7 +7,11 @@ from fastapi.responses import FileResponse
 
 
 PREVIEW_DIRECTORY = Path(__file__).resolve().parent.parent / "web" / "style-preview"
-PREVIEW_ASSETS = {"preview.css": "text/css", "preview.js": "text/javascript"}
+PREVIEW_ASSETS = {
+    "preview.css": "text/css",
+    "preview.js": "text/javascript",
+    "settings-preview.js": "text/javascript",
+}
 
 
 def create_style_preview_router() -> APIRouter:

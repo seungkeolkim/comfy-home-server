@@ -1,14 +1,5 @@
 "use strict";
 
-const ANIMA_RESOLUTIONS = {
-  "16:9": [[1024, 576], [1280, 720], [1536, 864]],
-  "3:2": [[864, 576], [1152, 768], [1536, 1024]],
-  "4:3": [[1024, 768], [1280, 960], [1536, 1152]],
-  "1:1": [[768, 768], [1024, 1024], [1280, 1280]],
-  "3:4": [[768, 1024], [960, 1280], [1152, 1536]],
-  "2:3": [[576, 864], [768, 1152], [1024, 1536]],
-  "9:16": [[576, 1024], [720, 1280], [864, 1536]],
-};
 const TAG_NAME_COLLATOR = new Intl.Collator("ko-KR", { numeric: true, sensitivity: "base" });
 const KOREAN_DATE_TIME_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit",
