@@ -17,6 +17,7 @@ def test_preview_serves_only_allowed_files() -> None:
             ("/style-preview/preview.css", "text/css"),
             ("/style-preview/preview.js", "text/javascript"),
             ("/style-preview/settings-preview.js", "text/javascript"),
+            ("/style-preview/ranking-preview.js", "text/javascript"),
         ):
             response = client.get(path)
             assert response.status_code == 200
