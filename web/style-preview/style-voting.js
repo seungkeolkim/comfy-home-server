@@ -2,6 +2,23 @@
 
 const styleVotingViewState = { clientIdentifier: null };
 
+/** 하단 메뉴·Vote Bar의 실제 높이를 예약해 마지막 이미지와 조작부가 가려지지 않게 합니다. */
+function updateStyleVotingDockLayout() {
+  const footer = document.querySelector(".persistent-comparison .comparison-footer");
+  const navigation = document.querySelector("#preview-mobile-navigation");
+  if (!styleVotingViewState.dockObserver) {
+    styleVotingViewState.dockObserver = new ResizeObserver(updateStyleVotingDockLayout);
+    styleVotingViewState.dockObserver.observe(navigation);
+  }
+  if (footer !== styleVotingViewState.observedFooter) {
+    if (styleVotingViewState.observedFooter) styleVotingViewState.dockObserver.unobserve(styleVotingViewState.observedFooter);
+    if (footer) styleVotingViewState.dockObserver.observe(footer);
+    styleVotingViewState.observedFooter = footer;
+  }
+  document.documentElement.style.setProperty("--style-mobile-navigation-height", `${Math.ceil(navigation.getBoundingClientRect().height)}px`);
+  document.documentElement.style.setProperty("--style-voting-dock-height", `${Math.ceil(footer?.getBoundingClientRect().height || 0)}px`);
+}
+
 /** Browser 식별자는 로그인 정보와 별도로 보존하여 다른 기기의 Undo를 구별합니다. */
 function styleVotingClientIdentifier() {
   if (styleVotingViewState.clientIdentifier) return styleVotingViewState.clientIdentifier;
@@ -44,11 +61,12 @@ async function refreshStyleVoting(projectIdentifier) {
 /** 서버와 화면 모두 모든 Prompt 이미지가 준비됐을 때만 투표를 활성화합니다. */
 function updateStyleVotingControls() {
   if (!PERSISTENT_STYLE_WORKSPACE || previewState.screen !== "compare") return;
+  updateStyleVotingDockLayout();
   const { voting, plan } = currentPersistentComparison();
   const state = currentStyleGenerationState();
   const images = [...document.querySelectorAll(".persistent-comparison .comparison-result img")];
   const imagesReady = Boolean(plan && images.length === plan.cases.length * 2 && images.every(image => image.complete && image.naturalWidth > 0));
-  const canVote = Boolean(voting?.match && imagesReady && !state.votingCommandBusy);
+  const canVote = Boolean(voting?.match && imagesReady && !state.votingCommandBusy && !state.candidateCommandBusy);
   for (const button of document.querySelectorAll("[data-style-voting-choice]")) button.disabled = !canVote;
   if (state.votingCommandBusy) {
     for (const picker of document.querySelectorAll("[data-comparison-candidate], #style-comparison-plan")) picker.disabled = true;

@@ -49,7 +49,8 @@ async function verifyStyleGeneration() {
     await page.screenshot({ path: 'runtime/verification/style-generation-mobile.png', fullPage: true });
     await page.locator('[data-generation-action=enlarge]').first().click();
     await expect(page.locator('#illustration-dialog')).toBeVisible();
-    await page.locator('[data-generation-action=close-enlarged]').click();
+    await expect(page.locator('#style-viewer-original-toggle')).not.toBeChecked();
+    await page.locator('[data-style-library-action=close]').click();
     await page.reload();
     await expect(page.locator('.generation-result img')).toHaveCount(4, { timeout: 10000 });
     await page.setViewportSize({ width: 1280, height: 1000 });

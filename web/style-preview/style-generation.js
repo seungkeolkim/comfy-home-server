@@ -10,8 +10,7 @@ function currentStyleGenerationState(projectIdentifier = previewState.currentPro
 
 /** 서버가 반환한 파일 경로만 인증된 미디어 URL로 변환합니다. */
 function styleImageUrl(relativePath, original = false) {
-  const encodedPath = relativePath.split("/").map(encodeURIComponent).join("/");
-  return `${original ? "/media/" : "/api/outputs/preview/"}${encodedPath}`;
+  return window.ComfyHomeImagePreview.imageSource(relativePath, original);
 }
 
 /** 조합 구성은 편집용 범위와 실제 계획의 고정값을 구분해 표시합니다. */
@@ -118,14 +117,15 @@ function styleGenerationResultsMarkup(results) {
   const statusLabels = { submitting: "제출 준비 중", pending: "대기 중", running: "생성 중", completed: "완료", failed: "실패", stopped: "중단·접수 미확인", cancelled: "취소됨", cancelling: "취소 중" };
   return submittedPlans.map(plan => {
     const candidates = results.candidates.filter(candidate => candidate.planIdentifier === plan.planIdentifier);
+    if (!candidates.length) return "";
     const renders = candidates.flatMap(candidate => candidate.renders);
     const latestRenders = candidates.flatMap(candidate => plan.cases.map(promptCase => candidate.renders.filter(render => render.caseIdentifier === promptCase.identifier).at(-1))).filter(Boolean);
     const hasRetryTargets = latestRenders.some(render => ["failed", "cancelled"].includes(render.status));
     const activeJobs = [...new Set(renders.filter(render => ["submitting", "pending", "running", "cancelling"].includes(render.status)).map(render => render.jobIdentifier))];
-    return `<section class="panel generation-results"><div class="settings-section-heading"><h2>${plan.generationNumber || 1}세대 · ${plan.candidates.length}개 조합 · ${plan.cases.length}개 Prompt</h2></div>${plan.cases.map(promptCase => `<section><h3>${escapeMarkup(persistentPromptCaseName(promptCase))}</h3><div class="generation-result-grid">${candidates.map(candidate => {
+    return `<section class="panel generation-results"><div class="settings-section-heading"><h2>${plan.generationNumber || 1}세대 · ${candidates.length}개 조합 · ${plan.cases.length}개 Prompt</h2></div>${plan.cases.map(promptCase => `<section><h3>${escapeMarkup(persistentPromptCaseName(promptCase))}</h3><div class="generation-result-grid">${candidates.map(candidate => {
       const render = candidate.renders.filter(item => item.caseIdentifier === promptCase.identifier).at(-1);
       const file = render?.files.find(item => item.is_available && !item.is_deleted);
-      return `<article class="generation-result"><strong>조합 ${escapeMarkup(candidate.label)}</strong>${file ? `<button class="image-button" data-generation-action="enlarge" data-path="${escapeMarkup(file.path)}"><img loading="lazy" src="${styleImageUrl(file.path)}" alt="${escapeMarkup(persistentPromptCaseName(promptCase))} · 조합 ${escapeMarkup(candidate.label)}" style="aspect-ratio:${plan.sampling.width}/${plan.sampling.height}" /></button>` : `<div class="empty-state">${render ? escapeMarkup(statusLabels[render.status] || render.status) : "계획 확인 완료 · 미제출"}</div>`}${render?.error ? `<p class="error">${escapeMarkup(render.error)}</p>` : ""}<details><summary>성분·실제 생성 조건</summary><ul>${candidate.components.map(component => `<li>${escapeMarkup(component.identifier)} · STR ${component.strength}</li>`).join("")}</ul>${render?.settings ? `<p>Seed ${render.settings.seed} · ${render.settings.width}×${render.settings.height} · Steps ${render.settings.steps} · CFG ${render.settings.cfg}</p>` : ""}${render?.prompt ? `<p class="form-note">${escapeMarkup(render.prompt)}</p>` : ""}</details></article>`;
+      return `<article class="generation-result"><strong>${escapeMarkup(persistentCandidateLabel(candidate))}</strong>${file ? `<button class="image-button" data-generation-action="enlarge" data-path="${escapeMarkup(file.path)}"><img loading="lazy" src="${styleImageUrl(file.path)}" alt="${escapeMarkup(persistentPromptCaseName(promptCase))} · ${escapeMarkup(persistentCandidateLabel(candidate))}" style="aspect-ratio:${plan.sampling.width}/${plan.sampling.height}" /></button>` : `<div class="empty-state">${render ? escapeMarkup(statusLabels[render.status] || render.status) : "계획 확인 완료 · 미제출"}</div>`}${render?.error ? `<p class="error">${escapeMarkup(render.error)}</p>` : ""}<details><summary>성분·실제 생성 조건</summary><ul>${candidate.components.map(component => `<li>${escapeMarkup(component.identifier)} · STR ${component.strength}</li>`).join("")}</ul>${render?.settings ? `<p>Seed ${render.settings.seed} · ${render.settings.width}×${render.settings.height} · Steps ${render.settings.steps} · CFG ${render.settings.cfg}</p>` : ""}${render?.prompt ? `<p class="form-note">${escapeMarkup(render.prompt)}</p>` : ""}</details></article>`;
     }).join("")}</div></section>`).join("")}<div class="form-actions">${hasRetryTargets && !activeJobs.length && !["cancelled", "confirmed"].includes(plan.evolutionStatus) ? `<button data-generation-action="retry" data-plan="${plan.planIdentifier}">실패·취소 항목만 재시도</button>` : ""}${activeJobs.map(jobIdentifier => `<button data-generation-action="cancel" data-job="${jobIdentifier}">이 생성 작업 취소</button>`).join("")}</div></section>`;
   }).join("") + `<p class="form-note">${escapeMarkup(project.name)}의 실제 결과입니다. 선별에서 비교하고 그림체에서 순위·Elo를 확인할 수 있습니다.</p>`;
 }
@@ -134,7 +134,7 @@ function styleGenerationResultsMarkup(results) {
 async function refreshStyleGenerationResults(projectIdentifier = previewState.currentProjectIdentifier) {
   if (!PERSISTENT_STYLE_WORKSPACE || !projectIdentifier) return;
   const state = currentStyleGenerationState(projectIdentifier);
-  if (state.votingCommandBusy || state.evolutionCommandBusy) return;
+  if (state.votingCommandBusy || state.evolutionCommandBusy || state.candidateCommandBusy) return;
   const refreshSequence = (state.resultRefreshSequence || 0) + 1;
   state.resultRefreshSequence = refreshSequence;
   const results = await styleProjectApi(`/api/style-projects/${projectIdentifier}/generation-results`);
@@ -155,6 +155,7 @@ async function refreshStyleGenerationResults(projectIdentifier = previewState.cu
     }
   }
   updateStyleVotingControls();
+  refreshOpenStyleLibraryViewer();
 }
 
 /** 조합 입력을 프로젝트 허용 범위의 초안에만 반영합니다. */
@@ -198,8 +199,7 @@ async function handleStyleGenerationAction(event) {
   const state = currentStyleGenerationState(projectIdentifier);
   const action = button.dataset.generationAction;
   if (action === "enlarge") {
-    illustrationDialog.innerHTML = `<div class="dialog-heading"><h2>생성 이미지</h2><button data-generation-action="close-enlarged">닫기</button></div><img src="${styleImageUrl(button.dataset.path, true)}" alt="생성 원본 이미지" />`;
-    illustrationDialog.showModal();
+    openStyleLibraryViewerByPath(button.dataset.path, button);
     return;
   }
   if (action === "close-enlarged") {

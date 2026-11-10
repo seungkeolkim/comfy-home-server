@@ -123,14 +123,14 @@ async function verifyRandomStyleGeneration() {
       await secondPicker.selectOption(plan.candidates[3].identifier);
       assert.equal((await responsePromise).status(), 200);
     }
-    await expect(page.locator('.candidate-headings')).toContainText('조합 C');
-    await expect(page.locator('.candidate-headings')).toContainText('조합 D');
+    await expect(page.locator('.candidate-headings')).toContainText(plan.candidates[2].displayName);
+    await expect(page.locator('.candidate-headings')).toContainText(plan.candidates[3].displayName);
     await page.locator('[data-action=open-differences]').click();
     await expect(page.locator('#component-dialog')).toBeVisible();
     await page.locator('[data-action=close-differences]').click();
     await page.locator('[data-action=toggle-blind]').click();
     await expect(page.locator('[data-comparison-candidate="0"]')).toBeDisabled();
-    await expect(page.locator('.comparison-pair-picker')).not.toContainText('조합 C');
+    await expect(page.locator('.comparison-pair-picker')).not.toContainText(plan.candidates[2].displayName);
     await page.locator('[data-action=toggle-blind]').click();
     await expect(page.locator('[data-comparison-candidate="0"]')).toHaveValue(plan.candidates[2].identifier);
     await page.screenshot({ path: 'runtime/verification/style-random-comparison-mobile.png', fullPage: true });

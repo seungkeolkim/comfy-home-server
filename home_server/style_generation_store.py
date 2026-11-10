@@ -98,6 +98,7 @@ class StyleGenerationStore:
         project = self.project(project_identifier)
         with self.connection_factory() as connection:
             memberships = {row["candidate_id"]: dict(row) for row in connection.execute("SELECT memberships.* FROM style_candidate_memberships AS memberships JOIN style_candidates USING(candidate_id) WHERE project_id=?", (project_identifier,))}
+            stored_plans = {row["plan_id"]: json.loads(row["plan_json"]) for row in connection.execute("SELECT plan_id,plan_json FROM style_generation_plans WHERE project_id=?", (project_identifier,))}
             current_generation = connection.execute("SELECT generation_number FROM style_evolution_timelines WHERE evaluation_id=?", (project["active_evaluation_id"],)).fetchone()
             candidates = connection.execute(
                 "SELECT * FROM style_candidates WHERE project_id=? AND (evaluation_id=? OR EXISTS "
@@ -106,6 +107,8 @@ class StyleGenerationStore:
             ).fetchall()
             results = []
             for candidate in candidates:
+                if memberships[candidate["candidate_id"]]["lifecycle"] in {"deleting", "deleted"}:
+                    continue
                 render_rows = connection.execute(
                     "SELECT renders.*,job_requests.status,job_requests.error_message,job_requests.job_id,"
                     "job_requests.prompt_id,request_results.result_json FROM style_candidate_renders AS renders "
@@ -127,6 +130,7 @@ class StyleGenerationStore:
                         "settings": browser_sampling_settings(result["settings"]) if result.get("settings") else None, "loras": result.get("loras", []),
                     })
                 results.append({"identifier": candidate["candidate_id"], "label": candidate["label"], "planIdentifier": candidate["plan_id"],
+                                **self.candidate_display_identity(candidate, stored_plans[candidate["plan_id"]], memberships[candidate["candidate_id"]]["generation_number"]),
                                 "evaluationIdentifier": candidate["evaluation_id"],
                                 "generationNumber": memberships[candidate["candidate_id"]]["generation_number"], "lifecycle": memberships[candidate["candidate_id"]]["lifecycle"],
                                 "evolutionBatchIdentifier": memberships[candidate["candidate_id"]]["batch_id"], "breedingMode": memberships[candidate["candidate_id"]]["breeding_mode"],
@@ -138,6 +142,7 @@ class StyleGenerationStore:
                 (project_identifier, project["active_evaluation_id"]),
             )]
             arena_statistics = {row["evaluation_id"]: json.loads(row["state_json"])["statistics"] for row in connection.execute("SELECT evaluation_id,state_json FROM style_voting_arenas WHERE project_id=?", (project_identifier,))}
+            pending_deletions = [json.loads(row[0]) for row in connection.execute("SELECT response_json FROM style_voting_commands WHERE project_id=? AND action='delete' AND json_extract(response_json,'$.status')='deleting' ORDER BY rowid", (project_identifier,))]
             for row in connection.execute("SELECT evaluation_id,result_json FROM style_evolution_batches WHERE project_id=? AND status='cancelled' AND result_json IS NOT NULL", (project_identifier,)):
                 statistics = json.loads(row["result_json"]).get("cancelledStatistics", {})
                 arena_statistics.setdefault(row["evaluation_id"], {}).update({identifier: value for identifier, value in statistics.items() if value is not None})
@@ -156,4 +161,14 @@ class StyleGenerationStore:
         batch_numbers = {plan["planIdentifier"]: index + 1 for index, plan in enumerate(submitted_plans)}
         for candidate in results:
             candidate["batchNumber"] = batch_numbers.get(candidate["planIdentifier"])
-        return {"projectIdentifier": project_identifier, "activeEvaluationIdentifier": project["active_evaluation_id"], "currentGeneration": current_generation[0] if current_generation else 1, "candidates": results, "plans": plans}
+        return {"projectIdentifier": project_identifier, "activeEvaluationIdentifier": project["active_evaluation_id"], "currentGeneration": current_generation[0] if current_generation else 1, "candidates": results, "plans": plans, "pendingCandidateDeletions": pending_deletions}
+
+    @staticmethod
+    def candidate_display_identity(candidate, plan: dict, generation_number: int) -> dict:
+        """표시 이름은 기존·신규 파일명의 세대·조합 번호와 일치시킵니다."""
+
+        for combination_index, combination in enumerate(plan["candidates"], 1):
+            if combination["identifier"] == candidate["candidate_id"]:
+                combination_number = combination.get("combinationNumber", combination_index)
+                return {"combinationNumber": combination_number, "displayName": combination.get("displayName", f"세대{generation_number:03}-조합{combination_number:02}")}
+        raise ValueError("생성 계획에서 조합 식별자를 찾을 수 없습니다.")

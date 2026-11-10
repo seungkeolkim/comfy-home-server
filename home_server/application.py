@@ -42,6 +42,7 @@ from .style_project_routes import create_style_project_router
 from .style_generation import StyleGenerationService
 from .style_voting import StyleVotingService
 from .style_evolution import StyleEvolutionService
+from .style_candidate_deletion import StyleCandidateDeletionService
 from .style_evolution_routes import create_style_evolution_router
 from .style_voting_routes import create_style_voting_router
 from .output_roots import STYLE_OUTPUT_PREFIX, STYLE_OUTPUT_ROOT_NAME, resolve_managed_file
@@ -409,6 +410,7 @@ class HomeServer:
         self.style_generation = StyleGenerationService(self)
         self.style_voting = StyleVotingService(self)
         self.style_evolution = StyleEvolutionService(self)
+        self.style_candidate_deletion = StyleCandidateDeletionService(self)
         self.style_generation.recover_renames()
         self.output_catalog.synchronize(config.managed_output_directory, self.style_output_directory)
         self.video_previews = VideoPreviewCache(config, self.output_catalog)
@@ -423,6 +425,7 @@ class HomeServer:
         self.cancellation_retry_after: dict[str, float] = {}
         self.cancellation_wakeup = asyncio.Event()
         self._mark_interrupted_submissions()
+        self.style_candidate_deletion.recover_pending_deletions()
 
     def record_comfy_connection(self, connected: bool, error_type: str | None = None) -> None:
         """ComfyUI 연결 상태가 바뀔 때만 로그를 남깁니다."""
@@ -681,6 +684,47 @@ def clear_batch_uploads(upload_directory: Path, requests: list[dict[str, Any]]) 
                 upload_path.unlink(missing_ok=True)
 
 
+def delete_recorded_output(server: HomeServer, output_id: int) -> dict:
+    """CHS의 경로·삭제 보호·Catalog·Cache 처리를 단건과 조합 삭제에서 재사용합니다."""
+
+    def remove_output_file(relative_path: str) -> bool:
+        """관리 폴더의 이미지·영상 파일만 삭제하며 이미 없으면 삭제 표시만 남깁니다."""
+
+        try:
+            output_path = server.managed_path(relative_path)
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+        if output_path != server.expected_managed_path(relative_path):
+            raise HTTPException(422, "symlink 경로의 결과물은 삭제할 수 없습니다.")
+        if output_path.suffix.lower() not in MEDIA_EXTENSIONS:
+            raise HTTPException(422, "지원하는 이미지·영상 결과물만 삭제할 수 있습니다.")
+        try:
+            output_path.unlink()
+        except FileNotFoundError:
+            return False
+        except OSError as exception:
+            raise HTTPException(409, "결과물 파일을 삭제할 수 없습니다.") from exception
+        return True
+
+    try:
+        deletion_result = server.output_catalog.delete_file(output_id, remove_output_file)
+    except LookupError as exception:
+        raise HTTPException(404, str(exception)) from exception
+    except ValueError as exception:
+        raise HTTPException(409, str(exception)) from exception
+    except sqlite3.Error as exception:
+        LOGGER.exception("결과물 삭제 DB 오류: output_id=%s", output_id)
+        raise HTTPException(409, "결과물 삭제 상태를 DB에 반영하지 못했습니다.") from exception
+    output_path = server.managed_path(deletion_result["path"])
+    IMAGE_DIMENSION_CACHE.invalidate(output_path)
+    server.thumbnail_cache.invalidate(output_path)
+    if output_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS:
+        server.video_previews.invalidate_missing()
+    LOGGER.info("결과물 삭제: output_id=%s path=%s deleted_files=%s", output_id,
+                deletion_result["path"], deletion_result["deleted_files"])
+    return deletion_result
+
+
 def create_app(config: AppConfig | None = None) -> FastAPI:
     """앱 서버와 API route를 구성합니다."""
 
@@ -770,11 +814,11 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             asset_version = secrets.token_hex(16)
         else:
             modified_timestamps = []
-            for file_name in ("index.html", "app.js", "app.css", "favicon.svg", "workflow-options.js"):
+            for file_name in ("index.html", "app.js", "app.css", "favicon.svg", "workflow-options.js", "image-preview.js"):
                 modified_timestamps.append((web_directory / file_name).stat().st_mtime_ns)
             asset_version = str(max(modified_timestamps))
         page_content = (web_directory / "index.html").read_text(encoding="utf-8")
-        for asset_name in ("app.js", "app.css", "favicon.svg", "workflow-options.js"):
+        for asset_name in ("app.js", "app.css", "favicon.svg", "workflow-options.js", "image-preview.js"):
             page_content = page_content.replace(f'"/{asset_name}"', f'"/{asset_name}?v={asset_version}"')
         return Response(page_content, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
@@ -804,6 +848,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """일반 생성과 스타일 구성이 공유하는 Workflow 옵션 정의를 제공합니다."""
 
         return FileResponse(PROJECT_DIRECTORY / "web" / "workflow-options.js", media_type="text/javascript",
+                            headers={"Cache-Control": "no-cache"})
+
+    @app.get("/image-preview.js")
+    async def shared_image_preview_javascript():
+        """일반 결과물과 스타일 구성이 공유하는 기존 이미지 Viewer 동작을 제공합니다."""
+
+        return FileResponse(PROJECT_DIRECTORY / "web" / "image-preview.js", media_type="text/javascript",
                             headers={"Cache-Control": "no-cache"})
 
     @app.post("/api/login")
@@ -1788,44 +1839,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.delete("/api/outputs/{output_id}")
     def delete_output(output_id: int):
-        """작업 상태와 무관하게 보호되지 않은 결과물만 지우고 이력과 삭제 표시는 보존합니다."""
+        """작업 이력은 유지하고 CHS의 공통 삭제 경로로 결과물을 제거합니다."""
 
-        def remove_output_file(relative_path: str) -> bool:
-            """관리 폴더의 이미지·영상 파일만 삭제하며 이미 없으면 삭제 표시만 남깁니다."""
-
-            try:
-                output_path = server.managed_path(relative_path)
-            except ValueError as exception:
-                raise HTTPException(422, str(exception)) from exception
-            if output_path != server.expected_managed_path(relative_path):
-                raise HTTPException(422, "symlink 경로의 결과물은 삭제할 수 없습니다.")
-            if output_path.suffix.lower() not in MEDIA_EXTENSIONS:
-                raise HTTPException(422, "지원하는 이미지·영상 결과물만 삭제할 수 있습니다.")
-            try:
-                output_path.unlink()
-            except FileNotFoundError:
-                return False
-            except OSError as exception:
-                raise HTTPException(409, "결과물 파일을 삭제할 수 없습니다.") from exception
-            return True
-
-        try:
-            deletion_result = server.output_catalog.delete_file(output_id, remove_output_file)
-        except LookupError as exception:
-            raise HTTPException(404, str(exception)) from exception
-        except ValueError as exception:
-            raise HTTPException(409, str(exception)) from exception
-        except sqlite3.Error as exception:
-            LOGGER.exception("결과물 삭제 DB 오류: output_id=%s", output_id)
-            raise HTTPException(409, "결과물 삭제 상태를 DB에 반영하지 못했습니다.") from exception
-        output_path = server.managed_path(deletion_result["path"])
-        IMAGE_DIMENSION_CACHE.invalidate(output_path)
-        server.thumbnail_cache.invalidate(output_path)
-        if output_path.suffix.lower() in VIDEO_OUTPUT_EXTENSIONS:
-            server.video_previews.invalidate_missing()
-        LOGGER.info("결과물 삭제: output_id=%s path=%s deleted_files=%s", output_id,
-                    deletion_result["path"], deletion_result["deleted_files"])
-        return JSONResponse(deletion_result)
+        return JSONResponse(delete_recorded_output(server, output_id))
 
     @app.post("/api/outputs/move")
     def move_output(payload: MoveInput):

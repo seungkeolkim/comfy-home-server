@@ -184,15 +184,23 @@ def apply_selection_choice(state: dict, choice: str) -> None:
     if choice != "similar":
         vote["winner_id"] = match[choice]
     selection["history"].insert(0, vote)
+    synchronize_selection_statistics(state)
+    state["lastPair"] = [match["a"], match["b"]]
+    state["match"] = None
+
+
+def synchronize_selection_statistics(state: dict) -> None:
+    """명시적 Elo 보정은 유지하면서 현재 부모 기준의 자녀 점수·전적을 재계산합니다."""
+
+    selection = state["evolution"]
     ranking = build_selection_ranking(selection)
+    rating_offsets = selection.get("ratingOffsets", {})
     for identifier in selection["candidate_ids"]:
         statistics = state["statistics"][identifier]
         decisive_votes = ranking["counts"][identifier]
         judged = bool(ranking["info"][identifier]["votes"])
-        statistics["rating"] = ranking["scores"][identifier] if judged else 10000
+        statistics["rating"] = (ranking["scores"][identifier] if judged else 10000) + rating_offsets.get(identifier, 0)
         statistics["matches"] = decisive_votes
         statistics["wins"] = sum(vote.get("winner_id") == identifier for vote in selection["history"] if vote["type"] == "selection_vote") if decisive_votes else 0
         statistics["skips"] = sum(identifier in vote["pair"].values() for vote in selection["history"] if vote["type"] == "selection_skip")
-        statistics["placed"] = judged
-    state["lastPair"] = [match["a"], match["b"]]
-    state["match"] = None
+        statistics["placed"] = judged or identifier in rating_offsets

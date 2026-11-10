@@ -4,6 +4,8 @@
 
 **그림체 통합:** [검토한 목업](ranking_preview_review.md)에 따라 실제 순위·Elo·전적, 조합별 여러 Prompt의 작은 이미지와 Viewer를 그림체 탭에 통합했습니다. 진화 후 퇴역·취소 조합도 필터로 조회합니다. Mobile 메뉴는 네 개를 유지합니다.
 
+**사용성 보완:** [8389 비교·Elo 수정·조합 폐기·공통 Viewer·고정 선호 버튼](style_usability_review.md)을 연결합니다. 표시 이름은 파일의 세대·조합 규칙을 따르고 Mobile Viewer는 CHS의 기존 Thumbnail Cache를 사용합니다.
+
 작성일: 2026-11-08, Asia/Seoul. 실제 설치본과 Comfy Home Server 소스를 읽어 작성했습니다.
 
 ## 목적과 확정한 방향

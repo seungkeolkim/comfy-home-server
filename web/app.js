@@ -3692,41 +3692,33 @@ function closeVideoPreview(restoreFocus = true, preserveNavigation = false) {
   videoPreviewState.opener = null;
 }
 
-/** 토글 상태에 맞춰 압축 미리보기 또는 원본 이미지 파일을 읽습니다. */
-function loadImagePreviewSource(outputFile) {
-  const showOriginalFiles = outputPreviewNavigationState.showOriginalFiles;
-  const encodedPath = encodedOutputPath(outputFile.path);
-  element("image-preview-status").textContent = showOriginalFiles ? "원본 이미지를 불러오는 중…" : "미리보기를 불러오는 중…";
-  const image = element("image-preview-content");
-  image.alt = outputFile.name;
-  image.src = showOriginalFiles ? `/media/${encodedPath}` : `/api/outputs/preview/${encodedPath}`;
+/** CHS와 스타일 구성에서 같은 이미지 Viewer Controller를 사용합니다. */
+function imagePreviewController() {
+  imagePreviewState.controller ??= window.ComfyHomeImagePreview.createImagePreviewController({
+    dialog: element("image-preview-dialog"), image: element("image-preview-content"),
+    title: element("image-preview-title"), originalLink: element("image-preview-original"),
+    status: element("image-preview-status"), notice: element("image-preview-notice"),
+    originalToggle: element("image-preview-original-toggle"), state: imagePreviewState,
+  });
+  return imagePreviewState.controller;
 }
 
-/** 선택한 보기 모드로 이미지 창을 열고 원본의 별도 탭 링크도 제공합니다. */
+/** 현재 목록의 원본 보기 설정만 공통 이미지 Viewer에 전달합니다. */
+function loadImagePreviewSource(outputFile) {
+  imagePreviewController().loadImageSource(outputFile, outputPreviewNavigationState.showOriginalFiles);
+}
+
+/** 목록 범위는 유지하며 CHS 공통 이미지 창을 엽니다. */
 function openImagePreview(outputFile, opener) {
   closeVideoPreview(false, true);
   closeImagePreview(false, true);
-  imagePreviewState.outputId = outputFile.output_id;
-  imagePreviewState.opener = opener;
-  const encodedPath = encodedOutputPath(outputFile.path);
-  element("image-preview-title").textContent = outputFile.name;
-  element("image-preview-original").href = `/media/${encodedPath}`;
-  element("image-preview-notice").classList.add("hidden");
-  loadImagePreviewSource(outputFile);
-  element("image-preview-dialog").showModal();
+  imagePreviewController().openImage(outputFile, opener, outputPreviewNavigationState.showOriginalFiles);
 }
 
-/** 이미지 연결과 표시 상태를 정리하고 원래 Thumbnail 버튼으로 Focus를 돌립니다. */
+/** 공통 Viewer의 소스를 정리하고 원래 Thumbnail 버튼으로 Focus를 돌립니다. */
 function closeImagePreview(restoreFocus = true, preserveNavigation = false) {
   if (!preserveNavigation) resetOutputPreviewNavigation();
-  imagePreviewState.pointerStartedOutside = false;
-  imagePreviewState.outputId = null;
-  const image = element("image-preview-content");
-  image.removeAttribute("src");
-  image.alt = "";
-  element("image-preview-original").removeAttribute("href");
-  element("image-preview-status").textContent = "";
-  element("image-preview-notice").classList.add("hidden");
+  imagePreviewController().clearImage();
   const dialog = element("image-preview-dialog");
   if (dialog.open) dialog.close();
   if (restoreFocus && imagePreviewState.opener?.isConnected) imagePreviewState.opener.focus({ preventScroll: true });
@@ -3773,7 +3765,7 @@ function openOutputPreview(outputFile, opener, preserveScope = false, scopeFilte
   const navigationState = outputPreviewNavigationState;
   if (!preserveScope) {
     resetOutputPreviewNavigation();
-    navigationState.showOriginalFiles = window.matchMedia("(min-width: 801px)").matches;
+    navigationState.showOriginalFiles = window.ComfyHomeImagePreview.defaultOriginalMode();
     navigationState.filter = scopeFilter ? { ...scopeFilter } : null;
     navigationState.opener = opener;
   }
@@ -3838,46 +3830,11 @@ function setOutputPreviewOriginalMode(showOriginalFiles) {
   renderOutputPreviewNavigation();
 }
 
-/** Dialog 자체로 전달된 Pointer가 실제 미리보기 바깥에 있는지 확인합니다. */
-function isPreviewBackdropEvent(event) {
-  if (event.target !== event.currentTarget) return false;
-  const dialogBounds = event.currentTarget.getBoundingClientRect();
-  return event.clientX < dialogBounds.left || event.clientX > dialogBounds.right ||
-    event.clientY < dialogBounds.top || event.clientY > dialogBounds.bottom;
-}
-
-/** 이미지·영상의 닫기·Escape·외부 클릭을 연결하며 내부에서 시작한 드래그는 유지합니다. */
+/** 이미지·영상과 스타일 구성에 같은 닫기·방향키·원본 보기 동작을 적용합니다. */
 function bindPreviewDialogEvents(dialogIdentifier, closeButtonIdentifier, previewState, closePreview) {
-  const dialog = element(dialogIdentifier);
-  dialog.querySelector("[data-preview-original-toggle]").addEventListener("change", event => {
-    setOutputPreviewOriginalMode(event.target.checked);
-  });
-  dialog.querySelector("[data-preview-previous]").addEventListener("click", () => navigateOutputPreview("previous"));
-  dialog.querySelector("[data-preview-next]").addEventListener("click", () => navigateOutputPreview("next"));
-  dialog.addEventListener("keydown", event => {
-    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.target.closest("video, input, textarea, select")) return;
-    if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
-    event.preventDefault();
-    navigateOutputPreview(event.key === "ArrowLeft" ? "previous" : "next");
-  });
-  element(closeButtonIdentifier).addEventListener("click", () => closePreview());
-  dialog.addEventListener("pointerdown", event => {
-    previewState.pointerStartedOutside = isPreviewBackdropEvent(event);
-  });
-  dialog.addEventListener("pointercancel", () => {
-    previewState.pointerStartedOutside = false;
-  });
-  dialog.addEventListener("click", event => {
-    const clickedBackdrop = previewState.pointerStartedOutside && isPreviewBackdropEvent(event);
-    previewState.pointerStartedOutside = false;
-    if (clickedBackdrop) closePreview();
-  });
-  dialog.addEventListener("cancel", event => {
-    event.preventDefault();
-    closePreview();
-  });
-  dialog.addEventListener("close", () => {
-    if (!dialog.open && previewState.outputId !== null) closePreview();
+  window.ComfyHomeImagePreview.bindDialogEvents({
+    dialog: element(dialogIdentifier), closeButton: element(closeButtonIdentifier), state: previewState,
+    onClose: closePreview, onNavigate: navigateOutputPreview, onOriginalChange: setOutputPreviewOriginalMode,
   });
 }
 
@@ -4441,15 +4398,6 @@ function bindEvents() {
   bindPreviewDialogEvents("image-preview-dialog", "image-preview-close", imagePreviewState, closeImagePreview);
   element("image-preview-delete").addEventListener("click", () => runAction(deletePreviewOutput));
   element("video-preview-delete").addEventListener("click", () => runAction(deletePreviewOutput));
-  element("image-preview-content").addEventListener("load", () => {
-    if (imagePreviewState.outputId !== null) element("image-preview-status").textContent = "";
-  });
-  element("image-preview-content").addEventListener("error", () => {
-    if (imagePreviewState.outputId !== null)
-      element("image-preview-status").textContent = outputPreviewNavigationState.showOriginalFiles
-        ? "원본 이미지를 불러올 수 없습니다."
-        : "이미지 미리보기를 불러올 수 없습니다. 원본 보기로 확인해 주세요.";
-  });
   element("video-preview-player").addEventListener("error", () => {
     if (videoPreviewState.outputId !== null) showNotice(outputPreviewNavigationState.showOriginalFiles
       ? "원본 영상을 재생할 수 없습니다. 원본을 새 탭으로 열거나 미리보기로 전환해 주세요."

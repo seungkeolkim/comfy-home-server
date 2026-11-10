@@ -4,6 +4,8 @@
 
 **현재 진행:** 실제 선별·Elo·Undo는 `0148dee`에 Commit했습니다. 사용자 진행 요청에 따라 **부모 선정 → 자녀 생성 → Selection → 세대 확정/취소**의 [진화 1회](phase_five_review.md)를 연결하고 개발자 검증·CHS 재기동을 마쳤습니다. 사용자 확인을 기다리며 공통 성분 잠금·북마크 보호·계보별 부모 기회는 후속으로 두고 한 Cycle을 확인합니다. 현재 접속은 `/style`, 예시 목업은 `/style-preview`입니다.
 
+2026-11-11 진화 Cycle은 `ca447d9`에 Commit했습니다. 이어서 사용자 피드백으로 [8389 기준 그림체 관리·네이밍·Viewer·하단 고정 선호 버튼](style_usability_review.md)을 보완했고, 사용자 요청으로 관련 코드·테스트·문서를 함께 Commit합니다. 새 Cache·별도 Viewer를 만들지 않고 CHS 기존 기능을 공통 사용합니다. 다음 추천은 5단계의 그림체 보관·일반 생성 적용이며 별도 진행 요청을 기다립니다.
+
 요구사항 갱신: 2026-11-10. [20번 문서](20_web_ux_fusion_multi_prompt_and_component_differences.md)의 Web UX 기준과 세 가지 확장을 반영했습니다. Phase 0 목업은 구현·개발자 검증·[사용자 화면 검토](phase_zero_review.md)를 마쳤으며, 그림체 탭의 프로젝트 선택 UI는 후속 수정으로 남깁니다.
 
 ## 이번에 바꾸는 개발 방식
@@ -342,3 +344,7 @@ DB Migration이 필요한 단계에서는 적용 전 일관된 Backup의 경로�
 2026-11-11 / 진화 1회 / 0148dee 이후 변경 / Python 466 Passed·1 Skipped, 마지막 보강 관련 37개·Browser 7개, 운영 기존 업무 행·이미지 20장·Vote 5건 보존, Schema 18·HTTP 200·healthy / 사용자 진행 요청 / 부모 고정·Mutate/Crossover/Random·자녀 Selection/Undo·확정/취소·퇴역 필터·Checkpoint 연결 / 사용자 실제 Cycle 확인 대기, Commit·Push 없음. 상세는 phase_five_review.md
 
 2026-11-11 / 진화 1회 Commit / 0148dee 이후 변경 / 기존 개발자·운영 검증 기록 유지, diff 검사 통과 / 사용자 Commit 요청 / 진화 Cycle 코드·UI·Migration·테스트·문서를 함께 Commit / Push 없음, 사용자 사용성 확인과 다음 진행 요청 대기
+
+2026-11-11 / 그림체 관리·Viewer 사용성 수정 / ca447d9 이후 변경 / Python 476 Passed·1 Skipped, 스타일 Browser 8개·기존 CHS Browser 16개, 운영 32개 업무 테이블·이미지 28장 Hash 보존·상태 변경 요청 0건·healthy / 8389 실제 기능 비교·파일 규칙 표시·Elo/폐기 접근성·선호 버튼 고정·CHS Viewer/Cache 재사용 요청 / 카드·상세·선별 관리와 일괄 관리, 수동 Elo의 진화 반영, 영속 조합 폐기, 공통 Viewer와 Mobile Preview 연결 후 Backup·재기동 / 사용자 사용성 확인 대기, Commit·Push 없음. 상세는 style_usability_review.md
+
+2026-11-11 / 그림체 관리·Viewer 사용성 수정 Commit / ca447d9 이후 변경 / 기존 검증 기록 확인·Diff 검사 통과 / 사용자 Commit 및 다음 작업 추천 요청 / 이번 코드·테스트·문서를 함께 Commit, 그림체 보관·일반 생성 적용을 다음 단위로 추천 / Push 없음, 후속 구현 요청 대기

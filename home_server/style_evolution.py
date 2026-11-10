@@ -82,6 +82,8 @@ class StyleEvolutionService:
         active_request = connection.execute("SELECT 1 FROM style_candidate_renders JOIN style_candidates USING(candidate_id) JOIN job_requests USING(request_id) WHERE project_id=? AND evaluation_id=? AND job_requests.status IN ('submitting','pending','running','cancelling') LIMIT 1", (project["project_id"], evaluation_identifier)).fetchone()
         if active_request:
             messages.append("이 프로젝트의 진행 중 생성·취소 작업을 먼저 마쳐 주세요.")
+        if connection.execute("SELECT 1 FROM style_voting_commands WHERE project_id=? AND evaluation_id=? AND action='delete' AND json_extract(response_json,'$.status')='deleting'", (project["project_id"], evaluation_identifier)).fetchone():
+            messages.append("완료되지 않은 조합 폐기를 먼저 마쳐 주세요.")
         settings = ProjectSettings(**json.loads(project["settings_json"]))
         if settings.artistMaximumCount + settings.loraMaximumCount == 0 or not any(policy.enabled for policy in settings.componentPolicies.values()):
             messages.append("진화할 작가 또는 LoRA 성분을 하나 이상 허용해 주세요.")

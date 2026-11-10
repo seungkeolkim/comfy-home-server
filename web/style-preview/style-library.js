@@ -1,6 +1,7 @@
 "use strict";
 
 let styleLibraryViewerState = null;
+const styleLibraryDialogState = { outputId: null, opener: null, pointerStartedOutside: false };
 
 /** 같은 조합의 Prompt 순서와 최신 생성 결과를 카드·상세 보기에서 공유합니다. */
 function styleCandidateCaseResults(candidate, plan) {
@@ -26,7 +27,8 @@ function styleCandidateCardMarkup(candidate, plan) {
       : `<span class="style-thumbnail-status">${escapeMarkup(result.render ? styleRenderStatusLabel(result.render.status) : "미제출")}</span>`;
     return `<span class="style-card-thumbnail" data-library-case-index="${caseIndex}">${imageMarkup}<span class="style-thumbnail-name">${escapeMarkup(caseName)}</span></span>`;
   }).join("");
-  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="조합 ${escapeMarkup(candidate.label)}의 이미지 ${caseResults.length}개 자세히 보기"><span class="style-card-heading"><strong>조합 ${escapeMarkup(candidate.label)}</strong><span>${availableCount} / ${caseResults.length}장</span></span>${styleCandidateRankingMarkup(candidate)}<span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">${candidate.generationNumber || 1}세대 · ${{active: "활성", evolving: "진화 중", retired: "퇴역", cancelled: "취소"}[candidate.lifecycle] || "활성"} · ${candidate.batchNumber}번째 생성 · 작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button></article>`;
+  const selected = (currentStyleGenerationState().selectedCandidateIdentifiers || []).includes(candidate.identifier);
+  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><label class="style-card-selection"><input type="checkbox" data-style-candidate-select="${candidate.identifier}" ${selected ? "checked" : ""} aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 선택" />선택</label><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 자세히 보기"><span class="style-card-heading"><strong>${escapeMarkup(persistentCandidateLabel(candidate))}</strong><span>${availableCount} / ${caseResults.length}장</span></span>${styleCandidateRankingMarkup(candidate)}<span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">${candidate.generationNumber || 1}세대 · ${{active: "활성", evolving: "진화 중", retired: "퇴역", cancelled: "취소"}[candidate.lifecycle] || "활성"} · 작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button><div class="style-card-actions">${styleCandidateManagementButtonsMarkup(candidate)}</div></article>`;
 }
 
 /** 생성 묶음의 취소·부분 실패 재시도는 조합 카드와 별도로 유지합니다. */
@@ -44,6 +46,7 @@ function styleLibraryBatchActionsMarkup(candidates, plan) {
 
 /** 서버가 계산한 실제 순위·Elo·전적을 조합 카드와 상세에서 공유합니다. */
 function styleCandidateRankingMarkup(candidate) {
+  if (previewState.blind) return '<span class="style-card-statistics">그림체 정보 숨김</span>';
   const statistics = candidate.statistics;
   const rankLabel = candidate.lifecycle === "retired" ? "퇴역" : candidate.lifecycle === "cancelled" ? "취소" : statistics?.rank ? `${statistics.rank}위` : "미평가";
   const ratingLabel = statistics?.rated ? statistics.rating.toLocaleString("ko-KR") : "—";
@@ -67,7 +70,7 @@ function styleLibraryResultsMarkup(results) {
     const cards = orderedCandidates.map(candidate => styleCandidateCardMarkup(candidate, plans.find(item => item.planIdentifier === candidate.planIdentifier))).join("");
     groups.push(`<section class="style-library-batch"><div class="settings-section-heading"><h2>${plan.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재 조건" : "이전 조건"} · Seed ${plan.sampling.seed} · ${candidates.length}개 그림체</h2><div class="form-actions">${actions}</div></div><div class="style-library-grid">${cards}</div></section>`);
   }
-  return styleEvolutionContainerMarkup() + (groups.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>');
+  return styleCandidateSelectionToolbarMarkup(results) + styleEvolutionContainerMarkup() + (groups.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>');
 }
 
 /** 상세 보기는 열린 프로젝트와 후보 ID로만 조회해 다른 조합으로 넘어가지 않습니다. */
@@ -80,34 +83,112 @@ function currentStyleLibraryViewerResults() {
   return { candidate, caseResults: styleCandidateCaseResults(candidate, plan) };
 }
 
-/** 원본 이미지·Prompt 이름·순번과 이전/다음 조작을 같은 Dialog에 표시합니다. */
+/** CHS 공통 이미지 Viewer에 조합의 Prompt 탐색과 관리 영역만 붙입니다. */
+function prepareStyleLibraryViewer() {
+  const dialog = document.querySelector("#illustration-dialog");
+  dialog.classList.add("style-library-viewer");
+  dialog.innerHTML = `<div class="dialog-heading"><h2 id="style-viewer-title"></h2><button data-style-library-action="close" aria-label="그림체 상세 닫기">닫기</button></div><div id="style-viewer-statistics"></div><p id="style-viewer-case-name" class="style-viewer-case-name"></p><div class="style-viewer-image-frame"><img id="style-viewer-image" class="style-viewer-image" alt="" /><div id="style-viewer-placeholder" class="empty-state" hidden></div></div><p id="style-viewer-image-status" role="status"></p><div class="style-viewer-navigation"><button data-style-library-action="previous" data-preview-previous>← 이전</button><span role="status" aria-live="polite"></span><button data-style-library-action="next" data-preview-next>다음 →</button></div><div class="style-viewer-source-actions"><label class="settings-checkbox"><input id="style-viewer-original-toggle" type="checkbox" role="switch" data-preview-original-toggle /><span>원본 보기</span></label><a id="style-viewer-original-link" class="button" target="_blank" rel="noopener">원본 새 탭으로 보기</a></div><div id="style-viewer-management"></div><p id="style-viewer-management-error" class="error" role="alert"></p>`;
+  styleLibraryViewerState.controller = window.ComfyHomeImagePreview.createImagePreviewController({
+    dialog, image: document.querySelector("#style-viewer-image"), title: document.querySelector("#style-viewer-title"),
+    originalLink: document.querySelector("#style-viewer-original-link"), status: document.querySelector("#style-viewer-image-status"),
+    originalToggle: document.querySelector("#style-viewer-original-toggle"), state: styleLibraryDialogState,
+  });
+}
+
+/** 같은 Viewer 안에서 Prompt만 이동하며 Mobile의 압축 Preview 설정을 유지합니다. */
 function renderStyleLibraryViewer() {
   const viewerResults = currentStyleLibraryViewerResults();
-  if (!viewerResults) {
-    illustrationDialog.close();
-    return;
-  }
+  if (!viewerResults) return closeStyleLibraryViewer();
+  if (!styleLibraryViewerState.controller) prepareStyleLibraryViewer();
   const { candidate, caseResults } = viewerResults;
   const caseIndex = Math.max(0, Math.min(styleLibraryViewerState.caseIndex, caseResults.length - 1));
   styleLibraryViewerState.caseIndex = caseIndex;
   const result = caseResults[caseIndex];
+  styleLibraryViewerState.displayedPath = result.file?.path || null;
   const caseName = persistentPromptCaseName(result.promptCase);
-  const imageMarkup = result.file
-    ? `<img class="style-viewer-image" src="${styleImageUrl(result.file.path, true)}" alt="조합 ${escapeMarkup(candidate.label)} · ${escapeMarkup(caseName)}" />`
-    : `<div class="empty-state">${escapeMarkup(result.render ? styleRenderStatusLabel(result.render.status) : "미제출")}${result.render?.error ? `<p class="error">${escapeMarkup(result.render.error)}</p>` : ""}</div>`;
-  illustrationDialog.classList.add("style-library-viewer");
-  illustrationDialog.innerHTML = `<div class="dialog-heading"><h2>조합 ${escapeMarkup(candidate.label)}</h2><button data-style-library-action="close" aria-label="그림체 상세 닫기">닫기</button></div>${styleCandidateRankingMarkup(candidate)}<p class="style-viewer-case-name">${escapeMarkup(caseName)}</p><div class="style-viewer-image-frame">${imageMarkup}</div><div class="style-viewer-navigation"><button data-style-library-action="previous" ${caseIndex === 0 ? "disabled" : ""}>← 이전</button><span role="status" aria-live="polite">${caseIndex + 1} / ${caseResults.length}</span><button data-style-library-action="next" ${caseIndex === caseResults.length - 1 ? "disabled" : ""}>다음 →</button></div>`;
+  document.querySelector("#style-viewer-statistics").innerHTML = styleCandidateRankingMarkup(candidate);
+  document.querySelector("#style-viewer-management").innerHTML = styleCandidateManagementButtonsMarkup(candidate);
+  document.querySelector("#style-viewer-management-error").textContent = currentStyleGenerationState().error;
+  document.querySelector("#style-viewer-case-name").textContent = caseName;
+  const placeholder = document.querySelector("#style-viewer-placeholder");
+  placeholder.hidden = Boolean(result.file);
+  document.querySelector("#style-viewer-image").hidden = !result.file;
+  document.querySelector("#style-viewer-original-toggle").disabled = !result.file;
+  if (result.file) {
+    styleLibraryViewerState.controller.openImage({ ...result.file, name: persistentCandidateLabel(candidate) }, styleLibraryDialogState.opener, styleLibraryViewerState.showOriginalFiles);
+    document.querySelector("#style-viewer-original-link").title = result.file.path.split("/").at(-1);
+  } else {
+    styleLibraryViewerState.controller.clearImage();
+    document.querySelector("#style-viewer-title").textContent = persistentCandidateLabel(candidate);
+    placeholder.textContent = result.render ? styleRenderStatusLabel(result.render.status) : "미제출";
+  }
+  document.querySelector("[data-style-library-action=previous]").disabled = caseIndex === 0;
+  document.querySelector("[data-style-library-action=next]").disabled = caseIndex === caseResults.length - 1;
+  document.querySelector(".style-viewer-navigation [role=status]").textContent = `${caseIndex + 1} / ${caseResults.length}`;
+  if (!document.querySelector("#illustration-dialog").open) document.querySelector("#illustration-dialog").showModal();
 }
 
-/** 카드나 그 안의 작은 이미지를 누른 위치에서 해당 조합의 상세 보기를 엽니다. */
-function openStyleLibraryViewer(candidateIdentifier, caseIndex) {
-  styleLibraryViewerState = { projectIdentifier: previewState.currentProjectIdentifier, candidateIdentifier, caseIndex };
+/** Polling은 열린 이미지 소스를 유지하며 외부 Elo 변경·폐기만 반영합니다. */
+function refreshOpenStyleLibraryViewer() {
+  if (!styleLibraryViewerState) return;
+  const results = currentStyleLibraryViewerResults();
+  if (!results) return closeStyleLibraryViewer();
+  const result = results.caseResults[styleLibraryViewerState.caseIndex];
+  if (styleLibraryViewerState.displayedPath !== (result?.file?.path || null)) return renderStyleLibraryViewer();
+  document.querySelector("#style-viewer-statistics").innerHTML = styleCandidateRankingMarkup(results.candidate);
+  document.querySelector("#style-viewer-case-name").textContent = persistentPromptCaseName(result.promptCase);
+  const managementMarkup = styleCandidateManagementButtonsMarkup(results.candidate);
+  if (managementMarkup !== styleLibraryViewerState.managementMarkup) {
+    document.querySelector("#style-viewer-management").innerHTML = managementMarkup;
+    styleLibraryViewerState.managementMarkup = managementMarkup;
+  }
+  document.querySelector("#style-viewer-management-error").textContent = currentStyleGenerationState().error;
+}
+
+/** 처음 열 때만 CHS와 같은 기기별 원본 기본값을 선택합니다. */
+function openStyleLibraryViewer(candidateIdentifier, caseIndex, opener = document.activeElement) {
+  styleLibraryViewerState = { projectIdentifier: previewState.currentProjectIdentifier, candidateIdentifier, caseIndex,
+    showOriginalFiles: window.ComfyHomeImagePreview.defaultOriginalMode(), controller: null };
+  styleLibraryDialogState.opener = opener;
   if (!currentStyleLibraryViewerResults()) {
     styleLibraryViewerState = null;
     return;
   }
   renderStyleLibraryViewer();
-  illustrationDialog.showModal();
+}
+
+/** 선별·생성 화면에서 연 이미지도 기존 조합 Viewer와 Cache를 사용합니다. */
+function openStyleLibraryViewerByPath(relativePath, opener) {
+  const results = currentStyleGenerationState().results;
+  for (const candidate of results?.candidates || []) {
+    const plan = results.plans.find(item => item.planIdentifier === candidate.planIdentifier);
+    const caseIndex = plan.cases.findIndex(promptCase => candidate.renders.some(render => render.caseIdentifier === promptCase.identifier && render.files.some(file => file.path === relativePath)));
+    if (caseIndex >= 0) return openStyleLibraryViewer(candidate.identifier, caseIndex, opener);
+  }
+  showToast("이미지의 조합을 찾을 수 없습니다. 목록을 다시 불러와 주세요.");
+}
+
+/** 원본 토글은 현재 Prompt와 이동 위치를 바꾸지 않고 소스만 전환합니다. */
+function setStyleLibraryOriginalMode(showOriginalFiles) {
+  const results = currentStyleLibraryViewerResults();
+  if (!results) return;
+  const result = results.caseResults[styleLibraryViewerState.caseIndex];
+  if (!result.file) return;
+  styleLibraryViewerState.showOriginalFiles = showOriginalFiles;
+  styleLibraryViewerState.controller.loadImageSource(result.file, showOriginalFiles);
+}
+
+/** CHS와 같은 소스 정리·닫기·Focus 복원을 사용합니다. */
+function closeStyleLibraryViewer(restoreFocus = true) {
+  const opener = styleLibraryDialogState.opener;
+  styleLibraryViewerState?.controller?.clearImage();
+  styleLibraryDialogState.outputId = null;
+  styleLibraryDialogState.opener = null;
+  styleLibraryViewerState = null;
+  const dialog = document.querySelector("#illustration-dialog");
+  if (dialog.open) dialog.close();
+  dialog.classList.remove("style-library-viewer");
+  if (restoreFocus && opener?.isConnected) opener.focus({ preventScroll: true });
 }
 
 /** 이전/다음은 해당 조합 안의 Prompt 범위에서만 이동합니다. */
@@ -126,29 +207,20 @@ function handleStyleLibraryAction(event) {
   const button = event.target.closest("[data-style-library-action]");
   if (!button || button.disabled) return;
   const action = button.dataset.styleLibraryAction;
-  if (action === "open") openStyleLibraryViewer(button.dataset.candidate, Number(event.target.closest("[data-library-case-index]")?.dataset.libraryCaseIndex || 0));
-  if (action === "previous") moveStyleLibraryViewer(-1);
-  if (action === "next") moveStyleLibraryViewer(1);
-  if (action === "close") illustrationDialog.close();
-}
-
-/** 상세 보기가 열렸을 때만 좌우 방향키를 사용하며 다른 입력 조작은 유지합니다. */
-function handleStyleLibraryViewerKey(event) {
-  if (!styleLibraryViewerState || !illustrationDialog.open || event.target.closest("input, textarea, select, [contenteditable=true]")) return;
-  if (!["ArrowLeft", "ArrowRight"].includes(event.key)) return;
-  event.preventDefault();
-  moveStyleLibraryViewer(event.key === "ArrowLeft" ? -1 : 1);
-}
-
-/** Escape로 닫은 경우에도 상세 상태와 전용 Style이 다음 이미지 확대에 남지 않게 합니다. */
-function clearStyleLibraryViewer() {
-  styleLibraryViewerState = null;
-  document.querySelector("#illustration-dialog").classList.remove("style-library-viewer");
+  if (action === "open") openStyleLibraryViewer(button.dataset.candidate, Number(event.target.closest("[data-library-case-index]")?.dataset.libraryCaseIndex || 0), button);
+  if (action === "close") closeStyleLibraryViewer();
 }
 
 document.addEventListener("click", handleStyleLibraryAction);
-document.addEventListener("keydown", handleStyleLibraryViewerKey);
-document.querySelector("#illustration-dialog").addEventListener("close", clearStyleLibraryViewer);
+
+if (PERSISTENT_STYLE_WORKSPACE) {
+  window.ComfyHomeImagePreview.bindDialogEvents({
+    dialog: document.querySelector("#illustration-dialog"), state: styleLibraryDialogState,
+    onClose: closeStyleLibraryViewer,
+    onNavigate: direction => moveStyleLibraryViewer(direction === "previous" ? -1 : 1),
+    onOriginalChange: setStyleLibraryOriginalMode,
+  });
+}
 
 /** 퇴역·취소 조합도 파일을 지우지 않고 명시적으로 찾아볼 수 있게 합니다. */
 function handleStyleLibraryLifecycleFilter(event) {
@@ -158,3 +230,136 @@ function handleStyleLibraryLifecycleFilter(event) {
 }
 
 document.addEventListener("change", handleStyleLibraryLifecycleFilter);
+
+/** 조합 단위 관리 기능을 카드·상세·선별에서 같은 버튼으로 제공합니다. */
+function styleCandidateManagementButtonsMarkup(candidate) {
+  const evolution = currentStyleGenerationState().evolution?.batch;
+  const protectedByEvolution = evolution?.plan.evaluationIdentifier === candidate.evaluationIdentifier;
+  const cannotDelete = protectedByEvolution;
+  return `<button data-style-candidate-action="rating" data-candidate="${candidate.identifier}" ${previewState.blind || candidate.lifecycle === "cancelled" ? "disabled" : ""} title="조합의 승패를 유지하고 Elo를 수정합니다.">Elo 수정</button><button class="danger" data-style-candidate-action="delete" data-candidate="${candidate.identifier}" ${cannotDelete ? "disabled" : ""} title="${cannotDelete ? "진화를 확정하거나 취소한 뒤 조합을 폐기할 수 있습니다." : "모든 Prompt의 이미지와 함께 조합을 폐기합니다."}">조합 폐기</button>`;
+}
+
+/** 선택한 조합·폐기 복구 동작을 프로젝트 범위 안에서 표시합니다. */
+function styleCandidateSelectionToolbarMarkup(results) {
+  const state = currentStyleGenerationState();
+  const knownIdentifiers = new Set((results?.candidates || []).map(candidate => candidate.identifier));
+  state.selectedCandidateIdentifiers = (state.selectedCandidateIdentifiers || []).filter(identifier => knownIdentifiers.has(identifier));
+  const count = state.selectedCandidateIdentifiers.length;
+  const recoveries = (results?.pendingCandidateDeletions || []).map(operation => `<section class="panel"><p class="error">${escapeMarkup(operation.error || "완료되지 않은 조합 폐기가 있습니다.")}</p><button data-style-candidate-action="retry-deletion" data-operation="${operation.operationIdentifier}">남은 이미지 폐기 다시 시도</button></section>`).join("");
+  return `${recoveries}<div class="style-candidate-selection-toolbar"><strong>${count}개 선택</strong><button data-style-candidate-action="select-visible">현재 목록 선택</button><button data-style-candidate-action="rating" ${!count ? "disabled" : ""}>선택 Elo 수정</button><button class="danger" data-style-candidate-action="delete" ${!count ? "disabled" : ""}>선택 조합 폐기</button><button data-style-candidate-action="clear-selection" ${!count ? "disabled" : ""}>선택 해제</button></div><p id="style-candidate-management-error" class="error" role="alert">${escapeMarkup(state.error)}</p>`;
+}
+
+/** Checkbox는 여러 Prompt 이미지 대신 조합 하나를 선택합니다. */
+function handleStyleCandidateSelection(event) {
+  const identifier = event.target.dataset.styleCandidateSelect;
+  if (!identifier) return;
+  const state = currentStyleGenerationState();
+  const selected = new Set(state.selectedCandidateIdentifiers || []);
+  if (event.target.checked) selected.add(identifier);
+  else selected.delete(identifier);
+  state.selectedCandidateIdentifiers = [...selected];
+  renderPreview(false);
+}
+
+/** 직접 수정은 한 번의 값 입력, 폐기는 전체 Prompt 범위를 알리는 확인창을 사용합니다. */
+function confirmStyleCandidateManagement(action, candidates) {
+  const dialog = document.querySelector("#component-dialog");
+  const rating = candidates[0].statistics?.rating ?? 10000;
+  const content = action === "rating"
+    ? `<p>선택한 ${candidates.length}개 조합의 Elo를 바꿉니다. 승패는 유지하며 이전 선택의 Undo는 종료됩니다. 진화 중 직접 수정한 부모 Elo는 자녀 배치의 기준점에도 반영됩니다.</p><label for="style-candidate-rating">Elo</label><input id="style-candidate-rating" type="number" min="0" max="1000000" step="1" value="${rating}" required />`
+    : `<p>선택한 ${candidates.length}개 조합의 <strong>모든 Prompt 이미지와 이전 재시도 이미지가 영구 삭제</strong>됩니다. 조합은 선별·그림체 목록에서 사라지며 Undo할 수 없습니다.</p><p>CHS 작업 이력과 생성 조건은 유지됩니다.</p>`;
+  dialog.innerHTML = `<form method="dialog"><div class="dialog-heading"><h2 id="component-dialog-title">${action === "rating" ? "Elo 수정" : "조합 폐기"}</h2></div>${content}<div class="form-actions"><button type="button" value="cancel">취소</button><button class="${action === "delete" ? "danger" : "primary"}" value="confirm">${action === "rating" ? "저장" : "폐기"}</button></div></form>`;
+  dialog.querySelector("button[value=cancel]").addEventListener("click", () => dialog.close("cancel"), { once: true });
+  dialog.returnValue = "cancel";
+  return new Promise(resolve => {
+    /** Escape·취소에서는 어떤 명령도 보내지 않습니다. */
+    function resolveCandidateManagementConfirmation() {
+      const accepted = dialog.returnValue === "confirm";
+      resolve({ accepted, rating: accepted && action === "rating" ? Number(dialog.querySelector("#style-candidate-rating").value) : null });
+    }
+    dialog.addEventListener("close", resolveCandidateManagementConfirmation, { once: true });
+    dialog.showModal();
+  });
+}
+
+/** 현재 조합·평가 조건을 고정하고 영속 명령의 응답 유실에도 같은 요청을 재사용합니다. */
+async function executeStyleCandidateManagement(action, candidates, rating, recovery = null) {
+  const projectIdentifier = previewState.currentProjectIdentifier;
+  const state = currentStyleGenerationState(projectIdentifier);
+  const route = action === "rating" ? "candidate-ratings" : "candidate-deletions";
+  let pending = recovery ? { route, payload: recovery.requestPayload } : state.pendingCandidateCommand;
+  const identifiers = candidates.map(candidate => candidate.identifier);
+  if (!recovery && (!pending || pending.route !== route || JSON.stringify(pending.payload.candidateIdentifiers) !== JSON.stringify(identifiers) || pending.payload.rating !== (action === "rating" ? rating : undefined))) {
+    const evaluationIdentifier = candidates[0].evaluationIdentifier;
+    const query = new URLSearchParams({ evaluationIdentifier, clientIdentifier: styleVotingClientIdentifier() });
+    const selection = await styleProjectApi(`/api/style-projects/${projectIdentifier}/selection?${query}`);
+    pending = { route, payload: { evaluationIdentifier, clientIdentifier: styleVotingClientIdentifier(), operationIdentifier: newStyleClientIdentifier(),
+      expectedRevision: selection.revision, candidateIdentifiers: identifiers, ...(action === "rating" ? { rating } : {}) } };
+    state.pendingCandidateCommand = pending;
+  }
+  try {
+    const response = await styleProjectApi(`/api/style-projects/${projectIdentifier}/${route}`, { method: "POST", body: JSON.stringify(pending.payload) });
+    state.pendingCandidateCommand = null;
+    if (action === "rating") applyStyleVotingResponse(projectIdentifier, response);
+    else state.selectedCandidateIdentifiers = (state.selectedCandidateIdentifiers || []).filter(identifier => !response.candidateIdentifiers.includes(identifier));
+    showToast(action === "rating" ? "조합 Elo를 수정했습니다." : "조합과 모든 Prompt 이미지를 폐기했습니다.");
+  } catch (error) {
+    if ([404, 409, 422].includes(error.status)) state.pendingCandidateCommand = null;
+    throw error;
+  }
+}
+
+/** 관리 명령 동안 Polling·연타를 잠그고 마지막에 해당 프로젝트 결과만 갱신합니다. */
+async function handleStyleCandidateManagement(event) {
+  if (!PERSISTENT_STYLE_WORKSPACE) return;
+  const button = event.target.closest("[data-style-candidate-action]");
+  if (!button || button.disabled || styleGenerationViewState.busy) return;
+  const projectIdentifier = previewState.currentProjectIdentifier;
+  const state = currentStyleGenerationState(projectIdentifier);
+  const action = button.dataset.styleCandidateAction;
+  if (action === "select-visible") {
+    state.selectedCandidateIdentifiers = [...document.querySelectorAll(".style-library-card")].map(card => card.dataset.styleCandidate);
+    return renderPreview(false);
+  }
+  if (action === "clear-selection") {
+    state.selectedCandidateIdentifiers = [];
+    return renderPreview(false);
+  }
+  styleGenerationViewState.busy = true;
+  state.candidateCommandBusy = true;
+  state.resultRefreshSequence = (state.resultRefreshSequence || 0) + 1;
+  state.error = "";
+  const content = document.querySelector("#preview-content");
+  content.inert = true;
+  try {
+    if (action === "retry-deletion") {
+      const recovery = state.results.pendingCandidateDeletions.find(operation => operation.operationIdentifier === button.dataset.operation);
+      await executeStyleCandidateManagement("delete", [], null, recovery);
+    } else {
+      const selected = button.dataset.candidates ? button.dataset.candidates.split(",") : button.dataset.candidate ? [button.dataset.candidate] : state.selectedCandidateIdentifiers;
+      const candidates = state.results.candidates.filter(candidate => selected?.includes(candidate.identifier));
+      if (!candidates.length) throw new Error("관리할 조합을 먼저 선택해 주세요.");
+      if (new Set(candidates.map(candidate => candidate.evaluationIdentifier)).size > 1) throw new Error("같은 평가 조건의 조합끼리 선택해 주세요.");
+      const confirmation = await confirmStyleCandidateManagement(action, candidates);
+      if (confirmation.accepted) await executeStyleCandidateManagement(action, candidates, confirmation.rating);
+    }
+  } catch (error) {
+    state.error = error.message;
+  } finally {
+    styleGenerationViewState.busy = false;
+    state.candidateCommandBusy = false;
+    content.inert = false;
+    try {
+      await refreshStyleGenerationResults(projectIdentifier);
+    } catch (error) {
+      state.error ||= error.message;
+    }
+    if (projectIdentifier === previewState.currentProjectIdentifier) {
+      renderPreview(false);
+      refreshOpenStyleLibraryViewer();
+    }
+  }
+}
+
+document.addEventListener("change", handleStyleCandidateSelection);
+document.addEventListener("click", handleStyleCandidateManagement);

@@ -31,9 +31,9 @@ function createTagManagerHandler(fixtures) {
     const requestPath = new URL(route.request().url()).pathname;
     const method = route.request().method();
     if (await handleJobFolderReadRequest(route)) return;
-    if (["/", "/workflow-options.js", "/app.js", "/app.css", "/favicon.svg"].includes(requestPath)) {
+    if (["/", "/workflow-options.js", "/image-preview.js", "/app.js", "/app.css", "/favicon.svg"].includes(requestPath)) {
       const fileName = requestPath === "/" ? "index.html" : requestPath.slice(1);
-      await route.fulfill({ contentType: { "index.html": "text/html", "workflow-options.js": "text/javascript", "app.js": "text/javascript", "app.css": "text/css", "favicon.svg": "image/svg+xml" }[fileName],
+      await route.fulfill({ contentType: { "index.html": "text/html", "workflow-options.js": "text/javascript", "image-preview.js": "text/javascript", "app.js": "text/javascript", "app.css": "text/css", "favicon.svg": "image/svg+xml" }[fileName],
         body: filesystem.readFileSync(path.join(projectDirectory, "web", fileName), "utf8") });
       return;
     }

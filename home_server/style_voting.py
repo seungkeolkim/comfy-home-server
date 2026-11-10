@@ -9,6 +9,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .style_projects import StyleRevisionConflict, encode_snapshot, snapshot_hash
+from .style_evolution_selection import build_selection_ranking, synchronize_selection_statistics
 from .style_voting_rules import VOTING_POLICY_VERSION, apply_match_choice, candidate_is_rated, choose_next_match, initial_candidate_statistics, new_match
 
 
@@ -40,6 +41,13 @@ class StylePairInput(StyleVotingCommand):
 
     firstCandidateIdentifier: str = Field(min_length=1, max_length=100)
     secondCandidateIdentifier: str = Field(min_length=1, max_length=100)
+
+
+class StyleCandidateRatingInput(StyleVotingCommand):
+    """한 평가 조건의 선택 조합들에 같은 Elo를 명시적으로 지정합니다."""
+
+    candidateIdentifiers: list[str] = Field(min_length=1, max_length=100)
+    rating: int = Field(strict=True, ge=0, le=1_000_000)
 
 
 def ranked_candidate_statistics(identifiers: list[str], statistics: dict) -> list[dict]:
@@ -216,6 +224,8 @@ class StyleVotingService:
                 self.restore_vote(connection, state, payload)
             elif action == "pair":
                 self.select_pair(state, ready_identifiers, payload)
+            elif action == "rating":
+                self.set_candidate_ratings(connection, project_identifier, state, payload)
             else:
                 raise ValueError("지원하지 않는 선별 명령입니다.")
             self.synchronize_candidates(state, candidates, ready_identifiers)
@@ -226,6 +236,49 @@ class StyleVotingService:
                 payload.operationIdentifier, project_identifier, payload.evaluationIdentifier, action, request_hash, encode_snapshot(response), datetime.now(timezone.utc).isoformat(),
             ))
             return response
+
+    def set_candidate_ratings(self, connection, project_identifier: str, state: dict, payload: StyleCandidateRatingInput) -> None:
+        """직접 Elo 수정은 승패를 유지하며 Undo·Placement의 이전 점수 복구를 차단합니다."""
+
+        identifiers = payload.candidateIdentifiers
+        if len(set(identifiers)) != len(identifiers):
+            raise ValueError("같은 조합을 중복 선택할 수 없습니다.")
+        for identifier in identifiers:
+            candidate = connection.execute(
+                "SELECT lifecycle FROM style_candidates JOIN style_candidate_memberships USING(candidate_id) WHERE candidate_id=? AND project_id=? AND style_candidates.evaluation_id=?",
+                (identifier, project_identifier, payload.evaluationIdentifier),
+            ).fetchone()
+            if not candidate or candidate["lifecycle"] not in {"active", "retired", "evolving"}:
+                raise LookupError("Elo를 수정할 프로젝트의 조합을 찾을 수 없습니다.")
+        for identifier in identifiers:
+            statistics = state["statistics"].setdefault(identifier, initial_candidate_statistics())
+            statistics.update(rating=payload.rating, placed=True)
+        if state.get("evolution"):
+            self.update_evolution_rating_baseline(connection, state, identifiers, payload.rating)
+        state.update(match=None, placement=None, undoStack=[], lastPair=[], skippedTies=[])
+
+    def update_evolution_rating_baseline(self, connection, state: dict, identifiers: list[str], rating: int) -> None:
+        """원본 Style Lab처럼 수동 수정만 부모 기준점을 바꾸고 자녀의 보정량을 보존합니다."""
+
+        selection = state["evolution"]
+        offsets = selection.setdefault("ratingOffsets", {})
+        row = connection.execute("SELECT batch_json FROM style_evolution_batches WHERE batch_id=?", (selection["batch_id"],)).fetchone()
+        batch = json.loads(row[0])
+        for identifier in identifiers:
+            if identifier in selection["parent_scores"]:
+                selection["parent_scores"][identifier] = rating
+                batch["parent_scores"][identifier] = rating
+        ranking = build_selection_ranking(selection)
+        for identifier in identifiers:
+            if identifier in selection["candidate_ids"]:
+                judged = bool(ranking["info"][identifier]["votes"])
+                base_rating = ranking["scores"][identifier] if judged else 10000
+                offsets[identifier] = rating - base_rating
+            if identifier in batch["beforeArena"]["statistics"]:
+                batch["beforeArena"]["statistics"][identifier].update(rating=rating, placed=True)
+        batch["beforeArena"].update(match=None, placement=None, undoStack=[], lastPair=[], skippedTies=[])
+        synchronize_selection_statistics(state)
+        connection.execute("UPDATE style_evolution_batches SET batch_json=? WHERE batch_id=?", (encode_snapshot(batch), selection["batch_id"]))
 
     def record_vote(self, connection, state: dict, ready_identifiers: list[str], candidates: list[dict], payload: StyleVoteInput) -> None:
         """전 Case가 준비된 현재 Token에만 한 표를 기록하며 Undo Snapshot을 남깁니다."""

@@ -244,6 +244,13 @@ class StyleGenerationService:
                 current_fingerprints = {combination_selection_fingerprint(json.loads(candidate[0])) for candidate in previous_candidates}
                 if fingerprints & current_fingerprints:
                     raise StyleRevisionConflict("다른 Preview에서 같은 조합을 먼저 준비했습니다. 다시 뽑아 확인해 주세요.")
+            previous_count = connection.execute(
+                "SELECT COUNT(*) FROM style_candidate_memberships JOIN style_candidates USING(candidate_id) WHERE project_id=? AND generation_number=?",
+                (project_identifier, generation_number),
+            ).fetchone()[0]
+            for candidate_index, candidate in enumerate(candidates, previous_count + 1):
+                candidate["combinationNumber"] = candidate_index
+                candidate["displayName"] = f"세대{generation_number:03}-조합{candidate_index:02}"
             connection.execute("INSERT INTO style_generation_plans VALUES(?,?,?,?,?,?,?,?)", (
                 plan_identifier, project_identifier, project["active_evaluation_id"], project["revision"], payload.operationIdentifier,
                 request_hash, encode_snapshot(plan), datetime.now(timezone.utc).isoformat(),
@@ -305,12 +312,20 @@ class StyleGenerationService:
             binding = self.ensure_managed_folders(connection, project_identifier, binding)
             connection.execute("UPDATE style_projects SET storage_binding_json=? WHERE project_id=?", (encode_snapshot(binding), project_identifier))
             sequence = connection.execute("SELECT COALESCE(MAX(sequence),0)+1 FROM style_job_ownership WHERE project_id=?", (project_identifier,)).fetchone()[0]
+            generation_sequence = connection.execute(
+                "SELECT COUNT(*)+1 FROM style_job_ownership JOIN style_generation_plans USING(plan_id) WHERE style_job_ownership.project_id=? AND COALESCE(json_extract(plan_json,'$.generationNumber'),1)=?",
+                (project_identifier, generation_number),
+            ).fetchone()[0]
             job_identifier = uuid.uuid4().hex
             common_detail = {"body": {"prompt": "스타일 구성 · 저장된 Prompt 묶음", "negative": ""},
                              "settings": plan["sampling"], "loras": [], "selected_tags": [], "style_plan_identifier": plan_identifier}
             requests = []
             render_records = []
             for candidate_index, candidate in enumerate(plan["candidates"], 1):
+                membership = connection.execute("SELECT lifecycle FROM style_candidate_memberships WHERE candidate_id=?", (candidate["identifier"],)).fetchone()
+                if membership and membership[0] in {"deleting", "deleted"}:
+                    continue
+                combination_number = candidate.get("combinationNumber", candidate_index)
                 for prompt_case in plan["cases"]:
                     previous = connection.execute(
                         "SELECT status FROM style_candidate_renders JOIN job_requests USING(request_id) "
@@ -321,7 +336,7 @@ class StyleGenerationService:
                         continue
                     render_identifier = uuid.uuid4().hex
                     request_identifier = uuid.uuid4().hex
-                    output_stem = f"{STYLE_OUTPUT_PREFIX}{binding['model_folder']}/{binding['project_folder']}/세대{generation_number:03}-조합{candidate_index:02}-Prompt{prompt_case['index']:02}-{render_identifier}"
+                    output_stem = f"{STYLE_OUTPUT_PREFIX}{binding['model_folder']}/{binding['project_folder']}/세대{generation_number:03}-조합{combination_number:02}-Prompt{prompt_case['index']:02}-{render_identifier}"
                     render_plan = {"projectIdentifier": project_identifier, "candidateIdentifier": candidate["identifier"], "components": candidate["components"],
                                    "case": prompt_case, "sampling": plan["sampling"], "evaluationIdentifier": plan["evaluationIdentifier"], "generationNumber": generation_number}
                     detail = {**common_detail, "resolved": {"style_render_identifier": render_identifier}}
@@ -329,7 +344,7 @@ class StyleGenerationService:
                     render_records.append((render_identifier, candidate["identifier"], plan_identifier, prompt_case["identifier"], request_identifier, encode_snapshot(render_plan)))
             if not requests:
                 raise StyleRevisionConflict("실패·취소가 확인된 재시도 대상이 없습니다. 미확인 요청은 자동 재제출하지 않습니다.")
-            self.server.database.add_job(job_identifier, "anima", f"세대{generation_number:03}-{sequence:02} 이미지 생성", requests, binding["folder_id"], origin="style", connection=connection)
+            self.server.database.add_job(job_identifier, "anima", f"세대{generation_number:03}-{generation_sequence:02} 이미지 생성", requests, binding["folder_id"], origin="style", connection=connection)
             connection.execute("INSERT INTO style_job_ownership VALUES(?,?,?,?,?)", (job_identifier, project_identifier, plan_identifier, payload.operationIdentifier, sequence))
             connection.executemany("INSERT INTO style_candidate_renders VALUES(?,?,?,?,?,?)", render_records)
         return job_identifier, requests

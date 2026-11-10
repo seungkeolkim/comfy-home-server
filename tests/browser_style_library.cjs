@@ -28,7 +28,7 @@ async function createStyleLibraryScenario(context, baseUrl, promptCount) {
     const results = await (await context.request.get(`${baseUrl}/api/style-projects/${project.identifier}/generation-results`)).json();
     return results.candidates.flatMap(candidate => candidate.renders).filter(render => render.status === 'completed').length;
   }, { timeout: 15000 }).toBe(promptCount * 2);
-  return project;
+  return { ...project, candidateIdentifiers: plan.candidates.map(candidate => candidate.identifier) };
 }
 
 /** 실제 CSS 색상의 상대 명도를 계산해 선택 버튼의 텍스트 대비를 확인합니다. */
@@ -58,11 +58,13 @@ async function verifyStyleLibrary() {
       await page.reload();
       await page.locator('#active-project-picker').selectOption(project.identifier);
       await expect(page.locator('.style-library-card')).toHaveCount(2, { timeout: 10000 });
-      const firstCard = page.locator('.style-library-card').first();
+      const firstCard = page.locator(`.style-library-card[data-style-candidate="${project.candidateIdentifiers[0]}"]`);
+      await expect(firstCard).toBeVisible();
       await expect(firstCard.locator('.style-card-thumbnail')).toHaveCount(promptCount);
       await expect(page.locator('.generation-result-grid')).toHaveCount(0);
-      const thumbnailWidth = (await firstCard.locator('img').first().boundingBox()).width;
-      assert.ok(thumbnailWidth < 120, String(thumbnailWidth));
+      await expect(firstCard.locator('img').first()).toBeVisible();
+      const thumbnailWidth = await firstCard.locator('img').first().evaluate(image => image.getBoundingClientRect().width);
+      assert.ok(thumbnailWidth > 0 && thumbnailWidth < 120, String(thumbnailWidth));
       await firstCard.locator('.style-card-heading').click();
       await expect(page.locator('.style-viewer-navigation [role=status]')).toHaveText(`1 / ${promptCount}`);
       await expect(page.locator('[data-style-library-action=previous]')).toBeDisabled();
@@ -124,8 +126,9 @@ async function verifyStyleLibrary() {
       }
       await page.locator('.case-section .image-button').first().click();
       await expect(page.locator('#illustration-dialog')).toBeVisible();
-      await expect(page.locator('.style-viewer-navigation')).toHaveCount(0);
-      await page.locator('[data-generation-action=close-enlarged]').click();
+      await expect(page.locator('.style-viewer-navigation')).toHaveCount(1);
+      await expect(page.locator('#style-viewer-original-toggle')).toBeChecked({ checked: await page.evaluate(() => innerWidth >= 801) });
+      await page.locator('[data-style-library-action=close]').click();
       scenarios.push({ promptCount, cardCount: 2, thumbnailWidth, buttonColors });
     }
     await page.goto(`${baseUrl}/style-preview#compare`);
