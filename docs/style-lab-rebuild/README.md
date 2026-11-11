@@ -2,11 +2,13 @@
 
 **현재 실제 연결:** `/style`에 프로젝트 설정 저장, Random 조합·여러 Prompt 이미지 생성, 작업·출력 분리, [투표·Elo·Undo](phase_four_review.md)를 연결했습니다. 사용자 진행 요청으로 [진화 1회: 부모 선정·자녀 생성·Selection·세대 확정/취소](phase_five_review.md)를 추가하며, 작은 Cycle의 사용자 확인을 기다립니다. 기존 `/style-preview`는 예시 목업입니다.
 
-**그림체 통합:** [검토한 목업](ranking_preview_review.md)에 따라 실제 순위·Elo·전적, 조합별 여러 Prompt의 작은 이미지와 Viewer를 그림체 탭에 통합했습니다. 진화 후 퇴역·취소 조합도 필터로 조회합니다. Mobile 메뉴는 네 개를 유지합니다.
+**그림체 통합:** [검토한 목업](ranking_preview_review.md)에 따라 실제 순위·Elo·전적, 조합별 여러 Prompt의 작은 이미지와 Viewer를 그림체 탭에 통합했습니다. 진화 후 퇴역·취소 조합도 필터로 조회합니다. Mobile 메뉴는 프로젝트·생성·선별·진화·그림체의 다섯 개입니다.
 
 **사용성 보완:** [8389 비교·Elo 수정·조합 폐기·공통 Viewer·고정 선호 버튼](style_usability_review.md)을 연결합니다. 표시 이름은 파일의 세대·조합 규칙을 따르고 Mobile Viewer는 CHS의 기존 Thumbnail Cache를 사용합니다.
 
 **저장·Web 조작 재정리:** [Prompt 저장 오류와 8389 기준 사용성 재정리](style_web_usability_rework.md). 생성 후 Prompt 저장 차단과 미기록 LoRA 오판을 수정하고, 같은 조합의 새 Prompt 생성과 간결한 선별·저장 화면을 연결합니다.
+
+**현재 우선 작업:** [진화 탭과 반복 세대 생성](generation_cycle_review.md). 생성은 세대 후보를 준비하고, 선별 뒤 확정과 다음 후보 생성을 이어갑니다. 후속 피드백으로 프로젝트 목록·현재 선택 표시와 명시적인 카드 선택을 복원했습니다. 그림체 보관·일반 생성 적용보다 이 Cycle을 먼저 사용자 확인합니다.
 
 작성일: 2026-11-08, Asia/Seoul. 실제 설치본과 Comfy Home Server 소스를 읽어 작성했습니다.
 

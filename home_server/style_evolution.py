@@ -40,6 +40,16 @@ class EvolutionActionInput(BaseModel):
     expectedVotingRevision: int = Field(ge=1)
 
 
+class CandidateGenerationPlanInput(BaseModel):
+    """초기 후보와 다음 세대 후보를 현재 Project·Arena 상태에 맞게 준비합니다."""
+
+    model_config = ConfigDict(extra="forbid")
+    operationIdentifier: str = Field(min_length=16, max_length=100)
+    expectedProjectRevision: int = Field(ge=1)
+    expectedVotingRevision: int = Field(ge=1)
+    candidateCount: int = Field(ge=1, le=32)
+
+
 class StyleEvolutionService:
     """모든 Score·후보 상태 전환을 같은 DB Transaction에서 처리합니다."""
 
@@ -102,9 +112,73 @@ class StyleEvolutionService:
             batch_view = self.build_batch_view(connection, row, state, ready_identifiers) if row else None
             latest = connection.execute("SELECT result_json FROM style_evolution_batches WHERE evaluation_id=? AND status='confirmed' ORDER BY rowid DESC LIMIT 1", (evaluation_identifier,)).fetchone()
             checkpoints = [dict(checkpoint) for checkpoint in connection.execute("SELECT generation_number,created_at FROM style_generation_checkpoints WHERE evaluation_id=? ORDER BY generation_number", (evaluation_identifier,))]
+            ranked = ranked_candidate_statistics(ready_identifiers, state["statistics"])
+            rated = [candidate for candidate in ranked if candidate["rated"]]
+            parent_identifiers = [candidate["identifier"] for candidate in rated[:len(rated) * 3 // 10]] if len(rated) >= 10 else []
+            if row:
+                parent_identifiers = json.loads(row["batch_json"])["parent_ids"]
+            pending_requests = connection.execute(
+                "SELECT COUNT(*) FROM style_candidate_renders JOIN style_candidates USING(candidate_id) JOIN job_requests USING(request_id) "
+                "WHERE project_id=? AND evaluation_id=? AND job_requests.status IN ('submitting','pending','running','cancelling')",
+                (project_identifier, evaluation_identifier),
+            ).fetchone()[0]
             return {"projectIdentifier": project_identifier, "evaluationIdentifier": evaluation_identifier, "projectRevision": project["revision"], "votingRevision": revision,
                     "currentGeneration": generation_number, "evaluatedCount": rated_count, "minimumEvaluatedCount": 10, "canPrepare": not row and not messages,
+                    "candidateCount": len(candidates), "readyCandidateCount": len(ready_identifiers), "pendingRequestCount": pending_requests,
+                    "parentCandidateIdentifiers": parent_identifiers, "history": self.read_generation_history(connection, evaluation_identifier),
                     "blockers": messages, "batch": batch_view, "lastConfirmed": json.loads(latest[0]) if latest else None, "checkpoints": checkpoints}
+
+    @staticmethod
+    def read_generation_history(connection, evaluation_identifier: str) -> list[dict]:
+        """기존 Batch 결과에서 세대별 생존·탈락과 원본 후보 ID만 조회합니다."""
+
+        history = []
+        for row in connection.execute("SELECT * FROM style_evolution_batches WHERE evaluation_id=? AND status IN ('confirmed','cancelled') ORDER BY rowid DESC", (evaluation_identifier,)):
+            batch = json.loads(row["batch_json"])
+            result = json.loads(row["result_json"] or "{}")
+            surviving = set(result.get("survivingIdentifiers", []))
+            history.append({"batchIdentifier": row["batch_id"], "operationIdentifier": row["operation_id"], "status": row["status"],
+                "sourceGeneration": batch["sourceGeneration"], "targetGeneration": batch["targetGeneration"],
+                "candidateIdentifiers": batch["candidate_ids"], "parentIdentifiers": batch["parent_ids"],
+                "enteredIdentifiers": [identifier for identifier in batch["candidate_ids"] if identifier in surviving],
+                "enteredCount": result.get("enteredCount", 0), "failedCount": result.get("failedCount", 0),
+                "childCount": len(batch["candidate_ids"]), "createdAt": row["created_at"]})
+        return history
+
+    async def prepare_candidate_generation(self, project_identifier: str, payload: CandidateGenerationPlanInput) -> dict:
+        """평가된 Pool이 준비되면 진화만 허용하고 처음 부족한 Pool만 무작위로 채웁니다."""
+
+        project = self.server.style_generation.store.project(project_identifier)
+        view = self.read_evolution(project_identifier, project["active_evaluation_id"])
+        if payload.expectedProjectRevision != view["projectRevision"]:
+            raise StyleRevisionConflict("프로젝트 설정이 바뀌었습니다. 최신 조건에서 후보를 만들어 주세요.")
+        with self.server.database._connect() as connection:
+            existing = connection.execute("SELECT plan_id FROM style_generation_plans WHERE project_id=? AND operation_id=?", (project_identifier, payload.operationIdentifier)).fetchone()
+        if existing:
+            plan = self.server.style_generation.store.plan(existing[0], project_identifier)
+            requested_count = plan["selection"].get("requestedCount")
+            if plan["projectRevision"] != payload.expectedProjectRevision or requested_count != payload.candidateCount:
+                raise StyleRevisionConflict("같은 요청 ID로 다른 수의 후보를 만들 수 없습니다.")
+            if plan["evolutionStatus"] == "cancelled":
+                raise StyleRevisionConflict("취소한 후보입니다. 최신 상태에서 새 후보를 만들어 주세요.")
+            return plan
+        if payload.expectedVotingRevision != view["votingRevision"]:
+            raise StyleRevisionConflict("선별 상태가 바뀌었습니다. 최신 결과에서 후보를 만들어 주세요.")
+        if view["batch"] or view["pendingRequestCount"]:
+            raise StyleRevisionConflict("현재 후보의 생성·선별·세대 확정을 먼저 마쳐 주세요.")
+        if view["canPrepare"]:
+            return await self.prepare_evolution_plan(project_identifier, EvolutionPlanInput(
+                operationIdentifier=payload.operationIdentifier, expectedProjectRevision=payload.expectedProjectRevision,
+                expectedVotingRevision=payload.expectedVotingRevision, childCount=payload.candidateCount,
+            ))
+        if view["candidateCount"] >= view["minimumEvaluatedCount"]:
+            raise StyleRevisionConflict(view["blockers"][0] if view["blockers"] else "현재 후보를 먼저 선별해 주세요.")
+        from .style_random_generation import RandomStyleGenerationPlanInput
+
+        return await self.server.style_generation.create_plan(project_identifier, RandomStyleGenerationPlanInput(
+            expectedRevision=payload.expectedProjectRevision, operationIdentifier=payload.operationIdentifier,
+            combinationCount=payload.candidateCount,
+        ))
 
     def build_batch_view(self, connection, row, state: dict, ready_identifiers: list[str]) -> dict:
         """성분 목록 없이 자녀 준비 수와 확정에 필요한 상태를 반환합니다."""
@@ -120,6 +194,9 @@ class StyleEvolutionService:
         complete_count = sum(child["rung"] is None and bool(child["votes"]) for child in ranking["info"].values()) if ranking else 0
         phase = "planned" if row["status"] == "planned" else "ready" if all_ready and next_pair is None else "generating" if any(status in {"submitting", "pending", "running", "cancelling"} for status in request_states) else "failed" if not all_ready else "selecting"
         return {"identifier": row["batch_id"], "status": row["status"], "phase": phase, "sourceGeneration": batch["sourceGeneration"], "targetGeneration": batch["targetGeneration"], "plan": plan,
+                "candidateIdentifiers": batch["candidate_ids"], "parentIdentifiers": batch["parent_ids"],
+                "completedCandidateIdentifiers": [identifier for identifier, child in ranking["info"].items() if child["rung"] is None and child["votes"]] if ranking else [],
+                "enteredCandidateIdentifiers": [identifier for identifier, child in ranking["info"].items() if child["slot"] > 0] if ranking and all_ready and next_pair is None else [],
                 "childCount": len(batch["candidate_ids"]), "readyChildCount": len(ready_children), "completedSelectionCount": complete_count, "canConfirm": row["status"] == "active" and all_ready and next_pair is None,
                 "failedRequestCount": sum(status in {"failed", "cancelled", "stopped"} for status in request_states), "modeCounts": plan["selection"]["modeCounts"]}
 

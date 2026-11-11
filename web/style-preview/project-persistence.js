@@ -32,7 +32,7 @@ async function styleProjectApi(path, options = {}) {
 /** 서버 데이터 대신 탭별 선택과 미저장 초안만 Session Storage에 보관합니다. */
 function persistStyleWorkspaceSession() {
   const sessionState = {};
-  for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "artistBulkInput", "candidateSortOrder"]) {
+  for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "evolutionContinuations", "candidateGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
     sessionState[field] = previewState[field];
   }
   try {
@@ -62,7 +62,7 @@ async function loadPersistentStyleWorkspace(restoreSession = false) {
     try {
       const storedSession = JSON.parse(sessionStorage.getItem(STYLE_WORKSPACE_SESSION_KEY) || "null");
       if (storedSession && typeof storedSession === "object") {
-        for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "artistBulkInput", "candidateSortOrder"]) {
+        for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "evolutionContinuations", "candidateGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
           if (storedSession[field] !== undefined) previewState[field] = storedSession[field];
         }
       }
@@ -74,6 +74,8 @@ async function loadPersistentStyleWorkspace(restoreSession = false) {
   previewState.settingsDrafts.projects ??= {};
   previewState.projectDraftRevisions ??= {};
   previewState.pendingProjectSaves ??= {};
+  previewState.evolutionContinuations ??= {};
+  previewState.candidateGenerationRequests ??= {};
   if (!previewState.projects.some(project => project.identifier === previewState.currentProjectIdentifier)) {
     previewState.currentProjectIdentifier = previewState.projects[0]?.identifier || null;
   }
@@ -81,7 +83,7 @@ async function loadPersistentStyleWorkspace(restoreSession = false) {
   ensureRankingPreviewState();
   document.title = "스타일 구성 · Comfy Home";
   document.body.classList.add("persistent-workspace");
-  document.querySelector(".phase-badge").outerHTML = '<button class="phase-badge" data-action="navigate" data-screen="generation">생성 · 진화</button>';
+  document.querySelector(".phase-badge").outerHTML = '<button class="phase-badge" data-action="navigate" data-screen="project-settings">설정</button>';
   document.querySelector(".preview-notice").hidden = true;
   if (workspace.catalogNotice) showToast(workspace.catalogNotice);
 }
@@ -93,15 +95,23 @@ function persistentWorkflowOptions(selectedIdentifier) {
 
 /** 프로젝트가 없을 때도 목록과 글로벌 설정으로 이동할 수 있게 합니다. */
 function renderEmptyPersistentNavigation() {
+  document.querySelector('.phase-badge').dataset.screen = 'global-settings';
   document.querySelector("#project-context").innerHTML = '<span>현재 프로젝트 없음</span><span>새 프로젝트를 만들어 시작하세요.</span>';
   document.querySelector("#preview-sidebar").innerHTML = '<button data-action="navigate" data-screen="projects">▦　모든 프로젝트</button><button data-action="navigate" data-screen="global-settings">◎　글로벌 설정</button>';
-  document.querySelector("#preview-mobile-navigation").innerHTML = '<button data-action="navigate" data-screen="projects"><b>▦</b>프로젝트</button><button disabled><b>↔</b>선별</button><button disabled><b>◇</b>그림체</button><button data-action="navigate" data-screen="global-settings"><b>⚙</b>설정</button>';
+  document.querySelector("#preview-mobile-navigation").innerHTML = '<button class="active" data-action="navigate" data-screen="projects"><b>▦</b>프로젝트</button><button disabled><b>＋</b>생성</button><button disabled><b>↔</b>선별</button><button disabled><b>⟳</b>진화</button><button disabled><b>◇</b>그림체</button>';
 }
 
-/** 저장된 실제 프로젝트와 빈 시작 상태를 표시합니다. */
+/** 전체 프로젝트의 조건·현재 선택을 표시하고 카드에서 작업 대상을 명시적으로 고릅니다. */
 function renderPersistentProjects() {
-  const projectCards = previewState.projects.map(project => `<article class="panel project-card"><div class="project-card-body"><p class="eyebrow">FRESH PROJECT</p><h2>${escapeMarkup(project.name)}</h2><p class="muted">${escapeMarkup(project.settings.purpose || "새 그림체 탐색")}</p><p>${project.promptCases.map(promptCase => escapeMarkup(promptCase.name)).join(" · ")}</p><div class="card-meta"><span>${escapeMarkup(project.settings.pipelineIdentifier)}</span><span>${project.generation || 1}세대 · 조합 ${project.candidateCount}개</span><span>${project.promptCases.length}개 Prompt</span></div><button data-action="open-project" data-project="${project.identifier}">프로젝트 열기 →</button></div></article>`).join("");
-  return `<div class="page-heading"><div><p class="eyebrow">STYLE EXPLORATION</p><h1>나만의 그림체 찾기</h1><p class="muted">Prompt와 모델에 맞는 그림체를, 프로젝트별로.</p></div><button class="primary" data-action="navigate" data-screen="create">＋ 새 프로젝트</button></div><div class="toolbar"><button data-persistent-action="reload">서버에서 다시 불러오기</button></div>${projectCards ? `<div class="project-grid">${projectCards}</div>` : '<section class="panel empty-state"><h2>아직 프로젝트가 없습니다</h2><p>프로젝트를 만들면 Prompt와 설정을 다른 기기에서도 다시 열 수 있습니다.</p><button class="primary" data-action="navigate" data-screen="create">새 프로젝트 만들기</button></section>'}`;
+  const projectCards = [];
+  for (const project of previewState.projects) {
+    const isCurrentProject = project.identifier === previewState.currentProjectIdentifier;
+    const workflow = persistentWorkspaceMetadata.workflows.find(item => item.identifier === project.settings.pipelineIdentifier);
+    const modelName = workflow?.modelIdentifier || project.settings.pipelineIdentifier;
+    const selectedIndicator = isCurrentProject ? '<span class="project-current-indicator">현재 프로젝트</span>' : '';
+    projectCards.push(`<article class="panel project-card ${isCurrentProject ? 'current-project' : ''}" data-project-card="${project.identifier}" ${isCurrentProject ? 'aria-current="true"' : ''}><div class="project-card-body">${selectedIndicator}<h2>${escapeMarkup(project.name)}</h2>${project.settings.purpose ? `<p class="muted">${escapeMarkup(project.settings.purpose)}</p>` : ''}<p>${project.promptCases.map(promptCase => escapeMarkup(promptCase.name)).join(" · ")}</p><div class="card-meta"><span>${escapeMarkup(modelName)}</span><span>${project.generation || 1}세대 · 조합 ${project.candidateCount}개</span><span>${project.promptCases.length}개 Prompt</span></div><button class="${isCurrentProject ? 'primary' : ''}" data-action="open-project" data-project="${project.identifier}">${isCurrentProject ? '이어서 작업하기' : '이 프로젝트 선택'} →</button></div></article>`);
+  }
+  return `<div class="page-heading"><div><h1>프로젝트</h1><span class="project-list-count">${previewState.projects.length}개 프로젝트</span></div><button class="primary" data-action="navigate" data-screen="create">＋ 새 프로젝트</button></div><div class="toolbar"><button data-persistent-action="reload">서버에서 다시 불러오기</button></div>${projectCards.length ? `<div class="project-grid">${projectCards.join('')}</div>` : '<section class="panel empty-state"><h2>아직 프로젝트가 없습니다</h2><p>프로젝트를 만들면 Prompt와 설정을 다른 기기에서도 다시 열 수 있습니다.</p><button class="primary" data-action="navigate" data-screen="create">새 프로젝트 만들기</button></section>'}`;
 }
 
 /** 생성하지 않고 여러 Prompt와 실제 Workflow 옵션으로 Fresh 프로젝트를 저장합니다. */
@@ -200,8 +210,6 @@ async function savePersistentStyleSettings(form) {
       else previewState.projects[projectIndex] = savedProject;
       const generationState = currentStyleGenerationState(savedProject.identifier);
       generationState.options = null;
-      generationState.pendingRandomPlan = null;
-      generationState.pendingRandomRequest = null;
       generationState.pendingPromptRegeneration = null;
       generationState.comparisonPlanIdentifier = null;
       delete previewState.settingsDrafts.projects[projectIdentifier];

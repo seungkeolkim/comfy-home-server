@@ -90,7 +90,7 @@ class StyleGenerationStore:
         plan.setdefault("generationNumber", 1)
         plan["sampling"] = browser_sampling_settings(plan["sampling"])
         return {**plan, "evolutionStatus": evolution[0] if evolution else None, "planIdentifier": plan_identifier,
-                "projectRevision": row["project_revision"], "jobIdentifiers": [row[0] for row in job_rows]}
+                "operationIdentifier": row["operation_id"], "projectRevision": row["project_revision"], "jobIdentifiers": [row[0] for row in job_rows]}
 
     def results(self, project_identifier: str) -> dict:
         """기존 실제 Render와 현재 미제출 계획을 조회하며 Seed 변경 뒤에도 결과를 보존합니다."""

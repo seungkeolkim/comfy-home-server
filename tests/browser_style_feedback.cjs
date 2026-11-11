@@ -61,7 +61,7 @@ async function verifyStyleFeedback() {
     const project = await saveStyleFeedbackForm(page, '#persistent-project-form', 'POST');
     assert.equal(project.settings.artistMaximumCount, 1);
     assert.equal(project.settings.seed, '18446744073709551615');
-    await page.locator('.phase-badge[data-screen=generation]').click();
+    await page.locator('#preview-sidebar [data-screen=generation]').click();
     await page.getByText('직접 조합 지정', { exact: true }).click();
     await page.locator('[data-generation-action=prepare]').click();
     await page.locator('[data-generation-component="artist:feedback_alpha"][data-generation-combination="1"]').uncheck();
@@ -114,7 +114,7 @@ async function verifyStyleFeedback() {
     await page.locator('[data-action=switch-side]').click();
     await expect(page.locator('.case-section .comparison-result.visible-side').last()).toBeVisible();
     await page.screenshot({ path: 'runtime/verification/style-feedback-mobile.png', fullPage: true });
-    await page.locator('#preview-mobile-navigation [data-screen=project-settings]').click();
+    await page.locator('.phase-badge[data-screen=project-settings]').click();
     await expect(page.locator('#settings-project-purpose')).toHaveValue('선별 왕복 후에도 남아야 하는 미저장 메모');
     await expect(page.locator('#settings-case-name-0')).toHaveValue('이름을 바꾼 인물');
     await expect(page.locator('#settings-project-seed')).toHaveValue('18446744073709551615');

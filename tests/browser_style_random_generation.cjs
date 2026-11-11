@@ -30,15 +30,15 @@ async function verifyRandomStyleGeneration() {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${baseUrl}/style#generation`);
     await page.locator('#active-project-picker').selectOption(project.identifier);
-    await expect(page.locator('#style-random-image-count')).toContainText('12장');
-    await page.locator('#style-random-combination-count').fill('0');
-    await page.locator('[data-generation-action=random-start]').click();
-    await expect(page.locator('#style-generation-error')).toContainText('1 ~ 32');
-    await page.locator('#style-random-combination-count').fill('4');
+    await expect(page.locator('#style-generation-candidate-count')).toHaveValue('10');
+    await page.locator('#style-generation-candidate-count').fill('0');
+    await page.locator('[data-generation-action=generate-candidates]').click();
+    await expect(page.locator('#style-generation-confirmation-dialog')).not.toBeVisible();
+    await page.locator('#style-generation-candidate-count').fill('4');
 
     let lostPlan;
     let firstOperationIdentifier;
-    const previewEndpoint = `${baseUrl}/api/style-projects/${project.identifier}/random-generation-plans`;
+    const previewEndpoint = `${baseUrl}/api/style-projects/${project.identifier}/candidate-generation-plans`;
     await page.route(previewEndpoint, async route => {
       firstOperationIdentifier = route.request().postDataJSON().operationIdentifier;
       const response = await route.fetch();
@@ -46,11 +46,11 @@ async function verifyRandomStyleGeneration() {
       lostPlan = await response.json();
       await route.abort('failed');
     }, { times: 1 });
-    await page.locator('[data-generation-action=random-start]').click();
+    await page.locator('[data-generation-action=generate-candidates]').click();
     await expect(page.locator('#style-generation-error')).not.toBeEmpty();
     assert.equal((await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total, previousJobCount);
     const previewResponsePromise = page.waitForResponse(response => response.url() === previewEndpoint);
-    await page.locator('[data-generation-action=random-start]').click();
+    await page.locator('[data-generation-action=generate-candidates]').click();
     const previewResponse = await previewResponsePromise;
     assert.equal(previewResponse.request().postDataJSON().operationIdentifier, firstOperationIdentifier);
     const plan = await previewResponse.json();
@@ -78,7 +78,7 @@ async function verifyRandomStyleGeneration() {
     await expect(page.locator('#preview-content')).not.toHaveAttribute('inert', '');
     let additionalPlanRequests = 0;
     page.on('request', request => { if (request.url() === previewEndpoint) additionalPlanRequests += 1; });
-    await page.locator('[data-generation-action=random-start]').click();
+    await page.locator('[data-generation-action=generate-candidates]').click();
     await expect(confirmationDialog).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(confirmationDialog).not.toBeVisible();
@@ -86,9 +86,9 @@ async function verifyRandomStyleGeneration() {
     await page.reload();
     await expect.poll(() => page.evaluate(() => currentStyleGenerationState().results?.plans.length || 0)).toBe(1);
     await expect(page.locator('[data-generation-action=open-plan]')).toHaveCount(0);
-    await page.locator('[data-generation-action=random-start]').click();
+    await page.locator('[data-generation-action=generate-candidates]').click();
     await expect(confirmationDialog).toBeVisible();
-    assert.equal(additionalPlanRequests, 0);
+    assert.equal(additionalPlanRequests, 2);
     await confirmationDialog.locator('button[value=confirm]').click();
     await expect(confirmationDialog).not.toBeVisible();
     await expect(page.locator('.generation-result img')).toHaveCount(12, { timeout: 20000 });
@@ -151,8 +151,8 @@ async function verifyRandomStyleGeneration() {
     await page.goto(`${baseUrl}/style#generation`);
     await page.reload();
     await page.locator('#active-project-picker').selectOption(baseOnlyProject.identifier);
-    await page.locator('[data-generation-action=random-start]').click();
-    await expect(confirmationDialog).toContainText('4개 중 1개');
+    await page.locator('[data-generation-action=generate-candidates]').click();
+    await expect(confirmationDialog).toContainText('10개 중 1개');
     await expect(confirmationDialog).toContainText('3장');
     await confirmationDialog.locator('button[value=cancel]').click();
     assert.equal((await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total, previousJobCount + 1);

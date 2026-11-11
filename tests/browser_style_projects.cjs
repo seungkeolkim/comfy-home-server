@@ -12,14 +12,15 @@ async function openStyleWorkspace(context, width = 1280) {
   const page = await context.newPage();
   page.on('pageerror', error => browserErrors.push(error.message));
   page.on('request', request => {
-    if (request.method() === 'POST' && /\/api\/(batches|generate)/.test(request.url())) generationRequests.push(request.url());
+    if (request.method() === 'POST' && /\/api\/(batches|generate)|\/(candidate-generation-plans|generation-plans|random-generation-plans|evolution-plans|votes)(\/|\?|$)/.test(request.url())) generationRequests.push(request.url());
   });
   await page.setViewportSize({ width, height: 1000 });
   await page.goto(`${verificationBaseUrl}/style`);
   await page.locator('#preview-password').fill('test');
   await page.locator('#preview-login-form button[type=submit]').click();
   await expect(page.locator('#preview-application')).toBeVisible();
-  await expect(page.locator('#preview-content')).toContainText('나만의 그림체 찾기');
+  await expect(page.locator('#preview-content h1')).toHaveText('프로젝트');
+  await expect(page.locator('#preview-mobile-navigation button')).toHaveCount(5);
   return page;
 }
 
@@ -86,17 +87,34 @@ async function verifyPersistentStyleProjects() {
     assert.ok(renamedProject.storageBinding.project_folder.startsWith(renamedProject.name));
     await desktopPage.locator('#settings-project-purpose').fill('A의 미저장 초안');
     const secondProject = await createProject(desktopPage, `검증 B ${Date.now()}`, 'landscape, {artist}');
-    await desktopPage.locator('#active-project-picker').selectOption(firstProject.identifier);
+    await desktopPage.locator('#preview-sidebar [data-screen=projects]').click();
+    await expect(desktopPage.locator('[data-project-card]')).toHaveCount(2);
+    await expect(desktopPage.locator(`[data-project-card="${secondProject.identifier}"]`)).toHaveAttribute('aria-current', 'true');
+    await desktopPage.locator(`[data-action=open-project][data-project="${firstProject.identifier}"]`).click();
+    await expect(desktopPage.locator('#preview-content h1')).toHaveText('이미지 생성');
+    await expect(desktopPage.locator('#active-project-picker')).toHaveValue(firstProject.identifier);
+    await desktopPage.locator('.phase-badge[data-screen=project-settings]').click();
     await expect(desktopPage.locator('#settings-project-purpose')).toHaveValue('A의 미저장 초안');
     await desktopPage.reload();
     await expect(desktopPage.locator('#settings-project-purpose')).toHaveValue('A의 미저장 초안');
     await expect(desktopPage.locator('#settings-project-width')).toHaveValue('640');
     const mobileContext = await browser.newContext({ isMobile: true, hasTouch: true });
     const mobilePage = await openStyleWorkspace(mobileContext, 390);
-    await mobilePage.locator('#active-project-picker').selectOption(firstProject.identifier);
-    await mobilePage.locator('#preview-mobile-navigation [data-screen=project-settings]').click();
+    await mobilePage.locator(`[data-action=open-project][data-project="${firstProject.identifier}"]`).click();
+    await expect(mobilePage.locator('#active-project-picker')).toHaveValue(firstProject.identifier);
+    await mobilePage.locator('.phase-badge[data-screen=project-settings]').click();
     await expect(mobilePage.locator('#settings-project-purpose')).toHaveValue('Browser 검증용 프로젝트');
     await mobilePage.locator('#settings-project-purpose').fill('다른 기기에서 저장');
+    await mobilePage.locator('#preview-mobile-navigation [data-screen=projects]').click();
+    await expect(mobilePage.locator('#preview-mobile-navigation [data-screen=projects]')).toHaveClass('active');
+    await expect(mobilePage.locator('[data-project-card]')).toHaveCount(2);
+    await expect(mobilePage.locator(`[data-project-card="${firstProject.identifier}"] .project-current-indicator`)).toHaveText('현재 프로젝트');
+    await mobilePage.locator(`[data-action=open-project][data-project="${secondProject.identifier}"]`).click();
+    await expect(mobilePage.locator('#active-project-picker')).toHaveValue(secondProject.identifier);
+    await mobilePage.locator('#preview-mobile-navigation [data-screen=projects]').click();
+    await mobilePage.locator(`[data-action=open-project][data-project="${firstProject.identifier}"]`).click();
+    await mobilePage.locator('.phase-badge[data-screen=project-settings]').click();
+    await expect(mobilePage.locator('#settings-project-purpose')).toHaveValue('다른 기기에서 저장');
     const mobileProject = await saveProjectForm(mobilePage);
     assert.deepEqual(mobileProject.settings.promptCases.map(promptCase => promptCase.identifier), caseIdentifiers);
     const conflictResponse = desktopPage.waitForResponse(response => response.request().method() === 'PUT' && response.url().includes('/api/style-projects/'));
@@ -120,6 +138,23 @@ async function verifyPersistentStyleProjects() {
     await mobilePage.setViewportSize({ width: 390, height: 844 });
     await mobilePage.screenshot({ path: 'runtime/verification/style-projects-mobile.png', fullPage: true });
     await desktopPage.screenshot({ path: 'runtime/verification/style-projects-desktop.png', fullPage: true });
+    for (const width of [320, 390, 768, 1280]) {
+      await mobilePage.setViewportSize({ width, height: 1000 });
+      const navigationSelector = width > 700 ? '#preview-sidebar' : '#preview-mobile-navigation';
+      await mobilePage.locator(`${navigationSelector} [data-screen=projects]`).click();
+      await expect(mobilePage.locator('#preview-content h1')).toHaveText('프로젝트');
+      await expect(mobilePage.locator('[data-project-card]')).toHaveCount(2);
+      assert.ok(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+      if (width === 390 || width === 1280) await mobilePage.screenshot({ path: `runtime/verification/style-project-navigation-${width}.png`, fullPage: true });
+      if (width === 390) {
+        for (const screen of ['generation', 'compare', 'evolution', 'candidates']) {
+          await mobilePage.locator(`#preview-mobile-navigation [data-screen="${screen}"]`).click();
+          await expect(mobilePage.locator(`#preview-mobile-navigation [data-screen="${screen}"]`)).toHaveClass('active');
+          await mobilePage.locator('#preview-mobile-navigation [data-screen=projects]').click();
+          await expect(mobilePage.locator(`[data-project-card="${firstProject.identifier}"]`)).toHaveAttribute('aria-current', 'true');
+        }
+      }
+    }
     await desktopPage.locator('#preview-sidebar [data-screen=compare]').click();
     await expect(desktopPage.locator('#preview-content')).toContainText('아직 생성한 이미지가 없습니다');
     await expect(desktopPage.locator('#preview-content img')).toHaveCount(0);
@@ -142,6 +177,7 @@ async function verifyPersistentStyleProjects() {
     fs.writeFileSync('runtime/verification/style-projects-browser-results.json', JSON.stringify({
       projectIdentifiers: [firstProject.identifier, secondProject.identifier],
       caseIdentifiers, widths: [320, 390, 768, 1280],
+      projectTabRestored: true, explicitCardSelection: true, selectedProjectIndicator: true, fiveTabNavigation: true,
       crossDevicePersistence: true, unsavedDraftPreservation: true, revisionConflict: true,
       renameBinding: true, evaluationSnapshots: true, generalInputPreserved: true,
       previewStillAvailable: true, browserErrors, generationRequests,

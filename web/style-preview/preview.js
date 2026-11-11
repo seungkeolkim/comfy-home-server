@@ -169,24 +169,26 @@ function renderNavigation() {
     renderEmptyPersistentNavigation();
     return;
   }
+  if (PERSISTENT_STYLE_WORKSPACE) document.querySelector('.phase-badge').dataset.screen = 'project-settings';
   document.querySelector("#project-context").innerHTML = `
     <label for="active-project-picker">현재 프로젝트</label>
     <select id="active-project-picker" aria-label="현재 프로젝트">${previewState.projects.map(item => `<option value="${item.identifier}" ${item.identifier === project.identifier ? "selected" : ""}>${escapeMarkup(item.name)}</option>`).join("")}</select>
     ${PERSISTENT_STYLE_WORKSPACE ? "" : "<span>선별·보관의 작업 대상</span>"}`;
   document.querySelector("#preview-sidebar").innerHTML = `
-    <button data-action="navigate" data-screen="projects" class="${previewState.screen === "projects" ? "active" : ""}">▦　모든 프로젝트</button>
+    <button data-action="navigate" data-screen="projects" class="${previewState.screen === "projects" ? "active" : ""}">▦　프로젝트</button>
     <p class="project-label">현재 프로젝트</p><p class="project-name">${escapeMarkup(project.name)}</p>
-    ${PERSISTENT_STYLE_WORKSPACE ? '<button data-action="navigate" data-screen="generation" class="' + (previewState.screen === "generation" ? "active" : "") + '">＋　생성 · 진화</button>' : ""}
+    ${PERSISTENT_STYLE_WORKSPACE ? '<button data-action="navigate" data-screen="generation" class="' + (previewState.screen === "generation" ? "active" : "") + '">＋　이미지 생성</button>' : ""}
     <button data-action="navigate" data-screen="compare" class="${previewState.screen === "compare" ? "active" : ""}">↔　선별</button>
+    ${PERSISTENT_STYLE_WORKSPACE ? '<button data-action="navigate" data-screen="evolution" class="' + (previewState.screen === "evolution" ? "active" : "") + '">⟳　진화</button>' : ""}
     <button data-action="navigate" data-screen="candidates" class="${["candidates", "candidate-detail"].includes(previewState.screen) ? "active" : ""}">◇　그림체 <small>　${project.candidateCount}</small></button>
     <button data-action="navigate" data-screen="project-settings" class="${previewState.screen === "project-settings" ? "active" : ""}">⚙　프로젝트 설정</button>
     <p class="project-label">시스템 공통</p>
     <button data-action="navigate" data-screen="global-settings" class="${previewState.screen === "global-settings" ? "active" : ""}">◎　글로벌 설정</button>
     ${PERSISTENT_STYLE_WORKSPACE ? "" : '<p class="sidebar-note">먼저 화면을 사용해 보고<br>함께 흐름을 정합니다.</p>'}`;
-  document.querySelector("#preview-mobile-navigation").innerHTML = [
-    ["projects", "▦", "프로젝트"], ["compare", "↔", "선별"], ["candidates", "◇", "그림체"],
-    ["project-settings", "⚙", "설정"],
-  ].map(([screen, symbol, label]) => `<button data-action="navigate" data-screen="${screen}" class="${previewState.screen === screen || (screen === "project-settings" && previewState.screen === "global-settings") || (screen === "candidates" && previewState.screen === "candidate-detail") ? "active" : ""}"><b>${symbol}</b>${label}</button>`).join("");
+  const navigationItems = PERSISTENT_STYLE_WORKSPACE
+    ? [["projects", "▦", "프로젝트"], ["generation", "＋", "생성"], ["compare", "↔", "선별"], ["evolution", "⟳", "진화"], ["candidates", "◇", "그림체"]]
+    : [["projects", "▦", "프로젝트"], ["compare", "↔", "선별"], ["candidates", "◇", "그림체"], ["project-settings", "⚙", "설정"]];
+  document.querySelector("#preview-mobile-navigation").innerHTML = navigationItems.map(([screen, symbol, label]) => `<button data-action="navigate" data-screen="${screen}" class="${previewState.screen === screen || (screen === "project-settings" && previewState.screen === "global-settings") || (screen === "candidates" && previewState.screen === "candidate-detail") ? "active" : ""}"><b>${symbol}</b>${label}</button>`).join("");
 }
 
 /** 현재 작업을 파악할 수 있는 작은 조건 요약을 만듭니다. */
@@ -399,7 +401,7 @@ function handlePreviewAction(event) {
     previewState.currentProjectIdentifier = button.dataset.project;
     previewState.activeCaseIndex = 0;
     previewState.libraryFilter = "current";
-    navigatePreview(PERSISTENT_STYLE_WORKSPACE ? "project-settings" : "compare");
+    navigatePreview(PERSISTENT_STYLE_WORKSPACE ? "generation" : "compare");
   }
   if (action === "add-prompt") {
     previewState.draft.promptCases.push({ name: `Prompt ${previewState.draft.promptCases.length + 1}`, prompt: "", scene: "garden" });
@@ -527,7 +529,7 @@ function renderPreview(scrollToTop = true) {
   }
   if (PERSISTENT_STYLE_WORKSPACE && previewState.screen === "candidate-detail") previewState.screen = "candidates";
   renderNavigation();
-  const screenRenderers = { projects: renderProjects, create: renderProjectCreation, candidates: renderCandidates, compare: renderComparison, scope: renderPreviewScope, "global-settings": renderGlobalSettingsPreview, "project-settings": renderProjectSettingsPreview, "candidate-detail": renderCandidateDetailPreview, generation: renderStyleGeneration };
+  const screenRenderers = { projects: renderProjects, create: renderProjectCreation, candidates: renderCandidates, compare: renderComparison, scope: renderPreviewScope, "global-settings": renderGlobalSettingsPreview, "project-settings": renderProjectSettingsPreview, "candidate-detail": renderCandidateDetailPreview, generation: renderStyleGeneration, evolution: renderStyleEvolutionWorkspace };
   previewContent.innerHTML = PERSISTENT_STYLE_WORKSPACE && previewState.screen === "scope" ? renderPersistentScope() : screenRenderers[previewState.screen]();
   if (previewState.rankingReturnScrollY !== null) {
     window.scrollTo(0, previewState.rankingReturnScrollY);
@@ -547,7 +549,7 @@ function restorePreviewScreen() {
     requestedScreen = "candidates";
     window.history.replaceState(window.history.state, "", "#candidates");
   }
-  previewState.screen = ["projects", "create", "candidates", "compare", "scope", "global-settings", "project-settings", "candidate-detail", "generation"].includes(requestedScreen) ? requestedScreen : "projects";
+  previewState.screen = ["projects", "create", "candidates", "compare", "scope", "global-settings", "project-settings", "candidate-detail", "generation", "evolution"].includes(requestedScreen) ? requestedScreen : "projects";
   renderPreview();
 }
 
