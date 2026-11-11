@@ -360,3 +360,7 @@ DB Migration이 필요한 단계에서는 적용 전 일관된 Backup의 경로�
 2026-11-11 / Prompt 저장·Web 사용성 재정리 / 2cab3d1 이후 변경 / Python 480 Passed·1 Skipped, 스타일 Browser 9개, 운영 32개 업무 테이블·이미지 14장 Hash 보존·상태 변경 요청 0건·healthy / 생성 후 Prompt 저장 실패·Refresh 유실 해결, 8389 실제 UI와 Web 소스를 기준으로 불필요 설명·조작 재정리 요청 / 설정 저장 제한·LoRA 미기록 오판 수정, 같은 조합의 새 Prompt 전체 생성, 고정 저장 상태, 이미지 중심 선별과 Desktop 원본 연결 후 Backup·재기동 / 사용자 사용성 확인 대기, Commit·Push 없음. 상세는 style_web_usability_rework.md
 
 2026-11-11 / Prompt 저장·Web 사용성 수정 Commit / 2cab3d1 이후 변경 / 기존 Python·Browser·운영 검증 기록과 배포 소스 Hash 확인, Diff 검사 통과 / 사용자 Commit 요청 / 이번 코드·테스트·문서를 함께 Commit / Push 없음, 후속 작업 요청 대기
+
+2026-11-11 / 신규 조합 자동 Placement / fa4983e와 미Commit 이미지 Fit 변경 이후 / 전체 Python 487 Passed·1 Skipped 및 추가 회귀 1개 통과, 스타일 Browser 9개, 운영 투표 63건·이미지 66장·업무 Table 30개 보존과 두 Table의 제한된 JSON 변경 검증 / 한 표 뒤 종료 대신 순위가 자리 잡을 때까지 자동 선별 요청 / 전체 기존 순위표의 이진 배치·같은 구간 신규끼리 비교·미확정 Elo와 진행 Batch 전환 구현, Backup·재기동·운영 읽기 전용 Browser 통과 / running·healthy, 사용자 실제 선별 확인 대기, Commit·Push 없음. 상세는 automatic_placement_review.md
+
+2026-11-11 / 자동 Placement·이미지 표시 수정 Commit / fa4983e 이후 변경 / 운영 반영 소스 20개 Hash·기존 Python·Browser 검증 기록·Diff 검사 확인 / 사용자 Commit 요청 / 자동 Placement·미확정 Elo·진행 Batch 전환과 앞선 선별 카드 Fit·Mobile Viewer 여백, 테스트·문서를 함께 Commit / Push 없음, 후속 피드백 대기

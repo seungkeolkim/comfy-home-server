@@ -7,7 +7,7 @@ import uuid
 from .style_evolution_selection import apply_selection_choice, next_selection_pair
 
 
-VOTING_POLICY_VERSION = "style-arena-v1"
+VOTING_POLICY_VERSION = "style-arena-v2"
 
 
 def initial_candidate_statistics() -> dict:
@@ -19,7 +19,7 @@ def initial_candidate_statistics() -> dict:
 def candidate_is_rated(statistics: dict) -> bool:
     """일반 대결 경험이나 완료한 Placement가 있는 후보를 구별합니다."""
 
-    return statistics["matches"] > 0 or statistics["placed"]
+    return not statistics.get("placementPending", False) and (statistics["matches"] > 0 or statistics["placed"])
 
 
 def calculate_regular_ratings(first_rating: int, second_rating: int, first_won: bool) -> tuple[int, int]:
@@ -137,7 +137,7 @@ def choose_next_match(state: dict, ready_identifiers: list[str]) -> dict | None:
     placement = state["placement"]
     if placement and (placement["identifier"] not in newcomers or any(identifier not in ready_identifiers for identifier in placement["ladder"])):
         state["placement"] = placement = None
-    if not placement and len(rated_identifiers) < 24 and len(newcomers) >= 2:
+    if not placement and not rated_identifiers and len(newcomers) >= 2:
         first_identifier, second_identifier = random.sample(newcomers, 2)
         return new_match("league", first_identifier, second_identifier, fresh=True)
     if not placement and newcomers:
@@ -149,6 +149,7 @@ def choose_next_match(state: dict, ready_identifiers: list[str]) -> dict | None:
             "identifier": newcomers[0], "ladder": ladder,
             "scores": [statistics[identifier]["rating"] for identifier in ladder], "votes": [],
         }
+        statistics[placement["identifier"]]["placementPending"] = True
     if placement:
         _, rung_index = placement_position(placement["votes"], len(placement["ladder"]))
         return new_match("place", placement["identifier"], placement["ladder"][rung_index], rungIndex=rung_index)
@@ -184,7 +185,7 @@ def apply_match_choice(state: dict, choice: str, components_by_candidate: dict) 
         slot_index, next_rung = placement_position(placement["votes"], len(placement["ladder"]))
         if next_rung is None:
             played_votes = [result for _, result in placement["votes"] if result != "tie"]
-            first_statistics.update(rating=placement_rating(slot_index, placement["scores"]), placed=True)
+            first_statistics.update(rating=placement_rating(slot_index, placement["scores"]), placed=True, placementPending=False)
             first_statistics["matches"] += len(played_votes)
             first_statistics["wins"] += played_votes.count("win")
             state["placement"] = None

@@ -268,8 +268,14 @@ def test_generation_job_numbers_restart_inside_each_generation(rated_population)
     wait_for_plan(client, project, plan)
     selection = read_selection(client, project)
     child_identifier = plan["candidates"][0]["identifier"]
-    choice = "b" if selection["match"]["a"] == child_identifier else "a"
-    assert client.post(endpoint + "/votes", json=vote_input(selection, choice)).status_code == 200
+    for _ in range(20):
+        if selection["match"] is None:
+            break
+        choice = "b" if selection["match"]["a"] == child_identifier else "a"
+        response = client.post(endpoint + "/votes", json=vote_input(selection, choice))
+        assert response.status_code == 200, response.text
+        selection = response.json()
+    assert selection["match"] is None
     finish_evolution(client, project, "confirm")
     second_plan = client.post(endpoint + "/random-generation-plans", json={"expectedRevision": project["revision"], "operationIdentifier": uuid.uuid4().hex, "combinationCount": 1}).json()
     second_job = submit_existing_plan(client, project, second_plan)

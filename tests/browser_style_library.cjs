@@ -6,11 +6,12 @@ const fs = require('node:fs');
 /** Prompt 개수가 다른 실제 임시 생성 데이터를 격리 서버에만 준비합니다. */
 async function createStyleLibraryScenario(context, baseUrl, promptCount) {
   const operationPrefix = `library-${Date.now()}-${promptCount}`;
+  const scenarioSizes = { 1: { width: 512, height: 768 }, 3: { width: 640, height: 640 }, 5: { width: 768, height: 512 } };
   const promptCases = [];
   for (let index = 0; index < promptCount; index += 1) promptCases.push({ identifier: `case-${index}`, name: `Prompt ${index + 1}`, prompt: `scene ${index + 1}` });
   const projectResponse = await context.request.post(`${baseUrl}/api/style-projects`, { data: {
     operationIdentifier: `${operationPrefix}-project`, settings: {
-      name: `${promptCount}개 Prompt 카드 검증`, promptCases, width: 64, height: 96, steps: 3,
+      name: `${promptCount}개 Prompt 카드 검증`, promptCases, ...scenarioSizes[promptCount], steps: 3,
       componentPolicies: { 'lora:example.safetensors': { enabled: true, minimumStrength: 0.2, maximumStrength: 0.9 } },
     },
   } });
@@ -40,14 +41,58 @@ function relativeLuminance(color) {
   return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
 }
 
-/** 1·3·5개 Prompt의 카드·Viewer 경계·스크롤 비교를 Mobile과 Desktop에서 검증합니다. */
+/** 이미지의 실제 비율과 테두리 크기가 같아 잘림이나 카드 안 여백이 없는지 확인합니다. */
+async function verifyComparisonCardFit(page) {
+  await expect.poll(() => page.locator('.comparison-result:visible img').evaluateAll(images => images.length > 0 && images.every(image => image.complete && image.naturalWidth > 0))).toBe(true);
+  const measurements = await page.locator('.comparison-result:visible .image-button').evaluateAll(buttons => buttons.map(button => {
+    const image = button.querySelector('img');
+    const imageBounds = image.getBoundingClientRect();
+    const buttonBounds = button.getBoundingClientRect();
+    return { imageWidth: imageBounds.width, imageHeight: imageBounds.height, buttonWidth: buttonBounds.width, buttonHeight: buttonBounds.height, naturalRatio: image.naturalWidth / image.naturalHeight };
+  }));
+  for (const measurement of measurements) {
+    assert.ok(measurement.imageWidth > 0 && measurement.imageHeight > 0, JSON.stringify(measurement));
+    assert.ok(Math.abs(measurement.imageWidth / measurement.imageHeight - measurement.naturalRatio) < 0.01, JSON.stringify(measurement));
+    assert.ok(Math.abs(measurement.buttonWidth - measurement.imageWidth) <= 3, JSON.stringify(measurement));
+    assert.ok(Math.abs(measurement.buttonHeight - measurement.imageHeight) <= 3, JSON.stringify(measurement));
+  }
+}
+
+/** 작은 Mobile 화면에서도 위·아래 Backdrop을 실제로 눌러 닫을 수 있는지 확인합니다. */
+async function verifyMobileViewerBackdrop(page, opener, width, height) {
+  await page.setViewportSize({ width, height });
+  const dialog = page.locator('#illustration-dialog');
+  for (const backdropSide of ['top', 'bottom']) {
+    await opener.click();
+    await expect(dialog).toBeVisible();
+    await expect.poll(() => page.locator('.style-viewer-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
+    const bounds = await dialog.boundingBox();
+    assert.ok(bounds.y >= 44 && height - bounds.y - bounds.height >= 44, JSON.stringify({ width, height, bounds }));
+    assert.ok(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth));
+    if (backdropSide === 'top' && height === 844) {
+      await page.locator('.style-viewer-image').click();
+      await expect(dialog).toBeVisible();
+      const imageBounds = await page.locator('.style-viewer-image').boundingBox();
+      await page.mouse.move(imageBounds.x + imageBounds.width / 2, imageBounds.y + imageBounds.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(width / 2, bounds.y / 2);
+      await page.mouse.up();
+      await expect(dialog).toBeVisible();
+    }
+    const backdropY = backdropSide === 'top' ? bounds.y / 2 : (bounds.y + bounds.height + height) / 2;
+    await page.touchscreen.tap(width / 2, backdropY);
+    await expect(dialog).not.toBeVisible();
+  }
+}
+
+/** 세 가지 이미지 비율·1/3/5개 Prompt·카드 Fit·Backdrop 닫기를 함께 검증합니다. */
 async function verifyStyleLibrary() {
   const baseUrl = 'http://127.0.0.1:18388';
   const browser = await chromium.launch({ channel: 'msedge', headless: true });
   const browserErrors = [];
   const scenarios = [];
   try {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ hasTouch: true });
     await context.request.post(`${baseUrl}/api/login`, { data: { password: 'test' } });
     const page = await context.newPage();
     page.on('pageerror', error => browserErrors.push(error.message));
@@ -91,6 +136,9 @@ async function verifyStyleLibrary() {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.screenshot({ path: `runtime/verification/style-library-viewer-${promptCount}-mobile.png`, fullPage: true });
       await page.locator('[data-style-library-action=close]').click();
+      for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 390, height: 560 }]) {
+        await verifyMobileViewerBackdrop(page, firstCard.locator('.style-card-heading'), viewport.width, viewport.height);
+      }
       for (const width of [320, 390, 768, 1280]) {
         await page.setViewportSize({ width, height: 1000 });
         const dimensions = await page.evaluate(() => ({ width: innerWidth, contentWidth: document.documentElement.scrollWidth }));
@@ -103,6 +151,14 @@ async function verifyStyleLibrary() {
       }
       await page.goto(`${baseUrl}/style#compare`);
       await expect(page.locator('.case-section:visible')).toHaveCount(promptCount, { timeout: 10000 });
+      for (const width of [320, 390, 768, 1280]) {
+        await page.setViewportSize({ width, height: 1000 });
+        await verifyComparisonCardFit(page);
+      }
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.locator('[data-action=image-layout]').click();
+      await verifyComparisonCardFit(page);
+      await page.locator('[data-action=image-layout]').click();
       await expect(page.locator('[data-action=switch-case]')).toHaveCount(0);
       await expect(page.locator('.case-tabs')).toHaveCount(0);
       await page.locator('.case-section').last().scrollIntoViewIfNeeded();

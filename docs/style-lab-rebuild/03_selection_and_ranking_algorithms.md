@@ -2,6 +2,8 @@
 
 이 문서의 수치와 Match별 처리는 기존 구현의 복원 기준입니다. 새 [여러 Prompt 탐색](20_web_ux_fusion_multi_prompt_and_component_differences.md)은 같은 후보 A/B의 Case별 결과 묶음을 비교하고 조합 단위로 한 번 선택합니다. Prompt별 투표는 제공하지 않습니다. Match·Elo·Placement·Selection·Undo 계약을 별도 검증하며 Prompt 수만큼 한 표를 중복 반영하지 않습니다.
 
+**현재 CHS 보강:** [자동 Placement](automatic_placement_review.md)는 진화 자녀를 전체 기존 순위표와 비교하고 같은 구간의 신규끼리 순서를 확인합니다. 이 과정의 `placementPending`은 경기 수가 있어도 미확정이며 순위를 부여하지 않습니다. 아래의 원본 빠른 생존 판정·`matches >= 1` 조건과 구분합니다.
+
 ## 기본 수치와 정렬
 
 현재 `core.py` 기준입니다. 이 수치는 일반 Elo 관례에서 추측하지 않고 원문 그대로 복원해야 합니다.

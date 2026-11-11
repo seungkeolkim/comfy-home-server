@@ -6,6 +6,10 @@
 
 **사용성 보완:** [8389 비교·Elo 수정·조합 폐기·공통 Viewer·고정 선호 버튼](style_usability_review.md)을 연결합니다. 표시 이름은 파일의 세대·조합 규칙을 따르고 Mobile Viewer는 CHS의 기존 Thumbnail Cache를 사용합니다.
 
+**이미지 표시:** [선별 카드 Fit과 Mobile Viewer 바깥 공간](style_image_fit_review.md). 이미지 비율에 맞는 카드와 위·아래 Touch로 닫을 수 있는 미리보기 여백을 적용합니다.
+
+**자동 Placement:** [신규 조합의 자리 찾기·미확정 Elo](automatic_placement_review.md). 전체 기존 순위표와 같은 구간의 신규 조합을 비교하고, 자리를 확정한 뒤 세대 선별을 완료합니다. 진행 중인 세대의 기존 표와 Undo는 유지합니다.
+
 **저장·Web 조작 재정리:** [Prompt 저장 오류와 8389 기준 사용성 재정리](style_web_usability_rework.md). 생성 후 Prompt 저장 차단과 미기록 LoRA 오판을 수정하고, 같은 조합의 새 Prompt 생성과 간결한 선별·저장 화면을 연결합니다.
 
 **현재 우선 작업:** [진화 탭과 반복 세대 생성](generation_cycle_review.md). 생성은 세대 후보를 준비하고, 선별 뒤 확정과 다음 후보 생성을 이어갑니다. 후속 피드백으로 프로젝트 목록·현재 선택 표시와 명시적인 카드 선택을 복원했습니다. 그림체 보관·일반 생성 적용보다 이 Cycle을 먼저 사용자 확인합니다.

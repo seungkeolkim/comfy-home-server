@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict, Field
 
 from .style_evolution_breeding import draw_evolution_children
-from .style_evolution_selection import build_selection_ranking, next_selection_pair
+from .style_evolution_selection import AUTOMATIC_PLACEMENT_POLICY, build_selection_ranking, next_selection_pair, synchronize_selection_statistics
 from .style_evolution_store import StyleEvolutionStore
 from .style_generation import FixedCombination, StyleGenerationPlanInput
 from .style_projects import ProjectSettings, StyleRevisionConflict, encode_snapshot, snapshot_hash
@@ -58,6 +58,47 @@ class StyleEvolutionService:
 
         self.server = server
         self.store = StyleEvolutionStore(server)
+
+    def upgrade_automatic_placement(self, connection, project_identifier: str, evaluation_identifier: str, state: dict) -> bool:
+        """미확정 Batch만 전체 기존 순위표로 전환하고 기존 Vote·Undo Snapshot은 보존합니다."""
+
+        row = self.store.find_open_evolution_batch(connection, evaluation_identifier)
+        if not row or row["project_id"] != project_identifier:
+            return False
+        batch = json.loads(row["batch_json"])
+        if batch.get("placement_policy") != AUTOMATIC_PLACEMENT_POLICY:
+            reference_identifiers = batch["sourceCandidateIdentifiers"]
+            source_statistics = batch["beforeArena"]["statistics"]
+            batch.update(placement_policy=AUTOMATIC_PLACEMENT_POLICY, reference_ids=reference_identifiers,
+                reference_scores={identifier: source_statistics[identifier]["rating"] for identifier in reference_identifiers})
+            connection.execute("UPDATE style_evolution_batches SET batch_json=? WHERE batch_id=?", (encode_snapshot(batch), row["batch_id"]))
+        if row["status"] != "active":
+            return False
+        selection = state.get("evolution")
+        if not selection or selection["batch_id"] != row["batch_id"]:
+            raise RuntimeError("진화 Batch와 선별 상태가 일치하지 않습니다.")
+        before = encode_snapshot(state)
+        policy_changed = selection.get("placement_policy") != AUTOMATIC_PLACEMENT_POLICY
+        for field in ("placement_policy", "reference_ids", "reference_scores"):
+            selection[field] = copy.deepcopy(batch[field])
+        if policy_changed and state.get("match"):
+            state["match"]["token"] = uuid.uuid4().hex
+        synchronize_selection_statistics(state)
+        return encode_snapshot(state) != before
+
+    def migrate_pending_placements(self) -> None:
+        """서버 시작 때 진행·계획 중 Batch만 갱신해 확정 이력과 실제 파일은 건드리지 않습니다."""
+
+        with self.server.database._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute("SELECT project_id,evaluation_id FROM style_evolution_batches WHERE status IN ('planned','active')").fetchall()
+            for row in rows:
+                arena = connection.execute("SELECT revision,state_json FROM style_voting_arenas WHERE evaluation_id=?", (row["evaluation_id"],)).fetchone()
+                if not arena:
+                    raise RuntimeError("진화 Batch의 선별 상태를 찾을 수 없습니다.")
+                state = json.loads(arena["state_json"])
+                if self.upgrade_automatic_placement(connection, row["project_id"], row["evaluation_id"], state):
+                    self.server.style_voting.save_arena(connection, row["evaluation_id"], arena["revision"] + 1, state)
 
     def load_evolution_context(self, connection, project_identifier: str, evaluation_identifier: str) -> tuple[dict, int, dict, list[dict], list[str]]:
         """평가 소유·현재 Arena·준비된 활성 조합을 같은 연결에서 읽습니다."""
@@ -188,15 +229,17 @@ class StyleEvolutionService:
         ready_children = [identifier for identifier in batch["candidate_ids"] if identifier in ready_identifiers]
         request_states = [request[0] for request in connection.execute("SELECT job_requests.status FROM style_candidate_renders JOIN job_requests USING(request_id) WHERE plan_id=? AND style_candidate_renders.rowid IN (SELECT MAX(rowid) FROM style_candidate_renders WHERE plan_id=? GROUP BY candidate_id,case_id)", (row["plan_id"], row["plan_id"]))]
         selection = state.get("evolution")
-        all_ready = len(ready_children) == len(batch["candidate_ids"]) and all(identifier in ready_identifiers for identifier in batch["parent_ids"])
+        all_ready = len(ready_children) == len(batch["candidate_ids"]) and all(identifier in ready_identifiers for identifier in batch.get("reference_ids", batch["parent_ids"]))
         ranking = build_selection_ranking(selection) if selection else None
         next_pair = next_selection_pair(selection, ready_identifiers, ranking) if selection else None
-        complete_count = sum(child["rung"] is None and bool(child["votes"]) for child in ranking["info"].values()) if ranking else 0
+        complete_count = len(ranking["completed_identifiers"]) if ranking else 0
         phase = "planned" if row["status"] == "planned" else "ready" if all_ready and next_pair is None else "generating" if any(status in {"submitting", "pending", "running", "cancelling"} for status in request_states) else "failed" if not all_ready else "selecting"
         return {"identifier": row["batch_id"], "status": row["status"], "phase": phase, "sourceGeneration": batch["sourceGeneration"], "targetGeneration": batch["targetGeneration"], "plan": plan,
                 "candidateIdentifiers": batch["candidate_ids"], "parentIdentifiers": batch["parent_ids"],
-                "completedCandidateIdentifiers": [identifier for identifier, child in ranking["info"].items() if child["rung"] is None and child["votes"]] if ranking else [],
-                "enteredCandidateIdentifiers": [identifier for identifier, child in ranking["info"].items() if child["slot"] > 0] if ranking and all_ready and next_pair is None else [],
+                "completedCandidateIdentifiers": ranking["completed_identifiers"] if ranking else [],
+                "enteredCandidateIdentifiers": [identifier for identifier, child in ranking["info"].items() if child["slot"] > ranking["admission_slot"]] if ranking and all_ready and next_pair is None else [],
+                "placementPolicy": batch.get("placement_policy"), "referenceCandidateIdentifiers": batch.get("reference_ids", batch["parent_ids"]),
+                "remainingPlacementCount": len(batch["candidate_ids"]) - complete_count,
                 "childCount": len(batch["candidate_ids"]), "readyChildCount": len(ready_children), "completedSelectionCount": complete_count, "canConfirm": row["status"] == "active" and all_ready and next_pair is None,
                 "failedRequestCount": sum(status in {"failed", "cancelled", "stopped"} for status in request_states), "modeCounts": plan["selection"]["modeCounts"]}
 
@@ -240,6 +283,8 @@ class StyleEvolutionService:
             context = {"identifier": uuid.uuid4().hex, "projectIdentifier": project_identifier, "evaluationIdentifier": evaluation_identifier,
                        "sourceGeneration": source_generation, "targetGeneration": source_generation + 1, "parent_ids": parent_identifiers,
                        "parent_scores": {identifier: state["statistics"][identifier]["rating"] for identifier in parent_identifiers},
+                       "placement_policy": AUTOMATIC_PLACEMENT_POLICY, "reference_ids": [candidate["identifier"] for candidate in candidates],
+                       "reference_scores": {candidate["identifier"]: state["statistics"][candidate["identifier"]]["rating"] for candidate in candidates},
                        "sourceCandidateIdentifiers": [candidate["identifier"] for candidate in candidates], "beforeArena": copy.deepcopy(state), "votingRevision": revision,
                        "operationIdentifier": payload.operationIdentifier, "payloadHash": request_hash, "resolvedCases": reference_cases}
         selection_seed = snapshot_hash({"projectIdentifier": project_identifier, "operationIdentifier": payload.operationIdentifier})
@@ -299,8 +344,11 @@ class StyleEvolutionService:
             raise ValueError("부모 세대의 이미지 준비 상태가 바뀌었습니다. 현재 결과를 확인해 주세요.")
         self.store.create_generation_checkpoint(connection, project_identifier, row["evaluation_id"], batch["sourceGeneration"], state, "before-first-evolution")
         state["evolution"] = {"batch_id": row["batch_id"], "parent_ids": batch["parent_ids"], "parent_scores": batch["parent_scores"], "candidate_ids": batch["candidate_ids"], "history": []}
+        for field in ("placement_policy", "reference_ids", "reference_scores"):
+            state["evolution"][field] = copy.deepcopy(batch[field])
         for identifier in batch["candidate_ids"]:
             state["statistics"][identifier] = initial_candidate_statistics()
+        synchronize_selection_statistics(state)
         state.update(match=None, placement=None, undoStack=[], lastPair=[])
         self.server.style_voting.save_arena(connection, row["evaluation_id"], arena["revision"] + 1, state)
         connection.execute("UPDATE style_evolution_batches SET status='active' WHERE batch_id=?", (row["batch_id"],))
@@ -340,14 +388,14 @@ class StyleEvolutionService:
 
         if row["status"] != "active" or not state.get("evolution"):
             raise ValueError("자녀 생성과 평가를 먼저 시작해 주세요.")
-        if any(identifier not in ready_identifiers for identifier in batch["candidate_ids"] + batch["parent_ids"]):
+        if any(identifier not in ready_identifiers for identifier in batch["candidate_ids"] + batch.get("reference_ids", batch["parent_ids"])):
             raise ValueError("모든 자녀·부모의 Prompt 이미지가 준비돼야 세대를 확정할 수 있습니다.")
         ranking = build_selection_ranking(state["evolution"])
         if next_selection_pair(state["evolution"], ready_identifiers, ranking):
             raise ValueError("남은 자녀 선별을 먼저 마쳐 주세요.")
         children = set(batch["candidate_ids"])
         parents = set(batch["parent_ids"])
-        failed = {identifier for identifier in children if ranking["info"][identifier]["slot"] == 0}
+        failed = {identifier for identifier in children if ranking["info"][identifier]["slot"] <= ranking["admission_slot"]}
         entered = children - failed
         ordered = sorted(set(batch["sourceCandidateIdentifiers"]) | entered, key=lambda identifier: (state["statistics"][identifier]["rating"], identifier in parents, identifier), reverse=True)
         removable = [identifier for identifier in reversed(ordered) if identifier not in children]

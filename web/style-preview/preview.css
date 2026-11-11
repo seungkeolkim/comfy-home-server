@@ -28,7 +28,9 @@
 .persistent-workspace .comparison-management { margin-top: 18px; }
 .persistent-workspace .comparison-condition-picker { display: block; font-size: 0; margin-bottom: 10px; }
 .persistent-workspace .comparison-condition-picker select { padding: 7px 12px; font-size: 12px; }
-.persistent-workspace .persistent-comparison .image-button img { height: clamp(320px, 54dvh, 640px); }
+.persistent-workspace .persistent-comparison .comparison-columns { align-items: start; }
+.persistent-workspace .persistent-comparison .image-button { width: fit-content; max-width: 100%; margin-inline: auto; }
+.persistent-workspace .persistent-comparison .image-button img { width: auto; height: auto; max-width: 100%; max-height: clamp(320px, 54dvh, 640px); object-fit: contain; }
 .persistent-workspace .vote-caption:empty { display: none; }
 .persistent-workspace .evolution-panel h2 { margin: 0; }
 .generation-current-badge { color: var(--accent); white-space: nowrap; }
@@ -73,15 +75,12 @@
 .generation-result details { margin: 12px 0; }
 .persistent-comparison .comparison-columns { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .persistent-comparison .comparison-result { min-width: 0; }
-.persistent-comparison .image-button img { height: clamp(210px, 22vw, 320px); object-fit: contain; }
 .persistent-comparison .case-heading { flex-wrap: wrap; }
 .persistent-comparison .case-heading strong { min-width: 0; overflow-wrap: anywhere; }
 .persistent-comparison .case-heading button { margin-left: auto; }
 .difference-row strong { overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .persistent-comparison .comparison-columns.single-image { grid-template-columns: 1fr; }
-  .persistent-comparison .image-button img { height: 260px; }
-  .persistent-comparison .comparison-columns.single-image img { height: 350px; }
 }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
@@ -184,6 +183,7 @@ details[open] > summary { margin-bottom: 15px; }
 .candidate-name { display: flex; align-items: center; gap: 10px; font-size: 15px; font-weight: 650; }
 .candidate-letter { border-radius: 7px; background: #28233e; border: 1px solid #5a4d83; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; color: #cec0ff; flex: none; }
 .candidate-name small { margin-left: auto; color: var(--muted); font-weight: 400; }
+.candidate-name .candidate-placement-status { display: block; margin: 4px 0 0; color: #c5baff; font-size: 11px; }
 .case-section { margin-bottom: 18px; }
 .case-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 12px; color: #c9c5d6; }
 .case-heading .case-number { font-size: 10px; color: #8b7db3; }
@@ -307,6 +307,10 @@ button.danger:hover:not(:disabled) { background: #542636; }
 body:has(.style-library-viewer[open]) { overflow: hidden; }
 @media (min-width: 801px) {
   .style-library-viewer { width: min(1440px, 90vw); }
+}
+@media (max-width: 800px) {
+  .style-library-viewer { max-height: calc(100dvh - 96px); margin: auto; overflow-y: auto; overscroll-behavior: contain; }
+  .style-library-viewer .style-viewer-image-frame { min-height: min(120px, 28dvh); }
 }
 .style-viewer-case-name { margin: 0 0 8px; overflow-wrap: anywhere; }
 .style-viewer-image-frame { display: flex; align-items: center; justify-content: center; background: #0c0e14; height: min(66dvh, 720px); min-height: 0; flex: 1 1 auto; overflow: hidden; }

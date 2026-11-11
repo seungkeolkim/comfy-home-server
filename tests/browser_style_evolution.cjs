@@ -82,7 +82,8 @@ async function verifyStyleEvolution() {
     await expect(page.locator('[data-style-voting-choice=a]')).toBeEnabled();
     selection = await readEvolutionSelection(context, project, clientIdentifier);
     assert.equal(selection.match.kind, 'select');
-    await expect(page.locator('#style-voting-status')).toContainText('자녀 평가 중');
+    await expect(page.locator('#style-voting-status')).toContainText('자동 선별');
+    await expect(page.locator('.candidate-placement-status')).toContainText('평가 중');
     let evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
     const children = new Set(evolution.batch.plan.candidates.map(candidate => candidate.identifier));
     const firstPair = { ...selection.match };
@@ -94,17 +95,38 @@ async function verifyStyleEvolution() {
     await page.reload();
     await expect(page.locator('[data-style-voting-choice=a]')).toBeEnabled();
     const confirm = page.locator('[data-style-evolution-action=confirm]');
+    const comparisonsByChild = new Map([...children].map(identifier => [identifier, 0]));
+    let comparedNewcomers = false;
     for (let index = 0; index < 60; index += 1) {
       evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
       if (evolution.batch.canConfirm) break;
       selection = await readEvolutionSelection(context, project, clientIdentifier);
+      if (children.has(selection.match.a) && children.has(selection.match.b)) {
+        comparedNewcomers = true;
+        await expect(page.locator('.candidate-placement-status')).toHaveCount(2);
+        await expect(page.locator('#style-voting-status')).toContainText('신규 조합끼리 비교');
+        await page.screenshot({ path: 'runtime/verification/style-automatic-placement-newcomers-mobile.png' });
+      }
       await clickEvolutionVote(page, children.has(selection.match.a) ? 'a' : 'b');
       const current = await readEvolutionSelection(context, project, clientIdentifier);
+      for (const identifier of [selection.match.a, selection.match.b]) {
+        if (!children.has(identifier)) continue;
+        comparisonsByChild.set(identifier, comparisonsByChild.get(identifier) + 1);
+        if (comparisonsByChild.get(identifier) === 1) {
+          const statistics = current.rankings.find(candidate => candidate.identifier === identifier);
+          assert.equal(statistics.placementPending, true);
+          assert.equal(statistics.rated, false);
+          assert.equal(statistics.rank, null);
+          assert.equal(evolution.batch.canConfirm, false);
+        }
+      }
       for (const candidate of source.rankings) {
         const updated = current.rankings.find(entry => entry.identifier === candidate.identifier);
         for (const field of ['rating', 'matches', 'wins', 'losses', 'skips']) assert.equal(updated[field], candidate[field]);
       }
     }
+    assert.equal(comparedNewcomers, true);
+    assert.ok([...comparisonsByChild.values()].every(count => count > 1));
     await page.goto(`${baseUrl}/style#evolution`);
     await expect(confirm).toBeEnabled();
     await expect(page.locator('.evolution-candidate-group').first().locator('.style-library-card')).toHaveCount(3);

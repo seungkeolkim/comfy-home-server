@@ -150,7 +150,12 @@ class StyleVotingService:
 
         row = connection.execute("SELECT revision,state_json FROM style_voting_arenas WHERE evaluation_id=? AND project_id=?", (evaluation_identifier, project_identifier)).fetchone()
         if row:
-            return row["revision"], json.loads(row["state_json"])
+            state = json.loads(row["state_json"])
+            revision = row["revision"]
+            if self.server.style_evolution.upgrade_automatic_placement(connection, project_identifier, evaluation_identifier, state):
+                revision += 1
+                self.save_arena(connection, evaluation_identifier, revision, state)
+            return revision, state
         state = {"policyVersion": VOTING_POLICY_VERSION, "statistics": {}, "componentStatistics": {}, "match": None, "placement": None, "skippedTies": [], "lastPair": [], "undoStack": []}
         connection.execute("INSERT INTO style_voting_arenas VALUES(?,?,?,?)", (evaluation_identifier, project_identifier, 1, encode_snapshot(state)))
         return 1, state
@@ -176,10 +181,16 @@ class StyleVotingService:
 
         latest_event_identifier = state["undoStack"][-1] if state["undoStack"] else None
         latest_event = connection.execute("SELECT client_id,choice FROM style_vote_events WHERE event_id=?", (latest_event_identifier,)).fetchone() if latest_event_identifier else None
+        automatic_placement = None
+        if state.get("evolution"):
+            ranking = build_selection_ranking(state["evolution"])
+            automatic_placement = {"candidateCount": len(state["evolution"]["candidate_ids"]), "completedCount": len(ranking["completed_identifiers"]),
+                "referenceCount": len(ranking["ladder"]), "comparingNewcomers": bool(state.get("match") and state["match"]["a"] in ranking["info"] and state["match"]["b"] in ranking["info"])}
         return {
             "projectIdentifier": project_identifier, "evaluationIdentifier": evaluation_identifier, "revision": revision,
             "policyVersion": VOTING_POLICY_VERSION, "match": state["match"],
             "activeEvolutionIdentifier": state["evolution"]["batch_id"] if state.get("evolution") else None,
+            "automaticPlacement": automatic_placement,
             "rankings": ranked_candidate_statistics([candidate["identifier"] for candidate in candidates], state["statistics"]),
             "readyCandidateIdentifiers": ready_identifiers, "componentStatistics": state["componentStatistics"],
             "undoEventIdentifier": latest_event_identifier,
@@ -222,6 +233,7 @@ class StyleVotingService:
                 self.record_vote(connection, state, ready_identifiers, candidates, payload)
             elif action == "undo":
                 self.restore_vote(connection, state, payload)
+                self.server.style_evolution.upgrade_automatic_placement(connection, project_identifier, payload.evaluationIdentifier, state)
             elif action == "pair":
                 self.select_pair(state, ready_identifiers, payload)
             elif action == "rating":
@@ -252,7 +264,7 @@ class StyleVotingService:
                 raise LookupError("Elo를 수정할 프로젝트의 조합을 찾을 수 없습니다.")
         for identifier in identifiers:
             statistics = state["statistics"].setdefault(identifier, initial_candidate_statistics())
-            statistics.update(rating=payload.rating, placed=True)
+            statistics.update(rating=payload.rating, placed=True, placementPending=False)
         if state.get("evolution"):
             self.update_evolution_rating_baseline(connection, state, identifiers, payload.rating)
         state.update(match=None, placement=None, undoStack=[], lastPair=[], skippedTies=[])
@@ -268,6 +280,9 @@ class StyleVotingService:
             if identifier in selection["parent_scores"]:
                 selection["parent_scores"][identifier] = rating
                 batch["parent_scores"][identifier] = rating
+            if identifier in selection.get("reference_scores", {}):
+                selection["reference_scores"][identifier] = rating
+                batch["reference_scores"][identifier] = rating
         ranking = build_selection_ranking(selection)
         for identifier in identifiers:
             if identifier in selection["candidate_ids"]:

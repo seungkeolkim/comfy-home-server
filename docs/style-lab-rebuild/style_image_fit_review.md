@@ -1,0 +1,13 @@
+# 선별 카드 Fit과 Mobile Viewer 바깥 공간
+
+2026-11-11. 기준 Commit `fa4983e`.
+
+선별 이미지는 고정 높이와 `object-fit: contain`이 함께 적용돼 세로·가로 비율에 따라 카드 안에 큰 공백이 생겼습니다. 카드와 이미지의 너비·높이를 실제 비율에 맞추고, 화면별 최대 표시 높이만 유지합니다. Mobile의 나란히·한 장씩 보기 모두 같은 규칙을 사용하며 이미지 잘림을 추가하지 않습니다.
+
+Mobile 그림체 Viewer는 화면 높이에서 96px를 뺀 범위 안에 중앙 배치해 **위·아래 최소 48px**의 Backdrop을 남깁니다. 높이가 작은 화면은 Dialog 안에서 Scroll하며 이미지는 최소 표시 영역을 유지합니다. CHS 공통 Viewer의 바깥 클릭·Escape·내부 Drag 보호와 Thumbnail Cache·원본 전환은 그대로 사용합니다. 별도 Viewer·닫기 로직이나 새 이미지 생성은 추가하지 않습니다.
+
+검증은 기존 `browser_style_library.cjs`에 포함했습니다. 세로·정사각형·가로 실제 임시 PNG, 1/3/5개 Prompt, 320/390/768/1280px, 나란히·한 장씩 보기에서 이미지 비율과 테두리 크기를 대조합니다. 390×844·320×640·390×560에서 위·아래 Backdrop Touch로 닫기, 내부 이미지 클릭 유지, 내부에서 외부로 Drag할 때 유지도 확인합니다. 기존 그림체 관리 Browser와 Preview Route 테스트도 통과했습니다.
+
+운영 반영은 기존 소스·DB Backup 후 진행하고, 사용자 이미지·Elo·세대 이력은 검증 목적으로 변경하지 않습니다. 실제 CHS 결과물 Viewer와 스타일 Viewer를 읽기 전용 Browser로 비교합니다.
+
+`runtime/style-image-fit-deployment-20261111-100607/`에 Backup하고 CHS를 재기동했습니다. 실제 390px 선별 카드의 세로 여백은 약 224px에서 테두리 약 2px로 줄었고, Mobile 세 가지 높이에서 위·아래 48px Backdrop Touch 닫기를 확인했습니다. 운영 검증의 상태 변경 요청·Browser 오류는 0건입니다. 재기동 직후 업무 테이블 32개와 이미지 66장의 Hash가 같았습니다. 이후 실사용 Vote가 추가됐으며 기존 Vote·명령 행과 나머지 업무 데이터·이미지 보존을 별도로 확인했습니다.

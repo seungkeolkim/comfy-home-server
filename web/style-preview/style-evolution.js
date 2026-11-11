@@ -87,7 +87,7 @@ function styleEvolutionResultsMarkup(results) {
     childIdentifiers = batch.candidateIdentifiers;
     title = `${batch.targetGeneration}세대 후보`;
     for (const identifier of childIdentifiers) {
-      outcomes[identifier] = batch.completedCandidateIdentifiers.includes(identifier) ? '배치 완료' : '평가 중';
+      outcomes[identifier] = batch.completedCandidateIdentifiers.includes(identifier) ? '자리 확정' : '평가 중 · 자리 찾기';
       if (batch.canConfirm) outcomes[identifier] = batch.enteredCandidateIdentifiers.includes(identifier) ? '생존 예정' : '탈락 예정';
     }
   } else if (latest) {
@@ -99,7 +99,7 @@ function styleEvolutionResultsMarkup(results) {
     title = '초기 후보';
   }
   const children = styleEvolutionCandidateGroupMarkup(title, childIdentifiers, results, outcomes);
-  const parents = styleEvolutionCandidateGroupMarkup(batch ? '비교 기준 부모' : '현재 상위 30%', evolution.parentCandidateIdentifiers, results);
+  const parents = styleEvolutionCandidateGroupMarkup(batch ? '조합을 만든 부모' : '현재 상위 30%', evolution.parentCandidateIdentifiers, results);
   const generationActions = batch ? styleLibraryBatchActionsMarkup(results.candidates.filter(candidate => childIdentifiers.includes(candidate.identifier)), batch.plan) : '';
   const history = evolution.history?.length ? `<details class="panel evolution-history"><summary>세대 이력 · ${evolution.history.length}회</summary><ol>${evolution.history.map(item => `<li><strong>${item.targetGeneration}세대</strong><span>${item.status === 'cancelled' ? '취소' : `생존 ${item.enteredCount} · 탈락 ${item.failedCount}`}</span></li>`).join('')}</ol></details>` : '';
   const emptyState = !children && !parents ? '<section class="panel empty-state"><p>아직 후보가 없습니다.</p><button data-action="navigate" data-screen="generation">후보 만들기</button></section>' : '';

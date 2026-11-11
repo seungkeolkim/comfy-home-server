@@ -44,9 +44,13 @@ function renderPersistentComparison() {
 function styleComparisonResultsMarkup() {
   const { plan, plans, candidates, allCandidates, voting } = currentPersistentComparison();
   if (!plan) return '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>';
-  if (voting?.activeEvolutionIdentifier && !voting.match) return '<section class="panel empty-state"><p id="style-voting-status" role="status">선별 완료</p><button data-action="navigate" data-screen="generation">세대 확인</button></section>';
+  if (voting?.activeEvolutionIdentifier && !voting.match) {
+    const placement = voting.automaticPlacement;
+    const finished = placement && placement.completedCount === placement.candidateCount;
+    return `<section class="panel empty-state"><p id="style-voting-status" role="status">${finished ? '선별 완료' : '비교할 이미지가 준비되면 자동 선별을 이어갑니다.'}</p><button data-action="navigate" data-screen="evolution">세대 확인</button></section>`;
+  }
   const planSelector = plans.length > 1 ? `<label class="comparison-condition-picker">Prompt 조건<select id="style-comparison-plan">${plans.map(item => `<option value="${item.planIdentifier}" ${item.evaluationIdentifier === plan.evaluationIdentifier ? "selected" : ""}>${item.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재" : "이전"} · ${item.cases.length}개 Prompt · Seed ${item.sampling.seed}</option>`).join("")}</select></label>` : "";
-  const headings = ["a", "b"].map((side, index) => `<div class="candidate-name ${side === previewState.visibleSide ? "visible-side" : ""}"><span class="candidate-letter">${side.toUpperCase()}</span><span>${previewState.blind ? "그림체 숨김" : candidates[index] ? escapeMarkup(persistentCandidateLabel(candidates[index])) : "준비 중"}</span></div>`).join("");
+  const headings = ["a", "b"].map((side, index) => `<div class="candidate-name ${side === previewState.visibleSide ? "visible-side" : ""}"><span class="candidate-letter">${side.toUpperCase()}</span><span>${previewState.blind ? "그림체 숨김" : candidates[index] ? escapeMarkup(persistentCandidateLabel(candidates[index])) : "준비 중"}${!previewState.blind && candidates[index]?.statistics?.placementPending ? '<small class="candidate-placement-status">평가 중 · Elo —</small>' : ''}</span></div>`).join("");
   const management = candidates.map(candidate => `<div>${styleCandidateRankingMarkup(candidate)}<div class="form-actions">${styleCandidateManagementButtonsMarkup(candidate)}</div></div>`).join("");
   const deleteBoth = candidates.length === 2 ? `<button class="danger" data-style-candidate-action="delete" data-candidates="${candidates.map(candidate => candidate.identifier).join(",")}" ${currentStyleGenerationState().evolution?.batch ? "disabled" : ""}>둘 다 폐기</button>` : "";
   return `<div class="persistent-comparison">${planSelector}

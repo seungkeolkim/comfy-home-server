@@ -410,6 +410,7 @@ class HomeServer:
         self.style_generation = StyleGenerationService(self)
         self.style_voting = StyleVotingService(self)
         self.style_evolution = StyleEvolutionService(self)
+        self.style_evolution.migrate_pending_placements()
         self.style_candidate_deletion = StyleCandidateDeletionService(self)
         self.style_generation.recover_renames()
         self.output_catalog.synchronize(config.managed_output_directory, self.style_output_directory)

@@ -48,6 +48,7 @@ function styleLibraryBatchActionsMarkup(candidates, plan) {
 function styleCandidateRankingMarkup(candidate) {
   if (previewState.blind) return '<span class="style-card-statistics">그림체 정보 숨김</span>';
   const statistics = candidate.statistics;
+  if (statistics?.placementPending && ['active', 'evolving'].includes(candidate.lifecycle)) return '<span class="style-card-statistics"><strong>평가 중 · Elo —</strong><small>자동으로 순위표에서 자리를 찾는 중</small></span>';
   const rankLabel = candidate.lifecycle === "retired" ? "퇴역" : candidate.lifecycle === "cancelled" ? "취소" : statistics?.rank ? `${statistics.rank}위` : "미평가";
   const ratingLabel = statistics?.rated ? statistics.rating.toLocaleString("ko-KR") : "—";
   return `<span class="style-card-statistics"><strong>${rankLabel} · Elo <span data-style-rating="${candidate.identifier}">${ratingLabel}</span></strong><small>${statistics?.wins || 0}승 ${statistics?.losses || 0}패 · ${statistics?.matches || 0}회 평가 · Skip ${statistics?.skips || 0}</small></span>`;
