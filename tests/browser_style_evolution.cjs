@@ -43,7 +43,11 @@ async function verifyStyleEvolution() {
     const project = await projectResponse.json();
     const endpoint = `${baseUrl}/api/style-projects/${project.identifier}`;
     const page = await context.newPage();
+    const mutationRequests = [];
     page.on('pageerror', error => errors.push(error.message));
+    page.on('request', request => {
+      if (request.method() === 'POST' && request.url().startsWith(endpoint)) mutationRequests.push(request.url());
+    });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${baseUrl}/style#generation`);
     await page.locator('#active-project-picker').selectOption(project.identifier);
@@ -140,11 +144,30 @@ async function verifyStyleEvolution() {
     await page.screenshot({ path: 'runtime/verification/style-evolution-desktop.png', fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: 'runtime/verification/style-evolution-mobile.png', fullPage: true });
+    await expect(page.locator('[data-generation-action=generate-candidates]')).toHaveCount(0);
+    const beforeConfirmationJobCount = (await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total;
+    const beforeConfirmationRequestCount = mutationRequests.length;
     await confirm.click();
     await expect(dialog).toContainText('이미지와 이력은 보존');
+    await expect(dialog).toContainText('다음 세대 이미지는 확정 후 별도로 생성');
+    await dialog.locator('button[value=cancel]').click();
+    await expect(confirm).toBeEnabled();
+    assert.equal(mutationRequests.length, beforeConfirmationRequestCount);
+    await confirm.click();
     await dialog.locator('button[value=confirm]').click();
     await expect.poll(async () => (await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json()).currentGeneration).toBe(2);
     await expect(page.locator('.generation-current-badge')).toContainText('2세대');
+    await expect(page.locator('.evolution-panel')).toContainText('2세대 확정 완료');
+    await expect(page.locator('.evolution-panel')).toContainText('다음 단계: 3세대 후보 이미지 생성');
+    assert.deepEqual(mutationRequests.slice(beforeConfirmationRequestCount).map(url => url.split('/').at(-1)), ['confirm']);
+    assert.equal((await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total, beforeConfirmationJobCount);
+    evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
+    assert.equal(evolution.batch, null);
+    const afterConfirmationRequestCount = mutationRequests.length;
+    await page.reload();
+    await expect(page.locator('.evolution-panel')).toContainText('2세대 확정 완료');
+    assert.equal(mutationRequests.length, afterConfirmationRequestCount);
+    await page.screenshot({ path: 'runtime/verification/style-evolution-confirmed-mobile.png', fullPage: true });
     await expect(page.locator('.evolution-history')).toBeVisible();
     await page.goto(`${baseUrl}/style#compare`);
     await expect(page.locator('[data-style-voting-action=undo]')).toBeDisabled();
@@ -161,7 +184,7 @@ async function verifyStyleEvolution() {
     await page.screenshot({ path: 'runtime/verification/style-evolution-archive-mobile.png', fullPage: true });
     await page.goto(`${baseUrl}/style#generation`);
     await expect(prepare).toBeEnabled();
-    await page.locator('#style-generation-candidate-count').fill('1');
+    await page.locator('#style-generation-candidate-count').fill('2');
     await prepare.click();
     await dialog.locator('button[value=confirm]').click();
     await expect(page.locator('.evolution-secondary-actions')).toBeVisible();
@@ -171,29 +194,49 @@ async function verifyStyleEvolution() {
     await expect.poll(async () => Boolean((await readEvolutionSelection(context, project, clientIdentifier)).match)).toBe(true);
     await expect(page.locator('[data-style-voting-choice=a]')).toBeEnabled();
     for (let index = 0; index < 60; index += 1) {
-      evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
+      await expect.poll(async () => {
+        selection = await readEvolutionSelection(context, project, clientIdentifier);
+        evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
+        return Boolean(selection.match) || evolution.batch.canConfirm;
+      }).toBe(true);
       if (evolution.batch.canConfirm) break;
-      selection = await readEvolutionSelection(context, project, clientIdentifier);
       await clickEvolutionVote(page, thirdGenerationChildren.has(selection.match.a) ? 'a' : 'b');
     }
     await page.goto(`${baseUrl}/style#evolution`);
-    await expect(page.locator('[data-style-evolution-action=confirm-next]')).toBeEnabled();
-    await page.locator('#style-next-candidate-count').fill('2');
+    await expect(confirm).toBeEnabled();
+    const thirdGenerationBatch = evolution.batch;
     const beforeNextJobCount = (await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total;
-    let acceptedNextPlanIdentifier;
-    await page.route(`${endpoint}/generation-plans/*/submit`, async route => {
-      acceptedNextPlanIdentifier = route.request().url().split('/').at(-2);
+    const beforeThirdConfirmationRequests = mutationRequests.length;
+    await page.route(`${endpoint}/evolution-batches/*/confirm`, async route => {
       const response = await route.fetch();
       assert.equal(response.status(), 200, await response.text());
       await route.abort('failed');
     }, { times: 1 });
-    await page.locator('[data-style-evolution-action=confirm-next]').click();
-    await expect(dialog).toContainText('최대 6장');
+    await confirm.click();
     await dialog.locator('button[value=confirm]').click();
-    await expect(page.locator('#preview-content')).not.toHaveAttribute('inert', '');
+    await expect.poll(() => page.evaluate(() => styleGenerationViewState.busy)).toBe(false);
+    await expect(page.locator('#style-generation-error')).not.toBeEmpty();
+    await expect(page.locator('.evolution-panel')).toContainText('3세대 확정 완료');
+    assert.deepEqual(mutationRequests.slice(beforeThirdConfirmationRequests).map(url => url.split('/').at(-1)), ['confirm']);
+    assert.equal((await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total, beforeNextJobCount);
+    await page.evaluate(({ projectIdentifier, batchIdentifier, planOperationIdentifier, projectRevision, votingRevision }) => {
+      const storedSession = JSON.parse(sessionStorage.getItem(STYLE_WORKSPACE_SESSION_KEY));
+      storedSession.evolutionContinuations = { [projectIdentifier]: { batchIdentifier, candidateCount: 2 } };
+      storedSession.candidateGenerationRequests[projectIdentifier] = {
+        operationIdentifier: planOperationIdentifier, expectedProjectRevision: projectRevision, expectedVotingRevision: votingRevision, candidateCount: 2,
+      };
+      sessionStorage.setItem(STYLE_WORKSPACE_SESSION_KEY, JSON.stringify(storedSession));
+    }, { projectIdentifier: project.identifier, batchIdentifier: thirdGenerationBatch.identifier,
+      planOperationIdentifier: thirdGenerationBatch.plan.operationIdentifier, projectRevision: evolution.projectRevision, votingRevision: evolution.votingRevision });
+    const beforeReloadRequests = mutationRequests.length;
+    await page.reload();
+    await expect(page.locator('.evolution-panel')).toContainText('3세대 확정 완료');
+    await expect(page.locator('[data-style-evolution-action=resume-next]')).toHaveCount(0);
+    assert.equal(mutationRequests.length, beforeReloadRequests);
     evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
     assert.equal(evolution.currentGeneration, 3);
-    if (!evolution.batch) {
+    assert.equal(evolution.batch, null);
+    if (!evolution.canPrepare) {
       await page.goto(`${baseUrl}/style#compare`);
       for (let index = 0; index < 20; index += 1) {
         evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
@@ -203,14 +246,27 @@ async function verifyStyleEvolution() {
         await clickEvolutionVote(page, 'similar');
       }
       await page.goto(`${baseUrl}/style#evolution`);
-      await page.locator('[data-style-evolution-action=resume-next]').click();
     }
+    await expect(prepare).toBeEnabled();
+    await page.locator('#style-generation-candidate-count').fill('2');
+    await prepare.click();
+    await expect(dialog).toContainText('6장');
+    assert.equal((await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total, beforeNextJobCount);
+    await page.reload();
+    await expect(page.locator('[data-style-evolution-action=resume]')).toBeVisible();
+    let acceptedNextPlanIdentifier;
+    await page.route(`${endpoint}/generation-plans/*/submit`, async route => {
+      acceptedNextPlanIdentifier = route.request().url().split('/').at(-2);
+      const response = await route.fetch();
+      assert.equal(response.status(), 200, await response.text());
+      await route.abort('failed');
+    }, { times: 1 });
+    await page.locator('[data-style-evolution-action=resume]').click();
+    await expect(dialog).toContainText('6장');
+    await dialog.locator('button[value=confirm]').click();
     await expect.poll(() => page.evaluate(() => styleGenerationViewState.busy), { timeout: 20000 }).toBe(false);
-    assert.deepEqual(errors, []);
-    assert.ok(acceptedNextPlanIdentifier, 'Response loss route must accept the next plan');
     await expect(page.locator('#style-generation-error')).not.toBeEmpty();
-    await expect(page.locator('[data-style-evolution-action=resume-next]')).toBeVisible();
-    assert.ok(acceptedNextPlanIdentifier);
+    assert.ok(acceptedNextPlanIdentifier, 'Response loss route must accept the next plan');
     evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
     assert.equal(evolution.batch.targetGeneration, 4);
     assert.equal(evolution.batch.childCount, 2);
@@ -218,10 +274,11 @@ async function verifyStyleEvolution() {
     assert.equal(evolution.batch.plan.planIdentifier, acceptedNextPlanIdentifier);
     assert.equal(evolution.batch.plan.selection.mode, 'evolution');
     assert.equal((await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total, beforeNextJobCount + 1);
+    const afterSubmissionRequestCount = mutationRequests.length;
     await page.reload();
-    await expect(page.locator('[data-style-evolution-action=resume-next]')).toBeVisible();
-    await page.locator('[data-style-evolution-action=resume-next]').click();
-    await expect(page.locator('[data-style-evolution-action=resume-next]')).toHaveCount(0);
+    await expect(page.locator('.evolution-secondary-actions')).toBeVisible();
+    await expect(page.locator('[data-style-evolution-action=resume]')).toHaveCount(0);
+    assert.equal(mutationRequests.length, afterSubmissionRequestCount);
     evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
     assert.equal(evolution.currentGeneration, 3);
     assert.deepEqual(evolution.batch.candidateIdentifiers, nextCandidateIdentifiers);
@@ -239,7 +296,7 @@ async function verifyStyleEvolution() {
     await page.locator('#style-library-lifecycle').selectOption('cancelled');
     await expect(page.locator('.style-library-card')).toHaveCount(2);
     assert.deepEqual(errors, []);
-    fs.writeFileSync('runtime/verification/style-evolution-browser-results.json', JSON.stringify({ projectIdentifier: project.identifier, sourceImages: 30, children: 3, caseCount: 3, generation: 3, activeCount: 10, retiredCount: 3, nextGeneration: 4, responseLossAndReloadRecovered: true, noDuplicateJobs: true, fixedParents: true, selectionUndo: true, persistedReload: true, cancelledPlansNoJobs: true, cancelledChildrenPreserved: true, widths: [320, 390, 768, 1280], errors }, null, 2));
+    fs.writeFileSync('runtime/verification/style-evolution-browser-results.json', JSON.stringify({ projectIdentifier: project.identifier, sourceImages: 30, children: 3, caseCount: 3, generation: 3, activeCount: 10, retiredCount: 3, nextGeneration: 4, confirmationAndGenerationSeparated: true, confirmationResponseLossRecovered: true, responseLossAndReloadRecovered: true, noDuplicateJobs: true, fixedParents: true, selectionUndo: true, persistedReload: true, cancelledPlansNoJobs: true, cancelledChildrenPreserved: true, widths: [320, 390, 768, 1280], errors }, null, 2));
     console.log('Style evolution Browser cycle passed');
   } finally {
     await browser.close();
