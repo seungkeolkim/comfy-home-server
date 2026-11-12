@@ -168,6 +168,7 @@ async function verifyStyleEvolution() {
     await page.goto(`${baseUrl}/style#compare`);
     evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
     const thirdGenerationChildren = new Set(evolution.batch.candidateIdentifiers);
+    await expect.poll(async () => Boolean((await readEvolutionSelection(context, project, clientIdentifier)).match)).toBe(true);
     await expect(page.locator('[data-style-voting-choice=a]')).toBeEnabled();
     for (let index = 0; index < 60; index += 1) {
       evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();

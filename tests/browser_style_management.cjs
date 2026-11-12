@@ -81,6 +81,7 @@ async function verifyStyleManagement() {
     const deletionTarget = page.locator('.style-library-card').last();
     const targetIdentifier = await deletionTarget.getAttribute('data-style-candidate');
     let beforeResults = await (await context.request.get(endpoint + '/generation-results')).json();
+    const generationJobIdentifier = beforeResults.plans.find(plan => plan.jobIdentifiers.length).jobIdentifiers[0];
     const deletedPaths = beforeResults.candidates.find(candidate => candidate.identifier === targetIdentifier).renders.flatMap(render => render.files.map(file => file.path));
     await deletionTarget.locator('[data-style-candidate-action=delete]').click();
     await expect(page.locator('#component-dialog')).toContainText('모든 Prompt');
@@ -89,9 +90,15 @@ async function verifyStyleManagement() {
     await page.locator(`[data-style-candidate="${targetIdentifier}"] [data-style-candidate-action=delete]`).click();
     await page.locator('#component-dialog button[value=confirm]').click();
     await expect(page.locator('.style-library-card')).toHaveCount(3);
+    assert.equal((await (await context.request.get(`${baseUrl}/api/jobs/${generationJobIdentifier}`)).json()).request_count, 9);
     for (const relativePath of deletedPaths) assert.equal((await context.request.get(`${baseUrl}/media/${relativePath}`)).status(), 404);
     await page.goto(`${baseUrl}/style#compare`);
     await expect(page.locator('[data-style-voting-choice=a]')).toBeEnabled();
+    const afterSelection = await (await context.request.get(`${endpoint}/selection?evaluationIdentifier=${project.evaluationIdentifier}&clientIdentifier=management-browser-inspection`)).json();
+    assert.ok(!afterSelection.rankings.some(candidate => candidate.identifier === targetIdentifier));
+    assert.ok(![afterSelection.match.a, afterSelection.match.b].includes(targetIdentifier));
+    const cachedIdentifiers = await page.evaluate(() => currentPersistentComparison().allCandidates.map(candidate => candidate.identifier));
+    assert.ok(!cachedIdentifiers.includes(targetIdentifier));
     for (const width of [320, 390, 768, 1280]) {
       await page.setViewportSize({ width, height: 1000 });
       for (const position of ['top', 'middle', 'bottom']) {
@@ -116,6 +123,19 @@ async function verifyStyleManagement() {
     await page.locator('#component-dialog button[value=confirm]').click();
     await page.goto(`${baseUrl}/style#candidates`);
     await expect(page.locator('.style-library-card')).toHaveCount(1);
+    await page.reload();
+    await expect(page.locator('.style-library-card')).toHaveCount(1);
+    assert.equal((await (await context.request.get(`${baseUrl}/api/jobs/${generationJobIdentifier}`)).json()).request_count, 3);
+    await page.locator('.style-library-card [data-style-candidate-action=delete]').click();
+    await page.locator('#component-dialog button[value=confirm]').click();
+    await expect(page.locator('.style-library-card')).toHaveCount(0);
+    assert.equal((await context.request.get(`${baseUrl}/api/jobs/${generationJobIdentifier}`)).status(), 404);
+    await page.goto(`${baseUrl}/style#compare`);
+    await expect(page.locator('#preview-content')).toContainText('아직 생성한 이미지가 없습니다.');
+    await expect(page.locator('.comparison-result img')).toHaveCount(0);
+    const emptySelection = await (await context.request.get(`${endpoint}/selection?evaluationIdentifier=${project.evaluationIdentifier}&clientIdentifier=management-browser-inspection`)).json();
+    assert.equal(emptySelection.match, null);
+    assert.deepEqual(emptySelection.rankings, []);
     assert.deepEqual(errors, []);
     fs.writeFileSync('runtime/verification/style-usability-browser-results.json', JSON.stringify({ projectIdentifier: project.identifier, names, mobileUsesPreview: true, desktopUsesOriginal: true, originalTogglePersistsAcrossPrompts: true, directAndBulkRating: true, deleteCancelled: true, wholeCombinationDeleted: true, deleteBothFromComparison: true, fixedVoteBarAtEveryScroll: true, widths: [320, 390, 768, 1280], errors }, null, 2));
     console.log('Style management, shared Viewer and fixed voting Browser verification passed');

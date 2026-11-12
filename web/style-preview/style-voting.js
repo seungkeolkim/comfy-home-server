@@ -52,7 +52,10 @@ async function refreshStyleVoting(projectIdentifier) {
   const state = currentStyleGenerationState(projectIdentifier);
   const submittedPlans = (state.results?.plans || []).filter(plan => plan.jobIdentifiers.length);
   const selectedPlan = submittedPlans.find(plan => plan.planIdentifier === state.comparisonPlanIdentifier) || submittedPlans[0];
-  if (!selectedPlan) return;
+  if (!selectedPlan) {
+    state.votingEvaluations = {};
+    return;
+  }
   const parameters = new URLSearchParams({ evaluationIdentifier: selectedPlan.evaluationIdentifier, clientIdentifier: styleVotingClientIdentifier() });
   const selection = await styleProjectApi(`/api/style-projects/${projectIdentifier}/selection?${parameters}`);
   applyStyleVotingResponse(projectIdentifier, selection);

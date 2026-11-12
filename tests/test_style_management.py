@@ -102,7 +102,7 @@ def test_rating_concurrency_scope_and_unknown_target_are_atomic(tmp_path) -> Non
 
 
 def test_deleting_combination_removes_all_cases_and_cached_files_only(tmp_path) -> None:
-    """전체 Prompt 이미지만 지우고 다른 조합·작업 이력·생성 조건은 유지합니다."""
+    """전체 Prompt와 해당 요청을 지우고 공유 작업의 다른 조합·생성 조건은 유지합니다."""
 
     application, client, project, plan_input = prepare_style_generation(tmp_path, StyleComfyClient())
     try:
@@ -126,13 +126,18 @@ def test_deleting_combination_removes_all_cases_and_cached_files_only(tmp_path) 
             assert client.get("/api/outputs/preview/" + file["path"]).status_code == 404
         for render in other["renders"]:
             assert server.managed_path(render["files"][0]["path"]).is_file()
-        assert server.database.get_job(job["jobIdentifier"])["requests"] == before_job["requests"]
+        deleted_requests = {render["requestIdentifier"] for render in target["renders"]}
+        remaining_job = server.database.get_job(job["jobIdentifier"])
+        assert remaining_job["requests"] == [request for request in before_job["requests"] if request["request_id"] not in deleted_requests]
+        assert remaining_job["request_count"] == len(remaining_job["requests"]) == 2
+        assert response.json()["deletedRequestCount"] == 2
         server.output_catalog.synchronize(server.config.managed_output_directory, server.style_output_directory)
         after = client.get(endpoint + "/generation-results").json()
         assert [candidate["identifier"] for candidate in after["candidates"]] == [other["identifier"]]
         assert target["identifier"] not in {entry["identifier"] for entry in read_selection(client, project)["rankings"]}
         with server.database._connect() as connection:
-            assert connection.execute("SELECT COUNT(*) FROM output_files WHERE is_deleted=1").fetchone()[0] == 2
+            assert connection.execute("SELECT COUNT(*) FROM output_files WHERE is_deleted=1").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM style_candidate_renders WHERE candidate_id=?", (target["identifier"],)).fetchone()[0] == 0
             assert connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0] == 1
         assert client.post(endpoint + "/candidate-ratings", json=management_payload(client, project, [target["identifier"]], 10000)).status_code == 404
     finally:

@@ -268,7 +268,7 @@ function confirmStyleCandidateManagement(action, candidates) {
   const rating = candidates[0].statistics?.rating ?? 10000;
   const content = action === "rating"
     ? `<p>선택한 ${candidates.length}개 조합의 Elo를 바꿉니다. 승패는 유지하며 이전 선택의 Undo는 종료됩니다. 진화 중 직접 수정한 부모 Elo는 자녀 배치의 기준점에도 반영됩니다.</p><label for="style-candidate-rating">Elo</label><input id="style-candidate-rating" type="number" min="0" max="1000000" step="1" value="${rating}" required />`
-    : `<p>선택한 ${candidates.length}개 조합의 <strong>모든 Prompt 이미지와 이전 재시도 이미지가 영구 삭제</strong>됩니다. 조합은 선별·그림체 목록에서 사라지며 Undo할 수 없습니다.</p><p>CHS 작업 이력과 생성 조건은 유지됩니다.</p>`;
+    : `<p>선택한 ${candidates.length}개 조합의 <strong>모든 Prompt 이미지·Elo·비교 상태와 CHS 생성 요청을 삭제</strong>합니다. 비어 있는 작업도 삭제하며 Undo할 수 없습니다.</p><p>다른 조합의 이미지와 프로젝트 설정은 유지됩니다.</p>`;
   dialog.innerHTML = `<form method="dialog"><div class="dialog-heading"><h2 id="component-dialog-title">${action === "rating" ? "Elo 수정" : "조합 폐기"}</h2></div>${content}<div class="form-actions"><button type="button" value="cancel">취소</button><button class="${action === "delete" ? "danger" : "primary"}" value="confirm">${action === "rating" ? "저장" : "폐기"}</button></div></form>`;
   dialog.querySelector("button[value=cancel]").addEventListener("click", () => dialog.close("cancel"), { once: true });
   dialog.returnValue = "cancel";
@@ -302,7 +302,16 @@ async function executeStyleCandidateManagement(action, candidates, rating, recov
     const response = await styleProjectApi(`/api/style-projects/${projectIdentifier}/${route}`, { method: "POST", body: JSON.stringify(pending.payload) });
     state.pendingCandidateCommand = null;
     if (action === "rating") applyStyleVotingResponse(projectIdentifier, response);
-    else state.selectedCandidateIdentifiers = (state.selectedCandidateIdentifiers || []).filter(identifier => !response.candidateIdentifiers.includes(identifier));
+    else {
+      const deletedIdentifiers = response.candidateIdentifiers;
+      state.selectedCandidateIdentifiers = (state.selectedCandidateIdentifiers || []).filter(identifier => !deletedIdentifiers.includes(identifier));
+      state.results.candidates = state.results.candidates.filter(candidate => !deletedIdentifiers.includes(candidate.identifier));
+      for (const selection of Object.values(state.votingEvaluations || {})) {
+        selection.rankings = selection.rankings.filter(candidate => !deletedIdentifiers.includes(candidate.identifier));
+        selection.readyCandidateIdentifiers = selection.readyCandidateIdentifiers.filter(identifier => !deletedIdentifiers.includes(identifier));
+        if (selection.match && [selection.match.a, selection.match.b].some(identifier => deletedIdentifiers.includes(identifier))) selection.match = null;
+      }
+    }
     showToast(action === "rating" ? "조합 Elo를 수정했습니다." : "조합과 모든 Prompt 이미지를 폐기했습니다.");
   } catch (error) {
     if ([404, 409, 422].includes(error.status)) state.pendingCandidateCommand = null;

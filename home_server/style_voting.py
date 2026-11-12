@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .style_projects import StyleRevisionConflict, encode_snapshot, snapshot_hash
 from .style_evolution_selection import build_selection_ranking, synchronize_selection_statistics
-from .style_voting_rules import VOTING_POLICY_VERSION, apply_match_choice, candidate_is_rated, choose_next_match, initial_candidate_statistics, new_match
+from .style_voting_rules import VOTING_POLICY_VERSION, apply_match_choice, candidate_is_rated, choose_next_match, initial_candidate_statistics, new_match, remove_deleted_candidate_state
 
 
 class StyleVotingCommand(BaseModel):
@@ -152,7 +152,11 @@ class StyleVotingService:
         if row:
             state = json.loads(row["state_json"])
             revision = row["revision"]
-            if self.server.style_evolution.upgrade_automatic_placement(connection, project_identifier, evaluation_identifier, state):
+            changed = self.server.style_evolution.upgrade_automatic_placement(connection, project_identifier, evaluation_identifier, state)
+            deleted_identifiers = [membership[0] for membership in connection.execute(
+                "SELECT candidate_id FROM style_candidate_memberships WHERE evaluation_id=? AND lifecycle IN ('deleting','deleted')", (evaluation_identifier,),
+            )]
+            if remove_deleted_candidate_state(state, deleted_identifiers) or changed:
                 revision += 1
                 self.save_arena(connection, evaluation_identifier, revision, state)
             return revision, state

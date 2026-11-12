@@ -364,3 +364,7 @@ DB Migration이 필요한 단계에서는 적용 전 일관된 Backup의 경로�
 2026-11-11 / 신규 조합 자동 Placement / fa4983e와 미Commit 이미지 Fit 변경 이후 / 전체 Python 487 Passed·1 Skipped 및 추가 회귀 1개 통과, 스타일 Browser 9개, 운영 투표 63건·이미지 66장·업무 Table 30개 보존과 두 Table의 제한된 JSON 변경 검증 / 한 표 뒤 종료 대신 순위가 자리 잡을 때까지 자동 선별 요청 / 전체 기존 순위표의 이진 배치·같은 구간 신규끼리 비교·미확정 Elo와 진행 Batch 전환 구현, Backup·재기동·운영 읽기 전용 Browser 통과 / running·healthy, 사용자 실제 선별 확인 대기, Commit·Push 없음. 상세는 automatic_placement_review.md
 
 2026-11-11 / 자동 Placement·이미지 표시 수정 Commit / fa4983e 이후 변경 / 운영 반영 소스 20개 Hash·기존 Python·Browser 검증 기록·Diff 검사 확인 / 사용자 Commit 요청 / 자동 Placement·미확정 Elo·진행 Batch 전환과 앞선 선별 카드 Fit·Mobile Viewer 여백, 테스트·문서를 함께 Commit / Push 없음, 후속 피드백 대기
+
+2026-11-12 / 그림체 폐기 잔여 정리 / 2cb591a 이후 변경 / 전체 Python 491 Passed·1 Skipped 및 추가 재시도 회귀 1개, 스타일 Browser 9개, 운영 업무 Table 32개 전체 Hash 보존 / 삭제한 그림체가 Elo 비교·CHS 작업 이력에 남는 문제 수정 요청 / 조합 요청 제거·공유 Job 건수 갱신·빈 Job 삭제, Placement·비교 캐시 정리, 이전 완료 폐기 정리·재시도 구현, Backup·재기동·운영 읽기 전용 Browser 검증 / running·healthy, 사용자 확인 대기, Commit·Push 없음. 상세는 style_deletion_cleanup_review.md
+
+2026-11-12 / 그림체 폐기 잔여 정리 Commit / 2cb591a 이후 변경 / 운영 반영 소스 14개 Hash·기존 Python·Browser 검증 기록·Diff 검사 확인 / 사용자 Commit 요청 / 조합 폐기의 Elo·Placement·비교 캐시와 CHS 요청·빈 Job 정리, 복구·재시도 및 테스트·문서를 함께 Commit / Push 없음, 후속 피드백 대기

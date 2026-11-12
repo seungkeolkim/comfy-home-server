@@ -8,6 +8,8 @@ from pydantic import Field
 
 from .style_projects import StyleRevisionConflict, encode_snapshot, snapshot_hash
 from .style_voting import StyleVotingCommand
+from .style_deletion_cleanup import remove_deleted_candidate_history
+from .style_voting_rules import remove_deleted_candidate_state
 
 
 LOGGER = logging.getLogger(__name__)
@@ -32,7 +34,7 @@ class StyleCandidateDeletionService:
 
         with self.server.style_generation.mutation_lock:
             operation = self.prepare_deletion(project_identifier, payload)
-            if operation["status"] == "deleted":
+            if operation["status"] == "deleted" and operation.get("cleanupVersion") == 2:
                 return operation
             return self.finish_deletion(payload.operationIdentifier)
 
@@ -77,7 +79,7 @@ class StyleCandidateDeletionService:
                 output_identifiers.extend(row[0] for row in connection.execute("SELECT output_id FROM output_files JOIN style_candidate_renders USING(request_id) WHERE candidate_id=?", (identifier,)))
             for identifier in identifiers:
                 connection.execute("UPDATE style_candidate_memberships SET lifecycle='deleting' WHERE candidate_id=?", (identifier,))
-                state["statistics"].pop(identifier, None)
+            remove_deleted_candidate_state(state, identifiers)
             state.update(match=None, placement=None, undoStack=[], lastPair=[], skippedTies=[])
             remaining = [candidate for candidate in candidates if candidate["identifier"] not in identifiers]
             remaining_ready = [identifier for identifier in ready_identifiers if identifier not in identifiers]
@@ -97,30 +99,41 @@ class StyleCandidateDeletionService:
         with self.server.database._connect() as connection:
             row = connection.execute("SELECT response_json FROM style_voting_commands WHERE operation_id=? AND action='delete'", (operation_identifier,)).fetchone()
         operation = json.loads(row[0])
-        if operation["status"] == "deleted":
+        if operation["status"] == "deleted" and operation.get("cleanupVersion") == 2:
             return operation
         try:
             for output_identifier in operation["outputIdentifiers"]:
                 delete_recorded_output(self.server, output_identifier)
+            with self.server.database._connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                for identifier in operation["candidateIdentifiers"]:
+                    connection.execute("UPDATE style_candidate_memberships SET lifecycle='deleted' WHERE candidate_id=? AND lifecycle IN ('deleting','deleted')", (identifier,))
+                cleanup = remove_deleted_candidate_history(connection, operation["candidateIdentifiers"])
+                arena = connection.execute("SELECT revision,state_json FROM style_voting_arenas WHERE evaluation_id=?", (operation["evaluationIdentifier"],)).fetchone()
+                state = json.loads(arena["state_json"])
+                if remove_deleted_candidate_state(state, operation["candidateIdentifiers"]):
+                    self.server.style_voting.save_arena(connection, operation["evaluationIdentifier"], arena["revision"] + 1, state)
+                operation.update(status="deleted", error="", cleanupVersion=2, deletedCandidateCount=len(operation["candidateIdentifiers"]),
+                                 deletedOutputCount=len(operation["outputIdentifiers"]), **cleanup)
+                connection.execute("UPDATE style_voting_commands SET response_json=? WHERE operation_id=?", (encode_snapshot(operation), operation_identifier))
         except Exception as exception:
-            operation["error"] = "일부 이미지 파일을 삭제하지 못했습니다. 파일 사용 상태를 확인하고 조합 폐기를 다시 시도해 주세요."
+            operation["status"] = "deleting"
+            operation["error"] = "일부 이미지 또는 생성 이력을 정리하지 못했습니다. 조합 폐기를 다시 시도해 주세요."
             with self.server.database._connect() as connection:
                 connection.execute("UPDATE style_voting_commands SET response_json=? WHERE operation_id=?", (encode_snapshot(operation), operation_identifier))
             LOGGER.warning("조합 폐기 보류: operation_id=%s error_type=%s", operation_identifier, type(exception).__name__)
             raise StyleRevisionConflict(operation["error"]) from exception
-        with self.server.database._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            for identifier in operation["candidateIdentifiers"]:
-                connection.execute("UPDATE style_candidate_memberships SET lifecycle='deleted' WHERE candidate_id=? AND lifecycle='deleting'", (identifier,))
-            operation.update(status="deleted", error="", deletedCandidateCount=len(operation["candidateIdentifiers"]), deletedOutputCount=len(operation["outputIdentifiers"]))
-            connection.execute("UPDATE style_voting_commands SET response_json=? WHERE operation_id=?", (encode_snapshot(operation), operation_identifier))
         return operation
 
     def recover_pending_deletions(self) -> None:
-        """재시작 전에 확인한 폐기 명령만 복구하며 실패한 대상은 UI 재시도로 남깁니다."""
+        """미완료 폐기와 이전 방식으로 삭제한 조합의 잔여 생성 이력만 복구·정리합니다."""
 
         with self.server.database._connect() as connection:
-            identifiers = [row[0] for row in connection.execute("SELECT operation_id FROM style_voting_commands WHERE action='delete' AND json_extract(response_json,'$.status')='deleting' ORDER BY rowid")]
+            identifiers = [row[0] for row in connection.execute(
+                "SELECT operation_id FROM style_voting_commands WHERE action='delete' AND "
+                "(json_extract(response_json,'$.status')='deleting' OR "
+                "(json_extract(response_json,'$.status')='deleted' AND COALESCE(json_extract(response_json,'$.cleanupVersion'),0)<2)) ORDER BY rowid",
+            )]
         with self.server.style_generation.mutation_lock:
             for identifier in identifiers:
                 try:

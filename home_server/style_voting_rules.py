@@ -16,6 +16,33 @@ def initial_candidate_statistics() -> dict:
     return {"rating": 10000, "matches": 0, "wins": 0, "skips": 0, "placed": False}
 
 
+def remove_deleted_candidate_state(state: dict, candidate_identifiers: list[str]) -> bool:
+    """삭제한 조합의 Elo·현재 대결·Placement 참조를 지우고 이전 Undo의 부활을 막습니다."""
+
+    deleted_identifiers = set(candidate_identifiers)
+    removed_statistics = any(identifier in state["statistics"] for identifier in deleted_identifiers)
+    match = state.get("match")
+    placement = state.get("placement")
+    affected_match = bool(match and deleted_identifiers.intersection((match["a"], match["b"])))
+    affected_placement = bool(placement and deleted_identifiers.intersection([placement["identifier"], *placement["ladder"]]))
+    affected_pairs = bool(deleted_identifiers.intersection(state["lastPair"]))
+    affected_ties = any(deleted_identifiers.intersection(pair["identifiers"]) for pair in state["skippedTies"])
+    if not any((removed_statistics, affected_match, affected_placement, affected_pairs, affected_ties)):
+        return False
+    for identifier in deleted_identifiers:
+        state["statistics"].pop(identifier, None)
+    if affected_match or affected_placement:
+        state["match"] = None
+    if affected_placement:
+        if placement["identifier"] not in deleted_identifiers:
+            state["statistics"][placement["identifier"]]["placementPending"] = False
+        state["placement"] = None
+    state["lastPair"] = [identifier for identifier in state["lastPair"] if identifier not in deleted_identifiers]
+    state["skippedTies"] = [pair for pair in state["skippedTies"] if not deleted_identifiers.intersection(pair["identifiers"])]
+    state["undoStack"] = []
+    return True
+
+
 def candidate_is_rated(statistics: dict) -> bool:
     """일반 대결 경험이나 완료한 Placement가 있는 후보를 구별합니다."""
 
@@ -142,7 +169,7 @@ def choose_next_match(state: dict, ready_identifiers: list[str]) -> dict | None:
         return new_match("league", first_identifier, second_identifier, fresh=True)
     if not placement and newcomers:
         if not rated_identifiers:
-            statistics[newcomers[0]]["placed"] = True
+            statistics[newcomers[0]].update(placed=True, placementPending=False)
             return choose_next_match(state, ready_identifiers)
         ladder = sorted(rated_identifiers, key=lambda identifier: (statistics[identifier]["rating"], identifier))
         state["placement"] = placement = {
