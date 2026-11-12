@@ -58,11 +58,10 @@ async function verifyStyleManagement() {
     await page.keyboard.press('ArrowLeft');
     await expect(page.locator('.style-viewer-navigation [role=status]')).toHaveText('2 / 3');
     await page.locator('#style-viewer-original-toggle').uncheck();
-    await page.locator('#style-viewer-management [data-style-candidate-action=rating]').click();
-    await expect(page.locator('#component-dialog')).toContainText('Elo 수정');
-    await page.locator('#style-candidate-rating').fill('12345');
-    await page.locator('#style-candidate-rating').press('Enter');
-    await expect(page.locator('#style-viewer-statistics')).toContainText('12,345');
+    await expect(page.locator('#illustration-dialog [data-style-candidate-action]')).toHaveCount(0);
+    await expect(page.locator('#illustration-dialog .style-card-statistics')).toHaveCount(0);
+    await expect(page.locator('#style-viewer-title')).toHaveText(names[0]);
+    await expect(page.locator('#style-viewer-case-name')).toHaveText('거리');
     await expect(page.locator('.style-viewer-image')).toHaveAttribute('src', /^\/api\/outputs\/preview\//);
     const viewerBounds = await page.locator('#illustration-dialog').boundingBox();
     const closeBounds = await page.locator('[data-style-library-action=close]').boundingBox();
@@ -70,6 +69,12 @@ async function verifyStyleManagement() {
     assert.ok(closeBounds.y >= viewerBounds.y && closeBounds.y + closeBounds.height <= 844);
     await page.screenshot({ path: 'runtime/verification/style-usability-viewer-mobile.png', fullPage: true });
     await page.locator('[data-style-library-action=close]').click();
+    const ratingCandidateIdentifier = await page.locator('.style-library-card').first().getAttribute('data-style-candidate');
+    await page.locator('.style-library-card [data-style-candidate-action=rating]').first().click();
+    await expect(page.locator('#component-dialog')).toContainText('Elo 수정');
+    await page.locator('#style-candidate-rating').fill('12345');
+    await page.locator('#style-candidate-rating').press('Enter');
+    await expect(page.locator(`[data-style-candidate="${ratingCandidateIdentifier}"] [data-style-rating]`)).toHaveText('12,345');
     const selectedIdentifiers = await page.locator('.style-library-card').evaluateAll(cards => cards.slice(0, 2).map(card => card.dataset.styleCandidate));
     for (const identifier of selectedIdentifiers) await page.locator(`[data-style-candidate-select="${identifier}"]`).check();
     await expect(page.locator('.style-candidate-selection-toolbar')).toContainText('2개 선택');

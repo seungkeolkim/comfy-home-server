@@ -44,7 +44,7 @@ function styleLibraryBatchActionsMarkup(candidates, plan) {
   return "";
 }
 
-/** 서버가 계산한 실제 순위·Elo·전적을 조합 카드와 상세에서 공유합니다. */
+/** 서버가 계산한 실제 순위·Elo·전적을 조합 카드에 표시합니다. */
 function styleCandidateRankingMarkup(candidate) {
   if (previewState.blind) return '<span class="style-card-statistics">그림체 정보 숨김</span>';
   const statistics = candidate.statistics;
@@ -84,11 +84,34 @@ function currentStyleLibraryViewerResults() {
   return { candidate, caseResults: styleCandidateCaseResults(candidate, plan) };
 }
 
-/** CHS 공통 이미지 Viewer에 조합의 Prompt 탐색과 관리 영역만 붙입니다. */
+/** CHS 공통 이미지 Viewer에 사진 식별 정보와 보기 기능만 붙입니다. */
 function prepareStyleLibraryViewer() {
   const dialog = document.querySelector("#illustration-dialog");
   dialog.classList.add("style-library-viewer");
-  dialog.innerHTML = `<div class="dialog-heading"><h2 id="style-viewer-title"></h2><button data-style-library-action="close" aria-label="그림체 상세 닫기">닫기</button></div><div id="style-viewer-statistics"></div><p id="style-viewer-case-name" class="style-viewer-case-name"></p><div class="style-viewer-image-frame"><img id="style-viewer-image" class="style-viewer-image" alt="" /><div id="style-viewer-placeholder" class="empty-state" hidden></div></div><p id="style-viewer-image-status" role="status"></p><div class="style-viewer-navigation"><button data-style-library-action="previous" data-preview-previous>← 이전</button><span role="status" aria-live="polite"></span><button data-style-library-action="next" data-preview-next>다음 →</button></div><div class="style-viewer-source-actions"><label class="settings-checkbox"><input id="style-viewer-original-toggle" type="checkbox" role="switch" data-preview-original-toggle /><span>원본 보기</span></label><a id="style-viewer-original-link" class="button" target="_blank" rel="noopener">원본 새 탭으로 보기</a></div><div id="style-viewer-management"></div><p id="style-viewer-management-error" class="error" role="alert"></p>`;
+  dialog.innerHTML = `
+    <div class="dialog-heading">
+      <div class="style-viewer-heading-text">
+        <h2 id="style-viewer-title"></h2>
+        <p id="style-viewer-case-name" class="style-viewer-case-name"></p>
+      </div>
+      <button data-style-library-action="close" aria-label="그림체 상세 닫기">닫기</button>
+    </div>
+    <div class="style-viewer-image-frame">
+      <img id="style-viewer-image" class="style-viewer-image" alt="" />
+      <div id="style-viewer-placeholder" class="empty-state" hidden></div>
+    </div>
+    <p id="style-viewer-image-status" role="status"></p>
+    <div class="style-viewer-toolbar">
+      <div class="style-viewer-navigation">
+        <button data-style-library-action="previous" data-preview-previous>← 이전</button>
+        <span role="status" aria-live="polite"></span>
+        <button data-style-library-action="next" data-preview-next>다음 →</button>
+      </div>
+      <div class="style-viewer-source-actions">
+        <label class="settings-checkbox"><input id="style-viewer-original-toggle" type="checkbox" role="switch" data-preview-original-toggle /><span>원본 보기</span></label>
+        <a id="style-viewer-original-link" class="button" target="_blank" rel="noopener">원본 새 탭으로 보기</a>
+      </div>
+    </div>`;
   styleLibraryViewerState.controller = window.ComfyHomeImagePreview.createImagePreviewController({
     dialog, image: document.querySelector("#style-viewer-image"), title: document.querySelector("#style-viewer-title"),
     originalLink: document.querySelector("#style-viewer-original-link"), status: document.querySelector("#style-viewer-image-status"),
@@ -107,10 +130,8 @@ function renderStyleLibraryViewer() {
   const result = caseResults[caseIndex];
   styleLibraryViewerState.displayedPath = result.file?.path || null;
   const caseName = persistentPromptCaseName(result.promptCase);
-  document.querySelector("#style-viewer-statistics").innerHTML = styleCandidateRankingMarkup(candidate);
-  document.querySelector("#style-viewer-management").innerHTML = styleCandidateManagementButtonsMarkup(candidate);
-  document.querySelector("#style-viewer-management-error").textContent = currentStyleGenerationState().error;
   document.querySelector("#style-viewer-case-name").textContent = caseName;
+  document.querySelector("#style-viewer-case-name").title = caseName;
   const placeholder = document.querySelector("#style-viewer-placeholder");
   placeholder.hidden = Boolean(result.file);
   document.querySelector("#style-viewer-image").hidden = !result.file;
@@ -129,21 +150,17 @@ function renderStyleLibraryViewer() {
   if (!document.querySelector("#illustration-dialog").open) document.querySelector("#illustration-dialog").showModal();
 }
 
-/** Polling은 열린 이미지 소스를 유지하며 외부 Elo 변경·폐기만 반영합니다. */
+/** Polling은 이미지 소스를 유지하며 현재 사진의 정보와 삭제 여부만 반영합니다. */
 function refreshOpenStyleLibraryViewer() {
   if (!styleLibraryViewerState) return;
   const results = currentStyleLibraryViewerResults();
   if (!results) return closeStyleLibraryViewer();
   const result = results.caseResults[styleLibraryViewerState.caseIndex];
   if (styleLibraryViewerState.displayedPath !== (result?.file?.path || null)) return renderStyleLibraryViewer();
-  document.querySelector("#style-viewer-statistics").innerHTML = styleCandidateRankingMarkup(results.candidate);
-  document.querySelector("#style-viewer-case-name").textContent = persistentPromptCaseName(result.promptCase);
-  const managementMarkup = styleCandidateManagementButtonsMarkup(results.candidate);
-  if (managementMarkup !== styleLibraryViewerState.managementMarkup) {
-    document.querySelector("#style-viewer-management").innerHTML = managementMarkup;
-    styleLibraryViewerState.managementMarkup = managementMarkup;
-  }
-  document.querySelector("#style-viewer-management-error").textContent = currentStyleGenerationState().error;
+  const caseName = persistentPromptCaseName(result.promptCase);
+  document.querySelector("#style-viewer-title").textContent = persistentCandidateLabel(results.candidate);
+  document.querySelector("#style-viewer-case-name").textContent = caseName;
+  document.querySelector("#style-viewer-case-name").title = caseName;
 }
 
 /** 처음 열 때만 CHS와 같은 기기별 원본 기본값을 선택합니다. */

@@ -58,6 +58,31 @@ async function verifyComparisonCardFit(page) {
   }
 }
 
+/** 화면의 남는 높이를 이미지에 배정하고 탐색 버튼이 잘리지 않는지 확인합니다. */
+async function verifyViewerImageSpace(page) {
+  const dialog = page.locator('#illustration-dialog');
+  await expect(dialog.locator('[data-style-candidate-action], .style-card-statistics')).toHaveCount(0);
+  await expect.poll(() => page.locator('.style-viewer-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
+  await expect(page.locator('#style-viewer-image-status')).toBeEmpty();
+  const measurements = await dialog.evaluate(element => {
+    const dialogBounds = element.getBoundingClientRect();
+    const imageFrameBounds = element.querySelector('.style-viewer-image-frame').getBoundingClientRect();
+    const toolbarBounds = element.querySelector('.style-viewer-toolbar').getBoundingClientRect();
+    return {
+      dialogHeight: dialogBounds.height,
+      imageHeight: imageFrameBounds.height,
+      toolbarBottom: toolbarBounds.bottom,
+      dialogBottom: dialogBounds.bottom,
+      viewportHeight: innerHeight,
+      maximumChromeHeight: innerWidth <= 600 ? 190 : 150,
+      noOverflow: element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight,
+    };
+  });
+  assert.ok(measurements.imageHeight >= measurements.dialogHeight - measurements.maximumChromeHeight, JSON.stringify(measurements));
+  assert.ok(measurements.toolbarBottom <= measurements.dialogBottom && measurements.dialogBottom <= measurements.viewportHeight, JSON.stringify(measurements));
+  assert.ok(measurements.noOverflow, JSON.stringify(measurements));
+}
+
 /** 작은 Mobile 화면에서도 위·아래 Backdrop을 실제로 눌러 닫을 수 있는지 확인합니다. */
 async function verifyMobileViewerBackdrop(page, opener, width, height) {
   await page.setViewportSize({ width, height });
@@ -66,6 +91,7 @@ async function verifyMobileViewerBackdrop(page, opener, width, height) {
     await opener.click();
     await expect(dialog).toBeVisible();
     await expect.poll(() => page.locator('.style-viewer-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
+    await verifyViewerImageSpace(page);
     const bounds = await dialog.boundingBox();
     assert.ok(bounds.y >= 44 && height - bounds.y - bounds.height >= 44, JSON.stringify({ width, height, bounds }));
     assert.ok(await dialog.evaluate(element => element.scrollWidth <= element.clientWidth));
@@ -111,6 +137,7 @@ async function verifyStyleLibrary() {
       const thumbnailWidth = await firstCard.locator('img').first().evaluate(image => image.getBoundingClientRect().width);
       assert.ok(thumbnailWidth > 0 && thumbnailWidth < 120, String(thumbnailWidth));
       await firstCard.locator('.style-card-heading').click();
+      await verifyViewerImageSpace(page);
       await expect(page.locator('.style-viewer-navigation [role=status]')).toHaveText(`1 / ${promptCount}`);
       await expect(page.locator('[data-style-library-action=previous]')).toBeDisabled();
       if (promptCount === 1) await expect(page.locator('[data-style-library-action=next]')).toBeDisabled();
@@ -136,7 +163,7 @@ async function verifyStyleLibrary() {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.screenshot({ path: `runtime/verification/style-library-viewer-${promptCount}-mobile.png`, fullPage: true });
       await page.locator('[data-style-library-action=close]').click();
-      for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 390, height: 560 }]) {
+      for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 640 }, { width: 390, height: 560 }, { width: 768, height: 390 }]) {
         await verifyMobileViewerBackdrop(page, firstCard.locator('.style-card-heading'), viewport.width, viewport.height);
       }
       for (const width of [320, 390, 768, 1280]) {
