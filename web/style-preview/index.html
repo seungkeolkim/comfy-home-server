@@ -4,9 +4,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="robots" content="noindex" />
-    <title>스타일 구성 · Phase 0 · Comfy Home</title>
+    <title>스타일 구성 · Comfy Home</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/style-preview/preview.css" />
+    <link rel="stylesheet" href="/workspace-shell.css" />
+    <script src="/workspace-shell.js" defer></script>
     <script src="/workflow-options.js" defer></script>
     <script src="/image-preview.js" defer></script>
     <script src="/style-preview/project-persistence.js" defer></script>
@@ -19,29 +21,38 @@
     <script src="/style-preview/ranking-preview.js" defer></script>
     <script src="/style-preview/preview.js" defer></script>
   </head>
-  <body>
-    <section id="preview-login" class="login-layout" hidden>
-      <form id="preview-login-form" class="panel login-panel">
-        <span class="brand-icon">S.</span>
-        <p class="eyebrow">COMFY HOME</p>
-        <h1>스타일 구성</h1>
-        <p class="muted">Home Server 비밀번호로 들어오세요.</p>
-        <label for="preview-password">비밀번호</label>
-        <input id="preview-password" type="password" autocomplete="current-password" required />
-        <button class="primary" type="submit">들어가기</button>
-        <p id="preview-login-error" class="error" role="alert"></p>
-      </form>
-    </section>
-    <div id="preview-application" hidden>
-      <header class="application-header">
-        <a class="brand" href="#projects" aria-label="Comfy Home 스타일 프로젝트"><span class="brand-icon">S.</span><span>Comfy Home<small>나만의 그림체 찾기</small></span></a>
-        <nav class="workspace-tabs" aria-label="작업 공간"><a id="general-workspace-link" href="/">일반 생성</a><span aria-current="page">스타일 구성</span></nav>
-        <span class="phase-badge">Phase 0</span>
-      </header>
-      <div class="preview-notice"><span class="notice-dot"></span><strong>화면 미리보기</strong><span>예시만 바뀌며, 이 탭에 임시 보관됩니다.</span><a href="#scope">현재 범위·남은 구현</a></div>
-      <div id="project-context" class="project-context"></div>
-      <div class="application-layout">
-        <aside id="preview-sidebar" class="sidebar" aria-label="스타일 메뉴"></aside>
+  <body class="style-workspace">
+    <div id="preview-application" class="workspace-application" hidden>
+      <aside id="style-workspace-sidebar" class="workspace-sidebar" aria-label="스타일 작업 공간">
+        <a class="workspace-brand" href="#projects" aria-label="Comfy Home 스타일 프로젝트">
+          <span class="workspace-brand-mark">CH</span>
+          <span><strong>Comfy Home</strong><small>SERVER</small></span>
+        </a>
+        <nav id="preview-sidebar" class="sidebar" aria-label="스타일 메뉴">
+          <button type="button" data-action="navigate" data-screen="projects">▦　프로젝트</button>
+          <button type="button" data-action="navigate" data-screen="global-settings">◎　글로벌 설정</button>
+        </nav>
+        <div class="workspace-sidebar-bottom">
+          <div id="workspace-connection-status" class="workspace-connection"><span class="workspace-status-dot"></span><span>연결 확인 중</span></div>
+          <button id="workspace-logout-button" type="button" data-workspace-logout>로그아웃</button>
+        </div>
+      </aside>
+      <div class="workspace-main">
+        <header class="workspace-topbar">
+          <div><p class="eyebrow">YOUR CREATIVE SPACE</p><h1 id="workspace-page-title">스타일 구성</h1></div>
+          <div class="workspace-topbar-right">
+            <span id="workspace-active-count" class="workspace-active-count">프로젝트 0</span>
+            <button id="workspace-refresh-button" type="button">새로고침</button>
+            <button class="phase-badge" type="button" data-action="navigate" data-screen="project-settings">설정</button>
+            <button class="workspace-mobile-account" type="button" data-workspace-logout aria-label="Comfy Home 로그아웃">로그아웃</button>
+          </div>
+        </header>
+        <nav class="workspace-switch" aria-label="작업 공간">
+          <a id="general-workspace-link" href="/" title="현재 창에서 일반 생성으로 전환합니다.">일반 생성</a>
+          <a href="/style" data-workspace-style aria-current="page">스타일 구성</a>
+        </nav>
+        <div class="preview-notice" hidden><span class="notice-dot"></span><strong>화면 미리보기</strong><span>예시만 바뀌며, 이 탭에 임시 보관됩니다.</span><a href="#scope">현재 범위·남은 구현</a></div>
+        <div id="project-context" class="project-context"></div>
         <main id="preview-content" tabindex="-1"></main>
       </div>
       <nav id="preview-mobile-navigation" class="mobile-navigation" aria-label="스타일 메뉴"></nav>

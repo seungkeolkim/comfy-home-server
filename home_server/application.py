@@ -815,11 +815,17 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             asset_version = secrets.token_hex(16)
         else:
             modified_timestamps = []
-            for file_name in ("index.html", "app.js", "app.css", "favicon.svg", "workflow-options.js", "image-preview.js"):
+            for file_name in (
+                "index.html", "app.js", "app.css", "favicon.svg", "workflow-options.js", "image-preview.js",
+                "workspace-shell.css", "workspace-shell.js",
+            ):
                 modified_timestamps.append((web_directory / file_name).stat().st_mtime_ns)
             asset_version = str(max(modified_timestamps))
         page_content = (web_directory / "index.html").read_text(encoding="utf-8")
-        for asset_name in ("app.js", "app.css", "favicon.svg", "workflow-options.js", "image-preview.js"):
+        for asset_name in (
+            "app.js", "app.css", "favicon.svg", "workflow-options.js", "image-preview.js",
+            "workspace-shell.css", "workspace-shell.js",
+        ):
             page_content = page_content.replace(f'"/{asset_name}"', f'"/{asset_name}?v={asset_version}"')
         return Response(page_content, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
@@ -856,6 +862,20 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """일반 결과물과 스타일 구성이 공유하는 기존 이미지 Viewer 동작을 제공합니다."""
 
         return FileResponse(PROJECT_DIRECTORY / "web" / "image-preview.js", media_type="text/javascript",
+                            headers={"Cache-Control": "no-cache"})
+
+    @app.get("/workspace-shell.css")
+    async def shared_workspace_shell_stylesheet():
+        """일반 생성과 스타일 구성의 공통 Header·Navigation 스타일을 제공합니다."""
+
+        return FileResponse(PROJECT_DIRECTORY / "web" / "workspace-shell.css", media_type="text/css",
+                            headers={"Cache-Control": "no-cache"})
+
+    @app.get("/workspace-shell.js")
+    async def shared_workspace_shell_javascript():
+        """두 모드가 같은 로그인과 복귀 경로를 사용하도록 공통 동작을 제공합니다."""
+
+        return FileResponse(PROJECT_DIRECTORY / "web" / "workspace-shell.js", media_type="text/javascript",
                             headers={"Cache-Control": "no-cache"})
 
     @app.post("/api/login")

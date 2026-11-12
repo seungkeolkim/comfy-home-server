@@ -559,48 +559,83 @@ async function initializePreview() {
   if (!PERSISTENT_STYLE_WORKSPACE) {
     ensureSettingsPreviewState();
     ensureRankingPreviewState();
+    document.querySelector(".preview-notice").hidden = false;
   }
-  try {
-    const returnUrl = sessionStorage.getItem("comfy-home-general-return-url");
-    if (returnUrl?.startsWith("/") && !returnUrl.startsWith("//")) document.querySelector("#general-workspace-link").href = returnUrl;
-  } catch (error) {
-    // 임시 저장소가 없으면 일반 생성의 기본 주소를 사용합니다.
-  }
+  window.ComfyWorkspaceShell.configureWorkspaceLinks();
   try {
     const response = await fetch("/api/session", { cache: "no-store" });
     if (!response.ok) throw new Error("접속 상태를 확인하지 못했습니다.");
     const session = await response.json();
-    document.querySelector("#preview-login").hidden = session.authenticated;
-    document.querySelector("#preview-application").hidden = !session.authenticated;
-    if (session.authenticated) {
-      if (PERSISTENT_STYLE_WORKSPACE) await loadPersistentStyleWorkspace(true);
-      restorePreviewScreen();
+    if (!session.authenticated) {
+      window.ComfyWorkspaceShell.redirectToLogin();
+      return;
     }
+    document.querySelector("#preview-application").hidden = false;
+    if (PERSISTENT_STYLE_WORKSPACE) await loadPersistentStyleWorkspace(true);
+    restorePreviewScreen();
+    loadWorkspaceConnection();
   } catch (error) {
-    document.querySelector("#preview-login").hidden = false;
-    document.querySelector("#preview-login-error").textContent = `${error.message} 잠시 후 새로고침해 주세요.`;
+    document.querySelector("#preview-application").hidden = false;
+    previewContent.innerHTML = `<section class="panel workspace-error" role="alert"><h2>스타일 구성을 불러오지 못했습니다.</h2><p>${escapeMarkup(error.message)}</p><button type="button" data-workspace-retry>다시 불러오기</button></section>`;
   }
 }
 
-/** 기존 인증 API로 로그인하며 비밀번호는 화면 상태에 보관하지 않습니다. */
-async function signInPreview(event) {
-  event.preventDefault();
-  const passwordField = document.querySelector("#preview-password");
-  const submitButton = event.target.querySelector("button[type=submit]");
-  submitButton.disabled = true;
+/** 일반 생성과 같은 ComfyUI 연결 상태를 sidebar에 표시합니다. */
+async function loadWorkspaceConnection() {
+  const connectionStatus = document.querySelector("#workspace-connection-status");
   try {
-    const response = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: passwordField.value }) });
-    passwordField.value = "";
-    if (!response.ok) {
-      const result = await response.json();
-      throw new Error(result.detail || "로그인하지 못했습니다.");
-    }
-    document.querySelector("#preview-login-error").textContent = "";
-    await initializePreview();
+    const response = await fetch("/api/status", { cache: "no-store" });
+    if (!response.ok) throw new Error("연결 상태를 확인하지 못했습니다.");
+    const status = await response.json();
+    connectionStatus.dataset.connected = String(Boolean(status.comfy_connected));
+    connectionStatus.lastElementChild.textContent = status.comfy_connected ? "ComfyUI 연결됨" : "ComfyUI 연결 끊김";
   } catch (error) {
-    document.querySelector("#preview-login-error").textContent = error.message;
+    connectionStatus.dataset.connected = "false";
+    connectionStatus.lastElementChild.textContent = "연결 확인 필요";
+  }
+}
+
+/** 스타일 초안과 현재 화면을 유지한 채 서버의 프로젝트 목록을 갱신합니다. */
+async function refreshStyleWorkspace() {
+  const refreshButton = document.querySelector("#workspace-refresh-button");
+  if (refreshButton.disabled || persistentSettingsBusy) return;
+  refreshButton.disabled = true;
+  persistentSettingsBusy = true;
+  const refreshContainers = [previewContent, document.querySelector("#project-context"),
+    document.querySelector("#preview-sidebar"), document.querySelector("#preview-mobile-navigation")];
+  for (const refreshContainer of refreshContainers) refreshContainer.inert = true;
+  try {
+    persistPreviewSession();
+    if (PERSISTENT_STYLE_WORKSPACE) await loadPersistentStyleWorkspace();
+    renderPreview(false);
+    await loadWorkspaceConnection();
+    showToast("새로고침했습니다.");
+  } catch (error) {
+    showToast(error.message);
   } finally {
-    submitButton.disabled = false;
+    persistentSettingsBusy = false;
+    for (const refreshContainer of refreshContainers) refreshContainer.inert = false;
+    refreshButton.disabled = false;
+  }
+}
+
+/** 공통 Session을 종료하고 일반 생성과 같은 로그인 화면으로 돌아갑니다. */
+async function logoutStyleWorkspace(event) {
+  const logoutButton = event.currentTarget;
+  if (logoutButton.disabled) return;
+  logoutButton.disabled = true;
+  try {
+    persistPreviewSession();
+    const response = await fetch("/api/logout", { method: "POST" });
+    if (response.status === 401) {
+      window.ComfyWorkspaceShell.redirectToLogin();
+      return;
+    }
+    if (!response.ok) throw new Error("로그아웃하지 못했습니다. 다시 시도해 주세요.");
+    window.ComfyWorkspaceShell.redirectToLogin();
+  } catch (error) {
+    showToast(error.message);
+    logoutButton.disabled = false;
   }
 }
 
@@ -608,6 +643,12 @@ document.addEventListener("click", handlePreviewAction);
 document.addEventListener("input", handleDraftInput);
 document.addEventListener("change", handleDraftInput);
 document.addEventListener("submit", submitProjectPreview);
-document.querySelector("#preview-login-form").addEventListener("submit", signInPreview);
+document.querySelector("#workspace-refresh-button").addEventListener("click", refreshStyleWorkspace);
+for (const logoutButton of document.querySelectorAll("[data-workspace-logout]")) {
+  logoutButton.addEventListener("click", logoutStyleWorkspace);
+}
+document.addEventListener("click", event => {
+  if (event.target.closest("[data-workspace-retry]")) initializePreview();
+});
 window.addEventListener("hashchange", restorePreviewScreen);
 initializePreview();

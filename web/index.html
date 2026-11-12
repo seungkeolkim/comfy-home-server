@@ -6,6 +6,8 @@
     <title>Comfy Home Server</title>
     <link rel="icon" type="image/svg+xml" sizes="any" href="/favicon.svg" />
     <link rel="stylesheet" href="/app.css" />
+    <link rel="stylesheet" href="/workspace-shell.css" />
+    <script src="/workspace-shell.js" defer></script>
     <script src="/workflow-options.js" defer></script>
     <script src="/image-preview.js" defer></script>
     <script src="/app.js" defer></script>
@@ -78,7 +80,7 @@
           </div>
         </header>
         <nav class="workspace-switch" aria-label="작업 공간">
-          <span aria-current="page">일반 생성</span>
+          <a href="/" aria-current="page">일반 생성</a>
           <a href="/style" data-workspace-style title="현재 창에서 스타일 구성으로 전환합니다.">스타일 구성</a>
         </nav>
         <details id="system-resources" class="system-resources">

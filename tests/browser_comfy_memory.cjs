@@ -20,10 +20,10 @@ async function verifyMemoryRelease(browser, viewport) {
 
   await context.route("**/*", async function handleApplicationRequest(route) {
     const requestPath = new URL(route.request().url()).pathname;
-    if (["/", "/workflow-options.js", "/image-preview.js", "/app.js", "/app.css", "/favicon.svg"].includes(requestPath)) {
+    if (["/", "/workflow-options.js", "/image-preview.js", "/workspace-shell.js", "/workspace-shell.css", "/app.js", "/app.css", "/favicon.svg"].includes(requestPath)) {
       const fileName = requestPath === "/" ? "index.html" : requestPath.slice(1);
       await route.fulfill({
-        contentType: { "index.html": "text/html", "workflow-options.js": "text/javascript", "image-preview.js": "text/javascript", "app.js": "text/javascript", "app.css": "text/css", "favicon.svg": "image/svg+xml" }[fileName],
+        contentType: { "index.html": "text/html", "workflow-options.js": "text/javascript", "image-preview.js": "text/javascript", "workspace-shell.js": "text/javascript", "workspace-shell.css": "text/css", "app.js": "text/javascript", "app.css": "text/css", "favicon.svg": "image/svg+xml" }[fileName],
         body: filesystem.readFileSync(path.join(projectDirectory, "web", fileName), "utf8"),
       });
       return;

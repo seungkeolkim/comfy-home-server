@@ -1,6 +1,20 @@
-/** 기존 Browser Fixture에 작업 분류 읽기 API와 이동·삭제 후보 분리를 제공합니다. */
+const filesystem = require("node:fs");
+const path = require("node:path");
+
+/** 기존 Browser Fixture에 공통 작업 공간 자산과 작업 분류 읽기 API를 제공합니다. */
 async function handleJobFolderReadRequest(route, jobs = []) {
   const requestUrl = new URL(route.request().url());
+  const workspaceAssets = {
+    "/workspace-shell.js": "text/javascript",
+    "/workspace-shell.css": "text/css",
+  };
+  if (workspaceAssets[requestUrl.pathname]) {
+    await route.fulfill({
+      contentType: workspaceAssets[requestUrl.pathname],
+      body: filesystem.readFileSync(path.resolve(__dirname, "..", "web", requestUrl.pathname.slice(1)), "utf8"),
+    });
+    return true;
+  }
   let response;
   if (requestUrl.pathname === "/api/system-resources") {
     response = { status: "unavailable" };

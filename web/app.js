@@ -4424,6 +4424,7 @@ function bindEvents() {
         });
         element("login-password").value = "";
         element("login-error").textContent = "";
+        if (window.ComfyWorkspaceShell?.resumeWorkspaceAfterLogin()) return;
         await showApplication();
       } catch (error) {
         element("login-error").textContent = error.message;
@@ -5213,8 +5214,10 @@ async function initializeApplication() {
   updateAnimaResolutionOptions();
   try {
     const session = await apiRequest("/api/session");
-    if (session.authenticated) await showApplication();
-    else showLogin();
+    if (session.authenticated) {
+      if (window.ComfyWorkspaceShell?.resumeWorkspaceAfterLogin()) return;
+      await showApplication();
+    } else showLogin();
   } catch (error) {
     showLogin();
   }

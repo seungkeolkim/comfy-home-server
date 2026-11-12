@@ -16,8 +16,9 @@ async function openStyleWorkspace(context, width = 1280) {
   });
   await page.setViewportSize({ width, height: 1000 });
   await page.goto(`${verificationBaseUrl}/style`);
-  await page.locator('#preview-password').fill('test');
-  await page.locator('#preview-login-form button[type=submit]').click();
+  await page.locator('#login-password').fill('test');
+  await page.locator('#login-form button[type=submit]').click();
+  await expect(page).toHaveURL(/\/style(?:[?#]|$)/);
   await expect(page.locator('#preview-application')).toBeVisible();
   await expect(page.locator('#preview-content h1')).toHaveText('프로젝트');
   await expect(page.locator('#preview-mobile-navigation button')).toHaveCount(5);
@@ -140,7 +141,7 @@ async function verifyPersistentStyleProjects() {
     await desktopPage.screenshot({ path: 'runtime/verification/style-projects-desktop.png', fullPage: true });
     for (const width of [320, 390, 768, 1280]) {
       await mobilePage.setViewportSize({ width, height: 1000 });
-      const navigationSelector = width > 700 ? '#preview-sidebar' : '#preview-mobile-navigation';
+      const navigationSelector = width > 680 ? '#preview-sidebar' : '#preview-mobile-navigation';
       await mobilePage.locator(`${navigationSelector} [data-screen=projects]`).click();
       await expect(mobilePage.locator('#preview-content h1')).toHaveText('프로젝트');
       await expect(mobilePage.locator('[data-project-card]')).toHaveCount(2);

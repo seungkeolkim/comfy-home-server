@@ -4,6 +4,8 @@
 
 ComfyUI API에 Anima 이미지와 DaSiWa MiniMax H3 영상을 bulk로 제출하고, 집 안과 mobile에서 결과물을 확인하는 웹 앱입니다. 기획 결정사항은 [PLAN.md](PLAN.md)에 기록했습니다.
 
+상단의 `일반 생성 / 스타일 구성` 토글로 같은 창에서 작업 공간을 전환합니다. 두 화면은 같은 내비게이션 모양과 로그인 Session을 사용하며, 스타일에 직접 접속해도 공통 로그인 후 원래 화면으로 돌아갑니다. [작업 공간 전환과 초안 보존](docs/workspace_navigation.md)을 참고하세요.
+
 Style Lab 복원과 프로젝트별 그림체 탐색을 위한 [설계·원문 Snapshot 문서](docs/style-lab-rebuild/README.md)를 보관합니다. 등록 Workflow 연동, 계보 보존과 일부 잠금, Prompt 재시험·Drop, 세대 복원·독립 분기, Ablation·대표 Prompt/Seed 검증·비교 추천 요구와 Desktop/Mobile 목업을 포함하며, 새 기능은 아직 구현되지 않았습니다.
 
 ## Docker Compose 실행

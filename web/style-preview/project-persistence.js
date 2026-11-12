@@ -1,9 +1,11 @@
 "use strict";
 
 const PERSISTENT_STYLE_WORKSPACE = window.location.pathname === "/style";
+document.body.classList.toggle("persistent-workspace", PERSISTENT_STYLE_WORKSPACE);
 const STYLE_WORKSPACE_SESSION_KEY = "comfy-home-style-workspace-session-v1";
 let persistentWorkspaceMetadata = { workflows: [], components: [], catalogNotice: "" };
 let persistentSettingsBusy = false;
+let persistentWorkspaceLoaded = false;
 
 /** 외부 HTTP 접속에서도 사용할 수 있는 브라우저 난수로 요청 ID를 만듭니다. */
 function newStyleClientIdentifier() {
@@ -18,8 +20,8 @@ async function styleProjectApi(path, options = {}) {
   const result = await response.json();
   if (!response.ok) {
     if (response.status === 401) {
-      document.querySelector("#preview-login").hidden = false;
-      document.querySelector("#preview-application").hidden = true;
+      if (persistentWorkspaceLoaded) persistPreviewSession();
+      window.ComfyWorkspaceShell.redirectToLogin();
     }
     const message = Array.isArray(result.detail) ? result.detail.map(detail => detail.msg).join(" · ") : result.detail;
     const error = new Error(message || "서버에 저장하지 못했습니다. 작성한 초안은 유지됩니다.");
@@ -83,8 +85,10 @@ async function loadPersistentStyleWorkspace(restoreSession = false) {
   ensureRankingPreviewState();
   document.title = "스타일 구성 · Comfy Home";
   document.body.classList.add("persistent-workspace");
-  document.querySelector(".phase-badge").outerHTML = '<button class="phase-badge" data-action="navigate" data-screen="project-settings">설정</button>';
+  document.querySelector(".phase-badge").dataset.screen = "project-settings";
+  document.querySelector("#workspace-active-count").textContent = `프로젝트 ${workspace.projects.length}`;
   document.querySelector(".preview-notice").hidden = true;
+  persistentWorkspaceLoaded = true;
   if (workspace.catalogNotice) showToast(workspace.catalogNotice);
 }
 
@@ -158,6 +162,7 @@ function persistentProjectPayload(settings) {
 /** 저장 중 같은 화면에서 중복 제출하거나 다른 프로젝트로 바꾸지 않게 합니다. */
 function setPersistentSettingsBusy(busy, form) {
   persistentSettingsBusy = busy;
+  document.querySelector("#workspace-refresh-button").disabled = busy;
   form.inert = busy;
   for (const selector of ["#project-context", "#preview-sidebar", "#preview-mobile-navigation"]) {
     document.querySelector(selector).inert = busy;

@@ -165,7 +165,10 @@ def test_web_asset_reload_changes_urls_without_clearing_sessions(tmp_path: Path,
     app = create_processing_test_app(tmp_path, FakeComfyClient())
     isolated_web_directory = tmp_path / "web"
     isolated_web_directory.mkdir()
-    for file_name in ("index.html", "app.js", "app.css", "favicon.svg", "workflow-options.js", "image-preview.js"):
+    for file_name in (
+        "index.html", "app.js", "app.css", "favicon.svg", "workflow-options.js", "image-preview.js",
+        "workspace-shell.css", "workspace-shell.js",
+    ):
         source_file = PROJECT_DIRECTORY / "web" / file_name
         (isolated_web_directory / file_name).write_bytes(source_file.read_bytes())
     monkeypatch.setattr("home_server.application.PROJECT_DIRECTORY", tmp_path)
@@ -189,7 +192,10 @@ def test_web_asset_reload_changes_urls_without_clearing_sessions(tmp_path: Path,
             assert page_response.headers["cache-control"] == "no-cache"
             assert "clear-site-data" not in page_response.headers
             assert "set-cookie" not in page_response.headers
-            for asset_name in ("app.js", "app.css", "favicon.svg", "workflow-options.js", "image-preview.js"):
+            for asset_name in (
+                "app.js", "app.css", "favicon.svg", "workflow-options.js", "image-preview.js",
+                "workspace-shell.css", "workspace-shell.js",
+            ):
                 asset_url = page_response.text.split(f'"/{asset_name}?v=', 1)[1].split('"', 1)[0]
                 asset_response = client.get(f"/{asset_name}?v={asset_url}")
                 assert asset_response.status_code == 200
