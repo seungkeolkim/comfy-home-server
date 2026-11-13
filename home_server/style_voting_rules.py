@@ -153,14 +153,27 @@ def league_match_weights(state: dict, identifiers: list[str], rated_identifiers:
     return weights
 
 
-def choose_next_match(state: dict, ready_identifiers: list[str]) -> dict | None:
-    """진행 중 Placement·신규끼리 비교·배치·경계 동점·일반 리그 순으로 선택합니다."""
+def league_candidate_identifiers(state: dict, ready_identifiers: list[str]) -> list[str]:
+    """진화 자녀를 제외하고 현재 Mode의 일반 리그에 참여할 기존 후보를 고릅니다."""
 
-    if state.get("evolution"):
-        pair = next_selection_pair(state["evolution"], ready_identifiers)
-        return new_match("select", *pair, batchIdentifier=state["evolution"]["batch_id"]) if pair else None
     statistics = state["statistics"]
-    rated_identifiers = [identifier for identifier in ready_identifiers if candidate_is_rated(statistics[identifier])]
+    children = set((state.get("evolution") or {}).get("candidate_ids", []))
+    rated_identifiers = [identifier for identifier in ready_identifiers if identifier not in children and candidate_is_rated(statistics[identifier])]
+    if state.get("mode", "auto") != "top":
+        return rated_identifiers
+    creation_order = {identifier: index for index, identifier in enumerate(ready_identifiers)}
+    ranked_identifiers = sorted(rated_identifiers, key=lambda identifier: (
+        -statistics[identifier]["rating"],
+        -(statistics[identifier]["wins"] / statistics[identifier]["matches"] if statistics[identifier]["matches"] else 0),
+        -statistics[identifier]["matches"], creation_order[identifier], identifier,
+    ))
+    return ranked_identifiers[:max(2, len(ranked_identifiers) * 3 // 10)]
+
+
+def choose_newcomer_match(state: dict, ready_identifiers: list[str], rated_identifiers: list[str]) -> dict | None:
+    """자동 Mode에서만 진행 중 신규 Placement와 미평가 조합 비교를 이어갑니다."""
+
+    statistics = state["statistics"]
     newcomers = [identifier for identifier in ready_identifiers if not candidate_is_rated(statistics[identifier])]
     placement = state["placement"]
     if placement and (placement["identifier"] not in newcomers or any(identifier not in ready_identifiers for identifier in placement["ladder"])):
@@ -181,9 +194,29 @@ def choose_next_match(state: dict, ready_identifiers: list[str]) -> dict | None:
     if placement:
         _, rung_index = placement_position(placement["votes"], len(placement["ladder"]))
         return new_match("place", placement["identifier"], placement["ladder"][rung_index], rungIndex=rung_index)
+    return None
+
+
+def choose_next_match(state: dict, ready_identifiers: list[str]) -> dict | None:
+    """자동 선별 또는 수동 리그를 고르되 모든 Mode에서 상위 30% 경계 동점을 먼저 풉니다."""
+
+    statistics = state["statistics"]
+    selection = state.get("evolution")
+    children = set(selection["candidate_ids"]) if selection else set()
+    regular_identifiers = [identifier for identifier in ready_identifiers if identifier not in children]
+    rated_identifiers = [identifier for identifier in regular_identifiers if candidate_is_rated(statistics[identifier])]
+    mode = state.get("mode", "auto")
+    if mode == "auto":
+        newcomer_match = choose_newcomer_match(state, regular_identifiers, rated_identifiers)
+        if newcomer_match:
+            return newcomer_match
     boundary_match = boundary_tie_match(state, rated_identifiers)
     if boundary_match:
         return boundary_match
+    if mode == "auto" and selection:
+        pair = next_selection_pair(selection, ready_identifiers)
+        return new_match("select", *pair, batchIdentifier=selection["batch_id"]) if pair else None
+    rated_identifiers = league_candidate_identifiers(state, ready_identifiers)
     if len(rated_identifiers) < 2:
         return None
     for _ in range(10):
@@ -192,7 +225,7 @@ def choose_next_match(state: dict, ready_identifiers: list[str]) -> dict | None:
         second_identifier = random.choices(remaining_identifiers, weights=league_match_weights(state, remaining_identifiers, rated_identifiers))[0]
         if len(rated_identifiers) == 2 or {first_identifier, second_identifier} != set(state["lastPair"]):
             break
-    return new_match("league", first_identifier, second_identifier)
+    return new_match("top" if mode == "top" else "league", first_identifier, second_identifier)
 
 
 def apply_match_choice(state: dict, choice: str, components_by_candidate: dict) -> None:

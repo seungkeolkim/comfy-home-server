@@ -373,14 +373,22 @@ class StyleEvolutionService:
                 "survivingIdentifiers": survivors, "retiredIdentifiers": sorted(failed | dropped), "nextParentIdentifiers": [entry["identifier"] for entry in ranked[:len(ranked) * 3 // 10]], "selectionHistory": selection_history}
 
     def cancel_generation(self, connection, row, batch: dict, state: dict) -> dict:
-        """진행 중 자녀만 제외하고 이미지는 보존한 채 부모 세대의 평가 상태를 복원합니다."""
+        """자녀와 해당 선별을 취소하되 진행 중 일반 리그에서 바뀐 기존 후보 점수는 보존합니다."""
 
         cancelled_statistics = {identifier: state["statistics"].get(identifier) for identifier in batch["candidate_ids"]}
         selection_history = copy.deepcopy((state.get("evolution") or {}).get("history", []))
         if row["status"] == "active":
             restored = copy.deepcopy(batch["beforeArena"])
-            if restored.get("match"):
+            children = set(batch["candidate_ids"])
+            retained_statistics = {identifier: copy.deepcopy(statistics) for identifier, statistics in state["statistics"].items() if identifier not in children}
+            retained_mode = state.get("mode", "auto")
+            unchanged_existing_candidates = retained_statistics == restored["statistics"] and retained_mode == restored.get("mode", "auto")
+            restored.update(statistics=retained_statistics, componentStatistics=copy.deepcopy(state["componentStatistics"]), mode=retained_mode,
+                            skippedTies=copy.deepcopy(state["skippedTies"]), undoStack=[])
+            if restored.get("match") and unchanged_existing_candidates:
                 restored["match"]["token"] = uuid.uuid4().hex
+            else:
+                restored["match"] = None
             state.clear()
             state.update(restored)
         connection.execute("UPDATE style_candidate_memberships SET lifecycle='cancelled' WHERE batch_id=?", (row["batch_id"],))

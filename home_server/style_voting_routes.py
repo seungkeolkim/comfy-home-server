@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from .style_projects import StyleRevisionConflict
 from .style_candidate_deletion import StyleCandidateDeletionInput
-from .style_voting import StyleCandidateRatingInput, StylePairInput, StyleUndoInput, StyleVoteInput
+from .style_voting import StyleCandidateRatingInput, StylePairInput, StyleSelectionModeInput, StyleUndoInput, StyleVoteInput
 
 
 def create_style_voting_router(server) -> APIRouter:
@@ -46,6 +46,12 @@ def create_style_voting_router(server) -> APIRouter:
         """단건·다중 선택 조합의 Elo를 수정하고 최신 순위를 반환합니다."""
 
         return execute_selection_command(project_identifier, "rating", payload)
+
+    @router.post("/api/style-projects/{project_identifier}/selection-mode")
+    def update_selection_mode(project_identifier: str, payload: StyleSelectionModeInput):
+        """투표 이력을 만들지 않고 평가 구간의 Mode와 현재 대결 Token을 변경합니다."""
+
+        return execute_selection_command(project_identifier, "mode", payload)
 
     @router.post("/api/style-projects/{project_identifier}/candidate-deletions")
     def delete_candidates(project_identifier: str, payload: StyleCandidateDeletionInput):

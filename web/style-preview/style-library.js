@@ -352,6 +352,7 @@ async function handleStyleCandidateManagement(event) {
     state.selectedCandidateIdentifiers = [];
     return renderPreview(false);
   }
+  if (blockStyleMutationDuringVoting(projectIdentifier)) return;
   styleGenerationViewState.busy = true;
   state.candidateCommandBusy = true;
   state.resultRefreshSequence = (state.resultRefreshSequence || 0) + 1;

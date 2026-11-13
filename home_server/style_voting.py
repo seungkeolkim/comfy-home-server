@@ -10,7 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .style_projects import StyleRevisionConflict, encode_snapshot, snapshot_hash
 from .style_evolution_selection import build_selection_ranking, synchronize_selection_statistics
-from .style_voting_rules import VOTING_POLICY_VERSION, apply_match_choice, candidate_is_rated, choose_next_match, initial_candidate_statistics, new_match, remove_deleted_candidate_state
+from .style_voting_rules import VOTING_POLICY_VERSION, apply_match_choice, candidate_is_rated, choose_next_match, initial_candidate_statistics, league_candidate_identifiers, new_match, remove_deleted_candidate_state
 
 
 class StyleVotingCommand(BaseModel):
@@ -48,6 +48,12 @@ class StyleCandidateRatingInput(StyleVotingCommand):
 
     candidateIdentifiers: list[str] = Field(min_length=1, max_length=100)
     rating: int = Field(strict=True, ge=0, le=1_000_000)
+
+
+class StyleSelectionModeInput(StyleVotingCommand):
+    """평가 구간별 자동·전체 리그·상위 30% 선별 Mode를 명시적으로 선택합니다."""
+
+    mode: Literal["auto", "league", "top"]
 
 
 def ranked_candidate_statistics(identifiers: list[str], statistics: dict) -> list[dict]:
@@ -160,7 +166,7 @@ class StyleVotingService:
                 revision += 1
                 self.save_arena(connection, evaluation_identifier, revision, state)
             return revision, state
-        state = {"policyVersion": VOTING_POLICY_VERSION, "statistics": {}, "componentStatistics": {}, "match": None, "placement": None, "skippedTies": [], "lastPair": [], "undoStack": []}
+        state = {"policyVersion": VOTING_POLICY_VERSION, "mode": "auto", "statistics": {}, "componentStatistics": {}, "match": None, "placement": None, "skippedTies": [], "lastPair": [], "undoStack": []}
         connection.execute("INSERT INTO style_voting_arenas VALUES(?,?,?,?)", (evaluation_identifier, project_identifier, 1, encode_snapshot(state)))
         return 1, state
 
@@ -192,7 +198,7 @@ class StyleVotingService:
                 "referenceCount": len(ranking["ladder"]), "comparingNewcomers": bool(state.get("match") and state["match"]["a"] in ranking["info"] and state["match"]["b"] in ranking["info"])}
         return {
             "projectIdentifier": project_identifier, "evaluationIdentifier": evaluation_identifier, "revision": revision,
-            "policyVersion": VOTING_POLICY_VERSION, "match": state["match"],
+            "policyVersion": VOTING_POLICY_VERSION, "mode": state.get("mode", "auto"), "match": state["match"],
             "activeEvolutionIdentifier": state["evolution"]["batch_id"] if state.get("evolution") else None,
             "automaticPlacement": automatic_placement,
             "rankings": ranked_candidate_statistics([candidate["identifier"] for candidate in candidates], state["statistics"]),
@@ -240,6 +246,8 @@ class StyleVotingService:
                 self.server.style_evolution.migrate_parent_selection(connection, project_identifier, payload.evaluationIdentifier, state)
             elif action == "pair":
                 self.select_pair(state, ready_identifiers, payload)
+            elif action == "mode":
+                state.update(mode=payload.mode, match=None)
             elif action == "rating":
                 self.set_candidate_ratings(connection, project_identifier, state, payload)
             else:
@@ -325,11 +333,13 @@ class StyleVotingService:
         if not event or event["client_id"] != payload.clientIdentifier:
             raise StyleRevisionConflict("다른 Browser의 최신 선택을 대신 되돌릴 수 없습니다.")
         preserved_statistics = state["statistics"]
+        preserved_mode = state.get("mode", "auto")
         remaining_undo_stack = state["undoStack"][:-1]
         restored = json.loads(event["before_json"])
         for identifier, statistics in preserved_statistics.items():
             restored["statistics"].setdefault(identifier, statistics)
         restored["undoStack"] = remaining_undo_stack
+        restored["mode"] = preserved_mode
         restored["match"]["token"] = uuid.uuid4().hex
         state.clear()
         state.update(restored)
@@ -339,7 +349,7 @@ class StyleVotingService:
         """진행 중 배치·필수 동점 질문을 우회하지 않는 범위에서만 직접 Pair를 고릅니다."""
 
         match = state["match"]
-        if not match or match["kind"] != "league":
+        if not match or match["kind"] not in {"league", "top"}:
             raise ValueError("신규 배치·경계 동점 비교를 마친 뒤 직접 조합을 선택할 수 있습니다.")
         identifiers = [payload.firstCandidateIdentifier, payload.secondCandidateIdentifier]
         if len(set(identifiers)) != 2 or any(identifier not in ready_identifiers for identifier in identifiers):
@@ -347,4 +357,6 @@ class StyleVotingService:
         fresh = bool(match["metadata"].get("fresh"))
         if any(candidate_is_rated(state["statistics"][identifier]) == fresh for identifier in identifiers):
             raise ValueError("신규 조합 배치와 일반 비교를 섞을 수 없습니다. 현재 비교를 먼저 마쳐 주세요.")
-        state["match"] = new_match("league", identifiers[0], identifiers[1], fresh=fresh)
+        if not fresh and any(identifier not in league_candidate_identifiers(state, ready_identifiers) for identifier in identifiers):
+            raise ValueError("현재 선별 Mode의 기존 조합 중에서 비교 대상을 선택해 주세요.")
+        state["match"] = new_match(match["kind"], identifiers[0], identifiers[1], fresh=fresh)

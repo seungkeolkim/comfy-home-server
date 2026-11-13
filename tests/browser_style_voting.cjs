@@ -65,8 +65,11 @@ async function verifyStyleVoting() {
     await expect(page.locator('.style-library-card').first()).toHaveAttribute('data-style-candidate', initialSelection.match.a);
     await page.locator('#candidate-sort-order').selectOption('creation');
     await page.locator('#candidate-sort-order').selectOption('elo');
+    const winnerLabel = await winnerCard.locator('.style-card-heading strong').textContent();
     await winnerCard.locator('.style-card-heading').click();
-    await expect(page.locator('#illustration-dialog')).toContainText('10,160');
+    await expect(page.locator('#style-viewer-title')).toHaveText(winnerLabel);
+    await expect(page.locator('#style-viewer-image')).toBeVisible();
+    await expect(page.locator('#illustration-dialog [data-style-candidate-action=rating]')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await page.goto(`${baseUrl}/style#compare`);
     await expect(firstChoice).toBeEnabled();

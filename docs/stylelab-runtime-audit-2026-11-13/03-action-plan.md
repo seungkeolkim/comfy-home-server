@@ -57,4 +57,4 @@ Gallery는 Source의 CSS 색상을 맞추는 것으로 해결되지 않습니다
 - 큰 보기의 Elo·폐기 제거, 남은 높이 활용, Desktop 원본/Mobile Cache 기본값과 Prompt 탐색은 실제로 동작했습니다. 이 공간을 다시 관리 Panel로 채우지 않습니다.
 - 융합·다듬기·Fork·세대 복원·Ablation 등을 이번 최소 기능의 선행 작업으로 추가하지 않습니다. 원본 수렴 안내가 다듬기로 이어진다는 이유로 제외한 기능을 몰래 되넣지 않습니다.
 
-현재 승인된 후속 작업은 **원본 부모 Selection 복원과 Random 생성 분리**입니다. Blind 결함·Gallery·선별 조작 UX는 별도 후속 항목으로 유지합니다. 변경 후 검증 결과와 운영 반영 상태는 실제 확인 뒤 기록하며, 이 조사의 과거 증거로 대신하지 않습니다.
+원본 부모 Selection 복원과 Random 생성 분리는 `9c26f4b`에 반영했습니다. 사용자께서 이어서 선별 진행 개선을 요청하여 선택 결과 피드백·Keyboard·선별 Mode를 구현합니다. 선행 조건과 동작 계약·검증 결과는 [선별 진행 사용성 개선](../style-lab-rebuild/style_selection_interaction.md)에 기록합니다. Blind Viewer 결함·Gallery는 별도 후속 항목으로 유지합니다.

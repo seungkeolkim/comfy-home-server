@@ -24,6 +24,7 @@
 | [먼저 읽기: 재현한 문제와 차이](04-runtime-findings.md) | 실제 Screenshot·수치·동작을 근거로 한 결론 |
 | [해야 할 작업](03-action-plan.md) | P0/P1과 대상 파일·완료 조건 제안 |
 | [확정된 선별 복원 명세](../style-lab-rebuild/stylelab_parent_selection.md) | 부모 Selection, Random 분리, 기존 미확정 Batch 전환 계약 |
+| [선별 진행 사용성 개선](../style-lab-rebuild/style_selection_interaction.md) | 선택 결과 Reveal·Keyboard·선별 Mode 후속 구현과 검증 |
 | [실제 Browser 조작 기록](02-browser-walkthrough.md) | 실행한 15개 항목, 데이터 변경 범위와 종료 상태 |
 | [Source 비교](01-source-comparison.md) | 현재 파일에서 확인한 동작과 차이, 근거 위치 |
 | [Source Inventory](evidence/source-inventory.json) | 조사 시점 Commit과 설치본·CHS 주요 파일 SHA-256 |

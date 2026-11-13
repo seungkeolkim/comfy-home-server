@@ -8,6 +8,8 @@ function currentPersistentComparison() {
   const selectedPlan = submittedPlans.find(plan => plan.planIdentifier === state.comparisonPlanIdentifier) || submittedPlans[0];
   const plans = submittedPlans.filter((plan, index) => submittedPlans.findIndex(item => item.evaluationIdentifier === plan.evaluationIdentifier) === index);
   const plan = plans.find(plan => plan.evaluationIdentifier === selectedPlan?.evaluationIdentifier);
+  const feedback = state.votingFeedback;
+  if (feedback && feedback.comparison.plan?.evaluationIdentifier === plan?.evaluationIdentifier) return feedback.comparison;
   const allCandidates = plan ? results.candidates.filter(candidate => candidate.evaluationIdentifier === plan.evaluationIdentifier && candidate.renders.length && ["active", "evolving"].includes(candidate.lifecycle)) : [];
   const voting = state.votingEvaluations?.[plan?.evaluationIdentifier];
   const selectedIdentifiers = voting?.match ? [voting.match.a, voting.match.b] : allCandidates.slice(0, 2).map(candidate => candidate.identifier);
@@ -25,8 +27,14 @@ function persistentComparisonPairPickerMarkup(comparison) {
   if (comparison.allCandidates.length <= 2) return "";
   const voting = comparison.voting;
   const fresh = Boolean(voting?.match?.metadata.fresh);
-  const eligibleCandidates = comparison.allCandidates.filter(candidate => voting?.readyCandidateIdentifiers.includes(candidate.identifier) && Boolean(candidate.statistics?.rated) !== fresh);
-  const disabled = previewState.blind || voting?.match?.kind !== "league";
+  let eligibleCandidates = comparison.allCandidates.filter(candidate => voting?.readyCandidateIdentifiers.includes(candidate.identifier) && candidate.lifecycle !== "evolving" && Boolean(candidate.statistics?.rated) !== fresh);
+  if (voting?.mode === "top") {
+    const rankedIdentifiers = (voting.rankings || []).filter(statistics => statistics.rated && voting.readyCandidateIdentifiers.includes(statistics.identifier) && comparison.allCandidates.some(candidate => candidate.identifier === statistics.identifier && candidate.lifecycle === "active")).map(statistics => statistics.identifier);
+    const topIdentifiers = rankedIdentifiers.slice(0, Math.max(2, Math.floor(rankedIdentifiers.length * 0.3)));
+    eligibleCandidates = eligibleCandidates.filter(candidate => topIdentifiers.includes(candidate.identifier));
+  }
+  const currentPairEligible = comparison.candidates.every(candidate => eligibleCandidates.includes(candidate));
+  const disabled = previewState.blind || !["league", "top"].includes(voting?.match?.kind) || !currentPairEligible || currentStyleGenerationState().votingCommandBusy;
   return `<div class="comparison-pair-picker">${["A", "B"].map((side, index) => `<label>${side} 위치<select data-comparison-candidate="${index}" ${disabled ? "disabled" : ""}>${comparison.allCandidates.map(candidate => `<option value="${candidate.identifier}" ${candidate.identifier === comparison.candidates[index]?.identifier ? "selected" : ""} ${candidate.identifier === comparison.candidates[1 - index]?.identifier || !eligibleCandidates.includes(candidate) ? "disabled" : ""}>${previewState.blind ? "그림체 숨김" : escapeMarkup(persistentCandidateLabel(candidate))}</option>`).join("")}</select></label>`).join("")}</div>`;
 }
 
@@ -37,29 +45,77 @@ function persistentPromptCaseName(promptCase) {
 
 /** 검토한 선별 화면의 진입점과 결과 Polling 영역을 유지합니다. */
 function renderPersistentComparison() {
-  return `${styleEvolutionContainerMarkup()}<div class="page-heading comparison-heading"><h1>선별</h1><button data-style-voting-action="undo" disabled>↶ 되돌리기</button></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
+  return `${styleEvolutionContainerMarkup()}<div class="page-heading comparison-heading"><h1>선별</h1><button data-style-voting-action="undo" aria-keyshortcuts="Backspace" disabled>↶ 되돌리기 <kbd>Backspace</kbd></button></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
+}
+
+/** 서버에 저장된 선별 모드만 선택 상태로 표시하며 대기 중에도 전환 진입점을 유지합니다. */
+function persistentComparisonModeMarkup(voting) {
+  const modes = [["auto", "자동"], ["league", "전체 리그"], ["top", "상위 30%"]];
+  const disabled = !voting || currentStyleGenerationState().votingCommandBusy;
+  return `<div class="segmented comparison-selection-modes" role="group" aria-label="선별 모드">${modes.map(([mode, label]) => `<button data-style-selection-mode="${mode}" aria-pressed="${(voting?.mode || "auto") === mode}" ${disabled ? "disabled" : ""}>${label}</button>`).join("")}</div>`;
+}
+
+/** Blind는 승인된 투표 결과를 보여주는 짧은 시간에만 조합 정보를 공개합니다. */
+function persistentComparisonInformationHidden() {
+  return previewState.blind && currentStyleGenerationState().votingFeedback?.phase !== "reveal";
+}
+
+/** 신규 조합과 진화 자녀의 탐색용 Elo를 실제 확정 점수처럼 표시하지 않습니다. */
+function persistentComparisonEvaluating(candidate, statistics = candidate?.statistics) {
+  return !statistics?.rated || candidate?.lifecycle === "evolving";
+}
+
+/** 현재 Pair의 Elo와 승인된 투표의 변화량을 +0까지 명시적으로 보여줍니다. */
+function persistentComparisonRatingMarkup(candidate) {
+  if (!candidate) return "";
+  if (persistentComparisonInformationHidden()) return '<small class="candidate-selection-rating">Elo 숨김</small>';
+  const feedback = currentStyleGenerationState().votingFeedback;
+  const before = candidate.statistics;
+  const after = feedback?.phase === "reveal" ? feedback.rankings.find(statistics => statistics.identifier === candidate.identifier) : null;
+  if (persistentComparisonEvaluating(candidate, after || before)) return '<small class="candidate-selection-rating">평가 중 · Elo —</small>';
+  const rating = after?.rating ?? before?.rating;
+  const settled = persistentComparisonEvaluating(candidate, before);
+  let deltaMarkup = "";
+  if (after && !settled) {
+    const delta = after.rating - before.rating;
+    const sign = delta >= 0 ? "+" : "";
+    const direction = delta > 0 ? "up" : delta < 0 ? "down" : "same";
+    deltaMarkup = ` <span class="comparison-rating-delta ${direction}">${sign}${delta.toLocaleString("ko-KR")}</span>`;
+  }
+  return `<small class="candidate-selection-rating">Elo ${rating.toLocaleString("ko-KR")}${deltaMarkup}</small>`;
+}
+
+/** 선별 결과 공개에는 서버의 투표 후 전적을 사용하고 다른 화면의 Blind 설정은 바꾸지 않습니다. */
+function persistentComparisonStatisticsMarkup(candidate) {
+  if (persistentComparisonInformationHidden()) return '<span class="style-card-statistics">그림체 정보 숨김</span>';
+  const feedback = currentStyleGenerationState().votingFeedback;
+  const after = feedback?.phase === "reveal" ? feedback.rankings.find(statistics => statistics.identifier === candidate.identifier) : null;
+  const statistics = after || candidate.statistics;
+  if (persistentComparisonEvaluating(candidate, statistics)) return '<span class="style-card-statistics"><strong>평가 중</strong><small>선별이 끝나면 순위와 Elo가 확정됩니다.</small></span>';
+  return `<span class="style-card-statistics"><strong>${statistics.rank ? `${statistics.rank}위` : "미평가"} · Elo ${statistics.rating.toLocaleString("ko-KR")}</strong><small>${statistics.wins || 0}승 ${statistics.losses || 0}패 · ${statistics.matches || 0}회 평가 · Skip ${statistics.skips || 0}</small></span>`;
 }
 
 /** 이미지 판단을 먼저 배치하고 직접 Pair 선택과 기록은 필요할 때 펼칩니다. */
 function styleComparisonResultsMarkup() {
   const { plan, plans, candidates, allCandidates, voting } = currentPersistentComparison();
   if (!plan) return '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>';
+  const modeSelector = persistentComparisonModeMarkup(voting);
   if (voting?.activeEvolutionIdentifier && !voting.match) {
     const placement = voting.automaticPlacement;
     const finished = placement && placement.completedCount === placement.candidateCount;
-    return `<section class="panel empty-state"><p id="style-voting-status" role="status">${finished ? '선별 완료' : '비교할 이미지가 준비되면 자동 선별을 이어갑니다.'}</p><button data-action="navigate" data-screen="evolution">세대 확인</button></section>`;
+    return `<div class="toolbar comparison-toolbar">${modeSelector}</div><section class="panel empty-state"><p id="style-voting-status" role="status">${finished ? '선별 완료' : '비교할 이미지가 준비되면 자동 선별을 이어갑니다.'}</p><button data-action="navigate" data-screen="evolution">세대 확인</button></section>`;
   }
   const planSelector = plans.length > 1 ? `<label class="comparison-condition-picker">Prompt 조건<select id="style-comparison-plan">${plans.map(item => `<option value="${item.planIdentifier}" ${item.evaluationIdentifier === plan.evaluationIdentifier ? "selected" : ""}>${item.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재" : "이전"} · ${item.cases.length}개 Prompt · Seed ${item.sampling.seed}</option>`).join("")}</select></label>` : "";
-  const headings = ["a", "b"].map((side, index) => `<div class="candidate-name ${side === previewState.visibleSide ? "visible-side" : ""}"><span class="candidate-letter">${side.toUpperCase()}</span><span>${previewState.blind ? "그림체 숨김" : candidates[index] ? escapeMarkup(persistentCandidateLabel(candidates[index])) : "준비 중"}${!previewState.blind && candidates[index]?.statistics?.placementPending ? '<small class="candidate-placement-status">평가 중 · Elo —</small>' : ''}</span></div>`).join("");
-  const management = candidates.map(candidate => `<div>${styleCandidateRankingMarkup(candidate)}<div class="form-actions">${styleCandidateManagementButtonsMarkup(candidate)}</div></div>`).join("");
+  const headings = ["a", "b"].map((side, index) => `<div class="candidate-name ${side === previewState.visibleSide ? "visible-side" : ""}" data-comparison-side="${side}"><span class="candidate-letter">${side.toUpperCase()}</span><span>${persistentComparisonInformationHidden() ? "그림체 숨김" : candidates[index] ? escapeMarkup(persistentCandidateLabel(candidates[index])) : "준비 중"}${persistentComparisonRatingMarkup(candidates[index])}</span></div>`).join("");
+  const management = candidates.map(candidate => `<div>${persistentComparisonStatisticsMarkup(candidate)}<div class="form-actions">${styleCandidateManagementButtonsMarkup(candidate)}</div></div>`).join("");
   const deleteBoth = candidates.length === 2 ? `<button class="danger" data-style-candidate-action="delete" data-candidates="${candidates.map(candidate => candidate.identifier).join(",")}" ${currentStyleGenerationState().evolution?.batch ? "disabled" : ""}>둘 다 폐기</button>` : "";
   return `<div class="persistent-comparison">${planSelector}
-    <div class="toolbar comparison-toolbar"><button data-action="toggle-blind" aria-pressed="${previewState.blind}">◉ Blind ${previewState.blind ? "켜짐" : "꺼짐"}</button><button data-action="open-differences" ${previewState.blind || candidates.length !== 2 ? "disabled" : ""}>조합 차이</button><div class="mobile-case-controls mobile-only"><button data-action="image-layout" data-layout="${previewState.singleImage ? "pair" : "single"}">${previewState.singleImage ? "나란히" : "한 장씩"}</button>${previewState.singleImage ? `<button data-action="switch-side">${previewState.visibleSide === "a" ? "B" : "A"} 보기</button>` : ""}</div></div>
+    <div class="toolbar comparison-toolbar">${modeSelector}<button data-action="toggle-blind" aria-pressed="${previewState.blind}">◉ Blind ${previewState.blind ? "켜짐" : "꺼짐"}</button><button data-action="open-differences" ${previewState.blind || candidates.length !== 2 ? "disabled" : ""}>조합 차이</button><div class="mobile-case-controls mobile-only"><button data-action="image-layout" data-layout="${previewState.singleImage ? "pair" : "single"}">${previewState.singleImage ? "나란히" : "한 장씩"}</button>${previewState.singleImage ? `<button data-action="switch-side">${previewState.visibleSide === "a" ? "B" : "A"} 보기</button>` : ""}</div></div>
     <div class="comparison-columns candidate-headings ${previewState.singleImage ? "single-image" : ""}">${headings}</div>
     ${plan.cases.map((promptCase, index) => persistentComparisonCaseMarkup(promptCase, index, candidates)).join("")}
     <div class="comparison-columns comparison-management">${management}</div>
     <details class="comparison-extra-controls" ${currentStyleGenerationState().comparisonExtrasOpen ? "open" : ""}><summary>비교 대상 · 관리</summary>${persistentComparisonPairPickerMarkup({ plan, plans, candidates, allCandidates, voting })}${deleteBoth}</details>
-    <footer class="comparison-footer"><div class="vote-buttons"><button class="vote-choice vote-choice-a" data-style-voting-choice="a" disabled>A가 더 좋아요</button><button data-style-voting-choice="similar" disabled>비슷함</button><button class="vote-choice vote-choice-b" data-style-voting-choice="b" disabled>B가 더 좋아요</button></div><p id="style-voting-status" class="vote-caption" role="status"></p></footer></div>`;
+    <footer class="comparison-footer"><div class="vote-buttons"><button class="vote-choice vote-choice-a" data-style-voting-choice="a" aria-keyshortcuts="ArrowLeft" disabled>A가 더 좋아요 <kbd>←</kbd></button><button data-style-voting-choice="similar" aria-keyshortcuts="Enter" disabled>비슷함 <kbd>Enter</kbd></button><button class="vote-choice vote-choice-b" data-style-voting-choice="b" aria-keyshortcuts="ArrowRight" disabled>B가 더 좋아요 <kbd>→</kbd></button></div><p id="style-voting-status" class="vote-caption" role="status"></p></footer></div>`;
 }
 
 /** 같은 Case의 최신 Render를 A/B 위치 그대로 표시하고 이름 편집을 제공합니다. */
@@ -70,7 +126,7 @@ function persistentComparisonCaseMarkup(promptCase, caseIndex, candidates) {
     const render = candidate?.renders.filter(item => item.caseIdentifier === promptCase.identifier).at(-1);
     const file = render?.files.find(item => item.is_available && !item.is_deleted);
     const content = file ? `<button class="image-button" data-generation-action="enlarge" data-path="${escapeMarkup(file.path)}" aria-label="${escapeMarkup(caseName)} ${side.toUpperCase()} 이미지 확대"><img src="${styleImageUrl(file.path, window.ComfyHomeImagePreview.defaultOriginalMode())}" alt="${escapeMarkup(caseName)} · ${side.toUpperCase()}" /></button>` : `<div class="empty-state">${escapeMarkup(render ? styleRenderStatusLabel(render.status) : "아직 생성하지 않음")}</div>`;
-    return `<div class="comparison-result ${side === previewState.visibleSide ? "visible-side" : ""}">${content}${render?.error ? `<p class="error">${escapeMarkup(render.error)}</p>` : ""}</div>`;
+    return `<div class="comparison-result ${side === previewState.visibleSide ? "visible-side" : ""}" data-comparison-side="${side}">${content}${render?.error ? `<p class="error">${escapeMarkup(render.error)}</p>` : ""}</div>`;
   }).join("");
   return `<section class="case-section"><div class="case-heading"><span class="case-number">PROMPT ${String(caseIndex + 1).padStart(2, "0")}</span><strong>${escapeMarkup(caseName)}</strong><button class="quiet small" data-style-comparison-action="rename-prompt" data-case="${escapeMarkup(promptCase.identifier)}">이름 변경</button></div><div class="comparison-columns ${previewState.singleImage ? "single-image" : ""}">${imageColumns}</div></section>`;
 }
@@ -177,6 +233,7 @@ function handlePersistentPromptNameSubmit(event) {
 
 /** 생성 묶음 전환은 같은 계획 안의 A/B만 바꾸고 기존 결과를 수정하지 않습니다. */
 function handlePersistentComparisonPlanChange(event) {
+  if (currentStyleGenerationState().votingCommandBusy && (event.target.dataset.comparisonCandidate !== undefined || event.target.id === "style-comparison-plan")) return;
   if (event.target.dataset.comparisonCandidate !== undefined) {
     const { candidates } = currentPersistentComparison();
     const selectedIndex = Number(event.target.dataset.comparisonCandidate);

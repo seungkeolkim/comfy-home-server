@@ -242,6 +242,7 @@ async function handleStyleGenerationAction(event) {
     illustrationDialog.close();
     return;
   }
+  if (blockStyleMutationDuringVoting(projectIdentifier)) return;
   if (action === "generate-candidates" && !document.querySelector("#style-generation-candidate-count").reportValidity()) return;
   if (action === "generate-random" && !document.querySelector("#style-generation-random-count").reportValidity()) return;
   styleGenerationViewState.busy = true;

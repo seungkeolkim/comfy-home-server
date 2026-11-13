@@ -140,7 +140,7 @@ function confirmStyleEvolutionAction(action, generationNumber) {
   const title = action === "confirm" ? `${generationNumber}세대로 확정할까요?` : "이번 진화를 취소할까요?";
   const description = action === "confirm"
     ? "살아남은 자녀가 들어오고 진입 수만큼 하위 기존 조합을 가능한 범위에서 퇴역시킵니다. 이미지와 이력은 보존됩니다. 확정하면 이번 진화의 Undo는 종료됩니다. 다음 세대 이미지는 확정 후 별도로 생성합니다."
-    : "자녀 조합을 선별에서 제외하고 부모 세대의 평가 상태로 돌아갑니다. 생성한 이미지와 작업 이력은 보존하며, 진행 중인 자녀 생성에는 취소를 요청합니다.";
+    : "자녀 조합을 선별에서 제외합니다. 기존 조합의 일반 리그 평가와 생성한 이미지·작업 이력은 보존하며, 진행 중인 자녀 생성에는 취소를 요청합니다.";
   dialog.innerHTML = `<form method="dialog"><h2>${title}</h2><p>${description}</p><div class="form-actions"><button value="cancel">돌아가기</button><button class="primary" value="confirm">확인</button></div></form>`;
   dialog.returnValue = "cancel";
   return new Promise(resolve => {
@@ -180,6 +180,7 @@ async function handleStyleEvolutionAction(event) {
   const state = currentStyleGenerationState(projectIdentifier);
   const action = button.dataset.styleEvolutionAction;
   if (!["resume", "confirm", "cancel"].includes(action)) return;
+  if (blockStyleMutationDuringVoting(projectIdentifier)) return;
   styleGenerationViewState.busy = true;
   state.evolutionCommandBusy = true;
   state.evolutionRefreshSequence = (state.evolutionRefreshSequence || 0) + 1;

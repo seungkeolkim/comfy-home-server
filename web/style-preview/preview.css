@@ -173,6 +173,27 @@ details[open] > summary { margin-bottom: 15px; }
 .candidate-letter { border-radius: 7px; background: #263247; border: 1px solid #4a607e; width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; color: #b4d6f1; flex: none; }
 .candidate-name small { margin-left: auto; color: var(--muted); font-weight: 400; }
 .candidate-name .candidate-placement-status { display: block; margin: 4px 0 0; color: #b4e8db; font-size: 11px; }
+.candidate-name .candidate-selection-rating { display: block; margin: 4px 0 0; font-size: 12px; }
+.comparison-rating-delta { font-weight: 700; }
+.comparison-rating-delta.up { color: #74e4bd; }
+.comparison-rating-delta.down { color: #f7a6b0; }
+.comparison-rating-delta.same { color: #b5c0d5; }
+.comparison-selection-modes { flex-shrink: 0; flex-wrap: nowrap; white-space: nowrap; }
+.persistent-comparison [data-comparison-side] { transition: opacity 170ms ease, filter 170ms ease; }
+.persistent-comparison .image-button:disabled { opacity: 1; cursor: default; }
+.comparison-result.comparison-picked .image-button { outline: 3px solid #74e4bd; outline-offset: 2px; }
+.comparison-result.comparison-even .image-button { outline: 3px solid #e3cc8b; outline-offset: 2px; }
+.persistent-comparison .comparison-dimmed { opacity: 0.42; filter: saturate(0.7); }
+.vote-buttons .comparison-choice-selected { outline: 2px solid #e9eff8; outline-offset: 2px; }
+.comparison-heading kbd, .vote-buttons kbd { font-family: inherit; font-size: 10px; font-weight: 400; opacity: 0.78; margin-left: 5px; }
+@media (prefers-reduced-motion: reduce) {
+  .persistent-comparison [data-comparison-side] { transition: none; }
+}
+@media (max-width: 700px) {
+  .persistent-workspace .comparison-toolbar .comparison-selection-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); flex: 1 0 100%; width: 100%; }
+  .persistent-workspace .comparison-footer .vote-buttons button { font-size: 12px; white-space: nowrap; }
+  .comparison-heading kbd, .vote-buttons kbd { display: none; }
+}
 .case-section { margin-bottom: 18px; }
 .case-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 12px; color: #c9c5d6; }
 .case-heading .case-number { font-size: 10px; color: #8b7db3; }

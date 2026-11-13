@@ -19,7 +19,7 @@ async function clickEvolutionVote(page, choice) {
   const response = page.waitForResponse(response => response.url().endsWith('/votes') && response.request().method() === 'POST');
   await button.click();
   assert.equal((await response).status(), 200);
-  await expect(page.locator('#preview-content')).not.toHaveAttribute('inert', '');
+  await expect(page.locator('.persistent-comparison[data-voting-feedback=selecting], .persistent-comparison[data-voting-feedback=reveal]')).toHaveCount(0);
 }
 
 /** 초기 10조합→투표→자녀 생성→Selection→확정·취소를 실제 이미지로 검증합니다. */
@@ -87,7 +87,7 @@ async function verifyStyleEvolution() {
     selection = await readEvolutionSelection(context, project, clientIdentifier);
     assert.equal(selection.match.kind, 'select');
     await expect(page.locator('#style-voting-status')).toContainText('상위 30% 부모와 비교');
-    await expect(page.locator('.candidate-placement-status')).toHaveCount(0);
+    await expect(page.locator('.candidate-selection-rating').filter({ hasText: '평가 중 · Elo —' })).toHaveCount(1);
     let evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
     assert.equal(selection.automaticPlacement.referenceCount, 3);
     assert.deepEqual(evolution.batch.referenceCandidateIdentifiers, evolution.batch.parentIdentifiers);
