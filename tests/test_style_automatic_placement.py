@@ -1,13 +1,15 @@
-"""전체 기존 순위표·신규끼리 비교·미확정 Elo·진행 세대의 정책 전환을 검증합니다."""
+"""StyleLab 부모 선별·신규 Placement 경계·진행 Batch의 안전한 정책 복원을 검증합니다."""
 
 import copy
 import hashlib
 import json
 
-from home_server.style_evolution_selection import AUTOMATIC_PLACEMENT_POLICY, build_selection_ranking, next_selection_pair, synchronize_selection_statistics
+import pytest
+
+from home_server.style_evolution_selection import STYLELAB_SELECTION_POLICY, build_selection_ranking, next_selection_pair, synchronize_selection_statistics
 from home_server.style_projects import encode_snapshot
 from home_server.style_voting import StyleVoteInput
-from home_server.style_voting_rules import choose_next_match, initial_candidate_statistics
+from home_server.style_voting_rules import choose_next_match, initial_candidate_statistics, new_match
 from test_style_evolution import evolution_view, finish_evolution, prepare_evolution, rated_population, submit_existing_plan, wait_for_plan
 from test_style_voting import read_selection, statistics_by_identifier, undo_input, vote_input
 
@@ -20,187 +22,349 @@ def rendered_asset_hashes(server, client, project: dict) -> dict:
     for candidate in results["candidates"]:
         for render in candidate["renders"]:
             for output_file in render["files"]:
-                hashes[output_file["path"]] = hashlib.sha256(server.managed_path(output_file["path"]).read_bytes()).hexdigest()
+                image_bytes = server.managed_path(output_file["path"]).read_bytes()
+                hashes[output_file["path"]] = hashlib.sha256(image_bytes).hexdigest()
     return hashes
 
 
-def test_existing_reference_disables_single_vote_fresh_shortcut() -> None:
-    """기존 기준점이 하나라도 있으면 신규끼리 한 표만 받고 기존 순위표를 건너뛰지 않습니다."""
+def selection_with_children_in_slot(slot_index: int) -> dict:
+    """세 부모를 모두 비교한 자녀 세 명을 지정한 부모 사이 Slot에 배치합니다."""
 
-    statistics = {identifier: initial_candidate_statistics() for identifier in ["existing", "new-first", "new-second"]}
-    statistics["existing"].update(rating=14000, placed=True)
-    state = {"statistics": statistics, "placement": None, "lastPair": [], "skippedTies": []}
-    match = choose_next_match(state, list(statistics))
-    assert match["kind"] == "place" and match["b"] == "existing"
-    assert statistics[match["a"]]["placementPending"]
-
-
-def test_shared_slot_stays_provisional_until_all_peer_comparisons_finish() -> None:
-    """자신의 대결을 끝냈어도 같은 구간의 남은 대결이 Elo를 바꿀 수 있으면 미확정입니다."""
-
-    references = [f"reference-{index}" for index in range(10)]
-    scores = {identifier: 10000 + index * 100 for index, identifier in enumerate(references)}
+    parents = ["parent-low", "parent-middle", "parent-high"]
     children = ["child-first", "child-second", "child-third"]
-    selection = {"batch_id": "fixture-batch", "placement_policy": AUTOMATIC_PLACEMENT_POLICY,
-        "parent_ids": references[-3:], "parent_scores": {identifier: scores[identifier] for identifier in references[-3:]},
-        "reference_ids": references, "reference_scores": scores, "candidate_ids": children, "history": []}
-    for child in children:
-        for reference in references:
-            selection["history"].append({"batch_id": "fixture-batch", "pair": {"a": child, "b": reference}, "type": "selection_vote", "winner_id": child})
-    for opponent in children[1:]:
-        selection["history"].insert(0, {"batch_id": "fixture-batch", "pair": {"a": children[0], "b": opponent}, "type": "selection_vote", "winner_id": children[0]})
-    state = {"evolution": selection, "statistics": {identifier: initial_candidate_statistics() for identifier in references + children}}
+    selection = {
+        "batch_id": "fixture-batch",
+        "placement_policy": STYLELAB_SELECTION_POLICY,
+        "parent_ids": parents,
+        "parent_scores": dict(zip(parents, [10000, 10320, 10640])),
+        "candidate_ids": children,
+        "history": [],
+    }
+    for child_identifier in children:
+        for parent_index, parent_identifier in enumerate(parents):
+            selection["history"].insert(0, {
+                "batch_id": selection["batch_id"],
+                "pair": {"a": child_identifier, "b": parent_identifier},
+                "type": "selection_vote",
+                "winner_id": child_identifier if parent_index < slot_index else parent_identifier,
+            })
+    return selection
+
+
+def attach_legacy_reference_ladder(selection: dict, source_statistics: dict) -> None:
+    """잘못된 전체 Ladder 정책이 저장했던 필드를 Migration 입력에 재현합니다."""
+
+    selection["placement_policy"] = "full-ladder-placement-v2"
+    selection["reference_ids"] = list(source_statistics)
+    selection["reference_scores"] = {
+        identifier: statistics["rating"]
+        for identifier, statistics in source_statistics.items()
+    }
+
+
+@pytest.mark.parametrize("existing_count", [23, 24])
+def test_random_newcomers_follow_original_twenty_four_reference_threshold(existing_count: int) -> None:
+    """일반 Random은 평가된 기존 후보 24개 미만이면 신규끼리, 24개부터 기존 Ladder와 비교합니다."""
+
+    existing_identifiers = [f"existing-{index:02d}" for index in range(existing_count)]
+    newcomer_identifiers = ["new-first", "new-second"]
+    statistics = {}
+    for identifier in existing_identifiers + newcomer_identifiers:
+        statistics[identifier] = initial_candidate_statistics()
+    for index, identifier in enumerate(existing_identifiers):
+        statistics[identifier].update(rating=14000 + index * 100, placed=True)
+    state = {"statistics": statistics, "placement": None, "lastPair": [], "skippedTies": []}
+
+    match = choose_next_match(state, list(statistics))
+
+    if existing_count < 24:
+        assert match["kind"] == "league" and match["metadata"]["fresh"]
+        assert {match["a"], match["b"]} == set(newcomer_identifiers)
+        assert state["placement"] is None
+    else:
+        assert match["kind"] == "place"
+        assert match["a"] in newcomer_identifiers
+        assert match["b"] in existing_identifiers
+        assert statistics[match["a"]]["placementPending"]
+
+
+@pytest.mark.parametrize("slot_index", [0, 3])
+def test_children_outside_promotion_boundary_do_not_require_peer_comparisons(slot_index: int) -> None:
+    """같은 Slot이어도 모두 탈락하거나 모두 승격하면 불필요한 자녀끼리 대결을 만들지 않습니다."""
+
+    selection = selection_with_children_in_slot(slot_index)
+    ranking = build_selection_ranking(selection)
+
+    assert ranking["boundary_pairs"] == []
+    assert set(ranking["completed_identifiers"]) == set(selection["candidate_ids"])
+    assert next_selection_pair(selection, selection["parent_ids"] + selection["candidate_ids"]) is None
+
+
+def test_same_slot_children_compare_only_when_crossing_promotion_boundary() -> None:
+    """상위 부모 수만큼 승격시키는 경계에 걸친 같은 Slot 자녀만 서로 비교합니다."""
+
+    selection = selection_with_children_in_slot(2)
+    children = selection["candidate_ids"]
+    state = {
+        "evolution": selection,
+        "statistics": {
+            identifier: initial_candidate_statistics()
+            for identifier in selection["parent_ids"] + children
+        },
+    }
     synchronize_selection_statistics(state)
-    assert build_selection_ranking(selection)["completed_identifiers"] == []
-    assert state["statistics"][children[0]]["placementPending"]
-    selection["history"].insert(0, {"batch_id": "fixture-batch", "pair": {"a": children[1], "b": children[2]}, "type": "selection_vote", "winner_id": children[1]})
-    synchronize_selection_statistics(state)
-    assert set(build_selection_ranking(selection)["completed_identifiers"]) == set(children)
-    assert all(not state["statistics"][identifier]["placementPending"] for identifier in children)
+    ranking = build_selection_ranking(selection)
+    assert len(ranking["boundary_pairs"]) == 3
+    assert ranking["completed_identifiers"] == []
+    assert all(state["statistics"][identifier]["placed"] for identifier in children)
+    assert all(not state["statistics"][identifier].get("placementPending", False) for identifier in children)
+
+    for first_index, first_identifier in enumerate(children):
+        for second_identifier in children[first_index + 1:]:
+            selection["history"].insert(0, {
+                "batch_id": selection["batch_id"],
+                "pair": {"a": first_identifier, "b": second_identifier},
+                "type": "selection_vote",
+                "winner_id": first_identifier,
+            })
+    ranking = build_selection_ranking(selection)
+    assert ranking["boundary_pairs"] == []
+    assert set(ranking["completed_identifiers"]) == set(children)
 
 
-def test_automatic_placement_searches_all_references_and_orders_newcomers(rated_population) -> None:
-    """최하위 부모에 진 후보도 여러 기존 조합·같은 구간 신규와 비교한 뒤 확정합니다."""
+def test_legacy_nonparent_votes_remain_in_history_but_do_not_change_selection_statistics() -> None:
+    """옛 비부모 승패·비슷함은 원본 이력에 남기되 부모 선별 점수·전적에는 반영하지 않습니다."""
 
-    _, _, client, project, source_plan = rated_population
+    selection = selection_with_children_in_slot(0)
+    original_state = {
+        "evolution": selection,
+        "statistics": {
+            identifier: initial_candidate_statistics()
+            for identifier in selection["parent_ids"] + selection["candidate_ids"]
+        },
+    }
+    synchronize_selection_statistics(original_state)
+    migrated_state = copy.deepcopy(original_state)
+    migrated_selection = migrated_state["evolution"]
+    for child_identifier in selection["candidate_ids"]:
+        for vote_type in ("selection_vote", "selection_skip"):
+            legacy_vote = {
+                "batch_id": selection["batch_id"],
+                "pair": {"a": child_identifier, "b": "legacy-nonparent"},
+                "type": vote_type,
+            }
+            if vote_type == "selection_vote":
+                legacy_vote["winner_id"] = child_identifier
+            migrated_selection["history"].insert(0, legacy_vote)
+    original_history = copy.deepcopy(migrated_selection["history"])
+
+    synchronize_selection_statistics(migrated_state)
+
+    assert migrated_state["statistics"] == original_state["statistics"]
+    assert migrated_selection["history"] == original_history
+    original_ranking = build_selection_ranking(selection)
+    migrated_ranking = build_selection_ranking(migrated_selection)
+    for field in ("ladder", "scores", "counts", "ascending", "boundary_pairs", "completed_identifiers"):
+        assert migrated_ranking[field] == original_ranking[field]
+
+
+def test_child_losing_to_lowest_parent_finishes_in_one_vote(rated_population) -> None:
+    """기존 10개 중 상위 부모 3개만 기준으로 삼고 최하위 부모 패배는 한 표로 종료합니다."""
+
+    _, _, client, project, _ = rated_population
     endpoint = f"/api/style-projects/{project['identifier']}"
-    source = statistics_by_identifier(read_selection(client, project))
-    plan = prepare_evolution(client, project, 3)
+    original_statistics = statistics_by_identifier(read_selection(client, project))
+    plan = prepare_evolution(client, project, 1)
     submit_existing_plan(client, project, plan)
     wait_for_plan(client, project, plan)
-    children = [candidate["identifier"] for candidate in plan["candidates"]]
-    qualities = {candidate["identifier"]: 10000 + index * 100 for index, candidate in enumerate(source_plan["candidates"])}
-    qualities.update(dict(zip(children, [10350, 10375, 10750])))
-    parents = set(evolution_view(client, project)["batch"]["parentIdentifiers"])
-    compared_with_nonparents = False
-    compared_newcomers = False
-    comparisons_by_child = dict.fromkeys(children, 0)
+    child_identifier = plan["candidates"][0]["identifier"]
+    batch = evolution_view(client, project)["batch"]
+    parents = batch["parentIdentifiers"]
+    lowest_parent = min(parents, key=lambda identifier: original_statistics[identifier]["rating"])
     selection = read_selection(client, project)
-    assert selection["automaticPlacement"]["referenceCount"] == 10
-    for identifier in children:
-        assert statistics_by_identifier(selection)[identifier]["placementPending"]
-        assert statistics_by_identifier(selection)[identifier]["rank"] is None
-    for _ in range(100):
-        view = evolution_view(client, project)
-        if view["batch"]["canConfirm"]:
-            break
-        match = selection["match"]
-        assert match and match["kind"] == "select"
-        pair = {match["a"], match["b"]}
-        if pair <= set(children):
-            compared_newcomers = True
-            assert not view["batch"]["canConfirm"]
-            assert selection["automaticPlacement"]["comparingNewcomers"]
-        elif any(identifier not in parents and identifier not in children for identifier in pair):
-            compared_with_nonparents = True
-        choice = "a" if qualities[match["a"]] > qualities[match["b"]] else "b"
-        response = client.post(endpoint + "/votes", json=vote_input(selection, choice))
-        assert response.status_code == 200, response.text
-        selection = response.json()
-        for identifier in pair & set(children):
-            comparisons_by_child[identifier] += 1
-            if comparisons_by_child[identifier] == 1:
-                statistics = statistics_by_identifier(selection)[identifier]
-                assert statistics["placementPending"] and not statistics["rated"]
-                assert statistics["rank"] is None
-        for identifier, original in source.items():
-            current = statistics_by_identifier(selection)[identifier]
-            for field in ("rating", "matches", "wins", "losses", "skips"):
-                assert current[field] == original[field]
-    else:
-        raise AssertionError("자동 Placement가 종료되지 않았습니다.")
-    assert compared_with_nonparents and compared_newcomers
-    assert min(comparisons_by_child.values()) >= 3
-    assert set(view["batch"]["completedCandidateIdentifiers"]) == set(children)
-    assert view["batch"]["enteredCandidateIdentifiers"] == [children[2]]
-    statistics = statistics_by_identifier(selection)
-    assert statistics[children[0]]["rating"] < statistics[children[1]]["rating"] < statistics[children[2]]["rating"]
-    assert all(not statistics[identifier]["placementPending"] and statistics[identifier]["rated"] for identifier in children)
+
+    assert batch["placementPolicy"] == STYLELAB_SELECTION_POLICY
+    assert len(original_statistics) == 10 and len(parents) == 3
+    assert selection["automaticPlacement"]["referenceCount"] == 3
+    assert {selection["match"]["a"], selection["match"]["b"]} == {child_identifier, lowest_parent}
+    choice = "a" if selection["match"]["a"] == lowest_parent else "b"
+    response = client.post(endpoint + "/votes", json=vote_input(selection, choice))
+    assert response.status_code == 200, response.text
+    selection = response.json()
+    child_statistics = statistics_by_identifier(selection)[child_identifier]
+
+    assert selection["match"] is None
+    assert selection["automaticPlacement"]["completedCount"] == 1
+    assert child_statistics["matches"] == child_statistics["losses"] == 1
+    assert child_statistics["rated"] and not child_statistics["placementPending"]
+    assert child_statistics["rating"] < original_statistics[lowest_parent]["rating"]
+    for identifier, original in original_statistics.items():
+        current = statistics_by_identifier(selection)[identifier]
+        for field in ("rating", "matches", "wins", "losses", "skips"):
+            assert current[field] == original[field]
+    assert evolution_view(client, project)["batch"]["canConfirm"]
     result, _ = finish_evolution(client, project, "confirm")
-    assert result["enteredCount"] == result["retiredExistingCount"] == 1
-    assert result["failedCount"] == 2
+    assert result["enteredCount"] == result["retiredExistingCount"] == 0
+    assert result["failedCount"] == 1
 
 
-def test_migration_preserves_legacy_votes_files_and_undo_then_reopens_placement(rated_population) -> None:
-    """한 표 탈락 상태를 실제 옛 Snapshot으로 구성해 표·파일을 보존하고 Undo까지 이어갑니다."""
+def test_migration_preserves_legacy_votes_files_commands_and_undo(rated_population) -> None:
+    """기존 전체 Ladder 표와 파일은 보존하고 비부모 표를 제외해 재계산하며 옛 Undo도 복원합니다."""
 
     server, fake, client, project, _ = rated_population
-    plan = prepare_evolution(client, project, 6)
+    endpoint = f"/api/style-projects/{project['identifier']}"
+    source_statistics = statistics_by_identifier(read_selection(client, project))
+    plan = prepare_evolution(client, project, 1)
     submit_existing_plan(client, project, plan)
     wait_for_plan(client, project, plan)
-    children = {candidate["identifier"] for candidate in plan["candidates"]}
+    child_identifier = plan["candidates"][0]["identifier"]
+    selection = read_selection(client, project)
+    lowest_parent = next(
+        selection["match"][side] for side in ("a", "b")
+        if selection["match"][side] in source_statistics
+    )
+    parent_choice = "a" if selection["match"]["a"] == lowest_parent else "b"
+    response = client.post(endpoint + "/votes", json=vote_input(selection, parent_choice))
+    assert response.status_code == 200, response.text
+
     with server.database._connect() as connection:
-        row = connection.execute("SELECT revision,state_json FROM style_voting_arenas WHERE evaluation_id=?", (project["evaluationIdentifier"],)).fetchone()
-        state = json.loads(row["state_json"])
-        batch_row = connection.execute("SELECT batch_id,batch_json FROM style_evolution_batches WHERE plan_id=?", (plan["planIdentifier"],)).fetchone()
+        arena_row = connection.execute(
+            "SELECT revision,state_json FROM style_voting_arenas WHERE evaluation_id=?",
+            (project["evaluationIdentifier"],),
+        ).fetchone()
+        state = json.loads(arena_row["state_json"])
+        batch_row = connection.execute(
+            "SELECT batch_id,batch_json FROM style_evolution_batches WHERE plan_id=?",
+            (plan["planIdentifier"],),
+        ).fetchone()
         batch = json.loads(batch_row["batch_json"])
-        for field in ("placement_policy", "reference_ids", "reference_scores"):
-            state["evolution"].pop(field)
-            batch.pop(field)
-        for identifier in children:
-            state["statistics"][identifier].pop("placementPending", None)
-        candidates, ready_identifiers = server.style_voting.load_evaluation_candidates(connection, project["identifier"], project["evaluationIdentifier"])
-        state["match"] = choose_next_match(state, ready_identifiers)
-        for _ in range(6):
-            match = state["match"]
-            assert match and match["kind"] == "select"
-            choice = "b" if match["a"] in children else "a"
-            payload = StyleVoteInput(**vote_input({"evaluationIdentifier": project["evaluationIdentifier"], "revision": row["revision"], "match": match}, choice))
-            server.style_voting.record_vote(connection, state, ready_identifiers, candidates, payload)
-            server.style_voting.synchronize_candidates(state, candidates, ready_identifiers)
-        assert state["match"] is None
-        assert next_selection_pair(state["evolution"], ready_identifiers) is None
+        attach_legacy_reference_ladder(state["evolution"], source_statistics)
+        attach_legacy_reference_ladder(batch, source_statistics)
+        nonparent_identifier = next(
+            identifier for identifier in source_statistics
+            if identifier not in batch["parent_ids"]
+        )
+        candidates, ready_identifiers = server.style_voting.load_evaluation_candidates(
+            connection, project["identifier"], project["evaluationIdentifier"],
+        )
+        state["match"] = new_match("select", child_identifier, nonparent_identifier, batchIdentifier=batch_row["batch_id"])
+        legacy_payload = StyleVoteInput(**vote_input({
+            "evaluationIdentifier": project["evaluationIdentifier"],
+            "revision": arena_row["revision"],
+            "match": state["match"],
+        }, "a"))
+        server.style_voting.record_vote(connection, state, ready_identifiers, candidates, legacy_payload)
+        state["match"] = new_match("select", child_identifier, nonparent_identifier, batchIdentifier=batch_row["batch_id"])
+        state["statistics"][child_identifier].update(matches=2, wins=1, rating=10150, placed=False, placementPending=True)
         original_history = copy.deepcopy(state["evolution"]["history"])
-        server.style_voting.save_arena(connection, project["evaluationIdentifier"], row["revision"] + 6, state)
-        connection.execute("UPDATE style_evolution_batches SET batch_json=? WHERE batch_id=?", (encode_snapshot(batch), batch_row["batch_id"]))
+        original_undo_stack = list(state["undoStack"])
+        server.style_voting.save_arena(connection, project["evaluationIdentifier"], arena_row["revision"] + 1, state)
+        connection.execute(
+            "UPDATE style_evolution_batches SET batch_json=? WHERE batch_id=?",
+            (encode_snapshot(batch), batch_row["batch_id"]),
+        )
         original_events = connection.execute("SELECT * FROM style_vote_events ORDER BY rowid").fetchall()
         original_commands = connection.execute("SELECT * FROM style_voting_commands ORDER BY rowid").fetchall()
+        assert len(original_events) == 2 and len(original_commands) == 1
     original_assets = rendered_asset_hashes(server, client, project)
     submissions_before = len(fake.submissions)
+
     server.style_evolution.migrate_pending_placements()
     with server.database._connect() as connection:
-        migrated_revision = connection.execute("SELECT revision FROM style_voting_arenas WHERE evaluation_id=?", (project["evaluationIdentifier"],)).fetchone()[0]
+        migrated_arena = tuple(connection.execute(
+            "SELECT revision,state_json FROM style_voting_arenas WHERE evaluation_id=?",
+            (project["evaluationIdentifier"],),
+        ).fetchone())
         assert connection.execute("SELECT * FROM style_vote_events ORDER BY rowid").fetchall() == original_events
         assert connection.execute("SELECT * FROM style_voting_commands ORDER BY rowid").fetchall() == original_commands
+        migrated_state = json.loads(migrated_arena[1])
+        assert migrated_state["evolution"]["history"] == original_history
+        assert migrated_state["undoStack"] == original_undo_stack
+        assert migrated_state["evolution"]["placement_policy"] == STYLELAB_SELECTION_POLICY
     server.style_evolution.migrate_pending_placements()
     with server.database._connect() as connection:
-        assert connection.execute("SELECT revision FROM style_voting_arenas WHERE evaluation_id=?", (project["evaluationIdentifier"],)).fetchone()[0] == migrated_revision
-        state = json.loads(connection.execute("SELECT state_json FROM style_voting_arenas WHERE evaluation_id=?", (project["evaluationIdentifier"],)).fetchone()[0])
-        assert state["evolution"]["history"] == original_history
+        assert tuple(connection.execute(
+            "SELECT revision,state_json FROM style_voting_arenas WHERE evaluation_id=?",
+            (project["evaluationIdentifier"],),
+        ).fetchone()) == migrated_arena
+
     selection = read_selection(client, project)
-    assert selection["canUndo"] and selection["match"]["kind"] == "select"
-    assert not evolution_view(client, project)["batch"]["canConfirm"]
-    assert all(statistics_by_identifier(selection)[identifier]["placementPending"] for identifier in children)
+    child_statistics = statistics_by_identifier(selection)[child_identifier]
+    assert selection["canUndo"] and selection["match"] is None
+    assert selection["automaticPlacement"]["referenceCount"] == 3
+    assert child_statistics["matches"] == child_statistics["losses"] == 1
+    assert child_statistics["wins"] == child_statistics["skips"] == 0
+    assert evolution_view(client, project)["batch"]["canConfirm"]
     assert rendered_asset_hashes(server, client, project) == original_assets
     assert len(fake.submissions) == submissions_before
-    undone = client.post(f"/api/style-projects/{project['identifier']}/undo", json=undo_input(selection))
+
+    undone = client.post(endpoint + "/undo", json=undo_input(selection))
     assert undone.status_code == 200, undone.text
-    assert undone.json()["automaticPlacement"]["referenceCount"] == 10
+    selection = undone.json()
+    assert selection["match"] is None and selection["canUndo"]
+    assert selection["automaticPlacement"]["referenceCount"] == 3
     with server.database._connect() as connection:
-        state = json.loads(connection.execute("SELECT state_json FROM style_voting_arenas WHERE evaluation_id=?", (project["evaluationIdentifier"],)).fetchone()[0])
-        assert len(state["evolution"]["history"]) == 5
-        assert state["evolution"]["placement_policy"] == AUTOMATIC_PLACEMENT_POLICY
+        restored_state = json.loads(connection.execute(
+            "SELECT state_json FROM style_voting_arenas WHERE evaluation_id=?",
+            (project["evaluationIdentifier"],),
+        ).fetchone()[0])
+        assert restored_state["evolution"]["placement_policy"] == STYLELAB_SELECTION_POLICY
+        assert restored_state["evolution"]["history"] == original_history[1:]
+    undone = client.post(endpoint + "/undo", json=undo_input(selection))
+    assert undone.status_code == 200, undone.text
+    selection = undone.json()
+    assert not selection["canUndo"]
+    assert {selection["match"]["a"], selection["match"]["b"]} == {child_identifier, lowest_parent}
+    assert not evolution_view(client, project)["batch"]["canConfirm"]
+    assert rendered_asset_hashes(server, client, project) == original_assets
 
 
-def test_planned_batch_upgrade_keeps_submission_revision_and_closed_batches(rated_population) -> None:
-    """미제출 계획은 같은 Revision으로 이어 제출하고 취소 이력 JSON은 소급 변경하지 않습니다."""
+def test_planned_batch_migration_keeps_submission_revision_and_closed_batches(rated_population) -> None:
+    """미제출 계획은 같은 Revision으로 이어 제출하고 취소된 Batch JSON은 소급 변경하지 않습니다."""
 
     server, _, client, project, _ = rated_population
+    source_statistics = statistics_by_identifier(read_selection(client, project))
     archived_plan = prepare_evolution(client, project, 1)
     finish_evolution(client, project, "cancel")
     plan = prepare_evolution(client, project, 1)
     with server.database._connect() as connection:
-        row = connection.execute("SELECT batch_json FROM style_evolution_batches WHERE plan_id=?", (plan["planIdentifier"],)).fetchone()
-        batch = json.loads(row[0])
-        for field in ("placement_policy", "reference_ids", "reference_scores"):
-            batch.pop(field)
-        connection.execute("UPDATE style_evolution_batches SET batch_json=? WHERE plan_id=?", (encode_snapshot(batch), plan["planIdentifier"]))
-        archived_before = tuple(connection.execute("SELECT * FROM style_evolution_batches WHERE plan_id=?", (archived_plan["planIdentifier"],)).fetchone())
-        original_revision = connection.execute("SELECT revision FROM style_voting_arenas WHERE evaluation_id=?", (project["evaluationIdentifier"],)).fetchone()[0]
+        for saved_plan in (archived_plan, plan):
+            batch_row = connection.execute(
+                "SELECT batch_json FROM style_evolution_batches WHERE plan_id=?",
+                (saved_plan["planIdentifier"],),
+            ).fetchone()
+            batch = json.loads(batch_row[0])
+            attach_legacy_reference_ladder(batch, source_statistics)
+            connection.execute(
+                "UPDATE style_evolution_batches SET batch_json=? WHERE plan_id=?",
+                (encode_snapshot(batch), saved_plan["planIdentifier"]),
+            )
+        archived_before = tuple(connection.execute(
+            "SELECT * FROM style_evolution_batches WHERE plan_id=?",
+            (archived_plan["planIdentifier"],),
+        ).fetchone())
+        original_revision = connection.execute(
+            "SELECT revision FROM style_voting_arenas WHERE evaluation_id=?",
+            (project["evaluationIdentifier"],),
+        ).fetchone()[0]
+
+    server.style_evolution.migrate_pending_placements()
     server.style_evolution.migrate_pending_placements()
     with server.database._connect() as connection:
-        assert connection.execute("SELECT revision FROM style_voting_arenas WHERE evaluation_id=?", (project["evaluationIdentifier"],)).fetchone()[0] == original_revision
-        assert tuple(connection.execute("SELECT * FROM style_evolution_batches WHERE plan_id=?", (archived_plan["planIdentifier"],)).fetchone()) == archived_before
+        assert connection.execute(
+            "SELECT revision FROM style_voting_arenas WHERE evaluation_id=?",
+            (project["evaluationIdentifier"],),
+        ).fetchone()[0] == original_revision
+        assert tuple(connection.execute(
+            "SELECT * FROM style_evolution_batches WHERE plan_id=?",
+            (archived_plan["planIdentifier"],),
+        ).fetchone()) == archived_before
+        migrated_batch = json.loads(connection.execute(
+            "SELECT batch_json FROM style_evolution_batches WHERE plan_id=?",
+            (plan["planIdentifier"],),
+        ).fetchone()[0])
+        assert migrated_batch["placement_policy"] == STYLELAB_SELECTION_POLICY
     submit_existing_plan(client, project, plan)
     wait_for_plan(client, project, plan)
-    assert evolution_view(client, project)["batch"]["placementPolicy"] == AUTOMATIC_PLACEMENT_POLICY
+    assert evolution_view(client, project)["batch"]["placementPolicy"] == STYLELAB_SELECTION_POLICY
+    assert read_selection(client, project)["automaticPlacement"]["referenceCount"] == 3

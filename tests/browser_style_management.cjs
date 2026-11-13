@@ -28,8 +28,8 @@ async function verifyStyleManagement() {
     await page.setViewportSize({ width: 1280, height: 1000 });
     await page.goto(`${baseUrl}/style#generation`);
     await page.locator('#active-project-picker').selectOption(project.identifier);
-    await page.locator('#style-generation-candidate-count').fill('4');
-    await page.locator('[data-generation-action=generate-candidates]').click();
+    await page.locator('#style-generation-random-count').fill('4');
+    await page.locator('[data-generation-action=generate-random]').click();
     await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
     await expect(page.locator('.generation-result img')).toHaveCount(12, { timeout: 20000 });
     await page.goto(`${baseUrl}/style#candidates`);

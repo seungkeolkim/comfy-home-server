@@ -1,0 +1,46 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#compare".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#compare
+	2 container preview-application
+		3 container Description: 스타일 작업 공간, ID: style-workspace-sidebar
+			4 link Description: Comfy Home 스타일 프로젝트, Value: 127.0.0.1:8388/style#projects
+			5 container Description: 스타일 메뉴, ID: preview-sidebar
+				6 button ▦　프로젝트
+				7 text 현재 프로젝트
+				8 text 동작 비교 조사 2026-11-13
+				9 button ＋　이미지 생성
+				10 button ↔　선별
+				11 button ⟳　진화
+				12 button ◇　그림체 　2
+					13 text ◇　그림체
+					14 text 　2
+				15 button ⚙　프로젝트 설정
+				16 text 시스템 공통
+				17 button ◎　글로벌 설정
+			18 container workspace-connection-status
+				19 text ComfyUI 연결됨
+			20 button 로그아웃, ID: workspace-logout-button
+		21 container
+			22 text YOUR CREATIVE SPACE
+			23 heading 스타일 구성, Value: 1, ID: workspace-page-title
+				24 text 스타일 구성
+			25 text 프로젝트 2
+			26 button 새로고침, ID: workspace-refresh-button
+			27 button 설정
+		28 container 작업 공간
+			29 link Description: 일반 생성, Help: 현재 창에서 일반 생성으로 전환합니다., Value: 127.0.0.1:8388/, ID: general-workspace-link
+			30 link Description: 스타일 구성, Value: 127.0.0.1:8388/style
+		31 container project-context
+			32 text 현재 프로젝트
+			33 pop up button (collapsed, settable) Description: 현재 프로젝트, Value: 동작 비교 조사 2026-11-13, ID: active-project-picker, Secondary Actions: Expand
+				34 menu
+					35 (selected) 동작 비교 조사 2026-11-13
+					36 테스트 프로젝트
+		37 container preview-content
+			38 heading 선별, Value: 1
+				39 text 선별
+			40 button (disabled) ↶ 되돌리기
+			41 container
+				42 text 아직 생성한 이미지가 없습니다.
+				43 button 이미지 생성
+
+The focused UI element is 1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#compare

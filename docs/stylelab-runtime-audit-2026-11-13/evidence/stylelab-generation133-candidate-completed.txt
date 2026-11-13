@@ -1,0 +1,117 @@
+Browser tab: 2, Title: "Anima Style Lab", URL: "http://127.0.0.1:8389/#/evolution".
+1 AXWebArea Anima Style Lab, URL: 127.0.0.1:8389/#/evolution
+	2 container app
+		3 container sidebar
+			4 text Anima Style Lab
+			5 text 나만의 그림체 찾기 · v2.0.0
+			6 text 워크플로
+			7 button 홈
+			8 button 선별 •
+				189 text 선별
+				190 text •
+			11 button 진화 133세대
+				12 text 진화
+				13 text 133세대
+			14 button 융합
+			15 button 다듬기
+			16 text 라이브러리
+			17 button 그림체 22
+				18 text 그림체
+				19 text 22
+			20 button 조합
+			21 button 자유 생성
+			22 button 설정
+			191 text ComfyUI 연결됨
+			192 text v0.37.0 · 22:13:48 확인
+		25 container topbar
+			26 container 워크플로 단계
+				27 button 준비
+				28 button 순위 결정
+				29 button 진화
+					30 text 3
+					31 text 진화
+				32 button 다듬기
+				33 button 완성
+			34 text 지금 할 일 133세대 진화 조합을 평가하세요.
+			193 button 선별하기
+		89 container content
+			90 heading 진화, Value: 1
+				91 text 진화
+			92 text 현재 133세대 · 생존 0 · 탈락 0
+			147 button 평가하러 가기
+			148 button (disabled) 세대 확정
+			149 button 이번 세대 취소
+			150 text 전멸 세대 0 / 2
+			151 button (disabled) 융합 거치기, Help: 두 조합을 섞어 새 그림을 만든 뒤 다듬습니다
+			152 button (disabled) 바로 다듬기, Help: 상위 조합의 가중치를 바로 다듬습니다
+			101 container
+				102 heading 세대별 결과, Value: 3
+					103 text 세대별 결과
+				104 text 탈락 생존
+				105 container 세대별 진화 결과
+				106 text 121 122 123 124 125 126 127 128 129 130 131 132
+			107 heading 이번 세대 진화 조합, Value: 2
+				108 text 이번 세대 진화 조합
+			109 text 선별에서 평가하면 상태가 바뀝니다.
+			194 container
+				195 text 평가중
+				196 text 10,000 선별 전
+			156 heading 이번 세대의 비교 기준 (시작할 때의 상위 30%), Value: 2
+				157 text 이번 세대의 비교 기준 (시작할 때의 상위 30%)
+			158 text 6개 · Elo 순
+			159 container
+				160 container
+					161 text S ?
+				162 text #1
+				163 text 34,850 3승 0패
+			164 container
+				165 container
+					166 text S- ?
+				167 text #2
+				168 text 34,530 2승 2패
+			169 container
+				170 container
+					171 text A- ?
+				172 text #3
+				173 text 34,490 1승 3패
+			174 container
+				175 container
+					176 text A- ?
+				177 text #4
+				178 text 34,490 1승 3패
+			179 container
+				180 container
+					181 text A- ?
+				182 text #5
+				183 text 34,490 1승 3패
+			184 container
+				185 container
+					186 text A- ?
+				187 text #6
+				188 text 34,490 1승 3패
+			197 container
+				198 button (disabled) 다듬기
+				199 button 원본
+				200 text Elo 10,000
+				201 button 수정, Help: Elo 수정
+				202 text 99 세대 메모
+				203 text entry area (settable)
+				204 text 작가 0명  · LoRA 7개
+				205 button 복사
+				206 text Eito_AnimaV1
+				207 text 0.6
+				208 text 83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained
+				209 text 0.6
+				210 text Flat painting style
+				211 text 0.9
+				212 text Dark_Synth_Anime_Anima-step00001050
+				213 text 0.4
+				214 text Lucent Bloom Anima Style LoRA_Bstyle_v1_anima_sun
+				215 text 0.6
+				216 text marse-rokudaime_v1_epoch40
+				217 text 0.7
+				218 text Munji_V1
+				219 text 0.6
+	87 button 로그아웃, ID: browser-desktop-logout
+
+The focused UI element is 89 container content

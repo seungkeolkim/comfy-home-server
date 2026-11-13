@@ -27,8 +27,8 @@ async function verifyStylePromptChanges() {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${baseUrl}/style#generation`);
     await page.locator('#active-project-picker').selectOption(project.identifier);
-    await page.locator('#style-generation-candidate-count').fill('2');
-    await page.locator('[data-generation-action=generate-candidates]').click();
+    await page.locator('#style-generation-random-count').fill('2');
+    await page.locator('[data-generation-action=generate-random]').click();
     await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
     await expect(page.locator('.generation-result img')).toHaveCount(4);
     const before = await (await context.request.get(endpoint + '/generation-results')).json();

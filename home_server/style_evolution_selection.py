@@ -1,23 +1,36 @@
-"""고정 기준 Ladder로 자녀의 자동 Placement와 원본 Selection 정책을 계산합니다."""
+"""StyleLab의 고정 부모 Ladder로 진화 자녀의 생존과 승격 경계를 계산합니다."""
 
 import math
 
 
-AUTOMATIC_PLACEMENT_POLICY = "full-ladder-placement-v2"
+STYLELAB_SELECTION_POLICY = "stylelab-parent-selection-v1"
 
 
 def batch_history(selection: dict) -> list[dict]:
-    """현재 진화 Batch의 최신순 Vote만 사용합니다."""
+    """기록은 보존하되 현재 Batch의 부모·자녀 사이 유효한 Vote만 해석합니다."""
 
-    return [vote for vote in selection["history"] if vote.get("batch_id") == selection["batch_id"]]
+    allowed_identifiers = set(selection["parent_ids"]) | set(selection["candidate_ids"])
+    history = []
+    for vote in selection["history"]:
+        if vote.get("batch_id") != selection["batch_id"]:
+            continue
+        if vote.get("type") not in {"selection_vote", "selection_skip"}:
+            continue
+        pair = vote.get("pair", {})
+        first_identifier, second_identifier = pair.get("a"), pair.get("b")
+        if first_identifier not in allowed_identifiers or second_identifier not in allowed_identifiers:
+            continue
+        if vote["type"] == "selection_vote" and vote.get("winner_id") not in (first_identifier, second_identifier):
+            continue
+        history.append(vote)
+    return history
 
 
 def child_ladder_votes(selection: dict) -> tuple[list[str], dict]:
     """자녀가 기준 Ladder 각 위치에서 받은 승리·패배·비슷함을 시간순으로 모읍니다."""
 
-    frozen_scores = selection.get("reference_scores", selection["parent_scores"])
-    reference_identifiers = selection.get("reference_ids", selection["parent_ids"])
-    ladder = sorted(reference_identifiers, key=lambda identifier: (frozen_scores[identifier], identifier))
+    frozen_scores = selection["parent_scores"]
+    ladder = sorted(selection["parent_ids"], key=lambda identifier: (frozen_scores[identifier], identifier))
     rung_by_identifier = {identifier: index for index, identifier in enumerate(ladder)}
     votes = {identifier: [] for identifier in selection["candidate_ids"]}
     for vote in reversed(batch_history(selection)):
@@ -36,7 +49,7 @@ def child_ladder_votes(selection: dict) -> tuple[list[str], dict]:
 def child_auxiliary_scores(selection: dict) -> tuple[dict, dict]:
     """K 480 보조 점수를 자녀끼리의 순서 판정에 쓰되 부모 점수는 고정합니다."""
 
-    scores = dict(selection.get("reference_scores", selection["parent_scores"]))
+    scores = dict(selection["parent_scores"])
     children = set(selection["candidate_ids"])
     scores.update({identifier: min(scores.values()) for identifier in children})
     counts = dict.fromkeys(children, 0)
@@ -107,7 +120,6 @@ def build_selection_ranking(selection: dict) -> dict:
     history = batch_history(selection)
     ladder, child_votes = child_ladder_votes(selection)
     ladder_size = len(ladder)
-    automatic_placement = selection.get("placement_policy") == AUTOMATIC_PLACEMENT_POLICY
     auxiliary_scores, counts = child_auxiliary_scores(selection)
     information = {}
     for identifier, votes in child_votes.items():
@@ -122,7 +134,7 @@ def build_selection_ranking(selection: dict) -> dict:
             open_rungs = [index for index in range(lower_slot, upper_slot) if index not in tried_rungs]
             if open_rungs:
                 target_rung = (lower_slot + upper_slot) // 2
-                if not automatic_placement and lower_slot == 0:
+                if lower_slot == 0:
                     target_rung = lower_slot
                 next_rung = min(open_rungs, key=lambda index: (abs(index - target_rung), index))
         best_slots = [lower_slot] if next_rung is not None else least_conflicting_slots(votes, ladder_size)
@@ -146,11 +158,10 @@ def build_selection_ranking(selection: dict) -> dict:
     if not any(child["bisecting"] for child in information.values()):
         maximum_votes = math.ceil(math.log2(ladder_size + 1)) + 5
         ranks = {identifier: index for index, identifier in enumerate(reversed(ascending), 1)}
-        comparison_cut_size = len(selection["parent_ids"]) if automatic_placement else ladder_size
         for identifier, child in information.items():
-            if child["slot"] > 0 and len(child["votes"]) < maximum_votes and comparison_cut_size - 3 < ranks[identifier] <= comparison_cut_size + 3:
+            if child["slot"] > 0 and len(child["votes"]) < maximum_votes and ladder_size - 3 < ranks[identifier] <= ladder_size + 3:
                 child["rung"] = verification_rung(child["best"], child["slot"], child["tried"], ladder_size)
-    frozen_scores = selection.get("reference_scores", selection["parent_scores"])
+    frozen_scores = selection["parent_scores"]
     scores = {identifier: frozen_scores[identifier] for identifier in ladder}
     for slot_index, identifiers in slots.items():
         levels = sorted({head_to_head.get(identifier, 0) for identifier in identifiers})
@@ -162,32 +173,19 @@ def build_selection_ranking(selection: dict) -> dict:
     boundary_pairs = []
     promotion_cut = len(ascending) - ladder_size
     references_finished = not any(child["rung"] is not None for child in information.values())
-    if automatic_placement and references_finished:
-        for group in slots.values():
-            for first_index, first_identifier in enumerate(group):
-                for second_identifier in group[first_index + 1:]:
-                    if frozenset((first_identifier, second_identifier)) not in played_pairs:
-                        boundary_pairs.append((first_identifier, second_identifier))
-    elif references_finished and 0 < promotion_cut < len(ascending):
+    if references_finished and 0 < promotion_cut < len(ascending):
         lower_identifier, higher_identifier = ascending[promotion_cut - 1], ascending[promotion_cut]
         if lower_identifier in information and higher_identifier in information and information[lower_identifier]["slot"] == information[higher_identifier]["slot"]:
             group = slots[information[lower_identifier]["slot"]]
             boundary_pairs = [(first_identifier, second_identifier) for index, first_identifier in enumerate(group) for second_identifier in group[index + 1:] if frozenset((first_identifier, second_identifier)) not in played_pairs]
     unfinished_children = {identifier for pair in boundary_pairs for identifier in pair}
-    if automatic_placement:
-        for group in slots.values():
-            if unfinished_children.intersection(group):
-                unfinished_children.update(group)
     completed_identifiers = []
     for identifier, child in information.items():
-        child["placementComplete"] = bool(child["votes"]) and child["rung"] is None
-        if automatic_placement:
-            child["placementComplete"] = child["placementComplete"] and references_finished and identifier not in unfinished_children
+        child["placementComplete"] = bool(child["votes"]) and child["rung"] is None and identifier not in unfinished_children
         if child["placementComplete"]:
             completed_identifiers.append(identifier)
-    admission_slot = min(ladder.index(identifier) for identifier in selection["parent_ids"])
     return {"ladder": ladder, "info": information, "ascending": ascending, "scores": scores, "counts": counts,
-            "boundary_pairs": boundary_pairs, "completed_identifiers": completed_identifiers, "admission_slot": admission_slot}
+            "boundary_pairs": boundary_pairs, "completed_identifiers": completed_identifiers, "admission_slot": 0}
 
 
 def next_selection_pair(selection: dict, ready_identifiers: list[str], ranking: dict | None = None) -> tuple[str, str] | None:
@@ -223,6 +221,7 @@ def synchronize_selection_statistics(state: dict) -> None:
 
     selection = state["evolution"]
     ranking = build_selection_ranking(selection)
+    history = batch_history(selection)
     rating_offsets = selection.get("ratingOffsets", {})
     for identifier in selection["candidate_ids"]:
         statistics = state["statistics"][identifier]
@@ -230,10 +229,7 @@ def synchronize_selection_statistics(state: dict) -> None:
         judged = bool(ranking["info"][identifier]["votes"])
         statistics["rating"] = (ranking["scores"][identifier] if judged else 10000) + rating_offsets.get(identifier, 0)
         statistics["matches"] = decisive_votes
-        statistics["wins"] = sum(vote.get("winner_id") == identifier for vote in selection["history"] if vote["type"] == "selection_vote") if decisive_votes else 0
-        statistics["skips"] = sum(identifier in vote["pair"].values() for vote in selection["history"] if vote["type"] == "selection_skip")
-        if selection.get("placement_policy") == AUTOMATIC_PLACEMENT_POLICY:
-            statistics["placementPending"] = not ranking["info"][identifier]["placementComplete"]
-            statistics["placed"] = not statistics["placementPending"]
-        else:
-            statistics["placed"] = judged or identifier in rating_offsets
+        statistics["wins"] = sum(vote.get("winner_id") == identifier for vote in history if vote["type"] == "selection_vote") if decisive_votes else 0
+        statistics["skips"] = sum(identifier in vote["pair"].values() for vote in history if vote["type"] == "selection_skip")
+        statistics["placementPending"] = False
+        statistics["placed"] = judged or identifier in rating_offsets

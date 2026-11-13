@@ -1,0 +1,78 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#compare".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#compare
+	2 container preview-application
+		21 container
+			23 heading 스타일 구성, Value: 1, ID: workspace-page-title
+				24 text 스타일 구성
+			26 button 새로고침, ID: workspace-refresh-button
+			27 button 설정
+			78 button Comfy Home 로그아웃
+		28 container 작업 공간
+			29 link Description: 일반 생성, Help: 현재 창에서 일반 생성으로 전환합니다., Value: 127.0.0.1:8388/, ID: general-workspace-link
+			30 link Description: 스타일 구성, Value: 127.0.0.1:8388/style
+		31 container project-context
+			32 text 현재 프로젝트
+			33 pop up button (collapsed, settable) Description: 현재 프로젝트, Value: 동작 비교 조사 2026-11-13, ID: active-project-picker, Secondary Actions: Expand
+				34 menu
+					35 (selected) 동작 비교 조사 2026-11-13
+					36 테스트 프로젝트
+		37 container preview-content
+			38 heading 선별, Value: 1
+				39 text 선별
+			40 button (disabled) ↶ 되돌리기, Help: 최근 30개 선택 중 마지막 선택을 되돌립니다.
+			41 container style-render-results
+				42 checkbox ◉ Blind 꺼짐, Value: 0
+				43 button 조합 차이
+				79 button 한 장씩
+				44 text A 세대001-조합02
+				45 text 평가 중 · Elo —
+				46 text B 세대001-조합01
+				47 container
+					48 text PROMPT 01 낮 거리
+					49 button 이름 변경
+					50 button 낮 거리 A 이미지 확대
+						51 image 낮 거리 · A
+					52 button 낮 거리 B 이미지 확대
+						53 image 낮 거리 · B
+				54 container
+					55 text PROMPT 02 실내 서재
+					56 button 이름 변경
+					57 button 실내 서재 A 이미지 확대
+						58 image 실내 서재 · A
+					59 button 실내 서재 B 이미지 확대
+						60 image 실내 서재 · B
+				61 text 평가 중 · Elo —
+				62 text 자동으로 순위표에서 자리를 찾는 중
+				63 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+				64 button 조합 폐기, Help: 모든 Prompt의 이미지와 함께 조합을 폐기합니다.
+				65 container
+					66 text 1위 · Elo  10,000
+				67 text 0승 0패 · 0회 평가 · Skip 0
+				68 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+				69 button 조합 폐기, Help: 모든 Prompt의 이미지와 함께 조합을 폐기합니다.
+				70 container
+					71 button (collapsed) 비교 대상 · 관리, Secondary Actions: Expand
+						72 text 비교 대상 · 관리
+				73 container
+					74 button A가 더 좋아요
+					75 button 비슷함
+					76 button B가 더 좋아요
+					77 text 새 조합 평가 중
+		80 container Description: 스타일 메뉴, ID: preview-mobile-navigation
+			81 button ▦ 프로젝트
+				82 text ▦
+				83 text 프로젝트
+			84 button ＋ 생성
+				85 text ＋
+				86 text 생성
+			87 button ↔ 선별
+				88 text ↔
+				89 text 선별
+			90 button ⟳ 진화
+				91 text ⟳
+				92 text 진화
+			93 button ◇ 그림체
+				94 text ◇
+				95 text 그림체
+
+The focused UI element is 50 button 낮 거리 A 이미지 확대

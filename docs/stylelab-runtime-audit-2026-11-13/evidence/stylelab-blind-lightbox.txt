@@ -1,0 +1,70 @@
+Browser tab: 2, Title: "Anima Style Lab", URL: "http://127.0.0.1:8389/#/arena".
+1 AXWebArea Anima Style Lab, URL: 127.0.0.1:8389/#/arena
+	2 container app
+		3 container sidebar
+			4 text Anima Style Lab
+			5 text 나만의 그림체 찾기 · v2.0.0
+			6 text 워크플로
+			7 button 홈
+			8 button 선별 1
+				2641 text 선별
+				2642 text 1
+			11 button 진화 134세대
+				12 text 진화
+				13 text 134세대
+			14 button 융합
+			15 button 다듬기
+			16 text 라이브러리
+			17 button 그림체 22
+				18 text 그림체
+				19 text 22
+			20 button 조합
+			21 button 자유 생성
+			22 button 설정
+			2643 text ComfyUI 연결됨
+			2644 text v0.37.0 · 00:24:12 확인
+		25 container topbar
+			26 container 워크플로 단계
+				27 button 준비
+				28 button 순위 결정
+					2645 text 2
+					2646 text 순위 결정
+				29 button 진화
+				32 button 다듬기
+				33 button 완성
+			34 text 지금 할 일 새 조합 1개의 자리를 찾아 주세요. 한 조합당 약 5표면 됩니다.
+		2647 container content
+			2648 text 새 조합 자리 찾기
+			2649 text 기존 순위표 사이에서 위치를 찾는 중 · 1번째 비교 · 남은 새 조합 1개
+			2650 checkbox Description: 블라인드, Value: 1
+			2651 tab group 선별 모드
+				2652 tab (selected, settable, boolean) 자동, Value: 1
+				2653 tab (selectable, settable, boolean) 전체 리그, Value: 0
+				2654 tab (selectable, settable, boolean) 상위 30%, Value: 0
+			2655 button (disabled) 되돌리기
+			2656 container 왼쪽 그림체
+				2657 text ???
+				2658 text ???
+				2659 text ???
+				2660 button 원본
+				2661 button 삭제
+				2662 text ???
+				2663 button 이쪽이 더 좋습니다 ←
+					2664 text 이쪽이 더 좋습니다
+					2665 text ←
+			2666 text VS
+			2667 button 비슷함
+			2668 button 둘 다 삭제
+			2669 container 오른쪽 그림체
+				2670 text ???
+				2671 text ???
+				2672 text ???
+				2673 button 원본
+				2674 button 삭제
+				2675 text ???
+				2676 button 이쪽이 더 좋습니다 →
+					2677 text 이쪽이 더 좋습니다
+					2678 text →
+	87 button 로그아웃, ID: browser-desktop-logout
+
+The focused UI element is 2647 container content

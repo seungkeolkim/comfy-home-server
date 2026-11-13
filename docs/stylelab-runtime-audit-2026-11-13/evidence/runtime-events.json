@@ -1,0 +1,496 @@
+[
+  {
+    "evidenceName": "stylelab-selection-before-skip",
+    "capturedAt": "2026-11-12T15:12:58.220Z",
+    "url": "http://127.0.0.1:8389/#/arena",
+    "detail": {
+      "pair": [
+        "/img/21f0be60e2.png",
+        "/img/8fcd6e9b14.png"
+      ]
+    }
+  },
+  {
+    "evidenceName": "chs-generation2-confirmed",
+    "capturedAt": "2026-11-12T15:13:26.323Z",
+    "url": "http://127.0.0.1:8388/style#evolution",
+    "detail": {
+      "confirmedWithoutNextGeneration": true
+    }
+  },
+  {
+    "evidenceName": "stylelab-skip-undo-restored",
+    "capturedAt": "2026-11-12T15:13:26.395Z",
+    "url": "http://127.0.0.1:8389/#/arena",
+    "detail": {
+      "pairRestored": true
+    }
+  },
+  {
+    "evidenceName": "chs-generation3-images-completed",
+    "capturedAt": "2026-11-12T15:15:00.522Z",
+    "url": "http://127.0.0.1:8388/style#evolution",
+    "detail": {
+      "newCandidateCount": 1,
+      "promptCount": 3,
+      "images": [
+        {
+          "height": 384,
+          "loaded": true,
+          "source": "/api/outputs/preview/from_comfy_home_style/anima_turboV11/%ED%85%8C%EC%8A%A4%ED%8A%B8%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8__e30aaf8b619a4483af488090a7e7820c/%EC%84%B8%EB%8C%80003-%EC%A1%B0%ED%95%A901-Prompt01-7bfcd1780147494482ba01819f2a645f.png",
+          "width": 288
+        },
+        {
+          "height": 384,
+          "loaded": true,
+          "source": "/api/outputs/preview/from_comfy_home_style/anima_turboV11/%ED%85%8C%EC%8A%A4%ED%8A%B8%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8__e30aaf8b619a4483af488090a7e7820c/%EC%84%B8%EB%8C%80003-%EC%A1%B0%ED%95%A901-Prompt02-9cfd3e613b2c470ea0eb4cab3d409f95.png",
+          "width": 288
+        },
+        {
+          "height": 384,
+          "loaded": true,
+          "source": "/api/outputs/preview/from_comfy_home_style/anima_turboV11/%ED%85%8C%EC%8A%A4%ED%8A%B8%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8__e30aaf8b619a4483af488090a7e7820c/%EC%84%B8%EB%8C%80003-%EC%A1%B0%ED%95%A901-Prompt03-5baa51ea0bda40349ef2ede164730bd6.png",
+          "width": 288
+        }
+      ]
+    }
+  },
+  {
+    "evidenceName": "chs-multi-prompt-selection-before-skip",
+    "capturedAt": "2026-11-12T15:16:24.965Z",
+    "url": "http://127.0.0.1:8388/style#compare",
+    "detail": {
+      "pair": [
+        "/media/from_comfy_home_style/anima_turboV11/%ED%85%8C%EC%8A%A4%ED%8A%B8%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8__e30aaf8b619a4483af488090a7e7820c/%EC%84%B8%EB%8C%80003-%EC%A1%B0%ED%95%A901-Prompt01-7bfcd1780147494482ba01819f2a645f.png",
+        "/media/from_comfy_home_style/anima_turboV11/%ED%85%8C%EC%8A%A4%ED%8A%B8%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8__e30aaf8b619a4483af488090a7e7820c/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A905-Prompt01-7f041422cbe747ad9e89eb55c0a3cab7.png",
+        "/media/from_comfy_home_style/anima_turboV11/%ED%85%8C%EC%8A%A4%ED%8A%B8%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8__e30aaf8b619a4483af488090a7e7820c/%EC%84%B8%EB%8C%80003-%EC%A1%B0%ED%95%A901-Prompt02-9cfd3e613b2c470ea0eb4cab3d409f95.png",
+        "/media/from_comfy_home_style/anima_turboV11/%ED%85%8C%EC%8A%A4%ED%8A%B8%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8__e30aaf8b619a4483af488090a7e7820c/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A905-Prompt02-a070385f1df04b06b1c7ab183797c526.png",
+        "/media/from_comfy_home_style/anima_turboV11/%ED%85%8C%EC%8A%A4%ED%8A%B8%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8__e30aaf8b619a4483af488090a7e7820c/%EC%84%B8%EB%8C%80003-%EC%A1%B0%ED%95%A901-Prompt03-5baa51ea0bda40349ef2ede164730bd6.png",
+        "/media/from_comfy_home_style/anima_turboV11/%ED%85%8C%EC%8A%A4%ED%8A%B8%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8__e30aaf8b619a4483af488090a7e7820c/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A905-Prompt03-51e6580cfe544712bc1a85be96b37985.png"
+      ]
+    }
+  },
+  {
+    "evidenceName": "chs-multi-prompt-undo-restored",
+    "capturedAt": "2026-11-12T15:17:18.396Z",
+    "url": "http://127.0.0.1:8388/style#compare",
+    "detail": {
+      "allSixImagesRestored": true,
+      "keyboardBackspaceChangedPair": false
+    }
+  },
+  {
+    "evidenceName": "stylelab-generation132-selection-ready",
+    "capturedAt": "2026-11-12T15:18:22.029Z",
+    "url": "http://127.0.0.1:8389/#/evolution",
+    "detail": {
+      "existingChildren": 12,
+      "survived": 5,
+      "failed": 7,
+      "ordinaryVotesRolledBack": 2
+    }
+  },
+  {
+    "evidenceName": "stylelab-generation132-confirmed-next133",
+    "capturedAt": "2026-11-12T15:18:55.325Z",
+    "url": "http://127.0.0.1:8389/#/evolution",
+    "detail": {
+      "confirmedGeneration": 132,
+      "nextDisplayedGeneration": 133
+    }
+  },
+  {
+    "evidenceName": "chs-generation3-selection-finished",
+    "capturedAt": "2026-11-12T15:19:15.657Z",
+    "url": "http://127.0.0.1:8388/style#compare",
+    "detail": {
+      "decisiveVotes": 4
+    }
+  },
+  {
+    "evidenceName": "chs-generation3-confirmed",
+    "capturedAt": "2026-11-12T15:20:52.926Z",
+    "url": "http://127.0.0.1:8388/style#evolution",
+    "detail": {
+      "confirmedGeneration": 3,
+      "newCandidateFailed": true,
+      "decisiveVotes": 4
+    }
+  },
+  {
+    "evidenceName": "stylelab-generation133-candidate-completed",
+    "capturedAt": "2026-11-12T15:21:23.169Z",
+    "url": "http://127.0.0.1:8389/#/evolution",
+    "detail": {
+      "newCandidateCount": 1,
+      "newImage": "/thumb/36308fd767.png",
+      "temporaryPrompt": "fully clothed city scene",
+      "loaded": true
+    }
+  },
+  {
+    "evidenceName": "stylelab-generation133-one-vote-ready",
+    "capturedAt": "2026-11-12T15:22:50.176Z",
+    "url": "http://127.0.0.1:8389/#/evolution",
+    "detail": {
+      "newChildPair": [
+        "/img/36308fd767.png",
+        "/img/10011fe783.png"
+      ],
+      "decisiveVotes": 1
+    }
+  },
+  {
+    "evidenceName": "chs-audit-project-saved",
+    "capturedAt": "2026-11-12T15:22:59.832Z",
+    "url": "http://127.0.0.1:8388/style#project-settings",
+    "detail": {
+      "projects": {
+        "options": [
+          {
+            "label": "동작 비교 조사 2026-11-13",
+            "value": "b9c8b976bf924a839bf8bccd6b65fa6f"
+          },
+          {
+            "label": "테스트 프로젝트",
+            "value": "e30aaf8b619a4483af488090a7e7820c"
+          }
+        ],
+        "selected": "b9c8b976bf924a839bf8bccd6b65fa6f"
+      }
+    }
+  },
+  {
+    "evidenceName": "stylelab-generation133-confirmed-next134",
+    "capturedAt": "2026-11-12T15:23:37.265Z",
+    "url": "http://127.0.0.1:8389/#/evolution",
+    "detail": {
+      "confirmedGeneration": 133,
+      "nextDisplayedGeneration": 134,
+      "decisiveVotes": 1
+    }
+  },
+  {
+    "evidenceName": "chs-audit-project-four-images",
+    "capturedAt": "2026-11-12T15:24:12.217Z",
+    "url": "http://127.0.0.1:8388/style#generation",
+    "detail": {
+      "images": [
+        {
+          "height": 384,
+          "loaded": true,
+          "source": "/api/outputs/preview/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A901-Prompt01-840b12b914fb407abbc35684e81f176b.png",
+          "width": 256
+        },
+        {
+          "height": 384,
+          "loaded": true,
+          "source": "/api/outputs/preview/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A902-Prompt01-ef4864e7bb6343509152053098b64f7d.png",
+          "width": 256
+        },
+        {
+          "height": 384,
+          "loaded": true,
+          "source": "/api/outputs/preview/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A901-Prompt02-f3fc4fede3e64e37906714a7a232f64d.png",
+          "width": 256
+        },
+        {
+          "height": 384,
+          "loaded": true,
+          "source": "/api/outputs/preview/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A902-Prompt02-8bd0ebdd59d0405db490c528cf1c1ebd.png",
+          "width": 256
+        }
+      ],
+      "projectIdentifier": "b9c8b976bf924a839bf8bccd6b65fa6f"
+    }
+  },
+  {
+    "evidenceName": "chs-audit-viewer-desktop-prompt1",
+    "capturedAt": "2026-11-12T15:24:42.381Z",
+    "url": "http://127.0.0.1:8388/style#compare",
+    "detail": {
+      "pairBeforeViewer": [
+        "/media/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A902-Prompt01-ef4864e7bb6343509152053098b64f7d.png",
+        "/media/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A901-Prompt01-840b12b914fb407abbc35684e81f176b.png",
+        "/media/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A902-Prompt02-8bd0ebdd59d0405db490c528cf1c1ebd.png",
+        "/media/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A901-Prompt02-f3fc4fede3e64e37906714a7a232f64d.png"
+      ]
+    }
+  },
+  {
+    "evidenceName": "chs-audit-comparison-mobile",
+    "capturedAt": "2026-11-12T15:24:57.615Z",
+    "url": "http://127.0.0.1:8388/style#compare",
+    "detail": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "desktopViewerMetrics": {
+        "buttons": [
+          "닫기",
+          "← 이전",
+          "다음 →"
+        ],
+        "dialog": {
+          "bottom": 1228,
+          "height": 1212,
+          "left": 151.5,
+          "right": 1591.5,
+          "top": 16,
+          "width": 1440,
+          "x": 151.5,
+          "y": 16
+        },
+        "image": {
+          "bottom": 1163,
+          "height": 1080,
+          "left": 164.5,
+          "right": 1578.5,
+          "top": 83,
+          "width": 1414,
+          "x": 164.5,
+          "y": 83
+        },
+        "naturalHeight": 384,
+        "naturalWidth": 256,
+        "source": "/api/outputs/preview/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A902-Prompt02-8bd0ebdd59d0405db490c528cf1c1ebd.png",
+        "viewport": {
+          "height": 1244,
+          "width": 1743
+        }
+      }
+    }
+  },
+  {
+    "evidenceName": "chs-audit-viewer-mobile",
+    "capturedAt": "2026-11-12T15:25:21.975Z",
+    "url": "http://127.0.0.1:8388/style#compare",
+    "detail": {
+      "originalDefault": false
+    }
+  },
+  {
+    "evidenceName": "chs-audit-blind-mobile",
+    "capturedAt": "2026-11-12T15:26:01.476Z",
+    "url": "http://127.0.0.1:8388/style#compare",
+    "detail": {
+      "mobileViewerMetrics": {
+        "dialog": {
+          "bottom": 796,
+          "height": 748,
+          "left": 12,
+          "right": 378,
+          "top": 48,
+          "width": 366,
+          "x": 12,
+          "y": 48
+        },
+        "image": {
+          "bottom": 683,
+          "height": 568,
+          "left": 25,
+          "right": 365,
+          "top": 115,
+          "width": 340,
+          "x": 25,
+          "y": 115
+        },
+        "originalMode": false,
+        "overflow": false,
+        "viewport": {
+          "height": 844,
+          "width": 390
+        }
+      }
+    }
+  },
+  {
+    "evidenceName": "chs-blind-viewer-identity-leak",
+    "capturedAt": "2026-11-12T15:26:16.022Z",
+    "url": "http://127.0.0.1:8388/style#compare",
+    "detail": {
+      "blindEnabled": true,
+      "viewerTitle": "세대001-조합02"
+    }
+  },
+  {
+    "evidenceName": "chs-original-project-after-audit-vote",
+    "capturedAt": "2026-11-12T15:28:20.008Z",
+    "url": "http://127.0.0.1:8388/style#compare",
+    "detail": {
+      "selectedProject": "e30aaf8b619a4483af488090a7e7820c",
+      "originalPromptCount": 3
+    }
+  },
+  {
+    "evidenceName": "chs-audit-project-reload-persisted",
+    "capturedAt": "2026-11-12T15:28:20.453Z",
+    "url": "http://127.0.0.1:8388/style#compare",
+    "detail": {
+      "expectedPromptCount": 2
+    }
+  },
+  {
+    "evidenceName": "stylelab-blind-lightbox",
+    "capturedAt": "2026-11-12T15:29:17.092Z",
+    "url": "http://127.0.0.1:8389/#/arena",
+    "detail": {
+      "blindEnabled": true,
+      "dialogRoleAbsent": true
+    }
+  },
+  {
+    "evidenceName": "chs-audit-project-reload-loaded",
+    "capturedAt": "2026-11-12T15:29:17.807Z",
+    "url": "http://127.0.0.1:8388/style#compare",
+    "detail": {
+      "images": [
+        "/media/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A901-Prompt01-840b12b914fb407abbc35684e81f176b.png",
+        "/media/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A902-Prompt01-ef4864e7bb6343509152053098b64f7d.png",
+        "/media/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A901-Prompt02-f3fc4fede3e64e37906714a7a232f64d.png",
+        "/media/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A902-Prompt02-8bd0ebdd59d0405db490c528cf1c1ebd.png"
+      ]
+    }
+  },
+  {
+    "evidenceName": "stylelab-vote-reveal",
+    "capturedAt": "2026-11-12T15:29:38.796Z",
+    "url": "http://127.0.0.1:8389/#/arena",
+    "detail": {
+      "pair": [
+        "/img/68387e10ff.png",
+        "/img/fb5959219e.png"
+      ],
+      "choice": "이쪽이 더 좋습니다 →"
+    }
+  },
+  {
+    "evidenceName": "stylelab-selection-mobile",
+    "capturedAt": "2026-11-12T15:32:15.263Z",
+    "url": "http://127.0.0.1:8389/#/arena",
+    "detail": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      },
+      "promptRestored": true
+    }
+  },
+  {
+    "evidenceName": "stylelab-single-image-mobile",
+    "capturedAt": "2026-11-12T15:32:30.425Z",
+    "url": "http://127.0.0.1:8389/#/arena",
+    "detail": {
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    }
+  },
+  {
+    "evidenceName": "chs-planned-generation-cancel-warning",
+    "capturedAt": "2026-11-12T15:35:43.225Z",
+    "url": "http://127.0.0.1:8388/style#evolution",
+    "detail": {
+      "noGpuSubmitted": true
+    }
+  },
+  {
+    "evidenceName": "chs-planned-generation-cancelled",
+    "capturedAt": "2026-11-12T15:35:56.423Z",
+    "url": "http://127.0.0.1:8388/style#evolution",
+    "detail": {
+      "currentConfirmedGeneration": 3,
+      "noGpuSubmitted": true
+    }
+  },
+  {
+    "evidenceName": "stylelab-generation-cancel-warning",
+    "capturedAt": "2026-11-12T15:37:05.407Z",
+    "url": "http://127.0.0.1:8389/#/evolution",
+    "detail": {
+      "generation": 134,
+      "permanentCancellationNotExecuted": true
+    }
+  },
+  {
+    "evidenceName": "stylelab-generation134-confirmed-next135",
+    "capturedAt": "2026-11-12T15:37:40.920Z",
+    "url": "http://127.0.0.1:8389/#/evolution",
+    "detail": {
+      "confirmedGeneration": 134,
+      "nextDisplayedGeneration": 135,
+      "childImage": "/img/f87d3557c4.png",
+      "decisiveVotes": 1,
+      "cancellationWarningDismissed": true
+    }
+  },
+  {
+    "evidenceName": "stylelab-gallery-final",
+    "capturedAt": "2026-11-12T15:38:39.030Z",
+    "url": "http://127.0.0.1:8389/#/styles",
+    "detail": {
+      "displayedGeneration": 135,
+      "promptRestored": true
+    }
+  },
+  {
+    "evidenceName": "chs-audit-gallery-final",
+    "capturedAt": "2026-11-12T15:38:39.813Z",
+    "url": "http://127.0.0.1:8388/style#candidates",
+    "detail": {
+      "projectIdentifier": "b9c8b976bf924a839bf8bccd6b65fa6f"
+    }
+  },
+  {
+    "evidenceName": "stylelab-gallery-selected-preview",
+    "capturedAt": "2026-11-12T15:40:04.125Z",
+    "url": "http://127.0.0.1:8389/#/styles",
+    "detail": {
+      "selectionOpensSidePreview": true
+    }
+  },
+  {
+    "evidenceName": "chs-gallery-selected-viewer",
+    "capturedAt": "2026-11-12T15:40:04.968Z",
+    "url": "http://127.0.0.1:8388/style#candidates",
+    "detail": {
+      "selectionOpensModal": true
+    }
+  },
+  {
+    "evidenceName": "stylelab-final-generation135-idle",
+    "capturedAt": "2026-11-12T15:41:19.030Z",
+    "url": "http://127.0.0.1:8389/#/evolution",
+    "detail": {
+      "promptRestored": true,
+      "newImages": [
+        "36308fd767.png",
+        "68387e10ff.png",
+        "f87d3557c4.png"
+      ],
+      "blind": false,
+      "mode": "auto"
+    }
+  },
+  {
+    "evidenceName": "chs-final-generation3-idle",
+    "capturedAt": "2026-11-12T15:41:19.916Z",
+    "url": "http://127.0.0.1:8388/style#evolution",
+    "detail": {
+      "selectedProject": "e30aaf8b619a4483af488090a7e7820c",
+      "auditProjectRetained": "b9c8b976bf924a839bf8bccd6b65fa6f"
+    }
+  },
+  {
+    "evidenceName": "chs-viewer-keyboard-navigation",
+    "capturedAt": "2026-11-12T15:49:49.893Z",
+    "url": "http://127.0.0.1:8388/style#evolution",
+    "detail": {
+      "key": "ArrowRight",
+      "before": "2 / 3",
+      "after": "3 / 3"
+    }
+  }
+]

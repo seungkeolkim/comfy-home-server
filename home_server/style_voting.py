@@ -152,7 +152,7 @@ class StyleVotingService:
         if row:
             state = json.loads(row["state_json"])
             revision = row["revision"]
-            changed = self.server.style_evolution.upgrade_automatic_placement(connection, project_identifier, evaluation_identifier, state)
+            changed = self.server.style_evolution.migrate_parent_selection(connection, project_identifier, evaluation_identifier, state)
             deleted_identifiers = [membership[0] for membership in connection.execute(
                 "SELECT candidate_id FROM style_candidate_memberships WHERE evaluation_id=? AND lifecycle IN ('deleting','deleted')", (evaluation_identifier,),
             )]
@@ -237,7 +237,7 @@ class StyleVotingService:
                 self.record_vote(connection, state, ready_identifiers, candidates, payload)
             elif action == "undo":
                 self.restore_vote(connection, state, payload)
-                self.server.style_evolution.upgrade_automatic_placement(connection, project_identifier, payload.evaluationIdentifier, state)
+                self.server.style_evolution.migrate_parent_selection(connection, project_identifier, payload.evaluationIdentifier, state)
             elif action == "pair":
                 self.select_pair(state, ready_identifiers, payload)
             elif action == "rating":

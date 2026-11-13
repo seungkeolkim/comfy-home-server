@@ -1,0 +1,78 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#compare".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#compare
+	2 container preview-application
+		3 container Description: 스타일 작업 공간, ID: style-workspace-sidebar
+			4 link Description: Comfy Home 스타일 프로젝트, Value: 127.0.0.1:8388/style#projects
+			5 container Description: 스타일 메뉴, ID: preview-sidebar
+				6 button ▦　프로젝트
+				7 text 현재 프로젝트
+				8 text 동작 비교 조사 2026-11-13
+				9 button ＋　이미지 생성
+				10 button ↔　선별
+				11 button ⟳　진화
+				12 button ◇　그림체 　2
+					13 text ◇　그림체
+					14 text 　2
+				15 button ⚙　프로젝트 설정
+				16 text 시스템 공통
+				17 button ◎　글로벌 설정
+			18 container workspace-connection-status
+				19 text ComfyUI 연결됨
+			20 button 로그아웃, ID: workspace-logout-button
+		21 container
+			22 text YOUR CREATIVE SPACE
+			23 heading 스타일 구성, Value: 1, ID: workspace-page-title
+				24 text 스타일 구성
+			25 text 프로젝트 2
+			26 button 새로고침, ID: workspace-refresh-button
+			27 button 설정
+		28 container 작업 공간
+			29 link Description: 일반 생성, Help: 현재 창에서 일반 생성으로 전환합니다., Value: 127.0.0.1:8388/, ID: general-workspace-link
+			30 link Description: 스타일 구성, Value: 127.0.0.1:8388/style
+		31 container project-context
+			32 text 현재 프로젝트
+			33 pop up button (collapsed, settable) Description: 현재 프로젝트, Value: 동작 비교 조사 2026-11-13, ID: active-project-picker, Secondary Actions: Expand
+				34 menu
+					35 (selected) 동작 비교 조사 2026-11-13
+					36 테스트 프로젝트
+		37 container preview-content
+			38 heading 선별, Value: 1
+				39 text 선별
+			40 button ↶ 되돌리기, Help: 최근 30개 선택 중 마지막 선택을 되돌립니다.
+			41 container style-render-results
+				42 checkbox ◉ Blind 꺼짐, Value: 0
+				43 button 조합 차이
+				44 text A 세대001-조합01 B 세대001-조합02
+				45 container
+					46 text PROMPT 01 낮 거리
+					47 button 이름 변경
+					48 button 낮 거리 A 이미지 확대
+						49 image 낮 거리 · A
+					50 button 낮 거리 B 이미지 확대
+						51 image 낮 거리 · B
+				52 container
+					53 text PROMPT 02 실내 서재
+					54 button 이름 변경
+					55 button 실내 서재 A 이미지 확대
+						56 image 실내 서재 · A
+					57 button 실내 서재 B 이미지 확대
+						58 image 실내 서재 · B
+				59 container
+					60 text 1위 · Elo  10,000
+				61 text 0승 0패 · 0회 평가 · Skip 0
+				62 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+				63 button 조합 폐기, Help: 모든 Prompt의 이미지와 함께 조합을 폐기합니다.
+				64 container
+					65 text 2위 · Elo  9,520
+				66 text 0승 1패 · 1회 평가 · Skip 0
+				67 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+				68 button 조합 폐기, Help: 모든 Prompt의 이미지와 함께 조합을 폐기합니다.
+				69 container
+					70 button (collapsed) 비교 대상 · 관리, Secondary Actions: Expand
+						71 text 비교 대상 · 관리
+				72 container
+					73 button A가 더 좋아요
+					74 button 비슷함
+					75 button B가 더 좋아요
+
+The focused UI element is 1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#compare

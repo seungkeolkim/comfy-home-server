@@ -1,0 +1,112 @@
+{
+  "capturedAt": "2026-11-12T15:42:59.022529+00:00",
+  "stylelab": {
+    "displayedGeneration": 135,
+    "lastConfirmedGeneration": 134,
+    "pendingCandidateCount": 0,
+    "activeCount": 22,
+    "activeBookmarkedCount": 15,
+    "confirmedAuditGenerations": [
+      {
+        "generation": 132,
+        "children": 12,
+        "entered": 5,
+        "promoted": 5,
+        "failed": 7,
+        "dropped": 5
+      },
+      {
+        "generation": 133,
+        "children": 1,
+        "entered": 0,
+        "promoted": 0,
+        "failed": 1,
+        "dropped": 0
+      },
+      {
+        "generation": 134,
+        "children": 1,
+        "entered": 0,
+        "promoted": 0,
+        "failed": 1,
+        "dropped": 0
+      }
+    ],
+    "originalPromptRestored": true,
+    "originalPromptSha256": "243d618a17464523ca50aed074a7c814e84d03bb4e381870158a8d78c53c81e7",
+    "generationDefaultCount": 1,
+    "randomDefaultCount": 1,
+    "blind": false,
+    "arenaMode": "auto",
+    "newImageCount": 3,
+    "retiredExistingInGeneration132": [
+      {
+        "rating": 34450,
+        "bookmarked": false
+      },
+      {
+        "rating": 34530,
+        "bookmarked": false
+      },
+      {
+        "rating": 34530,
+        "bookmarked": false
+      },
+      {
+        "rating": 34610,
+        "bookmarked": false
+      },
+      {
+        "rating": 34730,
+        "bookmarked": false
+      }
+    ]
+  },
+  "chs": {
+    "projects": [
+      {
+        "projectIdentifier": "e30aaf8b619a4483af488090a7e7820c",
+        "name": "테스트 프로젝트",
+        "promptCount": 3,
+        "currentGeneration": 3,
+        "lifecycles": {
+          "active": 10,
+          "cancelled": 7,
+          "retired": 7
+        },
+        "openEvolutionBatches": 0
+      },
+      {
+        "projectIdentifier": "b9c8b976bf924a839bf8bccd6b65fa6f",
+        "name": "동작 비교 조사 2026-11-13",
+        "promptCount": 2,
+        "currentGeneration": 1,
+        "lifecycles": {
+          "active": 2
+        },
+        "openEvolutionBatches": 0
+      }
+    ],
+    "pendingRequests": [
+      {
+        "projectIdentifier": "e30aaf8b619a4483af488090a7e7820c",
+        "pendingRequests": 0
+      },
+      {
+        "projectIdentifier": "b9c8b976bf924a839bf8bccd6b65fa6f",
+        "pendingRequests": 0
+      }
+    ],
+    "newImageCount": 7,
+    "newJobCount": 2,
+    "cancelledUnsubmittedPlan": {
+      "batchIdentifier": "342c8606086f4db28388a1bc72bdd856",
+      "planIdentifier": "e10bd1e256a94315a858fe4658bb67c5",
+      "sourceGeneration": 3,
+      "targetGeneration": 4,
+      "jobCount": 0
+    }
+  },
+  "viewportOverridesRestored": true,
+  "productionSourceChanged": false
+}

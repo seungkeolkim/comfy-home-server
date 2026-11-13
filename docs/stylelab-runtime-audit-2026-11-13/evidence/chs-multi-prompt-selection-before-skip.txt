@@ -1,0 +1,93 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#compare".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#compare
+	2 container preview-application
+		3 container Description: 스타일 작업 공간, ID: style-workspace-sidebar
+			4 link Description: Comfy Home 스타일 프로젝트, Value: 127.0.0.1:8388/style#projects
+			5 container Description: 스타일 메뉴, ID: preview-sidebar
+				49 button ▦　프로젝트
+				50 text 현재 프로젝트
+				51 text 테스트 프로젝트
+				52 button ＋　이미지 생성
+				53 button ↔　선별
+				54 button ⟳　진화
+				55 button ◇　그림체 　11
+					56 text ◇　그림체
+					57 text 　11
+				58 button ⚙　프로젝트 설정
+				59 text 시스템 공통
+				60 button ◎　글로벌 설정
+			18 container workspace-connection-status
+				19 text ComfyUI 연결됨
+			20 button 로그아웃, ID: workspace-logout-button
+		21 container
+			22 text YOUR CREATIVE SPACE
+			23 heading 스타일 구성, Value: 1, ID: workspace-page-title
+				24 text 스타일 구성
+			25 text 프로젝트 1
+			26 button 새로고침, ID: workspace-refresh-button
+			27 button 설정
+		28 container 작업 공간
+			29 link Description: 일반 생성, Help: 현재 창에서 일반 생성으로 전환합니다., Value: 127.0.0.1:8388/, ID: general-workspace-link
+			30 link Description: 스타일 구성, Value: 127.0.0.1:8388/style
+		31 container project-context
+			61 text 현재 프로젝트
+			62 pop up button (collapsed, settable) Description: 현재 프로젝트, Value: 테스트 프로젝트, ID: active-project-picker, Secondary Actions: Expand
+				63 menu
+					64 (selected) 테스트 프로젝트
+		48 container preview-content
+			65 container
+				66 heading 3세대 후보 · 선별 중, Value: 2
+					67 text 3세대 후보 · 선별 중
+				68 text 이미지 1/1 · 선별 0/1
+				69 button 선별하기
+				70 button 진화 보기
+				71 button (collapsed) 이번 후보 취소, Secondary Actions: Expand
+					72 text 이번 후보 취소
+			73 heading 선별, Value: 1
+				74 text 선별
+			75 button (disabled) ↶ 되돌리기, Help: 최근 30개 선택 중 마지막 선택을 되돌립니다.
+			76 container style-render-results
+				77 checkbox ◉ Blind 꺼짐, Value: 0
+				78 button 조합 차이
+				79 text A 세대003-조합01
+				80 text 평가 중 · Elo —
+				81 text B 세대001-조합05
+				82 container
+					83 text PROMPT 01 시로코테러 밤거리 (풀바디O)
+					84 button 이름 변경
+					85 button 시로코테러 밤거리 (풀바디O) A 이미지 확대
+						86 image 시로코테러 밤거리 (풀바디O) · A
+					87 button 시로코테러 밤거리 (풀바디O) B 이미지 확대
+						88 image 시로코테러 밤거리 (풀바디O) · B
+				89 container
+					90 text PROMPT 02 사오리 코트 (풀바디X)
+					91 button 이름 변경
+					92 button 사오리 코트 (풀바디X) A 이미지 확대
+						93 image 사오리 코트 (풀바디X) · A
+					94 button 사오리 코트 (풀바디X) B 이미지 확대
+						95 image 사오리 코트 (풀바디X) · B
+				96 container
+					97 text PROMPT 03 카린 바니걸 스테이지 (풀바디O)
+					98 button 이름 변경
+					99 button 카린 바니걸 스테이지 (풀바디O) A 이미지 확대
+						100 image 카린 바니걸 스테이지 (풀바디O) · A
+					101 button 카린 바니걸 스테이지 (풀바디O) B 이미지 확대
+						102 image 카린 바니걸 스테이지 (풀바디O) · B
+				103 text 평가 중 · Elo —
+				104 text 자동으로 순위표에서 자리를 찾는 중
+				105 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+				106 button (disabled) 조합 폐기, Help: 진화를 확정하거나 취소한 뒤 조합을 폐기할 수 있습니다.
+				107 container
+					108 text 5위 · Elo  10,360
+				109 text 1승 1패 · 2회 평가 · Skip 0
+				110 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+				111 button (disabled) 조합 폐기, Help: 진화를 확정하거나 취소한 뒤 조합을 폐기할 수 있습니다.
+				112 button (collapsed) 비교 대상 · 관리, Secondary Actions: Expand
+					113 text 비교 대상 · 관리
+				114 container
+					115 button A가 더 좋아요
+					116 button 비슷함
+					117 button B가 더 좋아요
+					118 text 자동 선별 · 기존 순위표에서 자리 찾기 · 확정 0/1
+
+The focused UI element is 1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#compare

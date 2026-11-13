@@ -1,0 +1,334 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#project-settings".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#project-settings
+	2 container preview-application
+		3 container Description: 스타일 작업 공간, ID: style-workspace-sidebar
+			4 link Description: Comfy Home 스타일 프로젝트, Value: 127.0.0.1:8388/style#projects
+			31 container Description: 스타일 메뉴, ID: preview-sidebar
+				32 button ▦　프로젝트
+				33 text 현재 프로젝트
+				34 text 동작 비교 조사 2026-11-13
+				35 button ＋　이미지 생성
+				36 button ↔　선별
+				37 button ⟳　진화
+				38 button ◇　그림체 　0
+					39 text ◇　그림체
+					40 text 　0
+				41 button ⚙　프로젝트 설정
+				42 text 시스템 공통
+				43 button ◎　글로벌 설정
+			18 container workspace-connection-status
+				19 text ComfyUI 연결됨
+			20 button 로그아웃, ID: workspace-logout-button
+		21 container
+			22 text YOUR CREATIVE SPACE
+			23 heading 스타일 구성, Value: 1, ID: workspace-page-title
+				24 text 스타일 구성
+			25 text 프로젝트 1
+			26 button 새로고침, ID: workspace-refresh-button
+			27 button 설정
+		28 container 작업 공간
+			29 link Description: 일반 생성, Help: 현재 창에서 일반 생성으로 전환합니다., Value: 127.0.0.1:8388/, ID: general-workspace-link
+			30 link Description: 스타일 구성, Value: 127.0.0.1:8388/style
+		44 container project-context
+			45 text 현재 프로젝트
+			46 pop up button (collapsed, settable) Description: 현재 프로젝트, Value: 동작 비교 조사 2026-11-13, ID: active-project-picker, Secondary Actions: Expand
+				47 menu
+					48 (selected) 동작 비교 조사 2026-11-13
+					49 테스트 프로젝트
+		50 container preview-content
+			51 container 설정 범위
+				52 button 프로젝트 설정
+				53 button 글로벌 설정
+			54 heading 프로젝트 설정, Value: 1
+				55 text 프로젝트 설정
+			56 container project-settings-form
+				57 container
+					58 heading Prompt, Value: 2
+						59 text Prompt
+					60 text 1
+					61 text Prompt 1 이름
+					62 text field (settable) Prompt 1 이름, Value: 낮 거리, ID: settings-case-name-0
+					63 button 제거
+					64 text Positive Prompt
+					65 text entry area (settable) Positive Prompt, ID: settings-case-prompt-0, Value: masterpiece, best quality, safe, adult woman, fully clothed, opaque long coat over turtleneck sweater, long trousers, standing on a city street in daylight, full body
+					66 text 2
+					67 text Prompt 2 이름
+					68 text field (settable) Prompt 2 이름, Value: 실내 서재, ID: settings-case-name-1
+					69 button 제거
+					70 text Positive Prompt
+					71 text entry area (settable) Positive Prompt, ID: settings-case-prompt-1, Value: masterpiece, best quality, safe, adult woman, fully clothed, opaque cardigan over a buttoned shirt, long skirt, standing in a bright library, full body
+					72 button ＋ Prompt 추가
+					73 text 공통 Negative Prompt
+					74 text entry area (settable) 공통 Negative Prompt, ID: settings-negative-prompt
+				75 container
+					76 heading Workflow 옵션, Value: 2
+						77 text Workflow 옵션
+					78 text Workflow
+					79 pop up button (collapsed, settable) Workflow, Value: Anima · anima_turboV11.safetensors, ID: settings-project-pipeline, Secondary Actions: Expand
+						80 menu
+							81 (selected) Anima · anima_turboV11.safetensors
+					82 text 비율
+					83 pop up button (collapsed, settable) 비율, Value: 2:3 · 세로, ID: settings-project-aspectRatio, Secondary Actions: Expand
+						84 menu
+							85 16:9 · 가로
+							86 3:2 · 가로
+							87 4:3 · 가로
+							88 1:1 · 정사각형
+							89 3:4 · 세로
+							90 (selected) 2:3 · 세로
+							91 9:16 · 세로
+							92 사용자 지정
+					93 text 해상도
+					94 pop up button (collapsed, settable) 해상도, Value: 576 × 864, ID: settings-project-resolution, Secondary Actions: Expand
+						95 menu
+							96 (selected) 576 × 864
+							97 768 × 1152
+							98 1024 × 1536
+					99 text 너비
+					100 stepper (settable, integer) 너비, Value: 576, ID: settings-project-width
+					101 text 높이
+					102 stepper (settable, integer) 높이, Value: 864, ID: settings-project-height
+					103 text Steps
+					104 stepper (settable, integer) Steps, Value: 12, ID: settings-project-steps
+					105 text CFG
+					106 stepper (settable, integer) CFG, Value: 1, ID: settings-project-cfg
+					107 text 고정 Seed
+					108 text field (settable) 고정 Seed, Value: 42, ID: settings-project-seed
+				109 container
+					110 heading 이 프로젝트의 조합당 사용 개수, Value: 2
+						111 text 이 프로젝트의 조합당 사용 개수
+					112 heading 작가 태그, Value: 3
+						113 text 작가 태그
+					114 text 최소 사용 개수
+					115 stepper (settable, integer) 최소 사용 개수, Value: 0, ID: settings-project-artistMinimumCount
+					116 text 최대 사용 개수
+					117 stepper (settable, integer) 최대 사용 개수, Value: 0, ID: settings-project-artistMaximumCount
+					118 heading LoRA, Value: 3
+						119 text LoRA
+					120 text 최소 사용 개수
+					121 stepper (settable, integer) 최소 사용 개수, Value: 1, ID: settings-project-loraMinimumCount
+					122 text 최대 사용 개수
+					123 stepper (settable, integer) 최대 사용 개수, Value: 1, ID: settings-project-loraMaximumCount
+				124 container
+					125 heading 작가 · LoRA, Value: 2
+						126 text 작가 · LoRA
+					127 button 기본값 가져오기
+					128 container 작가 태그
+						129 heading 작가 태그, Value: 3, ID: settings-project-artist
+							130 text 작가 태그
+					131 container LoRA
+						132 heading LoRA, Value: 3, ID: settings-project-lora
+							133 text LoRA
+						134 container
+							135 checkbox (settable, integer) Description: 83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained.safetensors LoRA, Value: 0
+							136 text 83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained.safetensors
+							137 text LoRA
+							138 container 83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained.safetensors STR
+								139 text 83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained.safetensors STR
+								140 text 최소 STR
+								141 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-0-minimum
+								142 text 최대 STR
+								143 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-0-maximum
+						144 container
+							145 checkbox (settable, integer) Description: Dark_Synth_Anime_Anima-step00001050.safetensors LoRA, Value: 0
+							146 text Dark_Synth_Anime_Anima-step00001050.safetensors
+							147 text LoRA
+							148 container Dark_Synth_Anime_Anima-step00001050.safetensors STR
+								149 text Dark_Synth_Anime_Anima-step00001050.safetensors STR
+								150 text 최소 STR
+								151 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-1-minimum
+								152 text 최대 STR
+								153 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-1-maximum
+						154 container
+							155 checkbox (settable, integer) Description: Eito_AnimaV1.safetensors LoRA, Value: 0
+							156 text Eito_AnimaV1.safetensors
+							157 text LoRA
+							158 container Eito_AnimaV1.safetensors STR
+								159 text Eito_AnimaV1.safetensors STR
+								160 text 최소 STR
+								161 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-2-minimum
+								162 text 최대 STR
+								163 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-2-maximum
+						164 container
+							165 checkbox (settable, integer) Description: Flat painting style.safetensors LoRA, Value: 0
+							166 text Flat painting style.safetensors
+							167 text LoRA
+							168 container Flat painting style.safetensors STR
+								169 text Flat painting style.safetensors STR
+								170 text 최소 STR
+								171 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-3-minimum
+								172 text 최대 STR
+								173 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-3-maximum
+						174 container
+							175 checkbox (settable, integer) Description: H3_Motion_BoosterV2.safetensors LoRA, Value: 0
+							176 text H3_Motion_BoosterV2.safetensors
+							177 text LoRA
+							178 container H3_Motion_BoosterV2.safetensors STR
+								179 text H3_Motion_BoosterV2.safetensors STR
+								180 text 최소 STR
+								181 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-4-minimum
+								182 text 최대 STR
+								183 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-4-maximum
+						184 container
+							185 checkbox (settable, integer) Description: H3_Motion_Booster_anime.safetensors LoRA, Value: 0
+							186 text H3_Motion_Booster_anime.safetensors
+							187 text LoRA
+							188 container H3_Motion_Booster_anime.safetensors STR
+								189 text H3_Motion_Booster_anime.safetensors STR
+								190 text 최소 STR
+								191 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-5-minimum
+								192 text 최대 STR
+								193 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-5-maximum
+						194 container
+							195 checkbox (settable, integer) Description: H3_slop_bounce.safetensors LoRA, Value: 0
+							196 text H3_slop_bounce.safetensors
+							197 text LoRA
+							198 container H3_slop_bounce.safetensors STR
+								199 text H3_slop_bounce.safetensors STR
+								200 text 최소 STR
+								201 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-6-minimum
+								202 text 최대 STR
+								203 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-6-maximum
+						204 container
+							205 checkbox (settable, integer) Description: Lucent Bloom Anima Style LoRA_Bstyle_v1_anima_sun.safetensors LoRA, Value: 0
+							206 text Lucent Bloom Anima Style LoRA_Bstyle_v1_anima_sun.safetensors
+							207 text LoRA
+							208 container Lucent Bloom Anima Style LoRA_Bstyle_v1_anima_sun.safetensors STR
+								209 text Lucent Bloom Anima Style LoRA_Bstyle_v1_anima_sun.safetensors STR
+								210 text 최소 STR
+								211 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-7-minimum
+								212 text 최대 STR
+								213 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-7-maximum
+						214 container
+							215 checkbox (settable, integer) Description: Luminous Anime Anima Style C LoRAv1.1_anima_sun.safetensors LoRA, Value: 0
+							216 text Luminous Anime Anima Style C LoRAv1.1_anima_sun.safetensors
+							217 text LoRA
+							218 container Luminous Anime Anima Style C LoRAv1.1_anima_sun.safetensors STR
+								219 text Luminous Anime Anima Style C LoRAv1.1_anima_sun.safetensors STR
+								220 text 최소 STR
+								221 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-8-minimum
+								222 text 최대 STR
+								223 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-8-maximum
+						224 container
+							225 checkbox (settable, integer) Description: Masoq.safetensors LoRA, Value: 0
+							226 text Masoq.safetensors
+							227 text LoRA
+							228 container Masoq.safetensors STR
+								229 text Masoq.safetensors STR
+								230 text 최소 STR
+								231 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-9-minimum
+								232 text 최대 STR
+								233 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-9-maximum
+						234 container
+							235 checkbox (settable, integer) Description: Munji_V1.safetensors LoRA, Value: 1
+							236 text Munji_V1.safetensors
+							237 text LoRA
+							238 container Munji_V1.safetensors STR
+								239 text Munji_V1.safetensors STR
+								240 text 최소 STR
+								241 stepper (settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-10-minimum
+								242 text 최대 STR
+								243 stepper (settable, integer) 최대 STR, Value: 1, ID: settings-component-10-maximum
+						244 container
+							245 checkbox (settable, integer) Description: ZWX35T0XHS8F2YDKJ620G66Z70.safetensors LoRA, Value: 0
+							246 text ZWX35T0XHS8F2YDKJ620G66Z70.safetensors
+							247 text LoRA
+							248 container ZWX35T0XHS8F2YDKJ620G66Z70.safetensors STR
+								249 text ZWX35T0XHS8F2YDKJ620G66Z70.safetensors STR
+								250 text 최소 STR
+								251 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-11-minimum
+								252 text 최대 STR
+								253 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-11-maximum
+						254 container
+							255 checkbox (settable, integer) Description: anima-turbo-lora-v0.2.safetensors LoRA, Value: 0
+							256 text anima-turbo-lora-v0.2.safetensors
+							257 text LoRA
+							258 container anima-turbo-lora-v0.2.safetensors STR
+								259 text anima-turbo-lora-v0.2.safetensors STR
+								260 text 최소 STR
+								261 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-12-minimum
+								262 text 최대 STR
+								263 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-12-maximum
+						264 container
+							265 checkbox (settable, integer) Description: haruxxxsanekaki-AnimaB_V10-V1-FFTD-000020.safetensors LoRA, Value: 0
+							266 text haruxxxsanekaki-AnimaB_V10-V1-FFTD-000020.safetensors
+							267 text LoRA
+							268 container haruxxxsanekaki-AnimaB_V10-V1-FFTD-000020.safetensors STR
+								269 text haruxxxsanekaki-AnimaB_V10-V1-FFTD-000020.safetensors STR
+								270 text 최소 STR
+								271 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-13-minimum
+								272 text 최대 STR
+								273 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-13-maximum
+						274 container
+							275 checkbox (settable, integer) Description: marse-rokudaime_v1_epoch40.safetensors LoRA · 글로벌에서 사용 불가, Value: 0
+							276 text marse-rokudaime_v1_epoch40.safetensors
+							277 text LoRA · 글로벌에서 사용 불가
+							278 container marse-rokudaime_v1_epoch40.safetensors STR
+								279 text marse-rokudaime_v1_epoch40.safetensors STR
+								280 text 최소 STR
+								281 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-14-minimum
+								282 text 최대 STR
+								283 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-14-maximum
+						284 container
+							285 checkbox (settable, integer) Description: minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors LoRA, Value: 0
+							286 text minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors
+							287 text LoRA
+							288 container minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors STR
+								289 text minimax_h3_fl2v_turbo_8step_v1.0_comfyui_bf16.safetensors STR
+								290 text 최소 STR
+								291 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-15-minimum
+								292 text 최대 STR
+								293 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-15-maximum
+						294 container
+							295 checkbox (settable, integer) Description: personal mixstyle A_anima_sun.safetensors LoRA, Value: 0
+							296 text personal mixstyle A_anima_sun.safetensors
+							297 text LoRA
+							298 container personal mixstyle A_anima_sun.safetensors STR
+								299 text personal mixstyle A_anima_sun.safetensors STR
+								300 text 최소 STR
+								301 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-16-minimum
+								302 text 최대 STR
+								303 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-16-maximum
+						304 container
+							305 checkbox (settable, integer) Description: ratatatat74 v2.0 Anima.safetensors LoRA, Value: 0
+							306 text ratatatat74 v2.0 Anima.safetensors
+							307 text LoRA
+							308 container ratatatat74 v2.0 Anima.safetensors STR
+								309 text ratatatat74 v2.0 Anima.safetensors STR
+								310 text 최소 STR
+								311 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-17-minimum
+								312 text 최대 STR
+								313 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-17-maximum
+						314 container
+							315 checkbox (settable, integer) Description: tawawa_jitome-chan.safetensors LoRA, Value: 0
+							316 text tawawa_jitome-chan.safetensors
+							317 text LoRA
+							318 container tawawa_jitome-chan.safetensors STR
+								319 text tawawa_jitome-chan.safetensors STR
+								320 text 최소 STR
+								321 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-18-minimum
+								322 text 최대 STR
+								323 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-18-maximum
+						324 container
+							325 checkbox (settable, integer) Description: zhibuji_loom_v1.safetensors LoRA, Value: 0
+							326 text zhibuji_loom_v1.safetensors
+							327 text LoRA
+							328 container zhibuji_loom_v1.safetensors STR
+								329 text zhibuji_loom_v1.safetensors STR
+								330 text 최소 STR
+								331 stepper (disabled, settable, float) 최소 STR, Value: 0.4000000059604645, Details: 0.4, ID: settings-component-19-minimum
+								332 text 최대 STR
+								333 stepper (disabled, settable, integer) 최대 STR, Value: 1, ID: settings-component-19-maximum
+				334 container
+					335 heading 프로젝트, Value: 2
+						336 text 프로젝트
+					337 text 이름
+					338 text field (settable) 이름, Value: 동작 비교 조사 2026-11-13, ID: settings-project-name
+					339 text 메모
+					340 text entry area (settable) 메모, Value: 실제 Browser 비교용: 프로젝트 독립성과 두 Prompt의 조합 단위 선별 확인, ID: settings-project-purpose
+				341 container
+					342 text 저장됨
+					343 button 되돌리기
+					344 button 저장
+
+The focused UI element is 1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#project-settings

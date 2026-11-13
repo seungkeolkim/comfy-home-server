@@ -8,6 +8,7 @@ from .style_evolution_selection import apply_selection_choice, next_selection_pa
 
 
 VOTING_POLICY_VERSION = "style-arena-v2"
+FRESH_NEWCOMER_LADDER_THRESHOLD = 24
 
 
 def initial_candidate_statistics() -> dict:
@@ -164,7 +165,7 @@ def choose_next_match(state: dict, ready_identifiers: list[str]) -> dict | None:
     placement = state["placement"]
     if placement and (placement["identifier"] not in newcomers or any(identifier not in ready_identifiers for identifier in placement["ladder"])):
         state["placement"] = placement = None
-    if not placement and not rated_identifiers and len(newcomers) >= 2:
+    if not placement and len(rated_identifiers) < FRESH_NEWCOMER_LADDER_THRESHOLD and len(newcomers) >= 2:
         first_identifier, second_identifier = random.sample(newcomers, 2)
         return new_match("league", first_identifier, second_identifier, fresh=True)
     if not placement and newcomers:

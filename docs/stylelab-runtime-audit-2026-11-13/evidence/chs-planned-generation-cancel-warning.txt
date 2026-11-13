@@ -1,0 +1,10 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#evolution".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#evolution
+	2 container
+		3 heading 이번 진화를 취소할까요?, Value: 2
+			4 text 이번 진화를 취소할까요?
+		5 text 자녀 조합을 선별에서 제외하고 부모 세대의 평가 상태로 돌아갑니다. 생성한 이미지와 작업 이력은 보존하며, 진행 중인 자녀 생성에는 취소를 요청합니다.
+		6 button 돌아가기
+		7 button 확인
+
+The focused UI element is 6 button 돌아가기

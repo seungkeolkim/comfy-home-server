@@ -1,0 +1,93 @@
+Browser tab: 2, Title: "Anima Style Lab", URL: "http://127.0.0.1:8389/#/evolution".
+1 AXWebArea Anima Style Lab, URL: 127.0.0.1:8389/#/evolution
+	2 container app
+		3 container sidebar
+			4 text Anima Style Lab
+			5 text 나만의 그림체 찾기 · v2.0.0
+			6 text 워크플로
+			7 button 홈
+			8 button 선별
+			9 button 진화 135세대
+				10 text 진화
+				11 text 135세대
+			12 button 융합
+			13 button 다듬기
+			14 text 라이브러리
+			15 button 그림체 22
+				16 text 그림체
+				17 text 22
+			18 button 조합
+			19 button 자유 생성
+			20 button 설정
+			242 text ComfyUI 연결됨
+			243 text v0.37.0 · 00:31:34 확인
+		23 container topbar
+			24 container 워크플로 단계
+				25 button 준비
+				26 button 순위 결정
+				27 button 진화
+				30 button 다듬기
+					300 text 4
+					301 text 다듬기
+				31 button 완성
+			32 text 지금 할 일 2세대 연속으로 살아남은 진화 조합이 없습니다. 이제 다듬기로 넘어가 보세요.
+			302 button 다듬기 시작
+		34 container content
+			244 heading 진화, Value: 1
+				245 text 진화
+			246 text 현재 135세대 · 생존 – · 탈락 –
+			303 container
+				304 text 만들 개수
+				305 stepper (settable, integer) 만들 개수, Value: 1
+			247 button (disabled) 선택한 조합 버리기
+			248 button 진화 시작
+			249 text 전멸 세대 2 / 2
+			250 button 융합 거치기, Help: 두 조합을 섞어 새 그림을 만든 뒤 다듬습니다
+			251 button 바로 다듬기, Help: 상위 조합의 가중치를 바로 다듬습니다
+			252 container
+				253 heading 세대별 결과, Value: 3
+					254 text 세대별 결과
+				255 text 탈락 생존
+				256 container 세대별 진화 결과
+				257 text 123 124 125 126 127 128 129 130 131 132 133 134
+			258 heading 지금의 상위 30%, Value: 2
+				259 text 지금의 상위 30%
+			260 text 6개 · Elo 순
+			306 container
+				307 container
+					308 text S ?
+				309 text #1
+				310 text 34,850 3승 0패
+			311 container
+				312 container
+					313 text S- ?
+				314 text #2
+				315 text 34,530 2승 2패
+			316 container
+				317 container
+					318 text A- ?
+				319 text #3
+				320 text 34,490 1승 3패
+			321 container
+				322 container
+					323 text A- ?
+				324 text #4
+				325 text 34,490 1승 3패
+			326 container
+				327 container
+					328 text A- ?
+				329 text #5
+				330 text 34,490 1승 3패
+			331 container
+				332 container
+					333 text A- ?
+				334 text #6
+				335 text 34,490 1승 3패
+			298 heading 그림체를 선택하세요, Value: 3
+				299 text 그림체를 선택하세요
+	336 container toasts
+		337 text 134세대 확정 · 생존 0 · 탈락 1 · 기존 최하위 제외 0
+		338 button 닫기
+	178 button 로그아웃, ID: browser-desktop-logout
+
+The focused UI element is 1 AXWebArea Anima Style Lab, URL: 127.0.0.1:8389/#/evolution

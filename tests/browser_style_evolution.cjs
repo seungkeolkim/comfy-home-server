@@ -52,10 +52,10 @@ async function verifyStyleEvolution() {
     await page.goto(`${baseUrl}/style#generation`);
     await page.locator('#active-project-picker').selectOption(project.identifier);
     const prepare = page.locator('[data-generation-action=generate-candidates]');
-    await expect(prepare).toBeEnabled();
-    await expect(page.locator('.evolution-panel')).toContainText('1세대 초기 후보');
-    await page.locator('#style-generation-candidate-count').fill('10');
-    await page.locator('[data-generation-action=generate-candidates]').click();
+    await expect(page.locator('[data-generation-action=generate-random]')).toBeEnabled();
+    await expect(page.locator('.random-generation-panel')).toContainText('Random 신규 조합');
+    await page.locator('#style-generation-random-count').fill('10');
+    await page.locator('[data-generation-action=generate-random]').click();
     await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
     await expect(page.locator('.generation-result img')).toHaveCount(30, { timeout: 20000 });
     await page.goto(`${baseUrl}/style#compare`);
@@ -67,7 +67,7 @@ async function verifyStyleEvolution() {
       await clickEvolutionVote(page, selection.match.kind === 'tie' ? 'similar' : 'a');
       selection = await readEvolutionSelection(context, project, clientIdentifier);
     }
-    await page.goto(`${baseUrl}/style#generation`);
+    await page.goto(`${baseUrl}/style#evolution`);
     await expect(prepare).toBeEnabled();
     const source = await readEvolutionSelection(context, project, clientIdentifier);
     const previousJobCount = (await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total;
@@ -86,9 +86,11 @@ async function verifyStyleEvolution() {
     await expect(page.locator('[data-style-voting-choice=a]')).toBeEnabled();
     selection = await readEvolutionSelection(context, project, clientIdentifier);
     assert.equal(selection.match.kind, 'select');
-    await expect(page.locator('#style-voting-status')).toContainText('자동 선별');
-    await expect(page.locator('.candidate-placement-status')).toContainText('평가 중');
+    await expect(page.locator('#style-voting-status')).toContainText('상위 30% 부모와 비교');
+    await expect(page.locator('.candidate-placement-status')).toHaveCount(0);
     let evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
+    assert.equal(selection.automaticPlacement.referenceCount, 3);
+    assert.deepEqual(evolution.batch.referenceCandidateIdentifiers, evolution.batch.parentIdentifiers);
     const children = new Set(evolution.batch.plan.candidates.map(candidate => candidate.identifier));
     const firstPair = { ...selection.match };
     await clickEvolutionVote(page, 'similar');
@@ -107,9 +109,7 @@ async function verifyStyleEvolution() {
       selection = await readEvolutionSelection(context, project, clientIdentifier);
       if (children.has(selection.match.a) && children.has(selection.match.b)) {
         comparedNewcomers = true;
-        await expect(page.locator('.candidate-placement-status')).toHaveCount(2);
-        await expect(page.locator('#style-voting-status')).toContainText('신규 조합끼리 비교');
-        await page.screenshot({ path: 'runtime/verification/style-automatic-placement-newcomers-mobile.png' });
+        await expect(page.locator('#style-voting-status')).toContainText('승격 경계의 자녀끼리 비교');
       }
       await clickEvolutionVote(page, children.has(selection.match.a) ? 'a' : 'b');
       const current = await readEvolutionSelection(context, project, clientIdentifier);
@@ -118,9 +118,9 @@ async function verifyStyleEvolution() {
         comparisonsByChild.set(identifier, comparisonsByChild.get(identifier) + 1);
         if (comparisonsByChild.get(identifier) === 1) {
           const statistics = current.rankings.find(candidate => candidate.identifier === identifier);
-          assert.equal(statistics.placementPending, true);
-          assert.equal(statistics.rated, false);
-          assert.equal(statistics.rank, null);
+          assert.equal(statistics.placementPending, false);
+          assert.equal(statistics.rated, true);
+          assert.notEqual(statistics.rank, null);
           assert.equal(evolution.batch.canConfirm, false);
         }
       }
@@ -129,7 +129,7 @@ async function verifyStyleEvolution() {
         for (const field of ['rating', 'matches', 'wins', 'losses', 'skips']) assert.equal(updated[field], candidate[field]);
       }
     }
-    assert.equal(comparedNewcomers, true);
+    assert.equal(comparedNewcomers, false);
     assert.ok([...comparisonsByChild.values()].every(count => count > 1));
     await page.goto(`${baseUrl}/style#evolution`);
     await expect(confirm).toBeEnabled();
@@ -182,7 +182,7 @@ async function verifyStyleEvolution() {
     await page.locator('#style-library-lifecycle').selectOption('all');
     await expect(page.locator('.style-library-card')).toHaveCount(13);
     await page.screenshot({ path: 'runtime/verification/style-evolution-archive-mobile.png', fullPage: true });
-    await page.goto(`${baseUrl}/style#generation`);
+    await page.goto(`${baseUrl}/style#evolution`);
     await expect(prepare).toBeEnabled();
     await page.locator('#style-generation-candidate-count').fill('2');
     await prepare.click();
@@ -191,17 +191,22 @@ async function verifyStyleEvolution() {
     await page.goto(`${baseUrl}/style#compare`);
     evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
     const thirdGenerationChildren = new Set(evolution.batch.candidateIdentifiers);
-    await expect.poll(async () => Boolean((await readEvolutionSelection(context, project, clientIdentifier)).match)).toBe(true);
+    const thirdGenerationComparisons = new Map([...thirdGenerationChildren].map(identifier => [identifier, 0]));
+    await expect.poll(async () => (await readEvolutionSelection(context, project, clientIdentifier)).match?.kind).toBe('select');
     await expect(page.locator('[data-style-voting-choice=a]')).toBeEnabled();
     for (let index = 0; index < 60; index += 1) {
       await expect.poll(async () => {
         selection = await readEvolutionSelection(context, project, clientIdentifier);
         evolution = await (await context.request.get(`${endpoint}/evolution?evaluationIdentifier=${project.evaluationIdentifier}`)).json();
-        return Boolean(selection.match) || evolution.batch.canConfirm;
+        return selection.match?.kind === 'select' || evolution.batch.canConfirm;
       }).toBe(true);
       if (evolution.batch.canConfirm) break;
-      await clickEvolutionVote(page, thirdGenerationChildren.has(selection.match.a) ? 'a' : 'b');
+      const childIdentifier = thirdGenerationChildren.has(selection.match.a) ? selection.match.a : selection.match.b;
+      thirdGenerationComparisons.set(childIdentifier, thirdGenerationComparisons.get(childIdentifier) + 1);
+      await clickEvolutionVote(page, thirdGenerationChildren.has(selection.match.a) ? 'b' : 'a');
     }
+    assert.ok([...thirdGenerationComparisons.values()].every(count => count === 1), JSON.stringify([...thirdGenerationComparisons]));
+    assert.deepEqual(evolution.batch.enteredCandidateIdentifiers, []);
     await page.goto(`${baseUrl}/style#evolution`);
     await expect(confirm).toBeEnabled();
     const thirdGenerationBatch = evolution.batch;
@@ -296,7 +301,7 @@ async function verifyStyleEvolution() {
     await page.locator('#style-library-lifecycle').selectOption('cancelled');
     await expect(page.locator('.style-library-card')).toHaveCount(2);
     assert.deepEqual(errors, []);
-    fs.writeFileSync('runtime/verification/style-evolution-browser-results.json', JSON.stringify({ projectIdentifier: project.identifier, sourceImages: 30, children: 3, caseCount: 3, generation: 3, activeCount: 10, retiredCount: 3, nextGeneration: 4, confirmationAndGenerationSeparated: true, confirmationResponseLossRecovered: true, responseLossAndReloadRecovered: true, noDuplicateJobs: true, fixedParents: true, selectionUndo: true, persistedReload: true, cancelledPlansNoJobs: true, cancelledChildrenPreserved: true, widths: [320, 390, 768, 1280], errors }, null, 2));
+    fs.writeFileSync('runtime/verification/style-evolution-browser-results.json', JSON.stringify({ projectIdentifier: project.identifier, sourceImages: 30, children: 3, caseCount: 3, generation: 3, activeCount: 10, retiredCount: 5, nextGeneration: 4, parentReferenceCount: 3, lowestParentLossFinishesInOneVote: true, noUnnecessaryChildRoundRobin: true, confirmationAndGenerationSeparated: true, confirmationResponseLossRecovered: true, responseLossAndReloadRecovered: true, noDuplicateJobs: true, fixedParents: true, selectionUndo: true, persistedReload: true, cancelledPlansNoJobs: true, cancelledChildrenPreserved: true, widths: [320, 390, 768, 1280], errors }, null, 2));
     console.log('Style evolution Browser cycle passed');
   } finally {
     await browser.close();

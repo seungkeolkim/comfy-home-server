@@ -1,0 +1,39 @@
+{
+  "evidenceType": "synthetic-source-execution",
+  "browserVerified": false,
+  "gpuUsed": false,
+  "scenario": "one child loses to every reference; ten existing candidates; three parents",
+  "stylelab": {
+    "voteCount": 1,
+    "pairs": [
+      [
+        "synthetic-child",
+        "reference-07"
+      ]
+    ],
+    "slot": 0
+  },
+  "chs": {
+    "voteCount": 4,
+    "pairs": [
+      [
+        "synthetic-child",
+        "reference-05"
+      ],
+      [
+        "synthetic-child",
+        "reference-02"
+      ],
+      [
+        "synthetic-child",
+        "reference-01"
+      ],
+      [
+        "synthetic-child",
+        "reference-00"
+      ]
+    ],
+    "slot": 0,
+    "admissionSlot": 7
+  }
+}

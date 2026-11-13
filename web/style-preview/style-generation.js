@@ -76,16 +76,47 @@ async function submitConfirmedStyleGeneration(projectIdentifier, plan) {
   showToast("생성을 시작했습니다.");
 }
 
+/** 기존 평가 여부와 관계없이 독립 Random 조합을 추가하는 입력을 표시합니다. */
+function styleRandomGenerationPanelMarkup() {
+  const state = currentStyleGenerationState();
+  const evolution = state.evolution;
+  const count = state.randomGenerationCount ?? previewState.randomGenerationRequests?.[previewState.currentProjectIdentifier]?.combinationCount ?? 4;
+  const canGenerate = Boolean(evolution && !evolution.batch && !evolution.pendingRequestCount);
+  let pendingMessage = '';
+  if (evolution?.batch) pendingMessage = '<p class="form-note">진행 중인 세대를 확정하거나 취소한 뒤 새 조합을 추가할 수 있습니다.</p>';
+  else if (evolution?.pendingRequestCount) pendingMessage = '<p class="form-note">이미지 생성이 끝나면 새 조합을 추가할 수 있습니다.</p>';
+  return `<section class="panel random-generation-panel"><h2>Random 신규 조합</h2><p class="form-note">프로젝트에서 허용한 작가·LoRA·STR 범위로 새로운 조합을 만듭니다. 기존 조합이 있어도 추가할 수 있습니다.</p><div class="generation-start-controls"><label for="style-generation-random-count">조합 수</label><input id="style-generation-random-count" type="number" min="1" max="32" step="1" value="${escapeMarkup(count)}" ${canGenerate ? '' : 'disabled'} /><button class="primary" data-generation-action="generate-random" ${canGenerate ? '' : 'disabled'}>Random 조합 생성</button>${evolution?.candidateCount ? '<button data-action="navigate" data-screen="compare">선별하기</button>' : ''}<button data-action="navigate" data-screen="evolution">진화 보기</button></div>${pendingMessage}</section>`;
+}
+
+/** 응답 유실·취소·새로고침 뒤에도 같은 Random 계획으로 다시 확인합니다. */
+async function prepareStyleRandomGeneration(projectIdentifier, combinationCount) {
+  const state = currentStyleGenerationState(projectIdentifier);
+  const projectRevision = state.evolution.projectRevision;
+  const previousRequest = previewState.randomGenerationRequests?.[projectIdentifier];
+  const previousPlanSubmitted = previousRequest && state.results?.plans.some(plan => plan.operationIdentifier === previousRequest.operationIdentifier && plan.jobIdentifiers.length);
+  if (!previousRequest || previousPlanSubmitted || previousRequest.combinationCount !== combinationCount || previousRequest.expectedRevision !== projectRevision) {
+    previewState.randomGenerationRequests ??= {};
+    previewState.randomGenerationRequests[projectIdentifier] = { operationIdentifier: newStyleClientIdentifier(), expectedRevision: projectRevision, combinationCount };
+  }
+  persistStyleWorkspaceSession();
+  try {
+    return await styleProjectApi(`/api/style-projects/${projectIdentifier}/random-generation-plans`, { method: 'POST', body: JSON.stringify(previewState.randomGenerationRequests[projectIdentifier]) });
+  } catch (error) {
+    if ([409, 422].includes(error.status)) delete previewState.randomGenerationRequests[projectIdentifier];
+    persistStyleWorkspaceSession();
+    throw error;
+  }
+}
+
 /** 조합 목록 없이 생성 입력과 실제 결과만 표시합니다. */
 function renderStyleGeneration() {
   const project = currentProject();
   const state = currentStyleGenerationState();
-  let controls = `<div id="style-prompt-regeneration-controls">${stylePromptRegenerationMarkup(project, state)}</div>` + styleEvolutionContainerMarkup() + '<details class="panel"><summary>직접 조합 지정</summary><button data-generation-action="prepare">생성 조합 준비</button></details>';
-  if (state.evolution && state.evolution.candidateCount >= state.evolution.minimumEvaluatedCount) controls = `<div id="style-prompt-regeneration-controls">${stylePromptRegenerationMarkup(project, state)}</div>` + styleEvolutionContainerMarkup();
-  if (state.options && (!state.evolution || state.evolution.candidateCount < state.evolution.minimumEvaluatedCount)) {
-    controls = `<div class="form-row"><label>확인할 조합 수<select id="style-generation-count"><option value="2" ${state.options.combinations.length === 2 ? "selected" : ""}>2개</option><option value="1" ${state.options.combinations.length === 1 ? "selected" : ""}>1개</option></select></label></div>${state.options.combinations.map((combination, index) => styleCombinationEditorMarkup(combination, index, state.options.settings)).join("")}<button class="primary" data-generation-action="preview" ${styleGenerationViewState.busy ? "disabled" : ""}>이미지 생성</button>`;
+  let controls = `<div id="style-prompt-regeneration-controls">${stylePromptRegenerationMarkup(project, state)}</div><div id="style-random-generation-controls">${styleRandomGenerationPanelMarkup()}</div>`;
+  if (!state.evolution?.batch && !state.options) controls += '<details class="panel"><summary>직접 조합 지정</summary><button data-generation-action="prepare">생성 조합 준비</button></details>';
+  if (state.options && !state.evolution?.batch) {
+    controls += `<details class="panel" open><summary>직접 조합 지정</summary><div class="form-row"><label>확인할 조합 수<select id="style-generation-count"><option value="2" ${state.options.combinations.length === 2 ? "selected" : ""}>2개</option><option value="1" ${state.options.combinations.length === 1 ? "selected" : ""}>1개</option></select></label></div>${state.options.combinations.map((combination, index) => styleCombinationEditorMarkup(combination, index, state.options.settings)).join("")}<button class="primary" data-generation-action="preview" ${styleGenerationViewState.busy ? "disabled" : ""}>이미지 생성</button></details>`;
   }
-  if (state.evolution?.batch) controls = styleEvolutionContainerMarkup();
   return `<div class="page-heading"><h1>이미지 생성</h1><button data-action="navigate" data-screen="project-settings">프로젝트 설정</button></div>${controls}<p id="style-generation-error" class="error" role="alert">${escapeMarkup(state.error)}</p><div id="style-render-results">${initialStyleResultsMarkup(state.results)}</div>`;
 }
 
@@ -146,6 +177,11 @@ async function refreshStyleGenerationResults(projectIdentifier = previewState.cu
     const controlsMarkup = stylePromptRegenerationMarkup(project, state);
     if (regenerationControls.innerHTML !== controlsMarkup) regenerationControls.innerHTML = controlsMarkup;
   }
+  const randomGenerationControls = document.querySelector("#style-random-generation-controls");
+  if (randomGenerationControls && !randomGenerationControls.contains(document.activeElement)) {
+    const randomControlsMarkup = styleRandomGenerationPanelMarkup();
+    if (randomGenerationControls.innerHTML !== randomControlsMarkup) randomGenerationControls.innerHTML = randomControlsMarkup;
+  }
   const resultContainer = document.querySelector("#style-render-results");
   if (resultContainer) {
     const markup = styleResultsMarkupForCurrentScreen(results);
@@ -164,6 +200,10 @@ function handleStyleGenerationInput(event) {
   const field = event.target;
   if (!field.isConnected) return;
   const state = currentStyleGenerationState();
+  if (field.id === "style-generation-random-count") {
+    state.randomGenerationCount = field.value;
+    return;
+  }
   if (field.id === "style-generation-candidate-count") {
     state.candidateGenerationCount = field.value;
     return;
@@ -203,12 +243,24 @@ async function handleStyleGenerationAction(event) {
     return;
   }
   if (action === "generate-candidates" && !document.querySelector("#style-generation-candidate-count").reportValidity()) return;
+  if (action === "generate-random" && !document.querySelector("#style-generation-random-count").reportValidity()) return;
   styleGenerationViewState.busy = true;
   const contentContainer = document.querySelector("#preview-content");
   contentContainer.inert = true;
   button.disabled = true;
   state.error = "";
   try {
+    if (action === "generate-random") {
+      const combinationCount = Number(document.querySelector("#style-generation-random-count").value);
+      await refreshStyleEvolution(projectIdentifier, true);
+      const plan = await prepareStyleRandomGeneration(projectIdentifier, combinationCount);
+      if (await confirmStyleGeneration(plan)) {
+        await submitConfirmedStyleGeneration(projectIdentifier, plan);
+        state.comparisonPlanIdentifier = plan.planIdentifier;
+        delete previewState.randomGenerationRequests[projectIdentifier];
+        persistStyleWorkspaceSession();
+      }
+    }
     if (action === "generate-candidates") {
       await refreshStyleEvolution(projectIdentifier, true);
       const plan = await prepareStyleCandidateGeneration(projectIdentifier, Number(document.querySelector("#style-generation-candidate-count").value));

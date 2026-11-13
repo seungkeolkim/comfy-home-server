@@ -1,0 +1,53 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#compare".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#compare
+	2 container preview-application
+		3 container Description: 스타일 작업 공간, ID: style-workspace-sidebar
+			4 link Description: Comfy Home 스타일 프로젝트, Value: 127.0.0.1:8388/style#projects
+			5 container Description: 스타일 메뉴, ID: preview-sidebar
+				32 button ▦　프로젝트
+				33 text 현재 프로젝트
+				34 text 테스트 프로젝트
+				35 button ＋　이미지 생성
+				36 button ↔　선별
+				37 button ⟳　진화
+				38 button ◇　그림체 　11
+					39 text ◇　그림체
+					40 text 　11
+				41 button ⚙　프로젝트 설정
+				42 text 시스템 공통
+				43 button ◎　글로벌 설정
+			18 container workspace-connection-status
+				19 text ComfyUI 연결됨
+			20 button 로그아웃, ID: workspace-logout-button
+		21 container
+			22 text YOUR CREATIVE SPACE
+			23 heading 스타일 구성, Value: 1, ID: workspace-page-title
+				24 text 스타일 구성
+			25 text 프로젝트 1
+			26 button 새로고침, ID: workspace-refresh-button
+			27 button 설정
+		28 container 작업 공간
+			29 link Description: 일반 생성, Help: 현재 창에서 일반 생성으로 전환합니다., Value: 127.0.0.1:8388/, ID: general-workspace-link
+			30 link Description: 스타일 구성, Value: 127.0.0.1:8388/style
+		31 container project-context
+			44 text 현재 프로젝트
+			45 pop up button (collapsed, settable) Description: 현재 프로젝트, Value: 테스트 프로젝트, ID: active-project-picker, Secondary Actions: Expand
+				46 menu
+					47 (selected) 테스트 프로젝트
+		48 container preview-content
+			49 container
+				50 heading 3세대 후보 · 선별 완료, Value: 2
+					51 text 3세대 후보 · 선별 완료
+				52 text 이미지 1/1 · 선별 1/1 세대를 확정한 뒤 다음 세대 이미지를 생성할 수 있습니다.
+				53 button 3세대 확정
+				54 button 진화 보기
+				55 button (collapsed) 이번 후보 취소, Secondary Actions: Expand
+					56 text 이번 후보 취소
+			57 heading 선별, Value: 1
+				58 text 선별
+			59 button ↶ 되돌리기, Help: 최근 30개 선택 중 마지막 선택을 되돌립니다.
+			60 container
+				61 text 자동 선별 완료 · 세대를 확정할 수 있습니다.
+				62 button 세대 확인
+
+The focused UI element is 1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#compare

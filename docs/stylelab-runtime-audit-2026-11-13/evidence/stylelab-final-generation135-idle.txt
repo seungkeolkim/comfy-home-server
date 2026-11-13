@@ -1,0 +1,90 @@
+Browser tab: 2, Title: "Anima Style Lab", URL: "http://127.0.0.1:8389/#/evolution".
+0 AXWebArea Anima Style Lab, URL: 127.0.0.1:8389/#/evolution
+	1 container app
+		2 container sidebar
+			3 text Anima Style Lab
+			4 text 나만의 그림체 찾기 · v2.0.0
+			5 text 워크플로
+			6 button 홈
+			7 button 선별
+			8 button 진화 135세대
+				9 text 진화
+				10 text 135세대
+			11 button 융합
+			12 button 다듬기
+			13 text 라이브러리
+			14 button 그림체 22
+				15 text 그림체
+				16 text 22
+			17 button 조합
+			18 button 자유 생성
+			19 button 설정
+			20 text ComfyUI 연결됨
+			21 text v0.37.0 · 00:37:41 확인
+		22 container topbar
+			23 container 워크플로 단계
+				24 button 준비
+				25 button 순위 결정
+				26 button 진화
+				27 button 다듬기
+					28 text 4
+					29 text 다듬기
+				30 button 완성
+			31 text 지금 할 일 2세대 연속으로 살아남은 진화 조합이 없습니다. 이제 다듬기로 넘어가 보세요.
+			32 button 다듬기 시작
+		33 container content
+			2096 heading 진화, Value: 1
+				2097 text 진화
+			2098 text 현재 135세대 · 생존 – · 탈락 –
+			2099 container
+				2100 text 만들 개수
+				2101 stepper (settable, integer) 만들 개수, Value: 1
+			2102 button (disabled) 선택한 조합 버리기
+			2103 button 진화 시작
+			2104 text 전멸 세대 2 / 2
+			2105 button 융합 거치기, Help: 두 조합을 섞어 새 그림을 만든 뒤 다듬습니다
+			2106 button 바로 다듬기, Help: 상위 조합의 가중치를 바로 다듬습니다
+			2107 container
+				2108 heading 세대별 결과, Value: 3
+					2109 text 세대별 결과
+				2110 text 탈락 생존
+				2111 container 세대별 진화 결과
+				2112 text 123 124 125 126 127 128 129 130 131 132 133 134
+			2113 heading 지금의 상위 30%, Value: 2
+				2114 text 지금의 상위 30%
+			2115 text 6개 · Elo 순
+			2116 container
+				2117 container
+					2118 text S ?
+				2119 text #1
+				2120 text 34,850 3승 0패
+			2121 container
+				2122 container
+					2123 text S- ?
+				2124 text #2
+				2125 text 34,530 2승 2패
+			2126 container
+				2127 container
+					2128 text A- ?
+				2129 text #3
+				2130 text 34,490 1승 3패
+			2131 container
+				2132 container
+					2133 text A- ?
+				2134 text #4
+				2135 text 34,490 1승 3패
+			2136 container
+				2137 container
+					2138 text A- ?
+				2139 text #5
+				2140 text 34,490 1승 3패
+			2141 container
+				2142 container
+					2143 text A- ?
+				2144 text #6
+				2145 text 34,490 1승 3패
+			2146 heading 그림체를 선택하세요, Value: 3
+				2147 text 그림체를 선택하세요
+	2095 button 로그아웃, ID: browser-desktop-logout
+
+The focused UI element is 8 button 진화 135세대

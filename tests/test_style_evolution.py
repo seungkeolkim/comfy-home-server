@@ -15,7 +15,7 @@ import pytest
 
 from home_server.database import Database
 from home_server.style_evolution_breeding import breed_component_kind, draw_evolution_children
-from home_server.style_evolution_selection import build_selection_ranking, next_selection_pair
+from home_server.style_evolution_selection import STYLELAB_SELECTION_POLICY, build_selection_ranking, next_selection_pair
 from home_server.style_projects import encode_snapshot, snapshot_hash
 from test_style_generation import StyleComfyClient, prepare_style_generation
 from test_style_voting import read_selection, statistics_by_identifier, undo_input, vote_input
@@ -98,7 +98,8 @@ def rated_population(tmp_path):
         client.__exit__(None, None, None)
 
 
-def test_selection_matches_original_golden_with_ties_and_conflicting_votes() -> None:
+@pytest.mark.parametrize("selection_policy", [None, STYLELAB_SELECTION_POLICY, "full-ladder-placement-v2"])
+def test_selection_matches_original_golden_with_ties_and_conflicting_votes(selection_policy) -> None:
     """원본 함수와 다양한 경로의 점수·Slot·다음 대결·경계 처리를 비교합니다."""
 
     snapshot = Path(__file__).resolve().parents[1] / "docs/style-lab-rebuild/source_reference/style_lab/app__core.py.md"
@@ -109,6 +110,9 @@ def test_selection_matches_original_golden_with_ties_and_conflicting_votes() -> 
     exec(compile(module, str(snapshot), "exec"), legacy)
     for seed in range(30):
         selection = {"batch_id": "batch", "parent_ids": ["parent-low", "parent-mid", "parent-high"], "parent_scores": {"parent-low": 10000, "parent-mid": 10320, "parent-high": 10640}, "candidate_ids": ["child-a", "child-b", "child-c"], "history": []}
+        if selection_policy:
+            selection.update(placement_policy=selection_policy, reference_ids=["nonparent", *selection["parent_ids"]],
+                reference_scores={"nonparent": 9000, **selection["parent_scores"]})
         ready = selection["parent_ids"] + selection["candidate_ids"]
         combinations = [{"id": identifier} for identifier in ready]
         choice_random = random.Random(seed)

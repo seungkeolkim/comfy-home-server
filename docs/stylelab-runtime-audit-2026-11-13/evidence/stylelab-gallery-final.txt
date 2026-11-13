@@ -1,0 +1,2082 @@
+Browser tab: 2, Title: "Anima Style Lab", URL: "http://127.0.0.1:8389/#/styles".
+1 AXWebArea Anima Style Lab, URL: 127.0.0.1:8389/#/styles
+	2 container app
+		3 container sidebar
+			4 text Anima Style Lab
+			5 text 나만의 그림체 찾기 · v2.0.0
+			6 text 워크플로
+			7 button 홈
+			8 button 선별
+			9 button 진화 135세대
+				10 text 진화
+				11 text 135세대
+			12 button 융합
+			13 button 다듬기
+			14 text 라이브러리
+			15 button 그림체 22
+				16 text 그림체
+				17 text 22
+			18 button 조합
+			19 button 자유 생성
+			20 button 설정
+			21 text ComfyUI 연결됨
+			22 text v0.37.0 · 00:37:41 확인
+		23 container topbar
+			24 container 워크플로 단계
+				25 button 준비
+				26 button 순위 결정
+				27 button 진화
+				28 button 다듬기
+					29 text 4
+					30 text 다듬기
+				31 button 완성
+			32 text 지금 할 일 2세대 연속으로 살아남은 진화 조합이 없습니다. 이제 다듬기로 넘어가 보세요.
+			33 button 다듬기 시작
+		34 container content
+			179 heading 그림체, Value: 1
+				180 text 그림체
+			181 text 전체 22 · 평가중 0 · 탈락 1,190 · 제외 432
+			182 pop up button (collapsed, settable) Description: 정렬, Value: Elo 높은 순, Secondary Actions: Expand
+				183 menu
+					184 (selected) Elo 높은 순
+					185 Elo 낮은 순
+					186 최근 생성 순
+					187 오래된 생성 순
+			188 button 전체
+			189 button 북마크
+			190 button S
+			191 button A
+			192 button B
+			193 button C
+			194 button D
+			195 button 평가중
+			196 button 탈락 1,190, Help: 탈락: 진화로 새로 만든 조합 중 상위 30%에 들지 못해 떨어진 것입니다. 눌러서 전부 삭제
+			197 button 제외 432, Help: 제외: 기존 조합 중 새 조합들에 밀려 상위 30% 밖으로 나온 것입니다. 눌러서 전부 삭제
+			198 container (showing 0-500 of 1644 items)
+				199 container
+					200 text S
+					201 text ?
+					202 text #1
+					203 checkbox Description: 선택, Value: 0
+				204 text 34,850 3승 0패
+				205 container
+					206 text S-
+					207 text ?
+					208 text #2
+					209 checkbox Description: 선택, Value: 0
+				210 text 34,530 2승 2패
+				211 container
+					212 text A-
+					213 text ?
+					214 text #3
+					215 checkbox Description: 선택, Value: 0
+				216 text 34,490 1승 3패
+				217 container
+					218 text A-
+					219 text ?
+					220 text #4
+					221 checkbox Description: 선택, Value: 0
+				222 text 34,490 1승 3패
+				223 container
+					224 text A-
+					225 text ?
+					226 text #5
+					227 checkbox Description: 선택, Value: 0
+				228 text 34,490 1승 3패
+				229 container
+					230 text A-
+					231 text ?
+					232 text #6
+					233 checkbox Description: 선택, Value: 0
+				234 text 34,490 1승 3패
+				235 container
+					236 text B+
+					237 text ?
+					238 text #7
+					239 checkbox Description: 선택, Value: 0
+				240 text 27,773 3승 3패
+				241 container
+					242 text B+ #8
+					243 checkbox Description: 선택, Value: 0
+				244 text 27,766 5승 3패
+				245 container
+					246 text B+
+					247 text ?
+					248 text #9
+					249 checkbox Description: 선택, Value: 0
+				250 text 27,649 2승 3패
+				251 container
+					252 text B #10
+					253 checkbox Description: 선택, Value: 0
+				254 text 26,920 8승 0패
+				255 container
+					256 text B
+					257 text ?
+					258 text #11
+					259 checkbox Description: 선택, Value: 0
+				260 text 26,158 5승 1패
+				261 container
+					262 text B
+					263 text ?
+					264 text #12
+					265 checkbox Description: 선택, Value: 0
+				266 text 26,043 6승 0패
+				267 container
+					268 text B- #13
+					269 checkbox Description: 선택, Value: 0
+				270 text 25,976 4승 4패
+				271 container
+					272 text B- #14
+					273 checkbox Description: 선택, Value: 0
+				274 text 25,418 5승 2패
+				275 container
+					276 text B- #15
+					277 checkbox Description: 선택, Value: 0
+				278 text 25,308 6승 1패
+				279 container
+					280 text C+ #16
+					281 checkbox Description: 선택, Value: 0
+				282 text 25,146 5승 3패
+				283 container
+					284 text C #17
+					285 checkbox Description: 선택, Value: 0
+				286 text 24,435 3승 4패
+				287 container
+					288 text C #18
+					289 checkbox Description: 선택, Value: 0
+				290 text 19,411 4승 3패
+				291 container
+					292 text C- #19
+					293 checkbox Description: 선택, Value: 0
+				294 text 19,035 4승 3패
+				295 container
+					296 text D+ #20
+					297 checkbox Description: 선택, Value: 0
+				298 text 18,885 4승 4패
+				299 container
+					300 text D #21
+					301 checkbox Description: 선택, Value: 0
+				302 text 10,946 5승 3패
+				303 container
+					304 text D-
+					305 text ?
+					306 text #22
+					307 checkbox Description: 선택, Value: 0
+				308 text 10,466 0승 5패
+				309 container
+					310 text 제외
+					311 checkbox Description: 선택, Value: 0
+				312 text 34,730 2승 0패
+				313 container
+					314 text 제외
+					315 checkbox Description: 선택, Value: 0
+				316 text 34,610 3승 0패
+				317 container
+					318 text 제외
+					319 checkbox Description: 선택, Value: 0
+				320 text 34,610 3승 0패
+				321 container
+					322 text 제외
+					323 checkbox Description: 선택, Value: 0
+				324 text 34,530 2승 1패
+				325 container
+					326 text 제외
+					327 checkbox Description: 선택, Value: 0
+				328 text 34,530 2승 1패
+				329 container
+					330 text 제외
+					331 checkbox Description: 선택, Value: 0
+				332 text 34,450 2승 4패
+				333 container
+					334 text 제외
+					335 checkbox Description: 선택, Value: 0
+				336 text 34,370 3승 0패
+				337 container
+					338 text 제외
+					339 checkbox Description: 선택, Value: 0
+				340 text 34,370 2승 2패
+				341 container
+					342 text 제외
+					343 checkbox Description: 선택, Value: 0
+				344 text 34,370 3승 0패
+				345 container
+					346 text 탈락
+					347 checkbox Description: 선택, Value: 0
+				348 text 34,250 0승 1패
+				349 container
+					350 text 탈락
+					351 checkbox Description: 선택, Value: 0
+				352 text 34,250 0승 1패
+				353 container
+					354 text 탈락
+					355 checkbox Description: 선택, Value: 0
+				356 text 34,210 0승 1패
+				357 container
+					358 text 탈락
+					359 checkbox Description: 선택, Value: 0
+				360 text 34,210 0승 1패
+				361 container
+					362 text 탈락
+					363 checkbox Description: 선택, Value: 0
+				364 text 34,210 0승 1패
+				365 container
+					366 text 탈락
+					367 checkbox Description: 선택, Value: 0
+				368 text 34,210 0승 1패
+				369 container
+					370 text 탈락
+					371 checkbox Description: 선택, Value: 0
+				372 text 34,210 0승 1패
+				373 container
+					374 text 탈락
+					375 checkbox Description: 선택, Value: 0
+				376 text 34,210 0승 1패
+				377 container
+					378 text 탈락
+					379 checkbox Description: 선택, Value: 0
+				380 text 34,210 0승 1패
+				381 container
+					382 text 제외
+					383 checkbox Description: 선택, Value: 0
+				384 text 34,130 3승 0패
+				385 container
+					386 text 탈락
+					387 checkbox Description: 선택, Value: 0
+				388 text 34,130 0승 1패
+				389 container
+					390 text 탈락
+					391 checkbox Description: 선택, Value: 0
+				392 text 34,130 0승 1패
+				393 container
+					394 text 탈락
+					395 checkbox Description: 선택, Value: 0
+				396 text 34,130 0승 1패
+				397 container
+					398 text 탈락
+					399 checkbox Description: 선택, Value: 0
+				400 text 34,130 0승 1패
+				401 container
+					402 text 탈락
+					403 checkbox Description: 선택, Value: 0
+				404 text 34,130 0승 1패
+				405 container
+					406 text 탈락
+					407 checkbox Description: 선택, Value: 0
+				408 text 34,130 0승 1패
+				409 container
+					410 text 탈락
+					411 checkbox Description: 선택, Value: 0
+				412 text 34,130 0승 1패
+				413 container
+					414 text 탈락
+					415 checkbox Description: 선택, Value: 0
+				416 text 34,130 0승 1패
+				417 container
+					418 text 탈락
+					419 checkbox Description: 선택, Value: 0
+				420 text 33,890 0승 1패
+				421 container
+					422 text 탈락
+					423 checkbox Description: 선택, Value: 0
+				424 text 33,890 0승 1패
+				425 container
+					426 text 탈락
+					427 checkbox Description: 선택, Value: 0
+				428 text 33,890 0승 1패
+				429 container
+					430 text 탈락
+					431 checkbox Description: 선택, Value: 0
+				432 text 33,890 0승 1패
+				433 container
+					434 text 탈락
+					435 checkbox Description: 선택, Value: 0
+				436 text 33,890 0승 1패
+				437 container
+					438 text 탈락
+					439 checkbox Description: 선택, Value: 0
+				440 text 33,890 0승 1패
+				441 container
+					442 text 탈락
+					443 checkbox Description: 선택, Value: 0
+				444 text 33,890 0승 1패
+				445 container
+					446 text 탈락
+					447 checkbox Description: 선택, Value: 0
+				448 text 33,890 0승 1패
+				449 container
+					450 text 탈락
+					451 checkbox Description: 선택, Value: 0
+				452 text 33,890 0승 1패
+				453 container
+					454 text 탈락
+					455 checkbox Description: 선택, Value: 0
+				456 text 33,890 0승 1패
+				457 container
+					458 text 탈락
+					459 checkbox Description: 선택, Value: 0
+				460 text 33,890 0승 1패
+				461 container
+					462 text 탈락
+					463 checkbox Description: 선택, Value: 0
+				464 text 33,890 0승 1패
+				465 container
+					466 text 제외
+					467 checkbox Description: 선택, Value: 0
+				468 text 33,850 1승 3패
+				469 container
+					470 text 제외
+					471 checkbox Description: 선택, Value: 0
+				472 text 33,810 4승 0패
+				473 container
+					474 text 제외
+					475 checkbox Description: 선택, Value: 0
+				476 text 33,770 2승 0패
+				477 container
+					478 text 제외
+					479 checkbox Description: 선택, Value: 0
+				480 text 33,770 2승 0패
+				481 container
+					482 text 제외
+					483 checkbox Description: 선택, Value: 0
+				484 text 33,770 2승 0패
+				485 container
+					486 text 제외
+					487 checkbox Description: 선택, Value: 0
+				488 text 33,650 2승 0패
+				489 container
+					490 text 제외
+					491 checkbox Description: 선택, Value: 0
+				492 text 33,650 2승 0패
+				493 container
+					494 text 제외
+					495 checkbox Description: 선택, Value: 0
+				496 text 33,650 3승 0패
+				497 container
+					498 text 탈락
+					499 checkbox Description: 선택, Value: 0
+				500 text 33,610 0승 1패
+				501 container
+					502 text 탈락
+					503 checkbox Description: 선택, Value: 0
+				504 text 33,610 0승 1패
+				505 container
+					506 text 탈락
+					507 checkbox Description: 선택, Value: 0
+				508 text 33,610 0승 1패
+				509 container
+					510 text 탈락
+					511 checkbox Description: 선택, Value: 0
+				512 text 33,610 0승 1패
+				513 container
+					514 text 탈락
+					515 checkbox Description: 선택, Value: 0
+				516 text 33,610 0승 1패
+				517 container
+					518 text 탈락
+					519 checkbox Description: 선택, Value: 0
+				520 text 33,610 0승 1패
+				521 container
+					522 text 탈락
+					523 checkbox Description: 선택, Value: 0
+				524 text 33,610 0승 1패
+				525 container
+					526 text 탈락
+					527 checkbox Description: 선택, Value: 0
+				528 text 33,610 0승 1패
+				529 container
+					530 text 탈락
+					531 checkbox Description: 선택, Value: 0
+				532 text 33,610 0승 1패
+				533 container
+					534 text 탈락
+					535 checkbox Description: 선택, Value: 0
+				536 text 33,610 0승 1패
+				537 container
+					538 text 제외
+					539 checkbox Description: 선택, Value: 0
+				540 text 33,590 1승 3패
+				541 container
+					542 text 탈락
+					543 checkbox Description: 선택, Value: 0
+				544 text 33,570 0승 1패
+				545 container
+					546 text 탈락
+					547 checkbox Description: 선택, Value: 0
+				548 text 33,570 0승 1패
+				549 container
+					550 text 탈락
+					551 checkbox Description: 선택, Value: 0
+				552 text 33,570 0승 1패
+				553 container
+					554 text 탈락
+					555 checkbox Description: 선택, Value: 0
+				556 text 33,570 0승 1패
+				557 container
+					558 text 탈락
+					559 checkbox Description: 선택, Value: 0
+				560 text 33,570 0승 1패
+				561 container
+					562 text 탈락
+					563 checkbox Description: 선택, Value: 0
+				564 text 33,570 0승 1패
+				565 container
+					566 text 탈락
+					567 checkbox Description: 선택, Value: 0
+				568 text 33,570 0승 1패
+				569 container
+					570 text 탈락
+					571 checkbox Description: 선택, Value: 0
+				572 text 33,570 0승 1패
+				573 container
+					574 text 탈락
+					575 checkbox Description: 선택, Value: 0
+				576 text 33,570 0승 1패
+				577 container
+					578 text 제외
+					579 checkbox Description: 선택, Value: 0
+				580 text 33,530 1승 0패
+				581 container
+					582 text 탈락
+					583 checkbox Description: 선택, Value: 0
+				584 text 33,530 0승 1패
+				585 container
+					586 text 탈락
+					587 checkbox Description: 선택, Value: 0
+				588 text 33,530 0승 1패
+				589 container
+					590 text 탈락
+					591 checkbox Description: 선택, Value: 0
+				592 text 33,530 0승 1패
+				593 container
+					594 text 탈락
+					595 checkbox Description: 선택, Value: 0
+				596 text 33,530 0승 1패
+				597 container
+					598 text 탈락
+					599 checkbox Description: 선택, Value: 0
+				600 text 33,530 0승 1패
+				601 container
+					602 text 탈락
+					603 checkbox Description: 선택, Value: 0
+				604 text 33,530 0승 1패
+				605 container
+					606 text 탈락
+					607 checkbox Description: 선택, Value: 0
+				608 text 33,530 0승 1패
+				609 container
+					610 text 탈락
+					611 checkbox Description: 선택, Value: 0
+				612 text 33,530 0승 1패
+				613 container
+					614 text 탈락
+					615 checkbox Description: 선택, Value: 0
+				616 text 33,530 0승 1패
+				617 container
+					618 text 제외
+					619 checkbox Description: 선택, Value: 0
+				620 text 33,490 1승 2패
+				621 container
+					622 text 제외
+					623 checkbox Description: 선택, Value: 0
+				624 text 33,410 3승 0패
+				625 container
+					626 text 탈락
+					627 checkbox Description: 선택, Value: 0
+				628 text 33,350 0승 1패
+				629 container
+					630 text 탈락
+					631 checkbox Description: 선택, Value: 0
+				632 text 33,350 0승 1패
+				633 container
+					634 text 탈락
+					635 checkbox Description: 선택, Value: 0
+				636 text 33,350 0승 1패
+				637 container
+					638 text 탈락
+					639 checkbox Description: 선택, Value: 0
+				640 text 33,350 0승 1패
+				641 container
+					642 text 탈락
+					643 checkbox Description: 선택, Value: 0
+				644 text 33,350 0승 1패
+				645 container
+					646 text 탈락
+					647 checkbox Description: 선택, Value: 0
+				648 text 33,350 0승 1패
+				649 container
+					650 text 탈락
+					651 checkbox Description: 선택, Value: 0
+				652 text 33,350 0승 1패
+				653 container
+					654 text 제외
+					655 checkbox Description: 선택, Value: 0
+				656 text 33,330 4승 0패
+				657 container
+					658 text 탈락
+					659 checkbox Description: 선택, Value: 0
+				660 text 33,290 0승 1패
+				661 container
+					662 text 탈락
+					663 checkbox Description: 선택, Value: 0
+				664 text 33,290 0승 1패
+				665 container
+					666 text 탈락
+					667 checkbox Description: 선택, Value: 0
+				668 text 33,290 0승 1패
+				669 container
+					670 text 탈락
+					671 checkbox Description: 선택, Value: 0
+				672 text 33,290 0승 1패
+				673 container
+					674 text 탈락
+					675 checkbox Description: 선택, Value: 0
+				676 text 33,290 0승 1패
+				677 container
+					678 text 탈락
+					679 checkbox Description: 선택, Value: 0
+				680 text 33,290 0승 1패
+				681 container
+					682 text 탈락
+					683 checkbox Description: 선택, Value: 0
+				684 text 33,290 0승 1패
+				685 container
+					686 text 탈락
+					687 checkbox Description: 선택, Value: 0
+				688 text 33,290 0승 1패
+				689 container
+					690 text 탈락
+					691 checkbox Description: 선택, Value: 0
+				692 text 33,290 0승 1패
+				693 container
+					694 text 탈락
+					695 checkbox Description: 선택, Value: 0
+				696 text 33,290 0승 1패
+				697 container
+					698 text 탈락
+					699 checkbox Description: 선택, Value: 0
+				700 text 33,290 0승 1패
+				701 container
+					702 text 제외
+					703 checkbox Description: 선택, Value: 0
+				704 text 33,170 3승 0패
+				705 container
+					706 text 제외
+					707 checkbox Description: 선택, Value: 0
+				708 text 33,170 3승 0패
+				709 container
+					710 text 제외
+					711 checkbox Description: 선택, Value: 0
+				712 text 33,100 6승 0패
+				713 container
+					714 text 제외
+					715 checkbox Description: 선택, Value: 0
+				716 text 33,010 3승 2패
+				717 container
+					718 text 제외
+					719 checkbox Description: 선택, Value: 0
+				720 text 32,930 3승 0패
+				721 container
+					722 text 탈락
+					723 checkbox Description: 선택, Value: 0
+				724 text 32,930 0승 1패
+				725 container
+					726 text 탈락
+					727 checkbox Description: 선택, Value: 0
+				728 text 32,930 0승 1패
+				729 container
+					730 text 탈락
+					731 checkbox Description: 선택, Value: 0
+				732 text 32,930 0승 1패
+				733 container
+					734 text 탈락
+					735 checkbox Description: 선택, Value: 0
+				736 text 32,930 0승 1패
+				737 container
+					738 text 탈락
+					739 checkbox Description: 선택, Value: 0
+				740 text 32,930 0승 1패
+				741 container
+					742 text 탈락
+					743 checkbox Description: 선택, Value: 0
+				744 text 32,930 0승 1패
+				745 container
+					746 text 탈락
+					747 checkbox Description: 선택, Value: 0
+				748 text 32,930 0승 1패
+				749 container
+					750 text 탈락
+					751 checkbox Description: 선택, Value: 0
+				752 text 32,930 0승 1패
+				753 container
+					754 text 탈락
+					755 checkbox Description: 선택, Value: 0
+				756 text 32,860 0승 1패
+				757 container
+					758 text 탈락
+					759 checkbox Description: 선택, Value: 0
+				760 text 32,860 0승 1패
+				761 container
+					762 text 탈락
+					763 checkbox Description: 선택, Value: 0
+				764 text 32,860 0승 1패
+				765 container
+					766 text 탈락
+					767 checkbox Description: 선택, Value: 0
+				768 text 32,860 0승 1패
+				769 container
+					770 text 탈락
+					771 checkbox Description: 선택, Value: 0
+				772 text 32,860 0승 1패
+				773 container
+					774 text 탈락
+					775 checkbox Description: 선택, Value: 0
+				776 text 32,860 0승 1패
+				777 container
+					778 text 탈락
+					779 checkbox Description: 선택, Value: 0
+				780 text 32,860 0승 1패
+				781 container
+					782 text 탈락
+					783 checkbox Description: 선택, Value: 0
+				784 text 32,860 0승 1패
+				785 container
+					786 text 탈락
+					787 checkbox Description: 선택, Value: 0
+				788 text 32,860 0승 1패
+				789 container
+					790 text 탈락
+					791 checkbox Description: 선택, Value: 0
+				792 text 32,860 0승 1패
+				793 container
+					794 text 제외
+					795 checkbox Description: 선택, Value: 0
+				796 text 32,770 3승 1패
+				797 container
+					798 text 탈락
+					799 checkbox Description: 선택, Value: 0
+				800 text 32,690 0승 1패
+				801 container
+					802 text 탈락
+					803 checkbox Description: 선택, Value: 0
+				804 text 32,690 0승 1패
+				805 container
+					806 text 탈락
+					807 checkbox Description: 선택, Value: 0
+				808 text 32,690 0승 1패
+				809 container
+					810 text 탈락
+					811 checkbox Description: 선택, Value: 0
+				812 text 32,690 0승 1패
+				813 container
+					814 text 탈락
+					815 checkbox Description: 선택, Value: 0
+				816 text 32,690 0승 1패
+				817 container
+					818 text 탈락
+					819 checkbox Description: 선택, Value: 0
+				820 text 32,690 0승 1패
+				821 container
+					822 text 탈락
+					823 checkbox Description: 선택, Value: 0
+				824 text 32,690 0승 1패
+				825 container
+					826 text 탈락
+					827 checkbox Description: 선택, Value: 0
+				828 text 32,690 0승 1패
+				829 container
+					830 text 탈락
+					831 checkbox Description: 선택, Value: 0
+				832 text 32,690 0승 1패
+				833 container
+					834 text 탈락
+					835 checkbox Description: 선택, Value: 0
+				836 text 32,690 0승 1패
+				837 container
+					838 text 제외
+					839 checkbox Description: 선택, Value: 0
+				840 text 32,690 3승 0패
+				841 container
+					842 text 제외
+					843 checkbox Description: 선택, Value: 0
+				844 text 32,586 2승 3패
+				845 container
+					846 text 제외
+					847 checkbox Description: 선택, Value: 0
+				848 text 32,570 3승 1패
+				849 container
+					850 text 제외
+					851 checkbox Description: 선택, Value: 0
+				852 text 32,510 3승 2패
+				853 container
+					854 text 제외
+					855 checkbox Description: 선택, Value: 0
+				856 text 32,450 4승 0패
+				857 container
+					858 text 제외
+					859 checkbox Description: 선택, Value: 0
+				860 text 32,426 3승 2패
+				861 container
+					862 text 제외
+					863 checkbox Description: 선택, Value: 0
+				864 text 32,426 3승 2패
+				865 container
+					866 text 제외
+					867 checkbox Description: 선택, Value: 0
+				868 text 32,403 2승 2패
+				869 container
+					870 text 제외
+					871 checkbox Description: 선택, Value: 0
+				872 text 32,380 2승 2패
+				873 container
+					874 text 제외
+					875 checkbox Description: 선택, Value: 0
+				876 text 32,356 5승 0패
+				877 container
+					878 text 제외
+					879 checkbox Description: 선택, Value: 0
+				880 text 32,330 3승 1패
+				881 container
+					882 text 탈락
+					883 checkbox Description: 선택, Value: 0
+				884 text 32,330 0승 1패
+				885 container
+					886 text 탈락
+					887 checkbox Description: 선택, Value: 0
+				888 text 32,330 0승 1패
+				889 container
+					890 text 탈락
+					891 checkbox Description: 선택, Value: 0
+				892 text 32,330 0승 1패
+				893 container
+					894 text 탈락
+					895 checkbox Description: 선택, Value: 0
+				896 text 32,330 0승 1패
+				897 container
+					898 text 탈락
+					899 checkbox Description: 선택, Value: 0
+				900 text 32,330 0승 1패
+				901 container
+					902 text 탈락
+					903 checkbox Description: 선택, Value: 0
+				904 text 32,330 0승 1패
+				905 container
+					906 text 탈락
+					907 checkbox Description: 선택, Value: 0
+				908 text 32,330 0승 1패
+				909 container
+					910 text 탈락
+					911 checkbox Description: 선택, Value: 0
+				912 text 32,330 0승 1패
+				913 container
+					914 text 탈락
+					915 checkbox Description: 선택, Value: 0
+				916 text 32,330 0승 1패
+				917 container
+					918 text 제외
+					919 checkbox Description: 선택, Value: 0
+				920 text 32,266 3승 3패
+				921 container
+					922 text 탈락
+					923 checkbox Description: 선택, Value: 0
+				924 text 32,186 0승 1패
+				925 container
+					926 text 탈락
+					927 checkbox Description: 선택, Value: 0
+				928 text 32,186 0승 1패
+				929 container
+					930 text 탈락
+					931 checkbox Description: 선택, Value: 0
+				932 text 32,186 0승 1패
+				933 container
+					934 text 탈락
+					935 checkbox Description: 선택, Value: 0
+				936 text 32,186 0승 1패
+				937 container
+					938 text 탈락
+					939 checkbox Description: 선택, Value: 0
+				940 text 32,186 0승 1패
+				941 container
+					942 text 탈락
+					943 checkbox Description: 선택, Value: 0
+				944 text 32,186 0승 1패
+				945 container
+					946 text 탈락
+					947 checkbox Description: 선택, Value: 0
+				948 text 32,186 0승 1패
+				949 container
+					950 text 탈락
+					951 checkbox Description: 선택, Value: 0
+				952 text 32,186 0승 1패
+				953 container
+					954 text 탈락
+					955 checkbox Description: 선택, Value: 0
+				956 text 32,186 0승 1패
+				957 container
+					958 text 탈락
+					959 checkbox Description: 선택, Value: 0
+				960 text 32,186 0승 1패
+				961 container
+					962 text 탈락
+					963 checkbox Description: 선택, Value: 0
+				964 text 32,186 0승 1패
+				965 container
+					966 text 탈락
+					967 checkbox Description: 선택, Value: 0
+				968 text 32,186 0승 1패
+				969 container
+					970 text 탈락
+					971 checkbox Description: 선택, Value: 0
+				972 text 32,186 0승 1패
+				973 container
+					974 text 탈락
+					975 checkbox Description: 선택, Value: 0
+				976 text 32,186 0승 1패
+				977 container
+					978 text 탈락
+					979 checkbox Description: 선택, Value: 0
+				980 text 32,186 0승 1패
+				981 container
+					982 text 탈락
+					983 checkbox Description: 선택, Value: 0
+				984 text 32,186 0승 1패
+				985 container
+					986 text 탈락
+					987 checkbox Description: 선택, Value: 0
+				988 text 32,186 0승 1패
+				989 container
+					990 text 탈락
+					991 checkbox Description: 선택, Value: 0
+				992 text 32,186 0승 1패
+				993 container
+					994 text 탈락
+					995 checkbox Description: 선택, Value: 0
+				996 text 32,186 0승 1패
+				997 container
+					998 text 탈락
+					999 checkbox Description: 선택, Value: 0
+				1000 text 32,186 0승 1패
+				1001 container
+					1002 text 탈락
+					1003 checkbox Description: 선택, Value: 0
+				1004 text 32,186 0승 1패
+				1005 container
+					1006 text 탈락
+					1007 checkbox Description: 선택, Value: 0
+				1008 text 32,186 0승 1패
+				1009 container
+					1010 text 탈락
+					1011 checkbox Description: 선택, Value: 0
+				1012 text 32,186 0승 1패
+				1013 container
+					1014 text 제외
+					1015 checkbox Description: 선택, Value: 0
+				1016 text 31,970 3승 0패
+				1017 container
+					1018 text 제외
+					1019 checkbox Description: 선택, Value: 0
+				1020 text 31,879 4승 0패
+				1021 container
+					1022 text 탈락
+					1023 checkbox Description: 선택, Value: 0
+				1024 text 31,730 0승 1패
+				1025 container
+					1026 text 탈락
+					1027 checkbox Description: 선택, Value: 0
+				1028 text 31,730 0승 1패
+				1029 container
+					1030 text 탈락
+					1031 checkbox Description: 선택, Value: 0
+				1032 text 31,730 0승 1패
+				1033 container
+					1034 text 탈락
+					1035 checkbox Description: 선택, Value: 0
+				1036 text 31,730 0승 1패
+				1037 container
+					1038 text 탈락
+					1039 checkbox Description: 선택, Value: 0
+				1040 text 31,730 0승 1패
+				1041 container
+					1042 text 탈락
+					1043 checkbox Description: 선택, Value: 0
+				1044 text 31,730 0승 1패
+				1045 container
+					1046 text 탈락
+					1047 checkbox Description: 선택, Value: 0
+				1048 text 31,730 0승 1패
+				1049 container
+					1050 text 탈락
+					1051 checkbox Description: 선택, Value: 0
+				1052 text 31,730 0승 1패
+				1053 container
+					1054 text 탈락
+					1055 checkbox Description: 선택, Value: 0
+				1056 text 31,730 0승 1패
+				1057 container
+					1058 text 탈락
+					1059 checkbox Description: 선택, Value: 0
+				1060 text 31,730 0승 1패
+				1061 container
+					1062 text 탈락
+					1063 checkbox Description: 선택, Value: 0
+				1064 text 31,730 0승 1패
+				1065 container
+					1066 text 탈락
+					1067 checkbox Description: 선택, Value: 0
+				1068 text 31,639 0승 1패
+				1069 container
+					1070 text 탈락
+					1071 checkbox Description: 선택, Value: 0
+				1072 text 31,639 0승 1패
+				1073 container
+					1074 text 탈락
+					1075 checkbox Description: 선택, Value: 0
+				1076 text 31,639 0승 1패
+				1077 container
+					1078 text 탈락
+					1079 checkbox Description: 선택, Value: 0
+				1080 text 31,639 0승 1패
+				1081 container
+					1082 text 탈락
+					1083 checkbox Description: 선택, Value: 0
+				1084 text 31,639 0승 1패
+				1085 container
+					1086 text 탈락
+					1087 checkbox Description: 선택, Value: 0
+				1088 text 31,639 0승 1패
+				1089 container
+					1090 text 탈락
+					1091 checkbox Description: 선택, Value: 0
+				1092 text 31,639 0승 1패
+				1093 container
+					1094 text 탈락
+					1095 checkbox Description: 선택, Value: 0
+				1096 text 31,639 0승 1패
+				1097 container
+					1098 text 탈락
+					1099 checkbox Description: 선택, Value: 0
+				1100 text 31,639 0승 1패
+				1101 container
+					1102 text 탈락
+					1103 checkbox Description: 선택, Value: 0
+				1104 text 31,639 0승 1패
+				1105 container
+					1106 text 탈락
+					1107 checkbox Description: 선택, Value: 0
+				1108 text 31,639 0승 1패
+				1109 container
+					1110 text 탈락
+					1111 checkbox Description: 선택, Value: 0
+				1112 text 31,639 0승 1패
+				1113 container
+					1114 text 탈락
+					1115 checkbox Description: 선택, Value: 0
+				1116 text 31,639 0승 1패
+				1117 container
+					1118 text 탈락
+					1119 checkbox Description: 선택, Value: 0
+				1120 text 31,639 0승 1패
+				1121 container
+					1122 text 탈락
+					1123 checkbox Description: 선택, Value: 0
+				1124 text 31,639 0승 1패
+				1125 container
+					1126 text 제외
+					1127 checkbox Description: 선택, Value: 0
+				1128 text 31,617 1승 3패
+				1129 container
+					1130 text 제외
+					1131 checkbox Description: 선택, Value: 0
+				1132 text 31,592 3승 1패
+				1133 container
+					1134 text 제외
+					1135 checkbox Description: 선택, Value: 0
+				1136 text 31,504 3승 2패
+				1137 container
+					1138 text 제외
+					1139 checkbox Description: 선택, Value: 0
+				1140 text 31,490 3승 0패
+				1141 container
+					1142 text 제외
+					1143 checkbox Description: 선택, Value: 0
+				1144 text 31,490 3승 0패
+				1145 container
+					1146 text 제외
+					1147 checkbox Description: 선택, Value: 0
+				1148 text 31,490 3승 1패
+				1149 container
+					1150 text 제외
+					1151 checkbox Description: 선택, Value: 0
+				1152 text 31,433 5승 0패
+				1153 container
+					1154 text 제외
+					1155 checkbox Description: 선택, Value: 0
+				1156 text 31,417 1승 3패
+				1157 container
+					1158 text 제외
+					1159 checkbox Description: 선택, Value: 0
+				1160 text 31,344 2승 2패
+				1161 container
+					1162 text 제외
+					1163 checkbox Description: 선택, Value: 0
+				1164 text 31,341 3승 2패
+				1165 container
+					1166 text 탈락
+					1167 checkbox Description: 선택, Value: 0
+				1168 text 31,264 0승 1패
+				1169 container
+					1170 text 탈락
+					1171 checkbox Description: 선택, Value: 0
+				1172 text 31,264 0승 1패
+				1173 container
+					1174 text 탈락
+					1175 checkbox Description: 선택, Value: 0
+				1176 text 31,264 0승 1패
+				1177 container
+					1178 text 탈락
+					1179 checkbox Description: 선택, Value: 0
+				1180 text 31,264 0승 1패
+				1181 container
+					1182 text 탈락
+					1183 checkbox Description: 선택, Value: 0
+				1184 text 31,264 0승 1패
+				1185 container
+					1186 text 탈락
+					1187 checkbox Description: 선택, Value: 0
+				1188 text 31,264 0승 1패
+				1189 container
+					1190 text 탈락
+					1191 checkbox Description: 선택, Value: 0
+				1192 text 31,264 0승 1패
+				1193 container
+					1194 text 탈락
+					1195 checkbox Description: 선택, Value: 0
+				1196 text 31,264 0승 1패
+				1197 container
+					1198 text 탈락
+					1199 checkbox Description: 선택, Value: 0
+				1200 text 31,264 0승 1패
+				1201 container
+					1202 text 탈락
+					1203 checkbox Description: 선택, Value: 0
+				1204 text 31,264 0승 1패
+				1205 container
+					1206 text 탈락
+					1207 checkbox Description: 선택, Value: 0
+				1208 text 31,264 0승 1패
+				1209 container
+					1210 text 탈락
+					1211 checkbox Description: 선택, Value: 0
+				1212 text 31,264 0승 1패
+				1213 container
+					1214 text 탈락
+					1215 checkbox Description: 선택, Value: 0
+				1216 text 31,264 0승 1패
+				1217 container
+					1218 text 제외
+					1219 checkbox Description: 선택, Value: 0
+				1220 text 31,256 4승 0패
+				1221 container
+					1222 text 탈락
+					1223 checkbox Description: 선택, Value: 0
+				1224 text 31,250 0승 1패
+				1225 container
+					1226 text 탈락
+					1227 checkbox Description: 선택, Value: 0
+				1228 text 31,250 0승 1패
+				1229 container
+					1230 text 탈락
+					1231 checkbox Description: 선택, Value: 0
+				1232 text 31,250 0승 1패
+				1233 container
+					1234 text 탈락
+					1235 checkbox Description: 선택, Value: 0
+				1236 text 31,250 0승 1패
+				1237 container
+					1238 text 탈락
+					1239 checkbox Description: 선택, Value: 0
+				1240 text 31,250 0승 1패
+				1241 container
+					1242 text 탈락
+					1243 checkbox Description: 선택, Value: 0
+				1244 text 31,250 0승 1패
+				1245 container
+					1246 text 탈락
+					1247 checkbox Description: 선택, Value: 0
+				1248 text 31,250 0승 1패
+				1249 container
+					1250 text 탈락
+					1251 checkbox Description: 선택, Value: 0
+				1252 text 31,250 0승 1패
+				1253 container
+					1254 text 탈락
+					1255 checkbox Description: 선택, Value: 0
+				1256 text 31,250 0승 1패
+				1257 container
+					1258 text 탈락
+					1259 checkbox Description: 선택, Value: 0
+				1260 text 31,250 0승 1패
+				1261 container
+					1262 text 탈락
+					1263 checkbox Description: 선택, Value: 0
+				1264 text 31,250 0승 1패
+				1265 container
+					1266 text 탈락
+					1267 checkbox Description: 선택, Value: 0
+				1268 text 31,250 0승 1패
+				1269 container
+					1270 text 탈락
+					1271 checkbox Description: 선택, Value: 0
+				1272 text 31,250 0승 1패
+				1273 container
+					1274 text 탈락
+					1275 checkbox Description: 선택, Value: 0
+				1276 text 31,250 0승 1패
+				1277 container
+					1278 text 탈락
+					1279 checkbox Description: 선택, Value: 0
+				1280 text 31,250 0승 1패
+				1281 container
+					1282 text 제외
+					1283 checkbox Description: 선택, Value: 0
+				1284 text 31,184 2승 3패
+				1285 container
+					1286 text 탈락
+					1287 checkbox Description: 선택, Value: 0
+				1288 text 31,104 0승 1패
+				1289 container
+					1290 text 탈락
+					1291 checkbox Description: 선택, Value: 0
+				1292 text 31,104 0승 1패
+				1293 container
+					1294 text 탈락
+					1295 checkbox Description: 선택, Value: 0
+				1296 text 31,104 0승 1패
+				1297 container
+					1298 text 탈락
+					1299 checkbox Description: 선택, Value: 0
+				1300 text 31,104 0승 1패
+				1301 container
+					1302 text 탈락
+					1303 checkbox Description: 선택, Value: 0
+				1304 text 31,104 0승 1패
+				1305 container
+					1306 text 탈락
+					1307 checkbox Description: 선택, Value: 0
+				1308 text 31,104 0승 1패
+				1309 container
+					1310 text 탈락
+					1311 checkbox Description: 선택, Value: 0
+				1312 text 31,104 0승 1패
+				1313 container
+					1314 text 탈락
+					1315 checkbox Description: 선택, Value: 0
+				1316 text 31,104 0승 1패
+				1317 container
+					1318 text 탈락
+					1319 checkbox Description: 선택, Value: 0
+				1320 text 31,104 0승 1패
+				1321 container
+					1322 text 탈락
+					1323 checkbox Description: 선택, Value: 0
+				1324 text 31,104 0승 1패
+				1325 container
+					1326 text 탈락
+					1327 checkbox Description: 선택, Value: 0
+				1328 text 31,104 0승 1패
+				1329 container
+					1330 text 탈락
+					1331 checkbox Description: 선택, Value: 0
+				1332 text 31,104 0승 1패
+				1333 container
+					1334 text 탈락
+					1335 checkbox Description: 선택, Value: 0
+				1336 text 31,104 0승 1패
+				1337 container
+					1338 text 탈락
+					1339 checkbox Description: 선택, Value: 0
+				1340 text 31,104 0승 1패
+				1341 container
+					1342 text 탈락
+					1343 checkbox Description: 선택, Value: 0
+				1344 text 31,104 0승 1패
+				1345 container
+					1346 text 탈락
+					1347 checkbox Description: 선택, Value: 0
+				1348 text 31,104 0승 1패
+				1349 container
+					1350 text 탈락
+					1351 checkbox Description: 선택, Value: 0
+				1352 text 31,104 0승 1패
+				1353 container
+					1354 text 탈락
+					1355 checkbox Description: 선택, Value: 0
+				1356 text 31,104 0승 1패
+				1357 container
+					1358 text 탈락
+					1359 checkbox Description: 선택, Value: 0
+				1360 text 31,104 0승 1패
+				1361 container
+					1362 text 탈락
+					1363 checkbox Description: 선택, Value: 0
+				1364 text 31,104 0승 1패
+				1365 container
+					1366 text 탈락
+					1367 checkbox Description: 선택, Value: 0
+				1368 text 31,104 0승 1패
+				1369 container
+					1370 text 탈락
+					1371 checkbox Description: 선택, Value: 0
+				1372 text 31,104 0승 1패
+				1373 container
+					1374 text 탈락
+					1375 checkbox Description: 선택, Value: 0
+				1376 text 31,104 0승 1패
+				1377 container
+					1378 text 탈락
+					1379 checkbox Description: 선택, Value: 0
+				1380 text 31,104 0승 1패
+				1381 container
+					1382 text 탈락
+					1383 checkbox Description: 선택, Value: 0
+				1384 text 31,104 0승 1패
+				1385 container
+					1386 text 탈락
+					1387 checkbox Description: 선택, Value: 0
+				1388 text 31,104 0승 1패
+				1389 container
+					1390 text 탈락
+					1391 checkbox Description: 선택, Value: 0
+				1392 text 31,104 0승 1패
+				1393 container
+					1394 text 제외
+					1395 checkbox Description: 선택, Value: 0
+				1396 text 31,060 2승 3패
+				1397 container
+					1398 text 제외
+					1399 checkbox Description: 선택, Value: 0
+				1400 text 30,863 3승 1패
+				1401 container
+					1402 text 제외
+					1403 checkbox Description: 선택, Value: 0
+				1404 text 30,770 3승 0패
+				1405 container
+					1406 text 제외
+					1407 checkbox Description: 선택, Value: 0
+				1408 text 30,770 4승 1패
+				1409 container
+					1410 text 제외
+					1411 checkbox Description: 선택, Value: 0
+				1412 text 30,526 2승 0패
+				1413 container
+					1414 text 제외
+					1415 checkbox Description: 선택, Value: 0
+				1416 text 30,521 2승 0패
+				1417 container
+					1418 text 제외
+					1419 checkbox Description: 선택, Value: 0
+				1420 text 30,521 3승 0패
+				1421 container
+					1422 text 제외
+					1423 checkbox Description: 선택, Value: 0
+				1424 text 30,432 2승 2패
+				1425 container
+					1426 text 제외
+					1427 checkbox Description: 선택, Value: 0
+				1428 text 30,343 1승 1패
+				1429 container
+					1430 text 제외
+					1431 checkbox Description: 선택, Value: 0
+				1432 text 30,281 3승 0패
+				1433 container
+					1434 text 제외
+					1435 checkbox Description: 선택, Value: 0
+				1436 text 30,230 2승 0패
+				1437 container
+					1438 text 제외
+					1439 checkbox Description: 선택, Value: 0
+				1440 text 30,183 0승 1패
+				1441 container
+					1442 text 제외
+					1443 checkbox Description: 선택, Value: 0
+				1444 text 30,183 1승 2패
+				1445 container
+					1446 text 제외
+					1447 checkbox Description: 선택, Value: 0
+				1448 text 30,180 4승 0패
+				1449 container
+					1450 text 제외
+					1451 checkbox Description: 선택, Value: 0
+				1452 text 30,124 5승 0패
+				1453 container
+					1454 text 제외
+					1455 checkbox Description: 선택, Value: 0
+				1456 text 30,042 2승 2패
+				1457 container
+					1458 text 제외
+					1459 checkbox Description: 선택, Value: 0
+				1460 text 30,032 1승 3패
+				1461 container
+					1462 text 제외
+					1463 checkbox Description: 선택, Value: 0
+				1464 text 30,021 2승 3패
+				1465 container
+					1466 text 제외
+					1467 checkbox Description: 선택, Value: 0
+				1468 text 30,001 선별 전
+				1469 container
+					1470 text 제외
+					1471 checkbox Description: 선택, Value: 0
+				1472 text 30,000 선별 전
+				1473 container
+					1474 text 제외
+					1475 checkbox Description: 선택, Value: 0
+				1476 text 30,000 2승 2패
+				1477 container
+					1478 text 제외
+					1479 checkbox Description: 선택, Value: 0
+				1480 text 29,961 3승 2패
+				1481 container
+					1482 text 탈락
+					1483 checkbox Description: 선택, Value: 0
+				1484 text 29,943 0승 1패
+				1485 container
+					1486 text 탈락
+					1487 checkbox Description: 선택, Value: 0
+				1488 text 29,943 0승 1패
+				1489 container
+					1490 text 탈락
+					1491 checkbox Description: 선택, Value: 0
+				1492 text 29,943 0승 1패
+				1493 container
+					1494 text 탈락
+					1495 checkbox Description: 선택, Value: 0
+				1496 text 29,943 0승 1패
+				1497 container
+					1498 text 탈락
+					1499 checkbox Description: 선택, Value: 0
+				1500 text 29,943 0승 1패
+				1501 container
+					1502 text 탈락
+					1503 checkbox Description: 선택, Value: 0
+				1504 text 29,943 0승 1패
+				1505 container
+					1506 text 탈락
+					1507 checkbox Description: 선택, Value: 0
+				1508 text 29,943 0승 1패
+				1509 container
+					1510 text 탈락
+					1511 checkbox Description: 선택, Value: 0
+				1512 text 29,943 0승 1패
+				1513 container
+					1514 text 탈락
+					1515 checkbox Description: 선택, Value: 0
+				1516 text 29,943 0승 1패
+				1517 container
+					1518 text 탈락
+					1519 checkbox Description: 선택, Value: 0
+				1520 text 29,943 0승 1패
+				1521 container
+					1522 text 탈락
+					1523 checkbox Description: 선택, Value: 0
+				1524 text 29,943 0승 1패
+				1525 container
+					1526 text 제외
+					1527 checkbox Description: 선택, Value: 0
+				1528 text 29,921 3승 2패
+				1529 container
+					1530 text 탈락
+					1531 checkbox Description: 선택, Value: 0
+				1532 text 29,896 0승 1패
+				1533 container
+					1534 text 탈락
+					1535 checkbox Description: 선택, Value: 0
+				1536 text 29,896 0승 1패
+				1537 container
+					1538 text 탈락
+					1539 checkbox Description: 선택, Value: 0
+				1540 text 29,896 0승 1패
+				1541 container
+					1542 text 탈락
+					1543 checkbox Description: 선택, Value: 0
+				1544 text 29,896 0승 1패
+				1545 container
+					1546 text 탈락
+					1547 checkbox Description: 선택, Value: 0
+				1548 text 29,896 0승 1패
+				1549 container
+					1550 text 탈락
+					1551 checkbox Description: 선택, Value: 0
+				1552 text 29,896 0승 1패
+				1553 container
+					1554 text 제외
+					1555 checkbox Description: 선택, Value: 0
+				1556 text 29,886 0승 3패
+				1557 container
+					1558 text 제외
+					1559 checkbox Description: 선택, Value: 0
+				1560 text 29,870 3승 1패
+				1561 container
+					1562 text 제외
+					1563 checkbox Description: 선택, Value: 0
+				1564 text 29,831 1승 2패
+				1565 container
+					1566 text 제외
+					1567 checkbox Description: 선택, Value: 0
+				1568 text 29,801 3승 1패
+				1569 container
+					1570 text 제외
+					1571 checkbox Description: 선택, Value: 0
+				1572 text 29,801 3승 1패
+				1573 container
+					1574 text 제외
+					1575 checkbox Description: 선택, Value: 0
+				1576 text 29,801 2승 4패
+				1577 container
+					1578 text 탈락
+					1579 checkbox Description: 선택, Value: 0
+				1580 text 29,781 0승 1패
+				1581 container
+					1582 text 탈락
+					1583 checkbox Description: 선택, Value: 0
+				1584 text 29,781 0승 1패
+				1585 container
+					1586 text 탈락
+					1587 checkbox Description: 선택, Value: 0
+				1588 text 29,781 0승 1패
+				1589 container
+					1590 text 탈락
+					1591 checkbox Description: 선택, Value: 0
+				1592 text 29,781 0승 1패
+				1593 container
+					1594 text 탈락
+					1595 checkbox Description: 선택, Value: 0
+				1596 text 29,781 0승 1패
+				1597 container
+					1598 text 탈락
+					1599 checkbox Description: 선택, Value: 0
+				1600 text 29,781 0승 1패
+				1601 container
+					1602 text 탈락
+					1603 checkbox Description: 선택, Value: 0
+				1604 text 29,781 0승 1패
+				1605 container
+					1606 text 탈락
+					1607 checkbox Description: 선택, Value: 0
+				1608 text 29,781 0승 1패
+				1609 container
+					1610 text 탈락
+					1611 checkbox Description: 선택, Value: 0
+				1612 text 29,781 0승 1패
+				1613 container
+					1614 text 제외
+					1615 checkbox Description: 선택, Value: 0
+				1616 text 29,701 1승 4패
+				1617 container
+					1618 text 제외
+					1619 checkbox Description: 선택, Value: 0
+				1620 text 29,649 3승 1패
+				1621 container
+					1622 text 제외
+					1623 checkbox Description: 선택, Value: 0
+				1624 text 29,641 2승 3패
+				1625 container
+					1626 text 제외
+					1627 checkbox Description: 선택, Value: 0
+				1628 text 29,561 3승 0패
+				1629 container
+					1630 text 제외
+					1631 checkbox Description: 선택, Value: 0
+				1632 text 29,561 3승 0패
+				1633 container
+					1634 text 제외
+					1635 checkbox Description: 선택, Value: 0
+				1636 text 29,561 4승 1패
+				1637 container
+					1638 text 탈락
+					1639 checkbox Description: 선택, Value: 0
+				1640 text 29,561 0승 1패
+				1641 container
+					1642 text 탈락
+					1643 checkbox Description: 선택, Value: 0
+				1644 text 29,561 0승 1패
+				1645 container
+					1646 text 탈락
+					1647 checkbox Description: 선택, Value: 0
+				1648 text 29,561 0승 1패
+				1649 container
+					1650 text 탈락
+					1651 checkbox Description: 선택, Value: 0
+				1652 text 29,561 0승 1패
+				1653 container
+					1654 text 탈락
+					1655 checkbox Description: 선택, Value: 0
+				1656 text 29,561 0승 1패
+				1657 container
+					1658 text 탈락
+					1659 checkbox Description: 선택, Value: 0
+				1660 text 29,561 0승 1패
+				1661 container
+					1662 text 탈락
+					1663 checkbox Description: 선택, Value: 0
+				1664 text 29,561 0승 1패
+				1665 container
+					1666 text 탈락
+					1667 checkbox Description: 선택, Value: 0
+				1668 text 29,561 0승 1패
+				1669 container
+					1670 text 탈락
+					1671 checkbox Description: 선택, Value: 0
+				1672 text 29,561 0승 1패
+				1673 container
+					1674 text 탈락
+					1675 checkbox Description: 선택, Value: 0
+				1676 text 29,561 0승 1패
+				1677 container
+					1678 text 탈락
+					1679 checkbox Description: 선택, Value: 0
+				1680 text 29,561 0승 1패
+				1681 container
+					1682 text 탈락
+					1683 checkbox Description: 선택, Value: 0
+				1684 text 29,561 0승 1패
+				1685 container
+					1686 text 탈락
+					1687 checkbox Description: 선택, Value: 0
+				1688 text 29,561 0승 1패
+				1689 container
+					1690 text 제외
+					1691 checkbox Description: 선택, Value: 0
+				1692 text 29,504 1승 3패
+				1693 container
+					1694 text 제외
+					1695 checkbox Description: 선택, Value: 0
+				1696 text 29,440 4승 1패
+				1697 container
+					1698 text 제외
+					1699 checkbox Description: 선택, Value: 0
+				1700 text 29,321 3승 0패
+				1701 container
+					1702 text 탈락
+					1703 checkbox Description: 선택, Value: 0
+				1704 text 29,321 0승 1패
+				1705 container
+					1706 text 탈락
+					1707 checkbox Description: 선택, Value: 0
+				1708 text 29,321 0승 1패
+				1709 container
+					1710 text 탈락
+					1711 checkbox Description: 선택, Value: 0
+				1712 text 29,321 0승 1패
+				1713 container
+					1714 text 탈락
+					1715 checkbox Description: 선택, Value: 0
+				1716 text 29,321 0승 1패
+				1717 container
+					1718 text 탈락
+					1719 checkbox Description: 선택, Value: 0
+				1720 text 29,321 0승 1패
+				1721 container
+					1722 text 탈락
+					1723 checkbox Description: 선택, Value: 0
+				1724 text 29,321 0승 1패
+				1725 container
+					1726 text 탈락
+					1727 checkbox Description: 선택, Value: 0
+				1728 text 29,321 0승 1패
+				1729 container
+					1730 text 탈락
+					1731 checkbox Description: 선택, Value: 0
+				1732 text 29,321 0승 1패
+				1733 container
+					1734 text 제외
+					1735 checkbox Description: 선택, Value: 0
+				1736 text 29,297 2승 2패
+				1737 container
+					1738 text 탈락
+					1739 checkbox Description: 선택, Value: 0
+				1740 text 29,264 0승 1패
+				1741 container
+					1742 text 탈락
+					1743 checkbox Description: 선택, Value: 0
+				1744 text 29,264 0승 1패
+				1745 container
+					1746 text 탈락
+					1747 checkbox Description: 선택, Value: 0
+				1748 text 29,264 0승 1패
+				1749 container
+					1750 text 탈락
+					1751 checkbox Description: 선택, Value: 0
+				1752 text 29,264 0승 1패
+				1753 container
+					1754 text 탈락
+					1755 checkbox Description: 선택, Value: 0
+				1756 text 29,264 0승 1패
+				1757 container
+					1758 text 탈락
+					1759 checkbox Description: 선택, Value: 0
+				1760 text 29,264 0승 1패
+				1761 container
+					1762 text 탈락
+					1763 checkbox Description: 선택, Value: 0
+				1764 text 29,264 0승 1패
+				1765 container
+					1766 text 제외
+					1767 checkbox Description: 선택, Value: 0
+				1768 text 29,105 4승 0패
+				1769 container
+					1770 text 제외
+					1771 checkbox Description: 선택, Value: 0
+				1772 text 29,033 3승 2패
+				1773 container
+					1774 text 제외
+					1775 checkbox Description: 선택, Value: 0
+				1776 text 29,008 1승 3패
+				1777 container
+					1778 text 제외
+					1779 checkbox Description: 선택, Value: 0
+				1780 text 29,008 2승 4패
+				1781 container
+					1782 text 제외
+					1783 checkbox Description: 선택, Value: 0
+				1784 text 29,008 1승 3패
+				1785 container
+					1786 text 제외
+					1787 checkbox Description: 선택, Value: 0
+				1788 text 28,961 3승 1패
+				1789 container
+					1790 text 제외
+					1791 checkbox Description: 선택, Value: 0
+				1792 text 28,852 2승 2패
+				1793 container
+					1794 text 제외
+					1795 checkbox Description: 선택, Value: 0
+				1796 text 28,841 3승 0패
+				1797 container
+					1798 text 제외
+					1799 checkbox Description: 선택, Value: 0
+				1800 text 28,768 3승 1패
+				1801 container
+					1802 text 탈락
+					1803 checkbox Description: 선택, Value: 0
+				1804 text 28,768 0승 1패
+				1805 container
+					1806 text 탈락
+					1807 checkbox Description: 선택, Value: 0
+				1808 text 28,768 0승 1패
+				1809 container
+					1810 text 탈락
+					1811 checkbox Description: 선택, Value: 0
+				1812 text 28,768 0승 1패
+				1813 container
+					1814 text 탈락
+					1815 checkbox Description: 선택, Value: 0
+				1816 text 28,768 0승 1패
+				1817 container
+					1818 text 탈락
+					1819 checkbox Description: 선택, Value: 0
+				1820 text 28,768 0승 1패
+				1821 container
+					1822 text 탈락
+					1823 checkbox Description: 선택, Value: 0
+				1824 text 28,768 0승 1패
+				1825 container
+					1826 text 탈락
+					1827 checkbox Description: 선택, Value: 0
+				1828 text 28,768 0승 1패
+				1829 container
+					1830 text 탈락
+					1831 checkbox Description: 선택, Value: 0
+				1832 text 28,768 0승 1패
+				1833 container
+					1834 text 탈락
+					1835 checkbox Description: 선택, Value: 0
+				1836 text 28,768 0승 1패
+				1837 container
+					1838 text 탈락
+					1839 checkbox Description: 선택, Value: 0
+				1840 text 28,768 0승 1패
+				1841 container
+					1842 text 탈락
+					1843 checkbox Description: 선택, Value: 0
+				1844 text 28,768 0승 1패
+				1845 container
+					1846 text 탈락
+					1847 checkbox Description: 선택, Value: 0
+				1848 text 28,768 0승 1패
+				1849 container
+					1850 text 탈락
+					1851 checkbox Description: 선택, Value: 0
+				1852 text 28,768 0승 1패
+				1853 container
+					1854 text 탈락
+					1855 checkbox Description: 선택, Value: 0
+				1856 text 28,768 0승 1패
+				1857 container
+					1858 text 탈락
+					1859 checkbox Description: 선택, Value: 0
+				1860 text 28,768 0승 1패
+				1861 container
+					1862 text 탈락
+					1863 checkbox Description: 선택, Value: 0
+				1864 text 28,768 0승 1패
+				1865 container
+					1866 text 탈락
+					1867 checkbox Description: 선택, Value: 0
+				1868 text 28,768 0승 1패
+				1869 container
+					1870 text 탈락
+					1871 checkbox Description: 선택, Value: 0
+				1872 text 28,768 0승 1패
+				1873 container
+					1874 text 탈락
+					1875 checkbox Description: 선택, Value: 0
+				1876 text 28,768 0승 1패
+				1877 container
+					1878 text 탈락
+					1879 checkbox Description: 선택, Value: 0
+				1880 text 28,768 0승 1패
+				1881 container
+					1882 text 탈락
+					1883 checkbox Description: 선택, Value: 0
+				1884 text 28,768 0승 1패
+				1885 container
+					1886 text 탈락
+					1887 checkbox Description: 선택, Value: 0
+				1888 text 28,768 0승 1패
+				1889 container
+					1890 text 탈락
+					1891 checkbox Description: 선택, Value: 0
+				1892 text 28,768 0승 1패
+				1893 container
+					1894 text 탈락
+					1895 checkbox Description: 선택, Value: 0
+				1896 text 28,768 0승 1패
+				1897 container
+					1898 text 탈락
+					1899 checkbox Description: 선택, Value: 0
+				1900 text 28,768 0승 1패
+				1901 container
+					1902 text 탈락
+					1903 checkbox Description: 선택, Value: 0
+				1904 text 28,768 0승 1패
+				1905 container
+					1906 text 탈락
+					1907 checkbox Description: 선택, Value: 0
+				1908 text 28,768 0승 1패
+				1909 container
+					1910 text 제외
+					1911 checkbox Description: 선택, Value: 0
+				1912 text 28,744 4승 2패
+				1913 container
+					1914 text 제외
+					1915 checkbox Description: 선택, Value: 0
+				1916 text 28,732 2승 2패
+				1917 container
+					1918 text 제외
+					1919 checkbox Description: 선택, Value: 0
+				1920 text 28,720 2승 3패
+				1921 container
+					1922 text 제외
+					1923 checkbox Description: 선택, Value: 0
+				1924 text 28,696 2승 1패
+				1925 container
+					1926 text 제외
+					1927 checkbox Description: 선택, Value: 0
+				1928 text 28,654 2승 3패
+				1929 container
+					1930 text 탈락
+					1931 checkbox Description: 선택, Value: 0
+				1932 text 28,612 0승 1패
+				1933 container
+					1934 text 탈락
+					1935 checkbox Description: 선택, Value: 0
+				1936 text 28,612 0승 1패
+				1937 container
+					1938 text 탈락
+					1939 checkbox Description: 선택, Value: 0
+				1940 text 28,612 0승 1패
+				1941 container
+					1942 text 탈락
+					1943 checkbox Description: 선택, Value: 0
+				1944 text 28,612 0승 1패
+				1945 container
+					1946 text 탈락
+					1947 checkbox Description: 선택, Value: 0
+				1948 text 28,612 0승 1패
+				1949 container
+					1950 text 탈락
+					1951 checkbox Description: 선택, Value: 0
+				1952 text 28,612 0승 1패
+				1953 container
+					1954 text 탈락
+					1955 checkbox Description: 선택, Value: 0
+				1956 text 28,612 0승 1패
+				1957 container
+					1958 text 탈락
+					1959 checkbox Description: 선택, Value: 0
+				1960 text 28,612 0승 1패
+				1961 container
+					1962 text 탈락
+					1963 checkbox Description: 선택, Value: 0
+				1964 text 28,612 0승 1패
+				1965 container
+					1966 text 제외
+					1967 checkbox Description: 선택, Value: 0
+				1968 text 28,601 3승 0패
+				1969 container
+					1970 text 제외
+					1971 checkbox Description: 선택, Value: 0
+				1972 text 28,500 2승 0패
+				1973 container
+					1974 text 제외
+					1975 checkbox Description: 선택, Value: 0
+				1976 text 28,398 2승 2패
+				1977 container
+					1978 text 제외
+					1979 checkbox Description: 선택, Value: 0
+				1980 text 28,398 3승 2패
+				1981 container
+					1982 text 제외
+					1983 checkbox Description: 선택, Value: 0
+				1984 text 28,398 2승 2패
+				1985 container
+					1986 text 제외
+					1987 checkbox Description: 선택, Value: 0
+				1988 text 28,380 1승 3패
+				1989 container
+					1990 text 제외
+					1991 checkbox Description: 선택, Value: 0
+				1992 text 28,293 1승 2패
+				1993 container
+					1994 text 제외
+					1995 checkbox Description: 선택, Value: 0
+				1996 text 28,275 5승 0패
+				1997 container
+					1998 text 탈락
+					1999 checkbox Description: 선택, Value: 0
+				2000 text 28,260 0승 1패
+				2001 container
+					2002 text 탈락
+					2003 checkbox Description: 선택, Value: 0
+				2004 text 28,260 0승 1패
+				2005 container
+					2006 text 탈락
+					2007 checkbox Description: 선택, Value: 0
+				2008 text 28,260 0승 1패
+				2009 container
+					2010 text 탈락
+					2011 checkbox Description: 선택, Value: 0
+				2012 text 28,260 0승 1패
+				2013 container
+					2014 text 탈락
+					2015 checkbox Description: 선택, Value: 0
+				2016 text 28,260 0승 1패
+				2017 container
+					2018 text 제외
+					2019 checkbox Description: 선택, Value: 0
+				2020 text 28,238 2승 0패
+				2021 container
+					2022 text 제외
+					2023 checkbox Description: 선택, Value: 0
+				2024 text 28,238 3승 1패
+				2025 container
+					2026 text 제외
+					2027 checkbox Description: 선택, Value: 0
+				2028 text 28,238 2승 0패
+				2029 container
+					2030 text 제외
+					2031 checkbox Description: 선택, Value: 0
+				2032 text 28,238 2승 0패
+				2033 container
+					2034 text 제외
+					2035 checkbox Description: 선택, Value: 0
+				2036 text 28,238 2승 0패
+				2037 container
+					2038 text 제외
+					2039 checkbox Description: 선택, Value: 0
+				2040 text 28,220 0승 2패
+				2041 container
+					2042 text 제외
+					2043 checkbox Description: 선택, Value: 0
+				2044 text 28,201 1승 1패
+				2045 container
+					2046 text 탈락
+					2047 checkbox Description: 선택, Value: 0
+				2048 text 28,158 0승 1패
+				2049 container
+					2050 text 탈락
+					2051 checkbox Description: 선택, Value: 0
+				2052 text 28,158 0승 1패
+				2053 container
+					2054 text 탈락
+					2055 checkbox Description: 선택, Value: 0
+				2056 text 28,158 0승 1패
+				2057 container
+					2058 text 탈락
+					2059 checkbox Description: 선택, Value: 0
+				2060 text 28,158 0승 1패
+				2061 container
+					2062 text 탈락
+					2063 checkbox Description: 선택, Value: 0
+				2064 text 28,158 0승 1패
+				2065 container
+					2066 text 탈락
+					2067 checkbox Description: 선택, Value: 0
+				2068 text 28,158 0승 1패
+				2069 container
+					2070 text 탈락
+					2071 checkbox Description: 선택, Value: 0
+				2072 text 28,158 0승 1패
+				2073 container
+					2074 text 탈락
+					2075 checkbox Description: 선택, Value: 0
+				2076 text 28,140 0승 1패
+				2077 container
+					2078 text 탈락
+					2079 checkbox Description: 선택, Value: 0
+				2080 text 28,140 0승 1패
+				2081 container
+					2082 text 탈락
+					2083 checkbox Description: 선택, Value: 0
+				2084 text 28,140 0승 1패
+				2085 container
+					2086 text 탈락
+					2087 checkbox Description: 선택, Value: 0
+				2088 text 28,140 0승 1패
+				2089 container
+					2090 text 탈락
+					2091 checkbox Description: 선택, Value: 0
+				2092 text 28,140 0승 1패
+				2093 container
+					2094 text 탈락
+					2095 checkbox Description: 선택, Value: 0
+				2096 text 28,140 0승 1패
+				2097 container
+					2098 text 탈락
+					2099 checkbox Description: 선택, Value: 0
+				2100 text 28,140 0승 1패
+				2101 container
+					2102 text 탈락
+					2103 checkbox Description: 선택, Value: 0
+				2104 text 28,140 0승 1패
+				2105 container
+					2106 text 탈락
+					2107 checkbox Description: 선택, Value: 0
+				2108 text 28,140 0승 1패
+				2109 container
+					2110 text 탈락
+					2111 checkbox Description: 선택, Value: 0
+				2112 text 28,140 0승 1패
+				2113 container
+					2114 text 탈락
+					2115 checkbox Description: 선택, Value: 0
+				2116 text 28,140 0승 1패
+				2117 container
+					2118 text 제외
+					2119 checkbox Description: 선택, Value: 0
+				2120 text 28,127 5승 1패
+				2121 container
+					2122 text 탈락
+					2123 checkbox Description: 선택, Value: 0
+				2124 text 28,121 0승 1패
+				2125 container
+					2126 text 탈락
+					2127 checkbox Description: 선택, Value: 0
+				2128 text 28,121 0승 1패
+				2129 container
+					2130 text 탈락
+					2131 checkbox Description: 선택, Value: 0
+				2132 text 28,121 0승 1패
+				2133 container
+					2134 text 탈락
+					2135 checkbox Description: 선택, Value: 0
+				2136 text 28,121 0승 1패
+				2137 container
+					2138 text 탈락
+					2139 checkbox Description: 선택, Value: 0
+				2140 text 28,121 0승 1패
+				2141 container
+					2142 text 탈락
+					2143 checkbox Description: 선택, Value: 0
+				2144 text 28,121 0승 1패
+				2145 container
+					2146 text 탈락
+					2147 checkbox Description: 선택, Value: 0
+				2148 text 28,121 0승 1패
+				2149 container
+					2150 text 탈락
+					2151 checkbox Description: 선택, Value: 0
+				2152 text 28,121 0승 1패
+				2153 container
+					2154 text 탈락
+					2155 checkbox Description: 선택, Value: 0
+				2156 text 28,121 0승 1패
+				2157 container
+					2158 text 탈락
+					2159 checkbox Description: 선택, Value: 0
+				2160 text 28,121 0승 1패
+				2161 container
+					2162 text 탈락
+					2163 checkbox Description: 선택, Value: 0
+				2164 text 28,121 0승 1패
+				2165 container
+					2166 text 탈락
+					2167 checkbox Description: 선택, Value: 0
+				2168 text 28,121 0승 1패
+				2169 container
+					2170 text 탈락
+					2171 checkbox Description: 선택, Value: 0
+				2172 text 28,121 0승 1패
+				2173 container
+					2174 text 탈락
+					2175 checkbox Description: 선택, Value: 0
+				2176 text 28,121 0승 1패
+				2177 container
+					2178 text 탈락
+					2179 checkbox Description: 선택, Value: 0
+				2180 text 28,121 0승 1패
+				2181 container
+					2182 text 탈락
+					2183 checkbox Description: 선택, Value: 0
+				2184 text 28,121 0승 1패
+				2185 container
+					2186 text 탈락
+					2187 checkbox Description: 선택, Value: 0
+				2188 text 28,121 0승 1패
+				2189 container
+					2190 text 탈락
+					2191 checkbox Description: 선택, Value: 0
+				2192 text 28,121 0승 1패
+				2193 container
+					2194 text 제외
+					2195 checkbox Description: 선택, Value: 0
+				2196 text 28,078 2승 3패
+				2197 container
+					2198 text 제외
+					2199 checkbox Description: 선택, Value: 0
+				2200 text 28,078 1승 2패
+				2201 container
+					2202 text 제외
+					2203 checkbox Description: 선택, Value: 0
+				2204 text 28,041 1승 2패
+				2205 container
+					2206 text 제외
+					2207 checkbox Description: 선택, Value: 0
+				2208 text 28,041 1승 3패
+				2209 container
+					2210 text 제외
+					2211 checkbox Description: 선택, Value: 0
+				2212 text 28,041 2승 2패
+				2213 container
+					2214 text 탈락
+					2215 checkbox Description: 선택, Value: 0
+				2216 text 27,998 0승 1패
+				2217 container
+					2218 text 탈락
+					2219 checkbox Description: 선택, Value: 0
+				2220 text 27,998 0승 1패
+			2221 heading 그림체를 선택하세요, Value: 3
+				2222 text 그림체를 선택하세요
+	178 button 로그아웃, ID: browser-desktop-logout
+
+The focused UI element is 15 button 그림체 22

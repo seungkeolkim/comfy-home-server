@@ -1,4 +1,4 @@
-"""초기 후보부터 다음 세대 후보까지 같은 생성 명령으로 이어지는 경계를 검증합니다."""
+"""Random 추가와 진화 생성의 명시적 API 및 확정 단계의 경계를 검증합니다."""
 
 import uuid
 
@@ -7,11 +7,11 @@ from test_style_generation import StyleComfyClient, prepare_style_generation
 from test_style_voting import read_selection, vote_input
 
 
-def candidate_request(project: dict, evolution: dict, count: int) -> dict:
-    """명시적으로 읽은 Project·Voting Revision에 후보 생성 요청을 고정합니다."""
+def evolution_request(project: dict, evolution: dict, count: int) -> dict:
+    """명시적으로 읽은 Project·Voting Revision에 진화 생성 요청을 고정합니다."""
 
     return {"operationIdentifier": uuid.uuid4().hex, "expectedProjectRevision": project["revision"],
-            "expectedVotingRevision": evolution["votingRevision"], "candidateCount": count}
+            "expectedVotingRevision": evolution["votingRevision"], "childCount": count}
 
 
 def test_initial_candidate_request_replays_without_drawing_or_submitting_again(tmp_path) -> None:
@@ -20,10 +20,10 @@ def test_initial_candidate_request_replays_without_drawing_or_submitting_again(t
     fake = StyleComfyClient()
     _, client, project, _ = prepare_style_generation(tmp_path, fake)
     try:
-        endpoint = f"/api/style-projects/{project['identifier']}/candidate-generation-plans"
+        endpoint = f"/api/style-projects/{project['identifier']}/random-generation-plans"
         initial = evolution_view(client, project)
         assert initial["candidateCount"] == 0 and initial["history"] == []
-        payload = candidate_request(project, initial, 10)
+        payload = {"operationIdentifier": uuid.uuid4().hex, "expectedRevision": project["revision"], "combinationCount": 10}
         response = client.post(endpoint, json=payload)
         assert response.status_code == 201, response.text
         plan = response.json()
@@ -31,22 +31,24 @@ def test_initial_candidate_request_replays_without_drawing_or_submitting_again(t
         assert plan["operationIdentifier"] == payload["operationIdentifier"]
         assert len(plan["candidates"]) == 10 and not fake.submissions
         assert client.post(endpoint, json=payload).json() == plan
-        assert client.post(endpoint, json={**payload, "candidateCount": 11}).status_code == 409
-        assert client.post(endpoint, json={**payload, "expectedProjectRevision": 999}).status_code == 409
-        assert client.post(endpoint, json={**payload, "operationIdentifier": uuid.uuid4().hex, "expectedVotingRevision": 999}).status_code == 409
+        assert client.post(endpoint, json={**payload, "combinationCount": 11}).status_code == 409
+        assert client.post(endpoint, json={**payload, "expectedRevision": 999}).status_code == 409
         submit_existing_plan(client, project, plan)
         wait_for_plan(client, project, plan)
         ready = evolution_view(client, project)
         assert ready["candidateCount"] == ready["readyCandidateCount"] == 10
         assert ready["evaluatedCount"] == 0 and not ready["canPrepare"]
-        assert client.post(endpoint, json=candidate_request(project, ready, 2)).status_code == 409
+        additional = client.post(endpoint, json={**payload, "operationIdentifier": uuid.uuid4().hex, "combinationCount": 2})
+        assert additional.status_code == 201, additional.text
+        assert additional.json()["selection"]["mode"] == "random"
+        assert evolution_view(client, project)["batch"] is None
         assert len(fake.submissions) == 20
     finally:
         client.__exit__(None, None, None)
 
 
-def test_candidate_command_advances_two_generations_with_frozen_parents_and_history(rated_population) -> None:
-    """새 후보는 진화로만 만들며 확정된 세대·생존·다음 Batch가 분리됨을 검증합니다."""
+def test_explicit_evolution_advances_two_generations_with_frozen_parents_and_history(rated_population) -> None:
+    """명시적 진화 API에서 확정된 세대·생존·다음 Batch가 분리됨을 검증합니다."""
 
     _, fake, client, project, initial_plan = rated_population
     endpoint = f"/api/style-projects/{project['identifier']}"
@@ -65,8 +67,8 @@ def test_candidate_command_advances_two_generations_with_frozen_parents_and_hist
             assert response.status_code == 200, response.text
             before = evolution_view(client, project)
         assert before["canPrepare"]
-        payload = candidate_request(project, before, 2)
-        response = client.post(endpoint + "/candidate-generation-plans", json=payload)
+        payload = evolution_request(project, before, 2)
+        response = client.post(endpoint + "/evolution-plans", json=payload)
         assert response.status_code == 201, response.text
         plan = response.json()
         assert plan["selection"]["mode"] == "evolution" and plan["generationNumber"] == generation_number
@@ -76,8 +78,8 @@ def test_candidate_command_advances_two_generations_with_frozen_parents_and_hist
         assert batch["candidateIdentifiers"] == [candidate["identifier"] for candidate in plan["candidates"]]
         assert batch["completedCandidateIdentifiers"] == []
         assert batch["plan"]["operationIdentifier"] == payload["operationIdentifier"]
-        assert client.post(endpoint + "/candidate-generation-plans", json=payload).json() == plan
-        assert client.post(endpoint + "/candidate-generation-plans", json=candidate_request(project, evolution_view(client, project), 1)).status_code == 409
+        assert client.post(endpoint + "/evolution-plans", json=payload).json() == plan
+        assert client.post(endpoint + "/evolution-plans", json=evolution_request(project, evolution_view(client, project), 1)).status_code == 409
         submit_existing_plan(client, project, plan)
         wait_for_plan(client, project, plan)
         children = set(batch["candidateIdentifiers"])
@@ -112,14 +114,45 @@ def test_cancelled_candidate_request_cannot_restart_a_cancelled_batch(rated_popu
     """취소된 Operation은 재제출하지 않으며 새로운 요청으로만 다음 후보를 준비합니다."""
 
     _, _, client, project, _ = rated_population
-    endpoint = f"/api/style-projects/{project['identifier']}/candidate-generation-plans"
-    payload = candidate_request(project, evolution_view(client, project), 2)
+    endpoint = f"/api/style-projects/{project['identifier']}/evolution-plans"
+    payload = evolution_request(project, evolution_view(client, project), 2)
     response = client.post(endpoint, json=payload)
     assert response.status_code == 201, response.text
     finish_evolution(client, project, "cancel")
-    assert client.post(endpoint, json=payload).status_code == 409
+    assert client.post(endpoint, json=payload).json()["evolutionStatus"] == "cancelled"
+    rejected_submission = client.post(
+        f"/api/style-projects/{project['identifier']}/generation-plans/{response.json()['planIdentifier']}/submit",
+        json={"operationIdentifier": uuid.uuid4().hex},
+    )
+    assert rejected_submission.status_code == 409
     current = evolution_view(client, project)
     assert current["currentGeneration"] == 1 and current["history"][0]["status"] == "cancelled"
     assert current["history"][0]["enteredIdentifiers"] == []
-    fresh = client.post(endpoint, json=candidate_request(project, current, 2))
+    fresh = client.post(endpoint, json=evolution_request(project, current, 2))
     assert fresh.status_code == 201 and fresh.json()["planIdentifier"] != response.json()["planIdentifier"]
+
+
+def test_random_addition_never_becomes_evolution_when_population_is_ready(rated_population) -> None:
+    """평가가 끝난 Pool에서도 Random 추가는 부모·다음 세대를 만들지 않습니다."""
+
+    _, fake, client, project, _ = rated_population
+    endpoint = f"/api/style-projects/{project['identifier']}"
+    before = evolution_view(client, project)
+    assert before["canPrepare"]
+    submission_count = len(fake.submissions)
+    response = client.post(endpoint + "/random-generation-plans", json={
+        "operationIdentifier": uuid.uuid4().hex, "expectedRevision": project["revision"], "combinationCount": 2,
+    })
+    assert response.status_code == 201, response.text
+    plan = response.json()
+    assert plan["selection"]["mode"] == "random"
+    assert plan["generationNumber"] == before["currentGeneration"]
+    assert len(fake.submissions) == submission_count
+    assert evolution_view(client, project)["batch"] is None
+    submit_existing_plan(client, project, plan)
+    wait_for_plan(client, project, plan)
+    after = evolution_view(client, project)
+    assert after["currentGeneration"] == before["currentGeneration"]
+    assert after["candidateCount"] == before["candidateCount"] + 2
+    assert after["batch"] is None
+    assert client.post(endpoint + "/candidate-generation-plans", json={}).status_code == 404

@@ -34,7 +34,7 @@ async function styleProjectApi(path, options = {}) {
 /** 서버 데이터 대신 탭별 선택과 미저장 초안만 Session Storage에 보관합니다. */
 function persistStyleWorkspaceSession() {
   const sessionState = {};
-  for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "candidateGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
+  for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "candidateGenerationRequests", "randomGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
     sessionState[field] = previewState[field];
   }
   try {
@@ -64,7 +64,7 @@ async function loadPersistentStyleWorkspace(restoreSession = false) {
     try {
       const storedSession = JSON.parse(sessionStorage.getItem(STYLE_WORKSPACE_SESSION_KEY) || "null");
       if (storedSession && typeof storedSession === "object") {
-        for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "candidateGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
+        for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "candidateGenerationRequests", "randomGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
           if (storedSession[field] !== undefined) previewState[field] = storedSession[field];
         }
       }
@@ -77,6 +77,7 @@ async function loadPersistentStyleWorkspace(restoreSession = false) {
   previewState.projectDraftRevisions ??= {};
   previewState.pendingProjectSaves ??= {};
   previewState.candidateGenerationRequests ??= {};
+  previewState.randomGenerationRequests ??= {};
   if (!previewState.projects.some(project => project.identifier === previewState.currentProjectIdentifier)) {
     previewState.currentProjectIdentifier = previewState.projects[0]?.identifier || null;
   }

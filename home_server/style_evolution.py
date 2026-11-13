@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, ConfigDict, Field
 
 from .style_evolution_breeding import draw_evolution_children
-from .style_evolution_selection import AUTOMATIC_PLACEMENT_POLICY, build_selection_ranking, next_selection_pair, synchronize_selection_statistics
+from .style_evolution_selection import STYLELAB_SELECTION_POLICY, build_selection_ranking, next_selection_pair, synchronize_selection_statistics
 from .style_evolution_store import StyleEvolutionStore
 from .style_generation import FixedCombination, StyleGenerationPlanInput
 from .style_projects import ProjectSettings, StyleRevisionConflict, encode_snapshot, snapshot_hash
@@ -40,16 +40,6 @@ class EvolutionActionInput(BaseModel):
     expectedVotingRevision: int = Field(ge=1)
 
 
-class CandidateGenerationPlanInput(BaseModel):
-    """초기 후보와 다음 세대 후보를 현재 Project·Arena 상태에 맞게 준비합니다."""
-
-    model_config = ConfigDict(extra="forbid")
-    operationIdentifier: str = Field(min_length=16, max_length=100)
-    expectedProjectRevision: int = Field(ge=1)
-    expectedVotingRevision: int = Field(ge=1)
-    candidateCount: int = Field(ge=1, le=32)
-
-
 class StyleEvolutionService:
     """모든 Score·후보 상태 전환을 같은 DB Transaction에서 처리합니다."""
 
@@ -59,18 +49,20 @@ class StyleEvolutionService:
         self.server = server
         self.store = StyleEvolutionStore(server)
 
-    def upgrade_automatic_placement(self, connection, project_identifier: str, evaluation_identifier: str, state: dict) -> bool:
-        """미확정 Batch만 전체 기존 순위표로 전환하고 기존 Vote·Undo Snapshot은 보존합니다."""
+    def migrate_parent_selection(self, connection, project_identifier: str, evaluation_identifier: str, state: dict) -> bool:
+        """미확정 Batch를 고정 부모 기준으로 복원하며 기존 Vote·Undo 기록은 보존합니다."""
 
         row = self.store.find_open_evolution_batch(connection, evaluation_identifier)
         if not row or row["project_id"] != project_identifier:
             return False
         batch = json.loads(row["batch_json"])
-        if batch.get("placement_policy") != AUTOMATIC_PLACEMENT_POLICY:
-            reference_identifiers = batch["sourceCandidateIdentifiers"]
-            source_statistics = batch["beforeArena"]["statistics"]
-            batch.update(placement_policy=AUTOMATIC_PLACEMENT_POLICY, reference_ids=reference_identifiers,
-                reference_scores={identifier: source_statistics[identifier]["rating"] for identifier in reference_identifiers})
+        parent_policy = {
+            "placement_policy": STYLELAB_SELECTION_POLICY,
+            "reference_ids": batch["parent_ids"],
+            "reference_scores": batch["parent_scores"],
+        }
+        if any(batch.get(field) != value for field, value in parent_policy.items()):
+            batch.update(copy.deepcopy(parent_policy))
             connection.execute("UPDATE style_evolution_batches SET batch_json=? WHERE batch_id=?", (encode_snapshot(batch), row["batch_id"]))
         if row["status"] != "active":
             return False
@@ -78,12 +70,14 @@ class StyleEvolutionService:
         if not selection or selection["batch_id"] != row["batch_id"]:
             raise RuntimeError("진화 Batch와 선별 상태가 일치하지 않습니다.")
         before = encode_snapshot(state)
-        policy_changed = selection.get("placement_policy") != AUTOMATIC_PLACEMENT_POLICY
-        for field in ("placement_policy", "reference_ids", "reference_scores"):
-            selection[field] = copy.deepcopy(batch[field])
-        if policy_changed and state.get("match"):
-            state["match"]["token"] = uuid.uuid4().hex
+        policy_changed = any(selection.get(field) != value for field, value in parent_policy.items())
+        selection.update(copy.deepcopy(parent_policy))
+        if policy_changed:
+            state["match"] = None
         synchronize_selection_statistics(state)
+        if policy_changed:
+            _, ready_identifiers = self.server.style_voting.load_evaluation_candidates(connection, project_identifier, evaluation_identifier)
+            self.server.style_voting.synchronize_candidates(state, [], ready_identifiers)
         return encode_snapshot(state) != before
 
     def migrate_pending_placements(self) -> None:
@@ -97,7 +91,7 @@ class StyleEvolutionService:
                 if not arena:
                     raise RuntimeError("진화 Batch의 선별 상태를 찾을 수 없습니다.")
                 state = json.loads(arena["state_json"])
-                if self.upgrade_automatic_placement(connection, row["project_id"], row["evaluation_id"], state):
+                if self.migrate_parent_selection(connection, row["project_id"], row["evaluation_id"], state):
                     self.server.style_voting.save_arena(connection, row["evaluation_id"], arena["revision"] + 1, state)
 
     def load_evolution_context(self, connection, project_identifier: str, evaluation_identifier: str) -> tuple[dict, int, dict, list[dict], list[str]]:
@@ -186,41 +180,6 @@ class StyleEvolutionService:
                 "childCount": len(batch["candidate_ids"]), "createdAt": row["created_at"]})
         return history
 
-    async def prepare_candidate_generation(self, project_identifier: str, payload: CandidateGenerationPlanInput) -> dict:
-        """평가된 Pool이 준비되면 진화만 허용하고 처음 부족한 Pool만 무작위로 채웁니다."""
-
-        project = self.server.style_generation.store.project(project_identifier)
-        view = self.read_evolution(project_identifier, project["active_evaluation_id"])
-        if payload.expectedProjectRevision != view["projectRevision"]:
-            raise StyleRevisionConflict("프로젝트 설정이 바뀌었습니다. 최신 조건에서 후보를 만들어 주세요.")
-        with self.server.database._connect() as connection:
-            existing = connection.execute("SELECT plan_id FROM style_generation_plans WHERE project_id=? AND operation_id=?", (project_identifier, payload.operationIdentifier)).fetchone()
-        if existing:
-            plan = self.server.style_generation.store.plan(existing[0], project_identifier)
-            requested_count = plan["selection"].get("requestedCount")
-            if plan["projectRevision"] != payload.expectedProjectRevision or requested_count != payload.candidateCount:
-                raise StyleRevisionConflict("같은 요청 ID로 다른 수의 후보를 만들 수 없습니다.")
-            if plan["evolutionStatus"] == "cancelled":
-                raise StyleRevisionConflict("취소한 후보입니다. 최신 상태에서 새 후보를 만들어 주세요.")
-            return plan
-        if payload.expectedVotingRevision != view["votingRevision"]:
-            raise StyleRevisionConflict("선별 상태가 바뀌었습니다. 최신 결과에서 후보를 만들어 주세요.")
-        if view["batch"] or view["pendingRequestCount"]:
-            raise StyleRevisionConflict("현재 후보의 생성·선별·세대 확정을 먼저 마쳐 주세요.")
-        if view["canPrepare"]:
-            return await self.prepare_evolution_plan(project_identifier, EvolutionPlanInput(
-                operationIdentifier=payload.operationIdentifier, expectedProjectRevision=payload.expectedProjectRevision,
-                expectedVotingRevision=payload.expectedVotingRevision, childCount=payload.candidateCount,
-            ))
-        if view["candidateCount"] >= view["minimumEvaluatedCount"]:
-            raise StyleRevisionConflict(view["blockers"][0] if view["blockers"] else "현재 후보를 먼저 선별해 주세요.")
-        from .style_random_generation import RandomStyleGenerationPlanInput
-
-        return await self.server.style_generation.create_plan(project_identifier, RandomStyleGenerationPlanInput(
-            expectedRevision=payload.expectedProjectRevision, operationIdentifier=payload.operationIdentifier,
-            combinationCount=payload.candidateCount,
-        ))
-
     def build_batch_view(self, connection, row, state: dict, ready_identifiers: list[str]) -> dict:
         """성분 목록 없이 자녀 준비 수와 확정에 필요한 상태를 반환합니다."""
 
@@ -283,8 +242,8 @@ class StyleEvolutionService:
             context = {"identifier": uuid.uuid4().hex, "projectIdentifier": project_identifier, "evaluationIdentifier": evaluation_identifier,
                        "sourceGeneration": source_generation, "targetGeneration": source_generation + 1, "parent_ids": parent_identifiers,
                        "parent_scores": {identifier: state["statistics"][identifier]["rating"] for identifier in parent_identifiers},
-                       "placement_policy": AUTOMATIC_PLACEMENT_POLICY, "reference_ids": [candidate["identifier"] for candidate in candidates],
-                       "reference_scores": {candidate["identifier"]: state["statistics"][candidate["identifier"]]["rating"] for candidate in candidates},
+                       "placement_policy": STYLELAB_SELECTION_POLICY, "reference_ids": list(parent_identifiers),
+                       "reference_scores": {identifier: state["statistics"][identifier]["rating"] for identifier in parent_identifiers},
                        "sourceCandidateIdentifiers": [candidate["identifier"] for candidate in candidates], "beforeArena": copy.deepcopy(state), "votingRevision": revision,
                        "operationIdentifier": payload.operationIdentifier, "payloadHash": request_hash, "resolvedCases": reference_cases}
         selection_seed = snapshot_hash({"projectIdentifier": project_identifier, "operationIdentifier": payload.operationIdentifier})

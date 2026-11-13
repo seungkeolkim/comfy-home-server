@@ -1,0 +1,72 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#compare".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#compare
+	2 container preview-application
+		3 container
+			4 heading 스타일 구성, Value: 1, ID: workspace-page-title
+				5 text 스타일 구성
+			6 button 새로고침, ID: workspace-refresh-button
+			7 button 설정
+			8 button Comfy Home 로그아웃
+		9 container 작업 공간
+			10 link Description: 일반 생성, Help: 현재 창에서 일반 생성으로 전환합니다., Value: 127.0.0.1:8388/, ID: general-workspace-link
+			11 link Description: 스타일 구성, Value: 127.0.0.1:8388/style
+		12 container project-context
+			56 text 현재 프로젝트
+			57 pop up button (collapsed, settable) Description: 현재 프로젝트, Value: 동작 비교 조사 2026-11-13, ID: active-project-picker, Secondary Actions: Expand
+				58 menu
+					59 (selected) 동작 비교 조사 2026-11-13
+					60 테스트 프로젝트
+		18 container preview-content
+			61 heading 선별, Value: 1
+				62 text 선별
+			63 button (disabled) ↶ 되돌리기, Help: 최근 30개 선택 중 마지막 선택을 되돌립니다.
+			64 container style-render-results
+				65 checkbox ◉ Blind 켜짐, Value: 1
+				66 button (disabled) 조합 차이
+				67 button 한 장씩
+				68 text A 그림체 숨김 B 그림체 숨김
+				69 container
+					70 text PROMPT 01 낮 거리
+					71 button 이름 변경
+					72 button 낮 거리 A 이미지 확대
+						73 image 낮 거리 · A
+					74 button 낮 거리 B 이미지 확대
+						75 image 낮 거리 · B
+				76 container
+					77 text PROMPT 02 실내 서재
+					78 button 이름 변경
+					79 button 실내 서재 A 이미지 확대
+						80 image 실내 서재 · A
+					81 button 실내 서재 B 이미지 확대
+						82 image 실내 서재 · B
+				83 text 그림체 정보 숨김
+				84 button (disabled) Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+				85 button 조합 폐기, Help: 모든 Prompt의 이미지와 함께 조합을 폐기합니다.
+				86 text 그림체 정보 숨김
+				87 button (disabled) Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+				88 button 조합 폐기, Help: 모든 Prompt의 이미지와 함께 조합을 폐기합니다.
+				89 button (collapsed) 비교 대상 · 관리, Secondary Actions: Expand
+					90 text 비교 대상 · 관리
+				91 container
+					92 button A가 더 좋아요
+					93 button 비슷함
+					94 button B가 더 좋아요
+					110 text 새 조합 평가 중
+		55 container Description: 스타일 메뉴, ID: preview-mobile-navigation
+			95 button ▦ 프로젝트
+				96 text ▦
+				97 text 프로젝트
+			98 button ＋ 생성
+				99 text ＋
+				100 text 생성
+			101 button ↔ 선별
+				102 text ↔
+				103 text 선별
+			104 button ⟳ 진화
+				105 text ⟳
+				106 text 진화
+			107 button ◇ 그림체
+				108 text ◇
+				109 text 그림체
+
+The focused UI element is 1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#compare

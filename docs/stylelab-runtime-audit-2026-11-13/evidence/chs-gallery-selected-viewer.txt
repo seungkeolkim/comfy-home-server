@@ -1,0 +1,18 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#candidates".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#candidates
+	2 container Description: 예시 이미지 확대, ID: illustration-dialog
+		3 heading 세대001-조합01, Value: 2, ID: style-viewer-title
+			4 text 세대001-조합01
+		5 text 실내 서재
+		6 button 그림체 상세 닫기
+		7 image Description: 세대001-조합01, ID: style-viewer-image
+		8 text 원본 이미지를 불러오는 중…
+		9 button ← 이전
+		10 text 2 / 2
+		11 button (disabled) 다음 →
+		12 container
+			13 switch (settable, boolean) Description: 원본 보기, Value: 1, ID: style-viewer-original-toggle
+			14 text 원본 보기
+		15 link Description: 원본 새 탭으로 보기, Help: 세대001-조합01-Prompt02-f3fc4fede3e64e37906714a7a232f64d.png, ID: style-viewer-original-link, Value: 127.0.0.1:8388/media/from_comfy_home_style/anima_turboV11/%EB%8F%99%EC%9E%91%20%EB%B9%84%EA%B5%90%20%EC%A1%B0%EC%82%AC%202026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/%EC%84%B8%EB%8C%80001-%EC%A1%B0%ED%95%A901-Prompt02-f3fc4fede3e64e37906714a7a232f64d.png
+
+The focused UI element is 6 button 그림체 상세 닫기

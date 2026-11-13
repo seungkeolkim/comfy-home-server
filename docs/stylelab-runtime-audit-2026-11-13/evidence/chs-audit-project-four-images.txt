@@ -1,0 +1,83 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#generation".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#generation
+	2 container preview-application
+		3 container Description: 스타일 작업 공간, ID: style-workspace-sidebar
+			4 link Description: Comfy Home 스타일 프로젝트, Value: 127.0.0.1:8388/style#projects
+			31 container Description: 스타일 메뉴, ID: preview-sidebar
+				45 button ▦　프로젝트
+				46 text 현재 프로젝트
+				47 text 동작 비교 조사 2026-11-13
+				48 button ＋　이미지 생성
+				49 button ↔　선별
+				50 button ⟳　진화
+				51 button ◇　그림체 　2
+					52 text ◇　그림체
+					53 text 　2
+				54 button ⚙　프로젝트 설정
+				55 text 시스템 공통
+				56 button ◎　글로벌 설정
+			18 container workspace-connection-status
+				19 text ComfyUI 연결됨
+			20 button 로그아웃, ID: workspace-logout-button
+		21 container
+			22 text YOUR CREATIVE SPACE
+			23 heading 스타일 구성, Value: 1, ID: workspace-page-title
+				24 text 스타일 구성
+			25 text 프로젝트 1
+			26 button 새로고침, ID: workspace-refresh-button
+			27 button 설정
+		28 container 작업 공간
+			29 link Description: 일반 생성, Help: 현재 창에서 일반 생성으로 전환합니다., Value: 127.0.0.1:8388/, ID: general-workspace-link
+			30 link Description: 스타일 구성, Value: 127.0.0.1:8388/style
+		44 container project-context
+			57 text 현재 프로젝트
+			58 pop up button (collapsed, settable) Description: 현재 프로젝트, Value: 동작 비교 조사 2026-11-13, ID: active-project-picker, Secondary Actions: Expand
+				59 menu
+					60 (selected) 동작 비교 조사 2026-11-13
+					61 테스트 프로젝트
+		62 container preview-content
+			63 heading 이미지 생성, Value: 1
+				64 text 이미지 생성
+			65 button 프로젝트 설정
+			66 container
+				67 heading 1세대 초기 후보, Value: 2
+					68 text 1세대 초기 후보
+				69 text 평가 1 / 2 후보 수
+				70 stepper (settable, integer) 후보 수, Value: 2, ID: style-generation-candidate-count
+				71 button 초기 후보 생성
+				72 button 선별하기
+			73 button (collapsed) 직접 조합 지정, Secondary Actions: Expand
+				74 text 직접 조합 지정
+			75 container
+				76 heading 1세대 · 2개 조합 · 2개 Prompt, Value: 2
+					77 text 1세대 · 2개 조합 · 2개 Prompt
+				78 heading 낮 거리, Value: 3
+					79 text 낮 거리
+				80 container
+					81 text 세대001-조합01
+					82 button 낮 거리 · 세대001-조합01
+						83 image 낮 거리 · 세대001-조합01
+					84 button (collapsed) 성분·실제 생성 조건, Secondary Actions: Expand
+						85 text 성분·실제 생성 조건
+				86 container
+					87 text 세대001-조합02
+					88 button 낮 거리 · 세대001-조합02
+						89 image 낮 거리 · 세대001-조합02
+					90 button (collapsed) 성분·실제 생성 조건, Secondary Actions: Expand
+						91 text 성분·실제 생성 조건
+				92 heading 실내 서재, Value: 3
+					93 text 실내 서재
+				94 container
+					95 text 세대001-조합01
+					96 button 실내 서재 · 세대001-조합01
+						97 image 실내 서재 · 세대001-조합01
+					98 button (collapsed) 성분·실제 생성 조건, Secondary Actions: Expand
+						99 text 성분·실제 생성 조건
+				100 container
+					101 text 세대001-조합02
+					102 button 실내 서재 · 세대001-조합02
+						103 image 실내 서재 · 세대001-조합02
+					104 button (collapsed) 성분·실제 생성 조건, Secondary Actions: Expand
+						105 text 성분·실제 생성 조건
+
+The focused UI element is 1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#generation

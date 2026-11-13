@@ -1,0 +1,99 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#candidates".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#candidates
+	2 container preview-application
+		3 container Description: 스타일 작업 공간, ID: style-workspace-sidebar
+			4 link Description: Comfy Home 스타일 프로젝트, Value: 127.0.0.1:8388/style#projects
+			5 container Description: 스타일 메뉴, ID: preview-sidebar
+				38 button ▦　프로젝트
+				39 text 현재 프로젝트
+				40 text 동작 비교 조사 2026-11-13
+				41 button ＋　이미지 생성
+				42 button ↔　선별
+				43 button ⟳　진화
+				44 button ◇　그림체 　2
+					45 text ◇　그림체
+					46 text 　2
+				47 button ⚙　프로젝트 설정
+				48 text 시스템 공통
+				49 button ◎　글로벌 설정
+			18 container workspace-connection-status
+				19 text ComfyUI 연결됨
+			20 button 로그아웃, ID: workspace-logout-button
+		21 container
+			22 text YOUR CREATIVE SPACE
+			23 heading 스타일 구성, Value: 1, ID: workspace-page-title
+				24 text 스타일 구성
+			25 text 프로젝트 2
+			26 button 새로고침, ID: workspace-refresh-button
+			27 button 설정
+		28 container 작업 공간
+			29 link Description: 일반 생성, Help: 현재 창에서 일반 생성으로 전환합니다., Value: 127.0.0.1:8388/, ID: general-workspace-link
+			30 link Description: 스타일 구성, Value: 127.0.0.1:8388/style
+		31 container project-context
+			50 text 현재 프로젝트
+			51 pop up button (collapsed, settable) Description: 현재 프로젝트, Value: 동작 비교 조사 2026-11-13, ID: active-project-picker, Secondary Actions: Expand
+				52 menu
+					53 (selected) 동작 비교 조사 2026-11-13
+					54 테스트 프로젝트
+		37 container preview-content
+			55 heading 그림체, Value: 1
+				56 text 그림체
+			57 button 이미지 생성
+			58 text 표시
+			59 pop up button (collapsed, settable) 표시, Value: 활성·진화 중, ID: style-library-lifecycle, Secondary Actions: Expand
+				60 menu
+					61 (selected) 활성·진화 중
+					62 퇴역
+					63 취소
+					64 전체
+			65 text 정렬
+			66 pop up button (collapsed, settable) 정렬, Value: Elo 높은 순, ID: candidate-sort-order, Secondary Actions: Expand
+				67 menu
+					68 (selected) Elo 높은 순
+					69 평가 횟수 많은 순
+					70 등록 순
+			71 container style-render-results
+				72 text 0개 선택
+				73 button 현재 목록 선택
+				74 button (disabled) 선택 Elo 수정
+				75 button (disabled) 선택 조합 폐기
+				76 button (disabled) 선택 해제
+				77 container
+					78 heading 현재 조건 · Seed 42 · 2개 그림체, Value: 2
+						79 text 현재 조건 · Seed 42 · 2개 그림체
+					80 container
+						81 checkbox (settable, integer) Description: 세대001-조합01 선택, Value: 0
+						82 text 선택
+					83 button 세대001-조합01 자세히 보기
+						84 text 세대001-조합01
+						85 text 2 / 2장
+						86 container
+							87 text 1위 · Elo  10,000
+						88 text 0승 0패 · 0회 평가 · Skip 0
+						89 image 낮 거리
+						90 text 낮 거리
+						91 image 실내 서재
+						92 text 실내 서재
+						93 text 1세대 · 활성 · 작가 0개 · LoRA 1개
+						94 text 이미지 자세히 보기 ↗
+					95 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+					96 button 조합 폐기, Help: 모든 Prompt의 이미지와 함께 조합을 폐기합니다.
+					97 container
+						98 checkbox (settable, integer) Description: 세대001-조합02 선택, Value: 0
+						99 text 선택
+					100 button 세대001-조합02 자세히 보기
+						101 text 세대001-조합02
+						102 text 2 / 2장
+						103 container
+							104 text 2위 · Elo  9,520
+						105 text 0승 1패 · 1회 평가 · Skip 0
+						106 image 낮 거리
+						107 text 낮 거리
+						108 image 실내 서재
+						109 text 실내 서재
+						110 text 1세대 · 활성 · 작가 0개 · LoRA 1개
+						111 text 이미지 자세히 보기 ↗
+					112 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+					113 button 조합 폐기, Help: 모든 Prompt의 이미지와 함께 조합을 폐기합니다.
+
+The focused UI element is 1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#candidates

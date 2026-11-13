@@ -5,7 +5,7 @@ import asyncio
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 
-from .style_evolution import CandidateGenerationPlanInput, EvolutionActionInput, EvolutionPlanInput
+from .style_evolution import EvolutionActionInput, EvolutionPlanInput
 from .style_projects import StyleRevisionConflict
 
 
@@ -37,21 +37,6 @@ def create_style_evolution_router(server) -> APIRouter:
             raise HTTPException(422, str(exception)) from exception
         except (RuntimeError, httpx.HTTPError) as exception:
             raise HTTPException(502, "ComfyUI 사전 확인에 실패했습니다. 생성 작업은 접수하지 않았습니다.") from exception
-
-    @router.post("/api/style-projects/{project_identifier}/candidate-generation-plans", status_code=201)
-    async def prepare_candidate_generation(project_identifier: str, payload: CandidateGenerationPlanInput):
-        """이미지 제출은 기존 경로를 재사용하고 현재 단계에 맞는 후보 계획을 반환합니다."""
-
-        try:
-            return await server.style_evolution.prepare_candidate_generation(project_identifier, payload)
-        except StyleRevisionConflict as exception:
-            raise HTTPException(409, str(exception)) from exception
-        except LookupError as exception:
-            raise HTTPException(404, str(exception)) from exception
-        except ValueError as exception:
-            raise HTTPException(422, str(exception)) from exception
-        except (RuntimeError, httpx.HTTPError) as exception:
-            raise HTTPException(502, "ComfyUI를 확인하지 못했습니다. 후보 생성은 접수하지 않았습니다.") from exception
 
     @router.post("/api/style-projects/{project_identifier}/evolution-batches/{batch_identifier}/{action}")
     async def finish_evolution(project_identifier: str, batch_identifier: str, action: str, payload: EvolutionActionInput):

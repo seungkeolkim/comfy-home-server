@@ -1,0 +1,18 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#evolution".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#evolution
+	2 container Description: 예시 이미지 확대, ID: illustration-dialog
+		3 heading 세대002-조합10, Value: 2, ID: style-viewer-title
+			16 text 세대002-조합10
+		17 text 카린 바니걸 스테이지 (풀바디O)
+		6 button 그림체 상세 닫기
+		7 image Description: 세대002-조합10, ID: style-viewer-image
+		18 text 원본 이미지를 불러오는 중…
+		9 button ← 이전
+		19 text 3 / 3
+		11 button (disabled) 다음 →
+		12 container
+			13 switch (settable, boolean) Description: 원본 보기, Value: 1, ID: style-viewer-original-toggle
+			14 text 원본 보기
+		15 link Description: 원본 새 탭으로 보기, Help: 세대002-조합10-Prompt03-fa8ea4a5553e4d34a776accf42760d15.png, ID: style-viewer-original-link, Value: 127.0.0.1:8388/media/from_comfy_home_style/anima_turboV11/%ED%85%8C%EC%8A%A4%ED%8A%B8%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8__e30aaf8b619a4483af488090a7e7820c/%EC%84%B8%EB%8C%80002-%EC%A1%B0%ED%95%A910-Prompt03-fa8ea4a5553e4d34a776accf42760d15.png
+
+The focused UI element is 6 button 그림체 상세 닫기

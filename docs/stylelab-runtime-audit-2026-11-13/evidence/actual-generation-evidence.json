@@ -1,0 +1,199 @@
+{
+  "capturedAt": "2026-11-12T15:36:39.043820+00:00",
+  "databaseOpenedReadOnly": true,
+  "chsNewOutputs": [
+    {
+      "output_id": 8021,
+      "relative_path": "from_comfy_home_style/anima_turboV11/테스트 프로젝트__e30aaf8b619a4483af488090a7e7820c/세대003-조합01-Prompt01-7bfcd1780147494482ba01819f2a645f.png",
+      "is_available": 1,
+      "is_deleted": 0,
+      "generated_at": 1794496455.0,
+      "request_id": "bba6d3c5c9024c27ae7fa718aaf3c9f2",
+      "job_id": "8228a643bd4345c29fc3479dedfc570d",
+      "prompt_id": "11b26ed1-07f9-4543-9002-0f76b5c8e50d",
+      "status": "completed",
+      "project_id": "e30aaf8b619a4483af488090a7e7820c",
+      "candidate_id": "5c87bbada3f74405b9bfdb3cbdcb729d",
+      "case_id": "2f3eb64207bb9d1b0b426f7c6737a41d",
+      "actualImageSize": [
+        960,
+        1280
+      ],
+      "sha256": "bd99c818fefd409f764ea612e0f8e7b84f72475f854ebc7621575d5443a790b9",
+      "fileBytes": 1847157
+    },
+    {
+      "output_id": 8022,
+      "relative_path": "from_comfy_home_style/anima_turboV11/테스트 프로젝트__e30aaf8b619a4483af488090a7e7820c/세대003-조합01-Prompt02-9cfd3e613b2c470ea0eb4cab3d409f95.png",
+      "is_available": 1,
+      "is_deleted": 0,
+      "generated_at": 1794496455.0,
+      "request_id": "fb4a3c8598f94abea09c04fbe5c3657c",
+      "job_id": "8228a643bd4345c29fc3479dedfc570d",
+      "prompt_id": "193f0a51-838c-4d8d-8990-11b04bb33777",
+      "status": "completed",
+      "project_id": "e30aaf8b619a4483af488090a7e7820c",
+      "candidate_id": "5c87bbada3f74405b9bfdb3cbdcb729d",
+      "case_id": "dc502c26ba04de8f30ac8a074bfe3733",
+      "actualImageSize": [
+        960,
+        1280
+      ],
+      "sha256": "b418f16f6919abc64518b961f6599bbc55b234c969ccdfdb9e27fecfa7a84c94",
+      "fileBytes": 1671564
+    },
+    {
+      "output_id": 8023,
+      "relative_path": "from_comfy_home_style/anima_turboV11/테스트 프로젝트__e30aaf8b619a4483af488090a7e7820c/세대003-조합01-Prompt03-5baa51ea0bda40349ef2ede164730bd6.png",
+      "is_available": 1,
+      "is_deleted": 0,
+      "generated_at": 1794496455.0,
+      "request_id": "193ad65a3c8e4088a7179ccddb84a268",
+      "job_id": "8228a643bd4345c29fc3479dedfc570d",
+      "prompt_id": "549a5d9c-2bc3-46a9-9ba3-8895e97b139f",
+      "status": "completed",
+      "project_id": "e30aaf8b619a4483af488090a7e7820c",
+      "candidate_id": "5c87bbada3f74405b9bfdb3cbdcb729d",
+      "case_id": "ac86ce3c586d4f44383b3dd278499780",
+      "actualImageSize": [
+        960,
+        1280
+      ],
+      "sha256": "495e964b147bfa64444acedcc5fd140aafbeb85c2b061d57a05310771b119a51",
+      "fileBytes": 1669350
+    },
+    {
+      "output_id": 8024,
+      "relative_path": "from_comfy_home_style/anima_turboV11/동작 비교 조사 2026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/세대001-조합01-Prompt01-840b12b914fb407abbc35684e81f176b.png",
+      "is_available": 1,
+      "is_deleted": 0,
+      "generated_at": 1794497017.0,
+      "request_id": "4573be434786427087b7ad56a6c7e4be",
+      "job_id": "13aa39be85f14305982cf2128831d118",
+      "prompt_id": "6345ef1d-e779-4039-b1da-c4b297c35e33",
+      "status": "completed",
+      "project_id": "b9c8b976bf924a839bf8bccd6b65fa6f",
+      "candidate_id": "ad28c60e8833400fa5a2f75bd1e7ccb0",
+      "case_id": "9bc3f094fb0cc7d1712eb55ee7056405",
+      "actualImageSize": [
+        576,
+        864
+      ],
+      "sha256": "2a47992190433cd008fc0c4e39f82a78299f0a914c5f450289b88535b9e7572f",
+      "fileBytes": 769439
+    },
+    {
+      "output_id": 8026,
+      "relative_path": "from_comfy_home_style/anima_turboV11/동작 비교 조사 2026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/세대001-조합02-Prompt01-ef4864e7bb6343509152053098b64f7d.png",
+      "is_available": 1,
+      "is_deleted": 0,
+      "generated_at": 1794497017.0,
+      "request_id": "e7caf57ffcee4272bc39629a000b0836",
+      "job_id": "13aa39be85f14305982cf2128831d118",
+      "prompt_id": "24a3061c-e3d8-4fc0-ab30-2ed1b49553d6",
+      "status": "completed",
+      "project_id": "b9c8b976bf924a839bf8bccd6b65fa6f",
+      "candidate_id": "886ad72d38c14d28b08048d61288967f",
+      "case_id": "9bc3f094fb0cc7d1712eb55ee7056405",
+      "actualImageSize": [
+        576,
+        864
+      ],
+      "sha256": "e03f3ee8967abe5c2647eb6d87e995b0b55931c262c4aab06ae6301825197bd3",
+      "fileBytes": 746454
+    },
+    {
+      "output_id": 8025,
+      "relative_path": "from_comfy_home_style/anima_turboV11/동작 비교 조사 2026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/세대001-조합01-Prompt02-f3fc4fede3e64e37906714a7a232f64d.png",
+      "is_available": 1,
+      "is_deleted": 0,
+      "generated_at": 1794497017.0,
+      "request_id": "4c419f689d7644d3b9b91eed37b83cb6",
+      "job_id": "13aa39be85f14305982cf2128831d118",
+      "prompt_id": "baff4537-de7b-40d4-bea7-5fb42e44bdba",
+      "status": "completed",
+      "project_id": "b9c8b976bf924a839bf8bccd6b65fa6f",
+      "candidate_id": "ad28c60e8833400fa5a2f75bd1e7ccb0",
+      "case_id": "49f82415681396d8f31856596a0783d3",
+      "actualImageSize": [
+        576,
+        864
+      ],
+      "sha256": "fb08485bb3fbbecae6aae3e02ede332a0274cb03ea04159b51dd61644621e56a",
+      "fileBytes": 791964
+    },
+    {
+      "output_id": 8027,
+      "relative_path": "from_comfy_home_style/anima_turboV11/동작 비교 조사 2026-11-13__b9c8b976bf924a839bf8bccd6b65fa6f/세대001-조합02-Prompt02-8bd0ebdd59d0405db490c528cf1c1ebd.png",
+      "is_available": 1,
+      "is_deleted": 0,
+      "generated_at": 1794497017.0,
+      "request_id": "9f5996d8f1104906a981a130fe1f8577",
+      "job_id": "13aa39be85f14305982cf2128831d118",
+      "prompt_id": "9d221278-f1c1-4a97-b82e-eb4bb41886f1",
+      "status": "completed",
+      "project_id": "b9c8b976bf924a839bf8bccd6b65fa6f",
+      "candidate_id": "886ad72d38c14d28b08048d61288967f",
+      "case_id": "49f82415681396d8f31856596a0783d3",
+      "actualImageSize": [
+        576,
+        864
+      ],
+      "sha256": "ec32398e5e420e7c63d4fd76540d85b696285495a184dc9d52ff6cee75efa91e",
+      "fileBytes": 785894
+    }
+  ],
+  "chsProjects": [
+    {
+      "projectIdentifier": "e30aaf8b619a4483af488090a7e7820c",
+      "name": "테스트 프로젝트",
+      "promptCount": 3,
+      "currentGeneration": 3,
+      "lifecycles": {
+        "active": 10,
+        "cancelled": 7,
+        "retired": 7
+      },
+      "openEvolutionBatches": 0
+    },
+    {
+      "projectIdentifier": "b9c8b976bf924a839bf8bccd6b65fa6f",
+      "name": "동작 비교 조사 2026-11-13",
+      "promptCount": 2,
+      "currentGeneration": 1,
+      "lifecycles": {
+        "active": 2
+      },
+      "openEvolutionBatches": 0
+    }
+  ],
+  "stylelabNewImages": [
+    {
+      "filename": "36308fd767.png",
+      "imageSize": [
+        896,
+        1152
+      ],
+      "fileBytes": 1831986,
+      "sha256": "2331623b7db543bf2f5ecd012849a6dc6450dfff1826b40fc7b1a76740049031"
+    },
+    {
+      "filename": "68387e10ff.png",
+      "imageSize": [
+        896,
+        1152
+      ],
+      "fileBytes": 1637958,
+      "sha256": "417276ca8958f06108ec6109172112791e26d9b4acc5a74375da9258efe2bfa4"
+    },
+    {
+      "filename": "f87d3557c4.png",
+      "imageSize": [
+        896,
+        1152
+      ],
+      "fileBytes": 1920079,
+      "sha256": "09af6357e7a29d279ac82e8dce711dce7b462ef2b3fbb96720ed46e576f83cbc"
+    }
+  ]
+}

@@ -85,7 +85,7 @@ function updateStyleVotingControls() {
     if (voting?.match && !imagesReady) message = images.some(image => image.complete && !image.naturalWidth) ? "이미지를 불러오지 못했습니다. 새로고침한 뒤 다시 확인해 주세요." : "모든 Prompt의 이미지를 불러오는 중입니다.";
     else if (voting?.match?.kind === "select") {
       const placement = voting.automaticPlacement;
-      message = placement ? `자동 선별 · ${placement.comparingNewcomers ? '신규 조합끼리 비교' : '기존 순위표에서 자리 찾기'} · 확정 ${placement.completedCount}/${placement.candidateCount}` : "자녀 평가 중";
+      message = placement ? `자녀 선별 · ${placement.comparingNewcomers ? '승격 경계의 자녀끼리 비교' : '상위 30% 부모와 비교'} · 선별 완료 ${placement.completedCount}/${placement.candidateCount}` : "자녀 평가 중";
     }
     else if (voting?.activeEvolutionIdentifier && !voting.match) message = voting.automaticPlacement?.completedCount === voting.automaticPlacement?.candidateCount ? "자동 선별 완료 · 세대를 확정할 수 있습니다." : "비교할 이미지가 준비되면 자동 선별을 이어갑니다.";
     else if (voting?.match?.kind === "place") message = "새 조합 평가 중";

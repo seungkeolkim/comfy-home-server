@@ -1,0 +1,20 @@
+{
+  "viewport": {
+    "width": 1743,
+    "height": 1244
+  },
+  "evidenceType": "observed-dom-getBoundingClientRect",
+  "stylelabGallery": {
+    "firstImageTop": 235.6875,
+    "firstImageWidth": 125.71875,
+    "firstImageHeight": 183.734375,
+    "screenshot": "stylelab-gallery-selected-preview.png"
+  },
+  "chsGallery": {
+    "firstImageTop": 807.5,
+    "firstImageWidth": 73.65625,
+    "firstImageHeight": 88,
+    "screenshot": "chs-audit-gallery-final.png"
+  },
+  "note": "Observed in the audited project and layout; not a claim for every viewport or prompt count."
+}

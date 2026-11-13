@@ -1,0 +1,53 @@
+Browser tab: 2, Title: "Anima Style Lab", URL: "http://127.0.0.1:8389/#/arena".
+1 AXWebArea Anima Style Lab, URL: 127.0.0.1:8389/#/arena
+	2 container content
+		3 text 순위 결정
+		4 text 할 일이 없을 때는 일반 선별로 순위를 더 정확하게 만듭니다.
+		5 checkbox Description: 블라인드, Value: 0
+		6 tab group 선별 모드
+			7 tab (selected, settable, boolean) 자동, Value: 1
+			8 tab (selectable, settable, boolean) 전체 리그, Value: 0
+			9 tab (selectable, settable, boolean) 상위 30%, Value: 0
+		10 button 되돌리기
+		11 container 왼쪽 그림체
+			12 text A-
+			63 text ?
+			14 text 34,490
+			15 text 1승 3패 · 99세대
+			16 button 원본
+			17 button 삭제
+			18 container
+				19 container LoRA Flat painting style.safetensors
+					20 text 1.0 LoRA Flat painting style
+				21 container LoRA 83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained.safetensors
+					22 text 0.7 LoRA 83062636-5ef4-4e1a-b6e6-a8ddc41164a8.TA_trained
+				23 container LoRA Munji_V1.safetensors
+					24 text 1.0 LoRA Munji_V1
+				25 container LoRA Luminous Anime Anima Style C LoRAv1.1_anima_sun.safetensors
+					26 text 0.4 LoRA Luminous Anime Anima Style C LoRAv1.1_anima_sun
+				27 container LoRA Lucent Bloom Anima Style LoRA_Bstyle_v1_anima_sun.safetensors
+					28 text 0.8 LoRA Lucent Bloom Anima Style LoRA_Bstyle_v1_anima_sun
+			29 button 복사
+		31 button 비슷함
+		32 button 둘 다 삭제
+	51 container
+		52 text Anima Style Lab
+		53 button 메뉴, ID: browser-menu-button
+	64 container browser-comparison-controls
+		65 container 이미지 비교 방식
+			66 checkbox 나란히, Value: 0
+			67 checkbox 한 장씩, Value: 1
+		68 container Description: 비교 이미지, ID: browser-image-selector
+			69 checkbox A 보기, Value: 1
+			70 checkbox B 보기, Value: 0
+	71 container browser-vote-controls
+		72 button A 선택
+		73 button B 선택
+	57 container Description: 모바일 메뉴, ID: browser-mobile-navigation
+		58 button 선별
+		59 button 그림체
+		60 button 진화
+		61 button 다듬기
+		62 button 더보기
+
+The focused UI element is 67 checkbox 한 장씩, Value: 1

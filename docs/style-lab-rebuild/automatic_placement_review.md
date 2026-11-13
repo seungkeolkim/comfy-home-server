@@ -1,5 +1,7 @@
 # 신규 조합의 자동 Placement
 
+> **폐기된 정책의 역사 기록:** `full-ladder-placement-v2`는 StyleLab의 일반 Random Placement를 진화 자녀 Selection에 잘못 적용한 구현입니다. 이를 사용자 의도에 따른 보강으로 설명했던 해석도 사용자 정정으로 폐기합니다. 현재 구현 기준은 [StyleLab 부모 Selection 복원 명세](stylelab_parent_selection.md)의 `stylelab-parent-selection-v1`입니다. 아래 정책 설명·테스트 수치·운영 반영 기록은 2026-11-11 당시 기록으로 보존하며, 새 정책의 테스트나 현재 운영 상태를 뜻하지 않습니다.
+
 2026-11-11. 기준 Commit `fa4983e`. 신규 조합을 한 번만 선택하고 끝내지 않고, 기존 순위표 안의 위치와 신규 조합 사이의 순서를 찾은 뒤 세대 선별을 완료합니다.
 
 ## 8389 조사와 변경한 정책

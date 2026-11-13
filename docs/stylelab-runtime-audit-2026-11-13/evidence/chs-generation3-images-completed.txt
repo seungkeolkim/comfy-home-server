@@ -1,0 +1,126 @@
+Browser tab: 3, Title: "스타일 구성 · Comfy Home", URL: "http://127.0.0.1:8388/style#evolution".
+1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#evolution
+	2 container preview-application
+		3 container Description: 스타일 작업 공간, ID: style-workspace-sidebar
+			4 link Description: Comfy Home 스타일 프로젝트, Value: 127.0.0.1:8388/style#projects
+			5 container Description: 스타일 메뉴, ID: preview-sidebar
+				32 button ▦　프로젝트
+				33 text 현재 프로젝트
+				34 text 테스트 프로젝트
+				35 button ＋　이미지 생성
+				36 button ↔　선별
+				37 button ⟳　진화
+				38 button ◇　그림체 　10
+					39 text ◇　그림체
+					40 text 　10
+				41 button ⚙　프로젝트 설정
+				42 text 시스템 공통
+				43 button ◎　글로벌 설정
+			18 container workspace-connection-status
+				19 text ComfyUI 연결됨
+			20 button 로그아웃, ID: workspace-logout-button
+		21 container
+			22 text YOUR CREATIVE SPACE
+			23 heading 스타일 구성, Value: 1, ID: workspace-page-title
+				24 text 스타일 구성
+			25 text 프로젝트 1
+			26 button 새로고침, ID: workspace-refresh-button
+			27 button 설정
+		28 container 작업 공간
+			29 link Description: 일반 생성, Help: 현재 창에서 일반 생성으로 전환합니다., Value: 127.0.0.1:8388/, ID: general-workspace-link
+			30 link Description: 스타일 구성, Value: 127.0.0.1:8388/style
+		31 container project-context
+			44 text 현재 프로젝트
+			45 pop up button (collapsed, settable) Description: 현재 프로젝트, Value: 테스트 프로젝트, ID: active-project-picker, Secondary Actions: Expand
+				46 menu
+					47 (selected) 테스트 프로젝트
+		48 container preview-content
+			49 heading 진화, Value: 1
+				50 text 진화
+			51 text 현재 2세대
+			52 container
+				53 heading 3세대 후보 · 선별 중, Value: 2
+					54 text 3세대 후보 · 선별 중
+				55 text 이미지 1/1 · 선별 0/1
+				56 button 선별하기
+				57 button (collapsed) 이번 후보 취소, Secondary Actions: Expand
+					58 text 이번 후보 취소
+			59 container style-render-results
+				60 container
+					61 heading 3세대 후보, Value: 2
+						62 text 3세대 후보
+					63 text 평가 중 · 자리 찾기
+					64 container
+						65 button 세대003-조합01 자세히 보기
+							66 text 세대003-조합01
+							67 text 3 / 3장
+							68 text 평가 중 · Elo —
+							69 text 자동으로 순위표에서 자리를 찾는 중
+							70 image 시로코테러 밤거리 (풀바디O)
+							71 text 시로코테러 밤거리 (풀바디O)
+							72 image 사오리 코트 (풀바디X)
+							73 text 사오리 코트 (풀바디X)
+							74 image 카린 바니걸 스테이지 (풀바디O)
+							75 text 카린 바니걸 스테이지 (풀바디O)
+							76 text 3세대 · 진화 중 · 작가 0개 · LoRA 3개
+							77 text 이미지 자세히 보기 ↗
+						78 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+						79 button (disabled) 조합 폐기, Help: 진화를 확정하거나 취소한 뒤 조합을 폐기할 수 있습니다.
+				80 container
+					81 heading 조합을 만든 부모, Value: 2
+						82 text 조합을 만든 부모
+					83 container
+						84 button 세대002-조합10 자세히 보기
+							85 text 세대002-조합10
+							86 text 3 / 3장
+							87 container
+								88 text 1위 · Elo  11,680
+							89 text 3승 0패 · 3회 평가 · Skip 0
+							90 image 시로코테러 밤거리 (풀바디O)
+							91 text 시로코테러 밤거리 (풀바디O)
+							92 image 사오리 코트 (풀바디X)
+							93 text 사오리 코트 (풀바디X)
+							94 image 카린 바니걸 스테이지 (풀바디O)
+							95 text 카린 바니걸 스테이지 (풀바디O)
+							96 text 2세대 · 활성 · 작가 0개 · LoRA 4개
+							97 text 이미지 자세히 보기 ↗
+						98 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+						99 button (disabled) 조합 폐기, Help: 진화를 확정하거나 취소한 뒤 조합을 폐기할 수 있습니다.
+					100 container
+						101 button 세대001-조합10 자세히 보기
+							102 text 세대001-조합10
+							103 text 3 / 3장
+							104 container
+								105 text 2위 · Elo  11,440
+							106 text 3승 0패 · 3회 평가 · Skip 0
+							107 image 시로코테러 밤거리 (풀바디O)
+							108 text 시로코테러 밤거리 (풀바디O)
+							109 image 사오리 코트 (풀바디X)
+							110 text 사오리 코트 (풀바디X)
+							111 image 카린 바니걸 스테이지 (풀바디O)
+							112 text 카린 바니걸 스테이지 (풀바디O)
+							113 text 1세대 · 활성 · 작가 0개 · LoRA 2개
+							114 text 이미지 자세히 보기 ↗
+						115 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+						116 button (disabled) 조합 폐기, Help: 진화를 확정하거나 취소한 뒤 조합을 폐기할 수 있습니다.
+					117 container
+						118 button 세대001-조합08 자세히 보기
+							119 text 세대001-조합08
+							120 text 3 / 3장
+							121 container
+								122 text 3위 · Elo  10,960
+							123 text 3승 0패 · 3회 평가 · Skip 0
+							124 image 시로코테러 밤거리 (풀바디O)
+							125 text 시로코테러 밤거리 (풀바디O)
+							126 image 사오리 코트 (풀바디X)
+							127 text 사오리 코트 (풀바디X)
+							128 image 카린 바니걸 스테이지 (풀바디O)
+							129 text 카린 바니걸 스테이지 (풀바디O)
+							130 text 1세대 · 활성 · 작가 0개 · LoRA 3개
+							131 text 이미지 자세히 보기 ↗
+						132 button Elo 수정, Help: 조합의 승패를 유지하고 Elo를 수정합니다.
+						133 button (disabled) 조합 폐기, Help: 진화를 확정하거나 취소한 뒤 조합을 폐기할 수 있습니다.
+				134 button (collapsed) 세대 이력 · 2회, Secondary Actions: Expand
+					135 text 세대 이력 · 2회
+
+The focused UI element is 1 AXWebArea 스타일 구성 · Comfy Home, URL: 127.0.0.1:8388/style#evolution

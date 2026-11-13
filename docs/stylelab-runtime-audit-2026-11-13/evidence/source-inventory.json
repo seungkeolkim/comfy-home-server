@@ -1,0 +1,112 @@
+{
+  "capturedAt": "2026-11-13T00:05:16.3526040+09:00",
+  "branch": "feature/style-exploration-projects",
+  "commit": "3dbbb87eb41d14648f4d1240f3f89666c47d55a6",
+  "sourceInventory": [
+    {
+      "path": "web/style-preview/style-evolution.js",
+      "bytes": 16725,
+      "sha256": "E69EC9CDF2217DC7F51532342ABE20D5E541460DBC9AFA729BD288F80798CCBA"
+    },
+    {
+      "path": "web/style-preview/style-comparison.js",
+      "bytes": 19821,
+      "sha256": "EA42E0BE662DBF38A0646A9E4F83477BD831114E06B3193A5E10D96DA1ACA44C"
+    },
+    {
+      "path": "web/style-preview/style-voting.js",
+      "bytes": 9061,
+      "sha256": "9C45A688337FD422B6DD81AE7215C9ECF4A3D107AD5B49B9BE8DEE84B626CA85"
+    },
+    {
+      "path": "web/style-preview/style-library.js",
+      "bytes": 28516,
+      "sha256": "7845BA3CA09B1704266DE5917601641FB29E9D2BFC2892355EABDF273F939D1F"
+    },
+    {
+      "path": "home_server/style_evolution.py",
+      "bytes": 38024,
+      "sha256": "C1B0D961608B4FEE4FCD6162A9EFC42E3447E47BBC9557ADF8E71B21D47D939F"
+    },
+    {
+      "path": "home_server/style_evolution_selection.py",
+      "bytes": 14331,
+      "sha256": "2849E58B339E5FCFF6EEFDC948A0BFCF6D19D0E8848EA3EA681DECAE731CAB66"
+    },
+    {
+      "path": "C:/Users/azzib/Desktop/ComfyUI/StyleLab/Anima-Style-Lab-2.0/app/engine.py",
+      "bytes": 161340,
+      "sha256": "FA67F4C244A629FB36CFC62293F66B3406FCF46E9D5BC0C6AB97AF191F4D319F"
+    },
+    {
+      "path": "C:/Users/azzib/Desktop/ComfyUI/StyleLab/Anima-Style-Lab-2.0/app/core.py",
+      "bytes": 71237,
+      "sha256": "006D1D8F38EF01202DB0CE3B933D1ECE890F0828495176BC16DD377902BA8C4E"
+    },
+    {
+      "path": "C:/Users/azzib/Desktop/ComfyUI/StyleLab/Anima-Style-Lab-2.0/web_browser/js/pages/evolution.js",
+      "bytes": 10408,
+      "sha256": "8848563A734D4808DBA09760B510B975FE178C890FFF0FABC2546F7B3DF7B0B8"
+    },
+    {
+      "path": "C:/Users/azzib/Desktop/ComfyUI/StyleLab/Anima-Style-Lab-2.0/web_browser/js/pages/arena.js",
+      "bytes": 15554,
+      "sha256": "F072BA763065EEF0CDAB9DB4B14E5ABE731D09B6D6C1E7A3B7690EC375885D3F"
+    },
+    {
+      "path": "C:/Users/azzib/Desktop/ComfyUI/StyleLab/Anima-Style-Lab-2.0/web/js/pages/evolution.js",
+      "bytes": 10408,
+      "sha256": "8848563A734D4808DBA09760B510B975FE178C890FFF0FABC2546F7B3DF7B0B8"
+    },
+    {
+      "path": "C:/Users/azzib/Desktop/ComfyUI/StyleLab/Anima-Style-Lab-2.0/web/js/pages/arena.js",
+      "bytes": 15554,
+      "sha256": "F072BA763065EEF0CDAB9DB4B14E5ABE731D09B6D6C1E7A3B7690EC375885D3F"
+    },
+    {
+      "path": "C:/Users/azzib/Desktop/ComfyUI/StyleLab/Anima-Style-Lab-2.0/web_server.py",
+      "bytes": 22370,
+      "sha256": "2286703EE03729C19AE27090B82E3CD000A799E962525F03D8C80530F12BF570"
+    },
+    {
+      "path": "home_server/style_random_generation.py",
+      "bytes": 4733,
+      "sha256": "E7DFE938536209ABFB9105F70F0BBE0602F0CC261514E7FFFF1A7377F7203382"
+    },
+    {
+      "path": "web/style-preview/style-generation.js",
+      "bytes": 21172,
+      "sha256": "9037EB6C5460AB05138115CA7E50CA0C77DFF92754693456F9483541E18C2EB5"
+    },
+    {
+      "path": "C:/Users/azzib/Desktop/ComfyUI/StyleLab/Anima-Style-Lab-2.0/app/bridge.py",
+      "bytes": 16738,
+      "sha256": "E59F67BBD455BA6C0672DFA708D1135DC01D5F77347E6C2F49B72A43910361D8"
+    },
+    {
+      "path": "C:/Users/azzib/Desktop/ComfyUI/StyleLab/Anima-Style-Lab-2.0/web_browser/js/pages/library.js",
+      "bytes": 28706,
+      "sha256": "1FD394082F8DD0FE14BD5406012CD0799BF50190EAA27CFC688ADA41807D2E4F"
+    },
+    {
+      "path": "web/image-preview.js",
+      "bytes": 6289,
+      "sha256": "8B3727CA13B7FEDBA9D264592518CD8FC9096FAFF3AF6FA494B32D0EE4A68D1E"
+    },
+    {
+      "path": "home_server/style_generation_store.py",
+      "bytes": 13127,
+      "sha256": "7B9458BED5901C229CBD78A2B93E2C033E9CDECC4CF29588234CDC4924162A7C"
+    },
+    {
+      "path": "C:/Users/azzib/Desktop/ComfyUI/StyleLab/Anima-Style-Lab-2.0/web_browser/js/ui.js",
+      "bytes": 50237,
+      "sha256": "27364D26281F4EDBA077C585EDF84C8DFB11CFD7E4C72401D4D752FDCAF38A76"
+    },
+    {
+      "path": "C:/Users/azzib/Desktop/ComfyUI/StyleLab/Anima-Style-Lab-2.0/web_browser/js/pages/settings.js",
+      "bytes": 16108,
+      "sha256": "3E333DD5A6B7C76CD986C2E444B04D21D32839B9C91C833254489C669112F8FF"
+    }
+  ]
+}
