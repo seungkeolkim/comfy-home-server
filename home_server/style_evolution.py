@@ -94,16 +94,19 @@ class StyleEvolutionService:
                 if self.migrate_parent_selection(connection, row["project_id"], row["evaluation_id"], state):
                     self.server.style_voting.save_arena(connection, row["evaluation_id"], arena["revision"] + 1, state)
 
-    def load_evolution_context(self, connection, project_identifier: str, evaluation_identifier: str) -> tuple[dict, int, dict, list[dict], list[str]]:
+    def load_evolution_context(self, connection, project_identifier: str, evaluation_identifier: str, *, verify_files: bool = True) -> tuple[dict, int, dict, list[dict], list[str]]:
         """평가 소유·현재 Arena·준비된 활성 조합을 같은 연결에서 읽습니다."""
 
         project = connection.execute("SELECT * FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
         if not project:
             raise LookupError("프로젝트를 찾을 수 없습니다.")
-        candidates, ready_identifiers = self.server.style_voting.load_evaluation_candidates(connection, project_identifier, evaluation_identifier)
+        candidates, ready_identifiers = self.server.style_voting.load_evaluation_candidates(connection, project_identifier, evaluation_identifier, verify_files=verify_files)
         revision, state = self.server.style_voting.load_arena(connection, project_identifier, evaluation_identifier)
         before = encode_snapshot(state)
-        self.server.style_voting.synchronize_candidates(state, candidates, ready_identifiers)
+        if verify_files:
+            self.server.style_voting.synchronize_candidates(state, candidates, ready_identifiers)
+        else:
+            self.server.style_voting.synchronize_available_match(state, candidates, ready_identifiers)
         if encode_snapshot(state) != before:
             revision += 1
             self.server.style_voting.save_arena(connection, evaluation_identifier, revision, state)
@@ -139,7 +142,7 @@ class StyleEvolutionService:
 
         with self.server.database._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            project, revision, state, candidates, ready_identifiers = self.load_evolution_context(connection, project_identifier, evaluation_identifier)
+            project, revision, state, candidates, ready_identifiers = self.load_evolution_context(connection, project_identifier, evaluation_identifier, verify_files=False)
             row = self.store.find_open_evolution_batch(connection, evaluation_identifier)
             generation_number = self.store.current_generation_number(connection, evaluation_identifier)
             rated_count = sum(candidate_is_rated(state["statistics"][identifier]) for identifier in ready_identifiers)

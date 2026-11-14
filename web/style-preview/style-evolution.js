@@ -10,7 +10,7 @@ async function refreshStyleEvolution(projectIdentifier, force = false) {
   state.evolutionRefreshSequence = sequence;
   const parameters = new URLSearchParams({ evaluationIdentifier: project.evaluationIdentifier });
   const evolution = await styleProjectApi(`/api/style-projects/${projectIdentifier}/evolution?${parameters}`);
-  if (sequence !== state.evolutionRefreshSequence || (state.evolutionCommandBusy && !force)) return;
+  if (sequence !== state.evolutionRefreshSequence || ((state.evolutionCommandBusy || state.votingCommandBusy || state.candidateCommandBusy) && !force)) return;
   state.evolution = evolution;
   project.generation = evolution.currentGeneration;
   if (projectIdentifier !== previewState.currentProjectIdentifier) return;

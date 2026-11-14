@@ -62,6 +62,9 @@ class StyleGenerationStore:
             "operation_id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES style_projects(project_id), "
             "state TEXT NOT NULL, plan_json TEXT NOT NULL, error_message TEXT)"
         )
+        connection.execute("CREATE INDEX IF NOT EXISTS style_renders_candidate ON style_candidate_renders(candidate_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS style_renders_plan ON style_candidate_renders(plan_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS output_files_request ON output_files(request_id)")
 
     def project(self, project_identifier: str) -> sqlite3.Row:
         """소유 프로젝트가 없으면 다른 범위로 대신 처리하지 않습니다."""
@@ -92,55 +95,94 @@ class StyleGenerationStore:
         return {**plan, "evolutionStatus": evolution[0] if evolution else None, "planIdentifier": plan_identifier,
                 "operationIdentifier": row["operation_id"], "projectRevision": row["project_revision"], "jobIdentifiers": [row[0] for row in job_rows]}
 
-    def results(self, project_identifier: str) -> dict:
-        """기존 실제 Render와 현재 미제출 계획을 조회하며 Seed 변경 뒤에도 결과를 보존합니다."""
+    @staticmethod
+    def browser_plan(row, job_identifiers: list[str]) -> dict:
+        """같은 연결에서 읽은 계획·소유 Job·진화 상태를 Browser 형식으로 변환합니다."""
 
-        project = self.project(project_identifier)
+        plan = json.loads(row["plan_json"])
+        plan.setdefault("generationNumber", 1)
+        plan["sampling"] = browser_sampling_settings(plan["sampling"])
+        return {**plan, "evolutionStatus": row["evolution_status"], "planIdentifier": row["plan_id"],
+                "operationIdentifier": row["operation_id"], "projectRevision": row["project_revision"],
+                "jobIdentifiers": job_identifiers}
+
+    def results(self, project_identifier: str, summary: bool = False) -> dict:
+        """카드용 Summary는 생성 Graph를 읽지 않고 Render·파일·계획을 일괄 조회합니다."""
+
         with self.connection_factory() as connection:
-            memberships = {row["candidate_id"]: dict(row) for row in connection.execute("SELECT memberships.* FROM style_candidate_memberships AS memberships JOIN style_candidates USING(candidate_id) WHERE project_id=?", (project_identifier,))}
-            stored_plans = {row["plan_id"]: json.loads(row["plan_json"]) for row in connection.execute("SELECT plan_id,plan_json FROM style_generation_plans WHERE project_id=?", (project_identifier,))}
+            project = connection.execute("SELECT * FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
+            if project is None:
+                raise LookupError("프로젝트를 찾을 수 없습니다.")
+            memberships = {row["candidate_id"]: dict(row) for row in connection.execute(
+                "SELECT memberships.* FROM style_candidate_memberships AS memberships "
+                "JOIN style_candidates USING(candidate_id) WHERE project_id=?", (project_identifier,))}
+            plan_rows = connection.execute(
+                "SELECT plans.*,batches.status AS evolution_status,EXISTS "
+                "(SELECT 1 FROM style_candidate_renders WHERE plan_id=plans.plan_id) AS has_renders "
+                "FROM style_generation_plans AS plans LEFT JOIN style_evolution_batches AS batches USING(plan_id) "
+                "WHERE plans.project_id=? ORDER BY plans.created_at DESC", (project_identifier,),
+            ).fetchall()
+            jobs_by_plan = {}
+            for row in connection.execute("SELECT plan_id,job_id FROM style_job_ownership WHERE project_id=? ORDER BY sequence", (project_identifier,)):
+                jobs_by_plan.setdefault(row["plan_id"], []).append(row["job_id"])
+            stored_plans = {row["plan_id"]: self.browser_plan(row, jobs_by_plan.get(row["plan_id"], [])) for row in plan_rows}
+            plans = [stored_plans[row["plan_id"]] for row in plan_rows if row["evaluation_id"] == project["active_evaluation_id"] or row["has_renders"]]
             current_generation = connection.execute("SELECT generation_number FROM style_evolution_timelines WHERE evaluation_id=?", (project["active_evaluation_id"],)).fetchone()
             candidates = connection.execute(
                 "SELECT * FROM style_candidates WHERE project_id=? AND (evaluation_id=? OR EXISTS "
                 "(SELECT 1 FROM style_candidate_renders WHERE candidate_id=style_candidates.candidate_id)) ORDER BY rowid",
                 (project_identifier, project["active_evaluation_id"]),
             ).fetchall()
+            # 원본 JSON의 Graph는 전송하지 않고 상세 화면이 쓰는 필드만 읽습니다.
+            detail_columns = ""
+            detail_join = ""
+            if not summary:
+                detail_columns = (
+                    ",json_extract(result_json,'$.prompt') AS prompt,json_extract(result_json,'$.negative') AS negative,"
+                    "json_extract(result_json,'$.settings') AS settings_json,json_extract(result_json,'$.loras') AS loras_json"
+                )
+                detail_join = " JOIN request_results USING(request_id)"
+            render_rows = connection.execute(
+                "SELECT renders.*,requests.status,requests.error_message,requests.job_id" + detail_columns +
+                " FROM style_candidate_renders AS renders JOIN style_candidates AS candidates USING(candidate_id) "
+                "JOIN job_requests AS requests USING(request_id)" + detail_join +
+                " WHERE candidates.project_id=? ORDER BY renders.rowid", (project_identifier,),
+            ).fetchall()
+            files_by_request = {}
+            for row in connection.execute(
+                "SELECT files.request_id,files.output_id,files.relative_path AS path,files.is_available,files.is_deleted "
+                "FROM output_files AS files JOIN style_candidate_renders AS renders USING(request_id) "
+                "JOIN style_candidates AS candidates USING(candidate_id) WHERE candidates.project_id=? ORDER BY files.output_id", (project_identifier,),
+            ):
+                output_file = dict(row)
+                request_identifier = output_file.pop("request_id")
+                files_by_request.setdefault(request_identifier, []).append(output_file)
+            renders_by_candidate = {}
+            for row in render_rows:
+                render = {
+                    "renderIdentifier": row["render_id"], "caseIdentifier": row["case_id"],
+                    "requestIdentifier": row["request_id"], "jobIdentifier": row["job_id"],
+                    "status": row["status"], "error": row["error_message"], "files": files_by_request.get(row["request_id"], []),
+                }
+                if not summary:
+                    settings = json.loads(row["settings_json"]) if row["settings_json"] else None
+                    render.update(prompt=row["prompt"], negative=row["negative"],
+                                  settings=browser_sampling_settings(settings) if settings else None,
+                                  loras=json.loads(row["loras_json"]) if row["loras_json"] else [])
+                renders_by_candidate.setdefault(row["candidate_id"], []).append(render)
             results = []
             for candidate in candidates:
-                if memberships[candidate["candidate_id"]]["lifecycle"] in {"deleting", "deleted"}:
+                membership = memberships[candidate["candidate_id"]]
+                if membership["lifecycle"] in {"deleting", "deleted"}:
                     continue
-                render_rows = connection.execute(
-                    "SELECT renders.*,job_requests.status,job_requests.error_message,job_requests.job_id,"
-                    "job_requests.prompt_id,request_results.result_json FROM style_candidate_renders AS renders "
-                    "JOIN job_requests USING(request_id) JOIN request_results USING(request_id) "
-                    "WHERE candidate_id=? ORDER BY renders.rowid", (candidate["candidate_id"],),
-                ).fetchall()
-                renders = []
-                for render_row in render_rows:
-                    result = json.loads(render_row["result_json"])
-                    files = [dict(row) for row in connection.execute(
-                        "SELECT output_id,relative_path AS path,is_available,is_deleted FROM output_files WHERE request_id=?",
-                        (render_row["request_id"],),
-                    )]
-                    renders.append({
-                        "renderIdentifier": render_row["render_id"], "caseIdentifier": render_row["case_id"],
-                        "requestIdentifier": render_row["request_id"], "jobIdentifier": render_row["job_id"],
-                        "status": render_row["status"], "error": render_row["error_message"], "files": files,
-                        "prompt": result.get("prompt"), "negative": result.get("negative"),
-                        "settings": browser_sampling_settings(result["settings"]) if result.get("settings") else None, "loras": result.get("loras", []),
-                    })
-                results.append({"identifier": candidate["candidate_id"], "label": candidate["label"], "planIdentifier": candidate["plan_id"],
-                                **self.candidate_display_identity(candidate, stored_plans[candidate["plan_id"]], memberships[candidate["candidate_id"]]["generation_number"]),
-                                "evaluationIdentifier": candidate["evaluation_id"],
-                                "generationNumber": memberships[candidate["candidate_id"]]["generation_number"], "lifecycle": memberships[candidate["candidate_id"]]["lifecycle"],
-                                "evolutionBatchIdentifier": memberships[candidate["candidate_id"]]["batch_id"], "breedingMode": memberships[candidate["candidate_id"]]["breeding_mode"],
-                                "parentIdentifiers": json.loads(memberships[candidate["candidate_id"]]["parent_ids_json"]),
-                                "components": json.loads(candidate["components_json"]), "renders": renders})
-            plan_identifiers = [row[0] for row in connection.execute(
-                "SELECT plan_id FROM style_generation_plans WHERE project_id=? AND (evaluation_id=? OR EXISTS "
-                "(SELECT 1 FROM style_candidate_renders WHERE plan_id=style_generation_plans.plan_id)) ORDER BY created_at DESC",
-                (project_identifier, project["active_evaluation_id"]),
-            )]
+                results.append({
+                    "identifier": candidate["candidate_id"], "label": candidate["label"], "planIdentifier": candidate["plan_id"],
+                    **self.candidate_display_identity(candidate, stored_plans[candidate["plan_id"]], membership["generation_number"]),
+                    "evaluationIdentifier": candidate["evaluation_id"], "generationNumber": membership["generation_number"],
+                    "lifecycle": membership["lifecycle"], "evolutionBatchIdentifier": membership["batch_id"],
+                    "breedingMode": membership["breeding_mode"], "parentIdentifiers": json.loads(membership["parent_ids_json"]),
+                    "components": json.loads(candidate["components_json"]), "renders": renders_by_candidate.get(candidate["candidate_id"], []),
+                })
             arena_statistics = {row["evaluation_id"]: json.loads(row["state_json"])["statistics"] for row in connection.execute("SELECT evaluation_id,state_json FROM style_voting_arenas WHERE project_id=?", (project_identifier,))}
             pending_deletions = [json.loads(row[0]) for row in connection.execute("SELECT response_json FROM style_voting_commands WHERE project_id=? AND action='delete' AND json_extract(response_json,'$.status')='deleting' ORDER BY rowid", (project_identifier,))]
             for row in connection.execute("SELECT evaluation_id,result_json FROM style_evolution_batches WHERE project_id=? AND status='cancelled' AND result_json IS NOT NULL", (project_identifier,)):
@@ -156,7 +198,6 @@ class StyleGenerationStore:
                 elif candidate["evaluationIdentifier"] == evaluation_identifier and candidate["renders"]:
                     archived = ranked_candidate_statistics([candidate["identifier"]], arena_statistics.get(evaluation_identifier, {}))[0]
                     candidate["statistics"] = {**archived, "rank": None}
-        plans = [self.plan(identifier, project_identifier) for identifier in plan_identifiers]
         submitted_plans = [plan for plan in reversed(plans) if plan["jobIdentifiers"]]
         batch_numbers = {plan["planIdentifier"]: index + 1 for index, plan in enumerate(submitted_plans)}
         for candidate in results:

@@ -156,22 +156,35 @@ function styleGenerationResultsMarkup(results) {
   }).join("");
 }
 
-/** Polling은 결과 영역만 바꾸며 작성 중 조합·Scroll·다른 프로젝트를 덮어쓰지 않습니다. */
-async function refreshStyleGenerationResults(projectIdentifier = previewState.currentProjectIdentifier) {
-  if (!PERSISTENT_STYLE_WORKSPACE || !projectIdentifier) return;
-  const state = currentStyleGenerationState(projectIdentifier);
-  if (state.votingCommandBusy || state.evolutionCommandBusy || state.candidateCommandBusy) return;
-  const refreshSequence = (state.resultRefreshSequence || 0) + 1;
-  state.resultRefreshSequence = refreshSequence;
-  const results = await styleProjectApi(`/api/style-projects/${projectIdentifier}/generation-results`);
-  if (refreshSequence !== state.resultRefreshSequence) return;
-  state.results = results;
-  await refreshStyleVoting(projectIdentifier);
-  await refreshStyleEvolution(projectIdentifier);
-  if (refreshSequence !== state.resultRefreshSequence) return;
-  const project = previewState.projects.find(project => project.identifier === projectIdentifier);
-  if (project) project.candidateCount = results.candidates.filter(candidate => candidate.renders.length > 0 && ["active", "evolving"].includes(candidate.lifecycle)).length;
+/** 같은 URL의 이미지 노드를 재사용해 Elo 갱신 중 Decode와 표시를 유지합니다. */
+function replaceStyleResultMarkup(container, markup) {
+  const template = document.createElement("template");
+  template.innerHTML = markup;
+  const existingImages = new Map();
+  for (const image of container.querySelectorAll("img")) {
+    const source = image.getAttribute("src");
+    if (!existingImages.has(source)) existingImages.set(source, []);
+    existingImages.get(source).push(image);
+  }
+  for (const replacement of template.content.querySelectorAll("img")) {
+    const existing = existingImages.get(replacement.getAttribute("src"))?.shift();
+    if (!existing) continue;
+    for (const attribute of [...existing.attributes]) {
+      if (!replacement.hasAttribute(attribute.name)) existing.removeAttribute(attribute.name);
+    }
+    for (const attribute of replacement.attributes) {
+      if (existing.getAttribute(attribute.name) !== attribute.value) existing.setAttribute(attribute.name, attribute.value);
+    }
+    replacement.replaceWith(existing);
+  }
+  container.replaceChildren(template.content);
+}
+
+/** 현재 프로젝트의 결과만 표시하고 작성 중 입력과 열린 Viewer는 보존합니다. */
+function renderCurrentStyleGenerationResults(projectIdentifier) {
   if (projectIdentifier !== previewState.currentProjectIdentifier) return;
+  const state = currentStyleGenerationState(projectIdentifier);
+  const project = currentProject();
   const regenerationControls = document.querySelector("#style-prompt-regeneration-controls");
   if (regenerationControls && !regenerationControls.contains(document.activeElement)) {
     const controlsMarkup = stylePromptRegenerationMarkup(project, state);
@@ -184,14 +197,57 @@ async function refreshStyleGenerationResults(projectIdentifier = previewState.cu
   }
   const resultContainer = document.querySelector("#style-render-results");
   if (resultContainer) {
-    const markup = styleResultsMarkupForCurrentScreen(results);
+    const markup = styleResultsMarkupForCurrentScreen(state.results);
     if (markup !== state.lastResultMarkup) {
-      resultContainer.innerHTML = markup;
+      replaceStyleResultMarkup(resultContainer, markup);
       state.lastResultMarkup = markup;
     }
   }
   updateStyleVotingControls();
   refreshOpenStyleLibraryViewer();
+}
+
+/** 결과를 먼저 표시하고 선별·진화 부가 정보는 독립적으로 읽습니다. */
+async function loadStyleGenerationResults(projectIdentifier, refreshSequence, summary) {
+  const state = currentStyleGenerationState(projectIdentifier);
+  const results = await styleProjectApi(`/api/style-projects/${projectIdentifier}/generation-results?summary=${summary}`);
+  if (refreshSequence !== state.resultRefreshSequence) return;
+  state.results = results;
+  const project = previewState.projects.find(project => project.identifier === projectIdentifier);
+  if (project) project.candidateCount = results.candidates.filter(candidate => candidate.renders.length > 0 && ["active", "evolving"].includes(candidate.lifecycle)).length;
+  if (previewState.screen !== "compare") renderCurrentStyleGenerationResults(projectIdentifier);
+  /** 새 명령이 시작되면 이전 부가 응답으로 화면을 다시 그리지 않습니다. */
+  function renderRefreshedStyleResults() {
+    if (refreshSequence === state.resultRefreshSequence) renderCurrentStyleGenerationResults(projectIdentifier);
+  }
+  const auxiliaryRequests = [refreshStyleEvolution(projectIdentifier).then(renderRefreshedStyleResults)];
+  if (previewState.screen === "compare") auxiliaryRequests.push(refreshStyleVoting(projectIdentifier).then(renderRefreshedStyleResults));
+  await Promise.all(auxiliaryRequests);
+  if (refreshSequence === state.resultRefreshSequence) {
+    state.completedResultRefreshSequence = refreshSequence;
+    state.resultsAreSummary = summary;
+  }
+}
+
+/** 같은 프로젝트의 진행 중 조회를 합치고 변경 후·상세 화면 진입 시 다시 읽습니다. */
+async function refreshStyleGenerationResults(projectIdentifier = previewState.currentProjectIdentifier) {
+  if (!PERSISTENT_STYLE_WORKSPACE || !projectIdentifier) return;
+  const state = currentStyleGenerationState(projectIdentifier);
+  if (state.votingCommandBusy || state.evolutionCommandBusy || state.candidateCommandBusy) return;
+  const summary = previewState.screen !== "generation";
+  if (state.resultRefreshPromise) {
+    await state.resultRefreshPromise;
+    if (state.completedResultRefreshSequence === state.resultRefreshSequence && (summary || !state.resultsAreSummary)) return;
+    return refreshStyleGenerationResults(projectIdentifier);
+  }
+  const refreshSequence = (state.resultRefreshSequence || 0) + 1;
+  state.resultRefreshSequence = refreshSequence;
+  state.resultRefreshPromise = loadStyleGenerationResults(projectIdentifier, refreshSequence, summary);
+  try {
+    await state.resultRefreshPromise;
+  } finally {
+    state.resultRefreshPromise = null;
+  }
 }
 
 /** 조합 입력을 프로젝트 허용 범위의 초안에만 반영합니다. */
@@ -306,19 +362,29 @@ async function handleStyleGenerationAction(event) {
   }
 }
 
-/** 화면 이동 후 결과를 읽고 Browser를 닫아도 서버 감시가 계속되게 합니다. */
+/** 이전 조회가 끝난 뒤 다음 Polling을 예약하고 화면을 떠난 Timer는 폐기합니다. */
 function scheduleStyleGenerationRefresh() {
   clearTimeout(styleGenerationViewState.timer);
+  const scheduleSequence = (styleGenerationViewState.scheduleSequence || 0) + 1;
+  styleGenerationViewState.scheduleSequence = scheduleSequence;
   if (!PERSISTENT_STYLE_WORKSPACE || !["generation", "candidates", "compare", "evolution"].includes(previewState.screen) || !currentProject()) return;
   const projectIdentifier = previewState.currentProjectIdentifier;
+  const remainingDelay = (currentStyleGenerationState(projectIdentifier).resultRefreshNotBefore || 0) - Date.now();
+  if (remainingDelay > 0) {
+    styleGenerationViewState.timer = setTimeout(scheduleStyleGenerationRefresh, remainingDelay);
+    return;
+  }
   refreshStyleGenerationResults(projectIdentifier).catch(error => {
     currentStyleGenerationState(projectIdentifier).error = error.message;
     if (projectIdentifier === previewState.currentProjectIdentifier) {
       const errorContainer = document.querySelector("#style-generation-error");
       if (errorContainer) errorContainer.textContent = error.message;
     }
+  }).finally(() => {
+    if (scheduleSequence === styleGenerationViewState.scheduleSequence) {
+      styleGenerationViewState.timer = setTimeout(scheduleStyleGenerationRefresh, 2000);
+    }
   });
-  styleGenerationViewState.timer = setTimeout(scheduleStyleGenerationRefresh, 2000);
 }
 
 document.addEventListener("change", handleStyleGenerationInput);

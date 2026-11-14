@@ -193,7 +193,7 @@ async function verifyStyleLibrary() {
       if (promptCount === 5) {
         const sectionHandle = await page.locator('.case-section').last().elementHandle();
         const previousScroll = await page.evaluate(() => scrollY);
-        await page.waitForResponse(response => response.url().endsWith('/generation-results'));
+        await page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/generation-results'));
         assert.ok(await sectionHandle.evaluate(section => section.isConnected));
         assert.ok(Math.abs((await page.evaluate(() => scrollY)) - previousScroll) <= 1);
       }

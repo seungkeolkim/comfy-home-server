@@ -106,8 +106,8 @@ class StyleVotingService:
             "action TEXT NOT NULL, payload_hash TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL)"
         )
 
-    def load_evaluation_candidates(self, connection, project_identifier: str, evaluation_identifier: str) -> tuple[list[dict], list[str]]:
-        """전체 Case의 최신 Render가 완료되고 파일이 있는 조합만 투표 준비로 인정합니다."""
+    def load_evaluation_candidates(self, connection, project_identifier: str, evaluation_identifier: str, *, verify_files: bool = True) -> tuple[list[dict], list[str]]:
+        """준비 상태는 Catalog에서 일괄 읽고 동작 경계에서는 실제 파일도 확인합니다."""
 
         evaluation = connection.execute("SELECT 1 FROM style_evaluation_revisions WHERE evaluation_id=? AND project_id=?", (evaluation_identifier, project_identifier)).fetchone()
         if not evaluation:
@@ -119,37 +119,69 @@ class StyleVotingService:
             "WHERE candidates.project_id=? AND candidates.evaluation_id=? AND (memberships.lifecycle='active' OR (memberships.lifecycle='evolving' AND batches.status='active')) ORDER BY candidates.rowid",
             (project_identifier, evaluation_identifier),
         ).fetchall()
+        render_rows = connection.execute(
+            "SELECT renders.candidate_id,renders.case_id,requests.status,(SELECT files.relative_path "
+            "FROM output_files AS files WHERE files.request_id=renders.request_id AND files.is_available=1 "
+            "AND files.is_deleted=0 LIMIT 1) AS relative_path FROM style_candidate_renders AS renders "
+            "JOIN style_candidates AS candidates USING(candidate_id) JOIN job_requests AS requests USING(request_id) "
+            "WHERE candidates.project_id=? AND candidates.evaluation_id=? ORDER BY renders.rowid",
+            (project_identifier, evaluation_identifier),
+        ).fetchall()
+        latest_by_candidate = {}
+        for render in render_rows:
+            latest_by_candidate.setdefault(render["candidate_id"], {})[render["case_id"]] = render
         candidates = []
         ready_identifiers = []
+        cases_by_plan = {}
         for row in rows:
-            latest_renders = {}
-            render_rows = connection.execute(
-                "SELECT renders.case_id,requests.status,(SELECT files.relative_path FROM output_files AS files WHERE files.request_id=renders.request_id "
-                "AND files.is_available=1 AND files.is_deleted=0 LIMIT 1) AS relative_path FROM style_candidate_renders AS renders "
-                "JOIN job_requests AS requests USING(request_id) WHERE renders.candidate_id=? ORDER BY renders.rowid", (row["candidate_id"],),
-            ).fetchall()
-            for render in render_rows:
-                latest_renders[render["case_id"]] = render
+            latest_renders = latest_by_candidate.get(row["candidate_id"], {})
             if not latest_renders:
                 continue
-            candidates.append({"identifier": row["candidate_id"], "components": json.loads(row["components_json"])})
-            cases = json.loads(row["plan_json"])["cases"]
+            candidate = {"identifier": row["candidate_id"], "components": json.loads(row["components_json"]), "imagePaths": []}
+            candidates.append(candidate)
+            if row["plan_id"] not in cases_by_plan:
+                cases_by_plan[row["plan_id"]] = json.loads(row["plan_json"])["cases"]
+            cases = cases_by_plan[row["plan_id"]]
             all_cases_ready = True
             for prompt_case in cases:
                 render = latest_renders.get(prompt_case["identifier"])
                 if not render or render["status"] != "completed" or not render["relative_path"]:
                     all_cases_ready = False
                     break
-                try:
-                    file_exists = self.server.managed_path(render["relative_path"]).is_file()
-                except (ValueError, OSError):
-                    file_exists = False
-                if not file_exists:
-                    all_cases_ready = False
-                    break
-            if all_cases_ready:
+                candidate["imagePaths"].append(render["relative_path"])
+            if all_cases_ready and (not verify_files or self.candidate_files_exist(candidate)):
                 ready_identifiers.append(row["candidate_id"])
         return candidates, ready_identifiers
+
+    def candidate_files_exist(self, candidate: dict) -> bool:
+        """대상 조합의 모든 Prompt에 대해 관리 경로와 실제 파일 존재를 확인합니다."""
+
+        for relative_path in candidate["imagePaths"]:
+            try:
+                if not self.server.managed_path(relative_path).is_file():
+                    return False
+            except (ValueError, OSError):
+                return False
+        return bool(candidate["imagePaths"])
+
+    def validate_comparison_files(self, candidates: list[dict], ready_identifiers: list[str], identifiers: list[str]) -> None:
+        """실제 비교 대상만 검사해 외부 삭제·관리 루트 밖의 파일을 제외합니다."""
+
+        targets = set(identifiers) & set(ready_identifiers)
+        for candidate in candidates:
+            if candidate["identifier"] in targets and not self.candidate_files_exist(candidate):
+                ready_identifiers.remove(candidate["identifier"])
+
+    def synchronize_available_match(self, state: dict, candidates: list[dict], ready_identifiers: list[str]) -> None:
+        """전체 파일을 순회하지 않고 선택된 Pair가 실제로 준비될 때까지 확인합니다."""
+
+        self.synchronize_candidates(state, candidates, ready_identifiers)
+        while state["match"]:
+            match = state["match"]
+            self.validate_comparison_files(candidates, ready_identifiers, [match["a"], match["b"]])
+            if match["a"] in ready_identifiers and match["b"] in ready_identifiers:
+                return
+            self.synchronize_candidates(state, candidates, ready_identifiers)
 
     def load_arena(self, connection, project_identifier: str, evaluation_identifier: str) -> tuple[int, dict]:
         """최초 조회에 빈 Arena를 만들고 이미지 생성과 독립된 평가 상태를 읽습니다."""
@@ -213,10 +245,10 @@ class StyleVotingService:
 
         with self.server.database._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            candidates, ready_identifiers = self.load_evaluation_candidates(connection, project_identifier, evaluation_identifier)
+            candidates, ready_identifiers = self.load_evaluation_candidates(connection, project_identifier, evaluation_identifier, verify_files=False)
             revision, state = self.load_arena(connection, project_identifier, evaluation_identifier)
             previous_snapshot = encode_snapshot(state)
-            self.synchronize_candidates(state, candidates, ready_identifiers)
+            self.synchronize_available_match(state, candidates, ready_identifiers)
             if encode_snapshot(state) != previous_snapshot:
                 revision += 1
                 self.save_arena(connection, evaluation_identifier, revision, state)
@@ -233,18 +265,21 @@ class StyleVotingService:
                 if existing["payload_hash"] != request_hash:
                     raise StyleRevisionConflict("같은 요청 ID로 다른 선택을 저장할 수 없습니다.")
                 return json.loads(existing["response_json"])
-            candidates, ready_identifiers = self.load_evaluation_candidates(connection, project_identifier, payload.evaluationIdentifier)
+            candidates, ready_identifiers = self.load_evaluation_candidates(connection, project_identifier, payload.evaluationIdentifier, verify_files=False)
             revision, state = self.load_arena(connection, project_identifier, payload.evaluationIdentifier)
             if revision != payload.expectedRevision:
                 raise StyleRevisionConflict("다른 화면에서 선별 상태가 변경됐습니다. 최신 대결을 확인한 뒤 다시 선택해 주세요.")
             for candidate in candidates:
                 state["statistics"].setdefault(candidate["identifier"], initial_candidate_statistics())
             if action == "vote":
+                if state["match"]:
+                    self.validate_comparison_files(candidates, ready_identifiers, [state["match"]["a"], state["match"]["b"]])
                 self.record_vote(connection, state, ready_identifiers, candidates, payload)
             elif action == "undo":
                 self.restore_vote(connection, state, payload)
                 self.server.style_evolution.migrate_parent_selection(connection, project_identifier, payload.evaluationIdentifier, state)
             elif action == "pair":
+                self.validate_comparison_files(candidates, ready_identifiers, [payload.firstCandidateIdentifier, payload.secondCandidateIdentifier])
                 self.select_pair(state, ready_identifiers, payload)
             elif action == "mode":
                 state.update(mode=payload.mode, match=None)
@@ -252,7 +287,7 @@ class StyleVotingService:
                 self.set_candidate_ratings(connection, project_identifier, state, payload)
             else:
                 raise ValueError("지원하지 않는 선별 명령입니다.")
-            self.synchronize_candidates(state, candidates, ready_identifiers)
+            self.synchronize_available_match(state, candidates, ready_identifiers)
             revision += 1
             self.save_arena(connection, payload.evaluationIdentifier, revision, state)
             response = self.arena_view(connection, project_identifier, payload.evaluationIdentifier, payload.clientIdentifier, revision, state, candidates, ready_identifiers)

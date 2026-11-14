@@ -161,11 +161,11 @@ def create_style_project_router(server) -> APIRouter:
         return {"jobIdentifier": job_identifier, "requestIdentifiers": [request["request_id"] for request in requests]}
 
     @router.get("/api/style-projects/{project_identifier}/generation-results")
-    def style_generation_results(project_identifier: str):
+    def style_generation_results(project_identifier: str, summary: bool = False):
         """Browser 종료 뒤에도 추적된 실제 이미지와 실패 상태를 조회합니다."""
 
         try:
-            return server.style_generation.store.results(project_identifier)
+            return server.style_generation.store.results(project_identifier, summary=summary)
         except LookupError as exception:
             raise HTTPException(404, str(exception)) from exception
 

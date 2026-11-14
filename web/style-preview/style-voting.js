@@ -79,7 +79,7 @@ function renderStyleVotingFeedback(projectIdentifier, evaluationIdentifier) {
   const container = document.querySelector("#style-render-results");
   if (!container) return;
   const markup = styleComparisonResultsMarkup();
-  container.innerHTML = markup;
+  replaceStyleResultMarkup(container, markup);
   currentStyleGenerationState(projectIdentifier).lastResultMarkup = markup;
   updateStyleVotingControls();
 }
@@ -99,6 +99,7 @@ function blockStyleMutationDuringVoting(projectIdentifier) {
 /** 현재 선택한 평가 조건의 Match를 조회하고 화면을 떠난 프로젝트에는 반영만 합니다. */
 async function refreshStyleVoting(projectIdentifier) {
   const state = currentStyleGenerationState(projectIdentifier);
+  const refreshSequence = state.resultRefreshSequence;
   const submittedPlans = (state.results?.plans || []).filter(plan => plan.jobIdentifiers.length);
   const selectedPlan = submittedPlans.find(plan => plan.planIdentifier === state.comparisonPlanIdentifier) || submittedPlans[0];
   if (!selectedPlan) {
@@ -107,7 +108,31 @@ async function refreshStyleVoting(projectIdentifier) {
   }
   const parameters = new URLSearchParams({ evaluationIdentifier: selectedPlan.evaluationIdentifier, clientIdentifier: styleVotingClientIdentifier() });
   const selection = await styleProjectApi(`/api/style-projects/${projectIdentifier}/selection?${parameters}`);
-  applyStyleVotingResponse(projectIdentifier, selection);
+  if (refreshSequence === state.resultRefreshSequence && !state.votingCommandBusy && !state.candidateCommandBusy) applyStyleVotingResponse(projectIdentifier, selection);
+}
+
+/** 결과 공개 중 다음 Pair의 기본 Preview를 미리 Decode하며 원본 Cache 정책을 공유합니다. */
+function preloadStyleVotingMatch(projectIdentifier, selection) {
+  const state = currentStyleGenerationState(projectIdentifier);
+  const match = selection.match;
+  if (!match) return;
+  const candidates = (state.results?.candidates || []).filter(candidate => [match.a, match.b].includes(candidate.identifier));
+  const sources = new Set();
+  for (const candidate of candidates) {
+    const plan = state.results.plans.find(plan => plan.planIdentifier === candidate.planIdentifier);
+    for (const promptCase of plan?.cases || []) {
+      const render = candidate.renders.filter(render => render.caseIdentifier === promptCase.identifier).at(-1);
+      const file = render?.files.find(file => file.is_available && !file.is_deleted);
+      if (file) sources.add(styleImageUrl(file.path));
+    }
+  }
+  state.preloadedVotingImages = [];
+  for (const source of sources) {
+    const image = new Image();
+    image.src = source;
+    image.decode().catch(() => {});
+    state.preloadedVotingImages.push(image);
+  }
 }
 
 /** 서버와 화면 모두 모든 Prompt 이미지가 준비됐을 때만 투표를 활성화합니다. */
@@ -163,7 +188,9 @@ async function executeStyleVotingAction(action, additionalFields = {}) {
   if (action === "mode" && (voting.mode || "auto") === additionalFields.mode) return;
   state.votingCommandBusy = true;
   state.resultRefreshSequence = (state.resultRefreshSequence || 0) + 1;
+  state.evolutionRefreshSequence = (state.evolutionRefreshSequence || 0) + 1;
   state.error = "";
+  let responseApplied = false;
   if (action === "vote") state.votingFeedback = { comparison: structuredClone(comparison), phase: "selecting", choice: additionalFields.choice, rankings: [] };
   updateStyleVotingControls();
   try {
@@ -177,6 +204,8 @@ async function executeStyleVotingAction(action, additionalFields = {}) {
     if (action === "vote") await waitForStyleVotingFeedback(STYLE_VOTING_SELECTION_FEEDBACK_MILLISECONDS);
     const response = await styleProjectApi(`/api/style-projects/${projectIdentifier}/${route}`, { method: "POST", body: JSON.stringify(payload) });
     const applied = applyStyleVotingResponse(projectIdentifier, response);
+    responseApplied = applied;
+    if (applied) preloadStyleVotingMatch(projectIdentifier, response);
     if (action === "vote" && applied) {
       state.votingFeedback.phase = "reveal";
       state.votingFeedback.rankings = structuredClone(response.rankings);
@@ -192,16 +221,23 @@ async function executeStyleVotingAction(action, additionalFields = {}) {
   } finally {
     state.votingFeedback = null;
     state.votingCommandBusy = false;
-    try {
-      await refreshStyleGenerationResults(projectIdentifier);
-    } catch (error) {
-      state.error ||= error.message;
-    }
+    state.resultRefreshNotBefore = Date.now() + 2000;
     if (styleVotingCommandStillVisible(projectIdentifier, voting.evaluationIdentifier)) {
-      renderPreview(false);
+      renderCurrentStyleGenerationResults(projectIdentifier);
       updateStyleVotingControls();
       if (["vote", "undo"].includes(action) && !state.error) document.querySelector(".candidate-headings")?.scrollIntoView({ block: "start" });
     }
+    if (!responseApplied) {
+      try {
+        await refreshStyleGenerationResults(projectIdentifier);
+      } catch (error) {
+        state.error ||= error.message;
+      }
+    } else {
+      refreshStyleEvolution(projectIdentifier).catch(error => { state.error ||= error.message; });
+    }
+    scheduleStyleGenerationRefresh();
+    state.preloadedVotingImages = [];
   }
 }
 

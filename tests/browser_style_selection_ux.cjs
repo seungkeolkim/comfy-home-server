@@ -66,6 +66,37 @@ async function waitForSelectionReady(page) {
   await expect(page.locator('.persistent-comparison')).toHaveAttribute('data-voting-feedback', '');
 }
 
+/** 2초보다 느린 목록도 첫 화면을 표시하고 같은 프로젝트의 동시 조회는 합칩니다. */
+async function verifySlowStylePolling(page, project) {
+  const resultsEndpoint = `${baseUrl}/api/style-projects/${project.identifier}/generation-results**`;
+  let activeRequests = 0;
+  let maximumActiveRequests = 0;
+  const resultRequests = [];
+  await page.route(resultsEndpoint, async route => {
+    activeRequests += 1;
+    maximumActiveRequests = Math.max(maximumActiveRequests, activeRequests);
+    resultRequests.push(route.request().url());
+    try {
+      await new Promise(resolve => setTimeout(resolve, 2600));
+      const response = await route.fetch();
+      await route.fulfill({ response });
+    } finally {
+      activeRequests -= 1;
+    }
+  });
+  await page.reload();
+  await waitForSelectionReady(page);
+  await page.waitForFunction(() => !currentStyleGenerationState().resultRefreshPromise);
+  assert.equal(resultRequests.length, 1, 'Slow initial polling must finish without being replaced');
+  await page.evaluate(() => Promise.all([
+    refreshStyleGenerationResults(), refreshStyleGenerationResults(), refreshStyleGenerationResults(),
+  ]));
+  assert.equal(resultRequests.length, 2, 'Concurrent calls and the polling timer must share one request');
+  assert.equal(maximumActiveRequests, 1);
+  assert.ok(resultRequests.every(url => new URL(url).searchParams.get('summary') === 'true'));
+  await page.unroute(resultsEndpoint);
+}
+
 /** 표를 보낼 수 없는 Focus·Keyboard 상황에서 서버 요청이 생기지 않는지 확인합니다. */
 async function verifyKeyboardGuards(page, voteRequests) {
   const originalCount = voteRequests.length;
@@ -165,6 +196,7 @@ async function verifySelectionUserExperience() {
     await finishInitialSelection(context, project, clientIdentifier);
     await page.reload();
     await waitForSelectionReady(page);
+    await verifySlowStylePolling(page, project);
     const voteEndpoint = `${baseUrl}/api/style-projects/${project.identifier}/votes`;
     const voteRequests = [];
     page.on('request', request => {
@@ -177,6 +209,14 @@ async function verifySelectionUserExperience() {
     await page.locator('[data-action=toggle-blind]').click();
     await waitForSelectionReady(page);
     await expect(page.locator('.candidate-headings')).toContainText('그림체 숨김');
+    await page.evaluate(() => { window.retainedSelectionImages = [...document.querySelectorAll('.comparison-result img')]; });
+    await page.waitForFunction(() => !currentStyleGenerationState().resultRefreshPromise);
+    const resultReloadRequests = [];
+    /** 성공한 투표의 다음 Pair를 표시하기 전에 전체 결과를 다시 읽는지 기록합니다. */
+    function recordResultReload(request) {
+      if (new URL(request.url()).pathname.endsWith('/generation-results')) resultReloadRequests.push(request.url());
+    }
+    page.on('request', recordResultReload);
     await page.route(voteEndpoint, async route => {
       await new Promise(resolve => setTimeout(resolve, 300));
       await route.continue();
@@ -196,11 +236,15 @@ async function verifySelectionUserExperience() {
     assert.deepEqual(await page.locator('.comparison-result img').evaluateAll(images => images.map(image => image.getAttribute('src'))), originalSources);
     await expect(page.locator('.candidate-headings')).not.toContainText('그림체 숨김');
     await expect(page.locator('.comparison-rating-delta')).toHaveCount(2);
+    assert.ok(await page.evaluate(() => [...document.querySelectorAll('.comparison-result img')].every((image, index) => image === window.retainedSelectionImages[index])), 'Reveal must preserve the current image DOM');
+    assert.ok(await page.evaluate(() => currentStyleGenerationState().preloadedVotingImages.length > 0), 'Next pair must preload during reveal');
     await page.evaluate(() => refreshStyleGenerationResults());
     await expect(page.locator('.persistent-comparison')).toHaveAttribute('data-voting-feedback', 'reveal');
     await page.screenshot({ path: 'runtime/verification/style-selection-feedback-desktop.png', fullPage: true });
     await waitForSelectionReady(page);
     assert.ok(Date.now() - revealStarted >= 700, 'The result must remain visible for about one second');
+    page.off('request', recordResultReload);
+    assert.equal(resultReloadRequests.length, 0, 'Successful voting must display the response pair without a full results reload');
     await expect(page.locator('.candidate-headings')).toContainText('그림체 숨김');
     await page.evaluate(() => document.activeElement?.blur());
     await page.keyboard.press('Backspace');
@@ -318,6 +362,7 @@ async function verifySelectionUserExperience() {
       keyboardAndFocusGuards: true, keyboardUndoRestoresPair: true, modeRoundTripAndPersistence: true,
       modeAndVoteErrorsRecover: true, mobileMultiplePrompts: true, projectSwitchDuringReveal: true, browserErrors,
       pendingVoteBlocksSameProjectMutations: true, pendingVoteAllowsOtherProjectDialogs: true,
+      slowPollingDisplaysResults: true, concurrentRefreshesCoalesced: true, revealPreservesImageNodes: true, nextPairPreloaded: true,
       viewportWidths: [320, 390, 768, 1280],
     }, null, 2));
     console.log('Style selection UX Browser verification passed');
