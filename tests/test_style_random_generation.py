@@ -200,7 +200,7 @@ def test_concurrent_preview_duplicate_is_rejected_before_commit(tmp_path, monkey
         client.__exit__(None, None, None)
 
 
-@pytest.mark.parametrize("combination_count", [0, 33, 1.5])
+@pytest.mark.parametrize("combination_count", [0, 1001, 1.5])
 def test_random_batch_validation_does_not_create_plan(tmp_path, combination_count) -> None:
     """허용 범위 밖의 Batch 크기는 추첨·저장 전에 거절합니다."""
 

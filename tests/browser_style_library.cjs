@@ -44,12 +44,16 @@ function relativeLuminance(color) {
 /** 이미지의 실제 비율과 테두리 크기가 같아 잘림이나 카드 안 여백이 없는지 확인합니다. */
 async function verifyComparisonCardFit(page) {
   await expect.poll(() => page.locator('.comparison-result:visible img').evaluateAll(images => images.length > 0 && images.every(image => image.complete && image.naturalWidth > 0))).toBe(true);
-  const measurements = await page.locator('.comparison-result:visible .image-button').evaluateAll(buttons => buttons.map(button => {
-    const image = button.querySelector('img');
-    const imageBounds = image.getBoundingClientRect();
-    const buttonBounds = button.getBoundingClientRect();
-    return { imageWidth: imageBounds.width, imageHeight: imageBounds.height, buttonWidth: buttonBounds.width, buttonHeight: buttonBounds.height, naturalRatio: image.naturalWidth / image.naturalHeight };
-  }));
+  const measurements = await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll('.comparison-result .image-button')].filter(button => button.getClientRects().length && getComputedStyle(button).visibility !== 'hidden');
+    return buttons.map(button => {
+      const image = button.querySelector('img');
+      const imageBounds = image.getBoundingClientRect();
+      const buttonBounds = button.getBoundingClientRect();
+      return { imageWidth: imageBounds.width, imageHeight: imageBounds.height, buttonWidth: buttonBounds.width, buttonHeight: buttonBounds.height, naturalRatio: image.naturalWidth / image.naturalHeight };
+    });
+  });
+  assert.ok(measurements.length > 0);
   for (const measurement of measurements) {
     assert.ok(measurement.imageWidth > 0 && measurement.imageHeight > 0, JSON.stringify(measurement));
     assert.ok(Math.abs(measurement.imageWidth / measurement.imageHeight - measurement.naturalRatio) < 0.01, JSON.stringify(measurement));
@@ -178,6 +182,7 @@ async function verifyStyleLibrary() {
       }
       await page.goto(`${baseUrl}/style#compare`);
       await expect(page.locator('.case-section:visible')).toHaveCount(promptCount, { timeout: 10000 });
+      await expect(page.locator('[data-style-voting-choice=a]')).toBeEnabled();
       for (const width of [320, 390, 768, 1280]) {
         await page.setViewportSize({ width, height: 1000 });
         await verifyComparisonCardFit(page);

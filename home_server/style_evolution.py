@@ -11,6 +11,7 @@ from .style_evolution_breeding import draw_evolution_children
 from .style_evolution_selection import STYLELAB_SELECTION_POLICY, build_selection_ranking, next_selection_pair, synchronize_selection_statistics
 from .style_evolution_store import StyleEvolutionStore
 from .style_generation import FixedCombination, StyleGenerationPlanInput
+from .style_generation_sizing import DEFAULT_EVOLUTION_CHILD_COUNT, MAXIMUM_EVOLUTION_CHILD_COUNT
 from .style_projects import ProjectSettings, StyleRevisionConflict, encode_snapshot, snapshot_hash
 from .style_voting import ranked_candidate_statistics
 from .style_voting_rules import boundary_tie_match, candidate_is_rated, initial_candidate_statistics
@@ -23,13 +24,13 @@ class EvolutionPlanInput(BaseModel):
     operationIdentifier: str = Field(min_length=16, max_length=100)
     expectedProjectRevision: int = Field(ge=1)
     expectedVotingRevision: int = Field(ge=1)
-    childCount: int = Field(default=6, ge=1, le=32)
+    childCount: int = Field(default=DEFAULT_EVOLUTION_CHILD_COUNT, ge=1, le=MAXIMUM_EVOLUTION_CHILD_COUNT)
 
 
 class EvolutionGenerationPlanInput(StyleGenerationPlanInput):
     """일반 고정 A/B API의 제한을 바꾸지 않고 내부 진화 조합을 전달합니다."""
 
-    combinations: list[FixedCombination] = Field(min_length=1, max_length=32)
+    combinations: list[FixedCombination] = Field(min_length=1, max_length=MAXIMUM_EVOLUTION_CHILD_COUNT)
 
 
 class EvolutionActionInput(BaseModel):

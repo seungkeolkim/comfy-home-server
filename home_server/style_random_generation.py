@@ -6,6 +6,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .style_projects import snapshot_hash
+from .style_generation_sizing import DEFAULT_RANDOM_COMBINATION_COUNT, GENERATION_COUNT_POLICY_VERSION, MAXIMUM_RANDOM_COMBINATION_COUNT
 
 
 RANDOM_SELECTION_VERSION = "initial-random-v1"
@@ -19,7 +20,7 @@ class RandomStyleGenerationPlanInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expectedRevision: int = Field(ge=1)
     operationIdentifier: str = Field(min_length=16, max_length=100)
-    combinationCount: int = Field(default=4, ge=1, le=32)
+    combinationCount: int = Field(default=DEFAULT_RANDOM_COMBINATION_COUNT, ge=1, le=MAXIMUM_RANDOM_COMBINATION_COUNT)
 
 
 def combination_selection_fingerprint(components: list[dict]) -> str:
@@ -77,6 +78,7 @@ def draw_initial_combinations(settings: dict, requested_count: int, selection_se
         component_sets.append(components)
     provenance = {
         "mode": "random", "algorithm": RANDOM_SELECTION_VERSION, "selectionSeed": selection_seed,
+        "countPolicyVersion": GENERATION_COUNT_POLICY_VERSION,
         "strengthStep": float(STRENGTH_STEP), "requestedCount": requested_count,
         "actualCount": len(component_sets), "attempts": attempts, "maximumAttempts": maximum_attempts,
         "shortfallCount": requested_count - len(component_sets),

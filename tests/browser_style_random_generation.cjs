@@ -30,7 +30,7 @@ async function verifyRandomStyleGeneration() {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${baseUrl}/style#generation`);
     await page.locator('#active-project-picker').selectOption(project.identifier);
-    await expect(page.locator('#style-generation-random-count')).toHaveValue('4');
+    await expect(page.locator('#style-generation-random-count')).toHaveValue('50');
     await page.locator('#style-generation-random-count').fill('0');
     await page.locator('[data-generation-action=generate-random]').click();
     await expect(page.locator('#style-generation-confirmation-dialog')).not.toBeVisible();
@@ -152,7 +152,7 @@ async function verifyRandomStyleGeneration() {
     await page.reload();
     await page.locator('#active-project-picker').selectOption(baseOnlyProject.identifier);
     await page.locator('[data-generation-action=generate-random]').click();
-    await expect(confirmationDialog).toContainText('4개 중 1개');
+    await expect(confirmationDialog).toContainText('50개 중 1개');
     await expect(confirmationDialog).toContainText('3장');
     await confirmationDialog.locator('button[value=cancel]').click();
     assert.equal((await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total, previousJobCount + 1);

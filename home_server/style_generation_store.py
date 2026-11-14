@@ -5,6 +5,7 @@ import sqlite3
 from collections.abc import Callable
 
 from .style_projects import browser_sampling_settings
+from .style_generation_sizing import generation_sizing_from_plans
 from .style_voting import ranked_candidate_statistics
 
 
@@ -202,7 +203,8 @@ class StyleGenerationStore:
         batch_numbers = {plan["planIdentifier"]: index + 1 for index, plan in enumerate(submitted_plans)}
         for candidate in results:
             candidate["batchNumber"] = batch_numbers.get(candidate["planIdentifier"])
-        return {"projectIdentifier": project_identifier, "activeEvaluationIdentifier": project["active_evaluation_id"], "currentGeneration": current_generation[0] if current_generation else 1, "candidates": results, "plans": plans, "pendingCandidateDeletions": pending_deletions}
+        return {"projectIdentifier": project_identifier, "activeEvaluationIdentifier": project["active_evaluation_id"], "currentGeneration": current_generation[0] if current_generation else 1, "candidates": results, "plans": plans, "pendingCandidateDeletions": pending_deletions,
+                "generationSizing": generation_sizing_from_plans(list(stored_plans.values()))}
 
     @staticmethod
     def candidate_display_identity(candidate, plan: dict, generation_number: int) -> dict:

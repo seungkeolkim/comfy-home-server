@@ -33,7 +33,8 @@ function styleEvolutionPanelMarkup() {
     if (initialPool) {
       return `<section class="panel evolution-panel"><h2>진화할 조합 준비</h2><p>Random 신규 조합을 생성하고 선별하면 상위 30%를 부모로 다음 세대를 만들 수 있습니다.</p><p class="form-note">평가 ${evolution.evaluatedCount} / 최소 ${evolution.minimumEvaluatedCount}개</p><div class="generation-start-controls"><button class="primary" data-action="navigate" data-screen="generation">Random 조합 만들기</button>${evolution.candidateCount ? '<button data-action="navigate" data-screen="compare">선별하기</button>' : ''}</div></section>`;
     }
-    const count = state.candidateGenerationCount ?? previewState.candidateGenerationRequests?.[previewState.currentProjectIdentifier]?.candidateCount ?? 6;
+    const sizing = styleGenerationSizing(state);
+    const count = state.candidateGenerationCount ?? previewState.candidateGenerationRequests?.[previewState.currentProjectIdentifier]?.candidateCount ?? sizing.evolutionChildCount;
     const canGenerate = !evolution.pendingRequestCount && evolution.canPrepare;
     const generationNumber = evolution.currentGeneration + 1;
     const generationConfirmed = evolution.history.some(item => item.status === 'confirmed' && item.targetGeneration === evolution.currentGeneration);
@@ -42,7 +43,8 @@ function styleEvolutionPanelMarkup() {
     const blockers = evolution.blockers.map(message => `<li>${escapeMarkup(message)}</li>`).join('');
     return `<section class="panel evolution-panel"><div class="settings-section-heading"><h2>${title}</h2><span class="muted">평가 ${evolution.evaluatedCount} / ${evolution.candidateCount}</span></div>
       ${nextGenerationDescription}
-      <div class="generation-start-controls"><label for="style-generation-candidate-count">자녀 수</label><input id="style-generation-candidate-count" type="number" min="1" max="32" step="1" value="${escapeMarkup(count)}" ${canGenerate ? '' : 'disabled'} /><button class="primary" data-generation-action="generate-candidates" ${canGenerate ? '' : 'disabled'}>다음 세대 후보 생성</button><button data-action="navigate" data-screen="generation">Random 조합 추가</button><button data-action="navigate" data-screen="compare">선별하기</button></div>
+      <p class="form-note">활성 ${evolution.candidateCount}개 · 부모 ${evolution.parentCandidateIdentifiers.length}개</p>
+      <div class="generation-start-controls"><label for="style-generation-candidate-count">자녀 수</label><input id="style-generation-candidate-count" type="number" min="1" max="${sizing.evolutionMaximumCount}" step="1" value="${escapeMarkup(count)}" ${canGenerate ? '' : 'disabled'} /><button class="primary" data-generation-action="generate-candidates" ${canGenerate ? '' : 'disabled'}>다음 세대 후보 생성</button><button data-action="navigate" data-screen="generation">Random 조합 추가</button><button data-action="navigate" data-screen="compare">선별하기</button></div>
       ${!canGenerate && blockers ? `<details class="evolution-blockers"><summary>${evolution.pendingRequestCount ? '후보 생성 중' : '선별을 먼저 마쳐 주세요'}</summary><ul>${blockers}</ul></details>` : ''}</section>`;
   }
   const phaseLabels = { planned: '생성 대기', generating: '생성 중', selecting: '선별 중', failed: '생성 확인 필요', ready: '선별 완료' };

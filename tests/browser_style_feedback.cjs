@@ -75,6 +75,7 @@ async function verifyStyleFeedback() {
     await page.locator('#settings-project-purpose').fill('선별 왕복 후에도 남아야 하는 미저장 메모');
     await page.locator('#preview-sidebar [data-screen=compare]').click();
     await expect(page.locator('.persistent-comparison img')).toHaveCount(4, { timeout: 10000 });
+    await expect(page.locator('[data-style-voting-choice=a]')).toBeEnabled();
     const originalSources = await page.locator('.persistent-comparison img').evaluateAll(elements => elements.map(element => element.getAttribute('src')));
     await expect(page.locator('#preview-content')).not.toContainText('성분·실제 생성 조건');
     await page.locator('[data-action=open-differences]').click();

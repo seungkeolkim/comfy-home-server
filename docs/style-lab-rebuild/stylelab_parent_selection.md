@@ -41,6 +41,8 @@
 
 ## Random 신규 조합은 별도 동작
 
+생성 수량과 Pool 확장은 [2026-11-15 조합 탐색 규모 복원](style_population_size_2026-11-15.md)을 따릅니다. Random 기본 50개·진화 기본 12개이며, 평가된 활성 50개에서는 상위 부모가 15개입니다. 최소 평가 수 10개를 활성 수의 상한이나 초기 목표로 취급하지 않습니다.
+
 일반 Random newcomer는 Evolution 자녀에 포함하지 않습니다. 기존 rated 전체 Ladder를 고정하고 중앙부터 Binary Search합니다. 내부 Slot Elo는 양옆 점수의 평균이며 Ladder 아래·위는 각각 480 간격입니다. 기준 조합이 전혀 없고 신규가 하나뿐이면 Elo10000의 anchor가 됩니다.
 
 원본의 fresh 비교 조건도 복원합니다. 진행 중 Placement가 없고 rated 조합이 24개 미만이며 newcomer가 2개 이상이면 신규끼리 일반 Elo 한 판을 비교합니다. 승패가 정해지면 두 조합 모두 rated가 됩니다. rated 23개에서는 이 경로를 사용할 수 있고 24개부터는 전체 Ladder Placement를 사용합니다. 이미 시작한 Placement는 먼저 완료합니다.

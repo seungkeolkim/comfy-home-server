@@ -3,6 +3,7 @@
 import random
 
 from .style_random_generation import combination_selection_fingerprint, random_component_strength
+from .style_generation_sizing import GENERATION_COUNT_POLICY_VERSION
 
 
 EVOLUTION_POLICY_VERSION = "style-evolution-v1"
@@ -143,6 +144,7 @@ def draw_evolution_children(settings: dict, parents: list[dict], statistics: dic
         children.append({"components": components, "mode": mode, "parentIdentifiers": [first_parent["identifier"], second_parent["identifier"]] if mode == "crossover" else [first_parent["identifier"]] if mode == "mutate" else []})
     provenance = {
         "mode": "evolution", "algorithm": EVOLUTION_POLICY_VERSION, "selectionSeed": selection_seed,
+        "countPolicyVersion": GENERATION_COUNT_POLICY_VERSION,
         "requestedCount": requested_count, "actualCount": len(children), "shortfallCount": requested_count - len(children),
         "attempts": attempts, "maximumAttempts": requested_count * 30, "artistPreference": "ridge-60-usage", "newLoraChoice": "uniform",
         "modeCounts": {mode: sum(child["mode"] == mode for child in children) for mode in ("mutate", "crossover", "random")},

@@ -8,6 +8,14 @@ function currentStyleGenerationState(projectIdentifier = previewState.currentPro
   return styleGenerationViewState.projects[projectIdentifier];
 }
 
+/** 서버의 공통 수량 정책과 해당 프로젝트에서 마지막 제출한 수량을 사용합니다. */
+function styleGenerationSizing(state = currentStyleGenerationState()) {
+  return state.results?.generationSizing || {
+    randomCombinationCount: 50, randomMaximumCount: 1000,
+    evolutionChildCount: 12, evolutionMaximumCount: 60, recommendedPopulationCount: 50,
+  };
+}
+
 /** 서버가 반환한 파일 경로만 인증된 미디어 URL로 변환합니다. */
 function styleImageUrl(relativePath, original = false) {
   return window.ComfyHomeImagePreview.imageSource(relativePath, original);
@@ -31,7 +39,7 @@ function stylePromptRegenerationCandidates(project, state) {
   const sourcePlan = results.plans.find(plan => plan.evaluationIdentifier !== project.evaluationIdentifier && results.candidates.some(candidate => candidate.evaluationIdentifier === plan.evaluationIdentifier && candidate.lifecycle === "active" && candidate.renders.length));
   if (!sourcePlan) return [];
   return results.candidates.filter(candidate => candidate.evaluationIdentifier === sourcePlan.evaluationIdentifier && candidate.lifecycle === "active" && candidate.renders.length)
-    .sort((first, second) => (second.statistics?.rating || 0) - (first.statistics?.rating || 0)).slice(0, 32);
+    .sort((first, second) => (second.statistics?.rating || 0) - (first.statistics?.rating || 0)).slice(0, styleGenerationSizing(state).randomMaximumCount);
 }
 
 /** 새 Prompt를 저장한 뒤 기존 조합으로 생성하는 진입점만 제공합니다. */
@@ -72,6 +80,11 @@ function confirmStyleGeneration(plan) {
 
 /** 확인한 불변 계획만 제출하며 응답 유실 때도 서버의 중복 제출 방지를 사용합니다. */
 async function submitConfirmedStyleGeneration(projectIdentifier, plan) {
+  const state = currentStyleGenerationState(projectIdentifier);
+  state.resultRefreshSequence = (state.resultRefreshSequence || 0) + 1;
+  state.evolutionRefreshSequence = (state.evolutionRefreshSequence || 0) + 1;
+  // 접수 응답이 유실돼도 이전 세대의 Match에 다시 투표하지 않게 합니다.
+  delete state.votingEvaluations?.[plan.evaluationIdentifier];
   await styleProjectApi(`/api/style-projects/${projectIdentifier}/generation-plans/${plan.planIdentifier}/submit`, { method: "POST", body: JSON.stringify({ operationIdentifier: newStyleClientIdentifier(), retryFailedOnly: false }) });
   showToast("생성을 시작했습니다.");
 }
@@ -80,12 +93,19 @@ async function submitConfirmedStyleGeneration(projectIdentifier, plan) {
 function styleRandomGenerationPanelMarkup() {
   const state = currentStyleGenerationState();
   const evolution = state.evolution;
-  const count = state.randomGenerationCount ?? previewState.randomGenerationRequests?.[previewState.currentProjectIdentifier]?.combinationCount ?? 4;
+  const sizing = styleGenerationSizing(state);
+  const count = state.randomGenerationCount ?? previewState.randomGenerationRequests?.[previewState.currentProjectIdentifier]?.combinationCount ?? sizing.randomCombinationCount;
   const canGenerate = Boolean(evolution && !evolution.batch && !evolution.pendingRequestCount);
+  const activeCount = evolution?.candidateCount || 0;
+  const parentCount = evolution?.parentCandidateIdentifiers.length || 0;
+  const additionalCount = sizing.recommendedPopulationCount - activeCount;
+  const expandPopulationButton = activeCount > 0 && additionalCount > 0
+    ? `<button data-generation-action="expand-population" data-combination-count="${additionalCount}" ${canGenerate ? '' : 'disabled'}>${sizing.recommendedPopulationCount}개까지 늘리기 (+${additionalCount})</button>`
+    : '';
   let pendingMessage = '';
   if (evolution?.batch) pendingMessage = '<p class="form-note">진행 중인 세대를 확정하거나 취소한 뒤 새 조합을 추가할 수 있습니다.</p>';
   else if (evolution?.pendingRequestCount) pendingMessage = '<p class="form-note">이미지 생성이 끝나면 새 조합을 추가할 수 있습니다.</p>';
-  return `<section class="panel random-generation-panel"><h2>Random 신규 조합</h2><p class="form-note">프로젝트에서 허용한 작가·LoRA·STR 범위로 새로운 조합을 만듭니다. 기존 조합이 있어도 추가할 수 있습니다.</p><div class="generation-start-controls"><label for="style-generation-random-count">조합 수</label><input id="style-generation-random-count" type="number" min="1" max="32" step="1" value="${escapeMarkup(count)}" ${canGenerate ? '' : 'disabled'} /><button class="primary" data-generation-action="generate-random" ${canGenerate ? '' : 'disabled'}>Random 조합 생성</button>${evolution?.candidateCount ? '<button data-action="navigate" data-screen="compare">선별하기</button>' : ''}<button data-action="navigate" data-screen="evolution">진화 보기</button></div>${pendingMessage}</section>`;
+  return `<section class="panel random-generation-panel"><h2>Random 신규 조합</h2><p class="form-note random-population-summary">현재 ${activeCount}개 · 부모 ${parentCount}개 (평가 조합 상위 30%)</p><div class="generation-start-controls"><label for="style-generation-random-count">추가 조합 수</label><input id="style-generation-random-count" type="number" min="1" max="${sizing.randomMaximumCount}" step="1" value="${escapeMarkup(count)}" ${canGenerate ? '' : 'disabled'} /><button class="primary" data-generation-action="generate-random" ${canGenerate ? '' : 'disabled'}>Random 조합 생성</button>${expandPopulationButton}${evolution?.candidateCount ? '<button data-action="navigate" data-screen="compare">선별하기</button>' : ''}<button data-action="navigate" data-screen="evolution">진화 보기</button></div>${pendingMessage}</section>`;
 }
 
 /** 응답 유실·취소·새로고침 뒤에도 같은 Random 계획으로 다시 확인합니다. */
@@ -299,6 +319,12 @@ async function handleStyleGenerationAction(event) {
     return;
   }
   if (blockStyleMutationDuringVoting(projectIdentifier)) return;
+  if (action === "expand-population") {
+    state.randomGenerationCount = Number(button.dataset.combinationCount);
+    renderPreview(false);
+    document.querySelector("#style-generation-random-count")?.focus();
+    return;
+  }
   if (action === "generate-candidates" && !document.querySelector("#style-generation-candidate-count").reportValidity()) return;
   if (action === "generate-random" && !document.querySelector("#style-generation-random-count").reportValidity()) return;
   styleGenerationViewState.busy = true;

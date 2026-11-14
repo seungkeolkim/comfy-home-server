@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .output_directories import resolve_output_directory
 from .output_roots import STYLE_OUTPUT_PREFIX, STYLE_OUTPUT_ROOT_NAME
 from .style_generation_store import StyleGenerationStore
+from .style_generation_sizing import MAXIMUM_RANDOM_COMBINATION_COUNT
 from .style_projects import ProjectSettings, StyleRevisionConflict, browser_sampling_settings, encode_snapshot, snapshot_hash
 from .style_random_generation import RandomStyleGenerationPlanInput, combination_selection_fingerprint, draw_initial_combinations
 from .tag_builder import resolve_anima_prompts
@@ -61,13 +62,13 @@ class StylePromptRegenerationInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     expectedRevision: int = Field(ge=1)
     operationIdentifier: str = Field(min_length=16, max_length=100)
-    candidateIdentifiers: list[str] = Field(min_length=1, max_length=32)
+    candidateIdentifiers: list[str] = Field(min_length=1, max_length=MAXIMUM_RANDOM_COMBINATION_COUNT)
 
 
 class StylePromptGenerationPlanInput(StyleGenerationPlanInput):
     """서버가 읽은 조합만 기존 생성 경로에 전달합니다."""
 
-    combinations: list[FixedCombination] = Field(min_length=1, max_length=32)
+    combinations: list[FixedCombination] = Field(min_length=1, max_length=MAXIMUM_RANDOM_COMBINATION_COUNT)
 
 
 def compose_artist_prompt(common_prompt: str, components: list[dict]) -> str:
@@ -84,6 +85,17 @@ def compose_artist_prompt(common_prompt: str, components: list[dict]) -> str:
     if ARTIST_INSERTION_MARKER in common_prompt:
         return common_prompt.replace(ARTIST_INSERTION_MARKER, artist_prompt)
     return ", ".join(part for part in [common_prompt, artist_prompt] if part)
+
+
+def combination_letter_label(combination_index: int) -> str:
+    """조합이 26개를 넘어도 A..Z, AA..AZ 순서로 짧은 내부 Label을 만듭니다."""
+
+    remaining_number = combination_index + 1
+    letters = []
+    while remaining_number:
+        remaining_number, letter_index = divmod(remaining_number - 1, 26)
+        letters.append(chr(ord("A") + letter_index))
+    return "".join(reversed(letters))
 
 
 class StyleGenerationService:
@@ -289,7 +301,7 @@ class StyleGenerationService:
             generation_number = evolution_context["targetGeneration"]
             selection = {"mode": "evolution", **evolution_context["provenance"], "batchIdentifier": evolution_context["identifier"]}
         plan_identifier = uuid.uuid4().hex
-        candidates = [{"identifier": uuid.uuid4().hex, "label": chr(65 + index) if index < 26 else "A" + chr(65 + index - 26), "components": components} for index, components in enumerate(component_sets)]
+        candidates = [{"identifier": uuid.uuid4().hex, "label": combination_letter_label(index), "components": components} for index, components in enumerate(component_sets)]
         plan = {"projectIdentifier": project_identifier, "evaluationIdentifier": project["active_evaluation_id"],
                 "cases": resolved_cases, "candidates": candidates, "sampling": contract["sampling"],
                 "workflowHash": contract["workflow"]["api_hash"], "imageCount": len(candidates) * len(resolved_cases), "selection": selection, "generationNumber": generation_number}
