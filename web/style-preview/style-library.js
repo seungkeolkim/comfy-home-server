@@ -108,7 +108,7 @@ function prepareStyleLibraryViewer() {
         <button data-style-library-action="next" data-preview-next>다음 →</button>
       </div>
       <div class="style-viewer-source-actions">
-        <label class="settings-checkbox"><input id="style-viewer-original-toggle" type="checkbox" role="switch" data-preview-original-toggle /><span>원본 보기</span></label>
+        ${styleLibraryViewerState.originalFilesOnly ? "" : '<label class="settings-checkbox"><input id="style-viewer-original-toggle" type="checkbox" role="switch" data-preview-original-toggle /><span>원본 보기</span></label>'}
         <a id="style-viewer-original-link" class="button" target="_blank" rel="noopener">원본 새 탭으로 보기</a>
       </div>
     </div>`;
@@ -119,7 +119,7 @@ function prepareStyleLibraryViewer() {
   });
 }
 
-/** 같은 Viewer 안에서 Prompt만 이동하며 Mobile의 압축 Preview 설정을 유지합니다. */
+/** 같은 Viewer 안에서 Prompt만 이동하며 열 때 선택한 원본 표시 방식을 유지합니다. */
 function renderStyleLibraryViewer() {
   const viewerResults = currentStyleLibraryViewerResults();
   if (!viewerResults) return closeStyleLibraryViewer();
@@ -135,7 +135,8 @@ function renderStyleLibraryViewer() {
   const placeholder = document.querySelector("#style-viewer-placeholder");
   placeholder.hidden = Boolean(result.file);
   document.querySelector("#style-viewer-image").hidden = !result.file;
-  document.querySelector("#style-viewer-original-toggle").disabled = !result.file;
+  const originalToggle = document.querySelector("#style-viewer-original-toggle");
+  if (originalToggle) originalToggle.disabled = !result.file;
   if (result.file) {
     styleLibraryViewerState.controller.openImage({ ...result.file, name: persistentCandidateLabel(candidate) }, styleLibraryDialogState.opener, styleLibraryViewerState.showOriginalFiles);
     document.querySelector("#style-viewer-original-link").title = result.file.path.split("/").at(-1);
@@ -163,10 +164,11 @@ function refreshOpenStyleLibraryViewer() {
   document.querySelector("#style-viewer-case-name").title = caseName;
 }
 
-/** 처음 열 때만 CHS와 같은 기기별 원본 기본값을 선택합니다. */
+/** 선별은 항상 원본으로 열고 다른 화면은 CHS의 기기별 기본값을 사용합니다. */
 function openStyleLibraryViewer(candidateIdentifier, caseIndex, opener = document.activeElement) {
+  const originalFilesOnly = previewState.screen === "compare";
   styleLibraryViewerState = { projectIdentifier: previewState.currentProjectIdentifier, candidateIdentifier, caseIndex,
-    showOriginalFiles: window.ComfyHomeImagePreview.defaultOriginalMode(), controller: null };
+    originalFilesOnly, showOriginalFiles: originalFilesOnly || window.ComfyHomeImagePreview.defaultOriginalMode(), controller: null };
   styleLibraryDialogState.opener = opener;
   if (!currentStyleLibraryViewerResults()) {
     styleLibraryViewerState = null;

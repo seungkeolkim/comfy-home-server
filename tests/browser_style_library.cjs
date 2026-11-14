@@ -94,6 +94,8 @@ async function verifyMobileViewerBackdrop(page, opener, width, height) {
   for (const backdropSide of ['top', 'bottom']) {
     await opener.click();
     await expect(dialog).toBeVisible();
+    await expect(page.locator('#style-viewer-original-toggle')).not.toBeChecked();
+    await expect(page.locator('.style-viewer-image')).toHaveAttribute('src', /^\/api\/outputs\/preview\//);
     await expect.poll(() => page.locator('.style-viewer-image').evaluate(image => image.complete && image.naturalWidth > 0)).toBe(true);
     await verifyViewerImageSpace(page);
     const bounds = await dialog.boundingBox();
@@ -186,6 +188,8 @@ async function verifyStyleLibrary() {
       for (const width of [320, 390, 768, 1280]) {
         await page.setViewportSize({ width, height: 1000 });
         await verifyComparisonCardFit(page);
+        const comparisonSources = await page.locator('.comparison-result img').evaluateAll(images => images.map(image => image.getAttribute('src')));
+        assert.ok(comparisonSources.every(source => source.startsWith('/media/')), JSON.stringify(comparisonSources));
       }
       await page.setViewportSize({ width: 390, height: 844 });
       await page.locator('[data-action=image-layout]').click();
@@ -215,7 +219,15 @@ async function verifyStyleLibrary() {
       await page.locator('.case-section .image-button').first().click();
       await expect(page.locator('#illustration-dialog')).toBeVisible();
       await expect(page.locator('.style-viewer-navigation')).toHaveCount(1);
-      await expect(page.locator('#style-viewer-original-toggle')).toBeChecked({ checked: await page.evaluate(() => innerWidth >= 801) });
+      await expect(page.locator('#style-viewer-original-toggle')).toHaveCount(0);
+      await expect(page.locator('.style-viewer-image')).toHaveAttribute('src', /^\/media\//);
+      await verifyViewerImageSpace(page);
+      if (promptCount > 1) {
+        await page.locator('[data-style-library-action=next]').click();
+        await expect(page.locator('.style-viewer-navigation [role=status]')).toHaveText(`2 / ${promptCount}`);
+        await expect(page.locator('.style-viewer-image')).toHaveAttribute('src', /^\/media\//);
+        await expect(page.locator('#style-viewer-original-toggle')).toHaveCount(0);
+      }
       await page.locator('[data-style-library-action=close]').click();
       scenarios.push({ promptCount, cardCount: 2, thumbnailWidth, buttonColors });
     }

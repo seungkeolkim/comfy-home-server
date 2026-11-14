@@ -111,7 +111,7 @@ async function refreshStyleVoting(projectIdentifier) {
   if (refreshSequence === state.resultRefreshSequence && !state.votingCommandBusy && !state.candidateCommandBusy) applyStyleVotingResponse(projectIdentifier, selection);
 }
 
-/** 결과 공개 중 다음 Pair의 기본 Preview를 미리 Decode하며 원본 Cache 정책을 공유합니다. */
+/** 결과 공개 중 다음 Pair의 원본을 미리 Decode해 선별 화면에서 바로 사용합니다. */
 function preloadStyleVotingMatch(projectIdentifier, selection) {
   const state = currentStyleGenerationState(projectIdentifier);
   const match = selection.match;
@@ -123,7 +123,7 @@ function preloadStyleVotingMatch(projectIdentifier, selection) {
     for (const promptCase of plan?.cases || []) {
       const render = candidate.renders.filter(render => render.caseIdentifier === promptCase.identifier).at(-1);
       const file = render?.files.find(file => file.is_available && !file.is_deleted);
-      if (file) sources.add(styleImageUrl(file.path));
+      if (file) sources.add(styleImageUrl(file.path, true));
     }
   }
   state.preloadedVotingImages = [];
