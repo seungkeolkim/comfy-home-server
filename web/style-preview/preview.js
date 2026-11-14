@@ -540,6 +540,7 @@ function renderPreview(scrollToTop = true) {
   if (PERSISTENT_STYLE_WORKSPACE) updateStyleVotingDockLayout();
   persistPreviewSession();
   scheduleStyleGenerationRefresh();
+  refreshStyleComponentStatistics();
 }
 
 /** 주소의 화면 이름을 제한하고 뒤로 가기를 지원합니다. */

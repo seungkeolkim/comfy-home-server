@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from .style_projects import StyleRevisionConflict
 from .style_candidate_deletion import StyleCandidateDeletionInput
+from .style_component_statistics import read_component_statistics
 from .style_voting import StyleCandidateRatingInput, StylePairInput, StyleSelectionModeInput, StyleUndoInput, StyleVoteInput
 
 
@@ -13,6 +14,17 @@ def create_style_voting_router(server) -> APIRouter:
     """실제 Vote·Undo와 서버가 선택한 현재 Match 조회 경로를 등록합니다."""
 
     router = APIRouter()
+
+    @router.get("/api/style-projects/{project_identifier}/component-statistics")
+    def read_project_component_statistics(project_identifier: str, evaluationIdentifier: str | None = Query(default=None, min_length=1, max_length=100)):
+        """선택한 프로젝트와 평가 조건의 작가·LoRA 점수·승패만 읽습니다."""
+
+        try:
+            with server.database._connect() as connection:
+                connection.execute("BEGIN")
+                return read_component_statistics(connection, project_identifier, evaluationIdentifier)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
 
     @router.get("/api/style-projects/{project_identifier}/selection")
     def read_selection(project_identifier: str, evaluationIdentifier: str = Query(min_length=1, max_length=100), clientIdentifier: str = Query(min_length=16, max_length=100)):

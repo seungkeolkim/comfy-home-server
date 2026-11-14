@@ -1,5 +1,7 @@
 # Style Lab 복원·프로젝트 확장 설계 문서
 
+**성분 통계와 진화:** [프로젝트별 작가·LoRA 점수](component_statistics_and_breeding_preferences.md). 프로젝트 설정에서 선호도·승패·승률·평가 조합을 확인하고, 두 종류 모두 다음 세대의 새 성분 선택에 0.5~2배 선호 보정을 적용합니다. STR 범위와 기존 결과는 유지합니다.
+
 **조합 탐색 규모:** [StyleLab 생성 수량과 Pool 확장](style_population_size_2026-11-15.md). Random 50개·진화 12개 기본값, 프로젝트별 마지막 제출 수량 복원, 50개까지 확장 입력과 큰 Pool의 Prompt 재생성을 적용했습니다. 10개는 최소 진화 조건이며 활성 수 상한이 아닙니다. 운영 재기동·기존 데이터 보존을 확인했습니다.
 
 **성능 개선:** [2026-11-14 원인 조사](style_performance_investigation_2026-11-14.md)와 [2026-11-15 적용·측정](style_performance_improvements_2026-11-15.md). 중복 Polling 병합, 투표 응답 재사용·다음 이미지 Prefetch, Summary·Catalog 일괄 조회와 비교 대상 파일 검사를 적용하고 운영 재기동·데이터 보존을 확인했습니다.

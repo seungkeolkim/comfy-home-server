@@ -222,6 +222,8 @@ async function executeStyleVotingAction(action, additionalFields = {}) {
     state.votingFeedback = null;
     state.votingCommandBusy = false;
     state.resultRefreshNotBefore = Date.now() + 2000;
+    // 실패 응답은 같은 비교 상태여도 잠근 버튼을 복구하도록 다시 그립니다.
+    if (!responseApplied) state.lastResultMarkup = "";
     if (styleVotingCommandStillVisible(projectIdentifier, voting.evaluationIdentifier)) {
       renderCurrentStyleGenerationResults(projectIdentifier);
       updateStyleVotingControls();

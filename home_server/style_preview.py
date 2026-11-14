@@ -18,6 +18,7 @@ PREVIEW_ASSETS = {
     "style-evolution.js": "text/javascript",
     "style-comparison.js": "text/javascript",
     "style-library.js": "text/javascript",
+    "style-component-statistics.js": "text/javascript",
 }
 
 

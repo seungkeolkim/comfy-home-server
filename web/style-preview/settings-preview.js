@@ -362,7 +362,7 @@ function projectComponentPolicyMarkup(component, componentIndex) {
   const inputAttributes = `min="-10" max="10" step="0.05" data-settings-component="${escapeMarkup(component.identifier)}"`;
   return `<section class="settings-component" data-policy-component="${escapeMarkup(component.identifier)}"><div class="settings-component-heading">
     <label class="settings-checkbox"><input type="checkbox" data-settings-component="${escapeMarkup(component.identifier)}" data-settings-policy="enabled" ${policy.enabled ? "checked" : ""} /><span><strong>${escapeMarkup(component.name)}</strong><small>${component.kind}${available ? "" : " · 글로벌에서 사용 불가"}</small></span></label>
-    </div>
+    ${projectComponentStatisticsMarkup(component.identifier)}</div>
     <fieldset ${policy.enabled ? "" : "disabled"}><legend class="visually-hidden">${escapeMarkup(component.name)} STR</legend><div class="settings-strength-grid">
       ${settingsNumberField(`settings-component-${componentIndex}-minimum`, "최소 STR", policy.minimumStrength, `${inputAttributes} data-settings-policy="minimumStrength"`)}
       ${settingsNumberField(`settings-component-${componentIndex}-maximum`, "최대 STR", policy.maximumStrength, `${inputAttributes} data-settings-policy="maximumStrength"`)}</div></fieldset></section>`;
@@ -371,11 +371,13 @@ function projectComponentPolicyMarkup(component, componentIndex) {
 /** 프로젝트 성분을 종류별로 묶되 각 성분의 여유 공간과 독립된 입력 행을 유지합니다. */
 function projectComponentGroupMarkup(kind, title, groupIdentifier) {
   const componentMarkup = [];
-  for (const [componentIndex, component] of settingsCatalogComponents().entries()) {
-    if (component.kind !== kind) continue;
+  const entries = [...settingsCatalogComponents().entries()].filter(([, component]) => component.kind === kind);
+  for (const [componentIndex, component] of sortProjectComponentEntries(entries, groupIdentifier)) {
     componentMarkup.push(projectComponentPolicyMarkup(component, componentIndex));
   }
-  return `<section class="settings-component-group" data-settings-kind="${groupIdentifier}" aria-labelledby="settings-project-${groupIdentifier}"><h3 id="settings-project-${groupIdentifier}">${title}</h3>${componentMarkup.join("")}</section>`;
+  const sortOrder = PERSISTENT_STYLE_WORKSPACE ? currentStyleGenerationState().componentStatisticsSort?.[groupIdentifier] || "catalog" : "catalog";
+  const sortControl = PERSISTENT_STYLE_WORKSPACE && previewState.screen === "project-settings" ? `<select data-component-statistics-sort="${groupIdentifier}" aria-label="${title} 통계 정렬" ${currentProjectComponentStatistics() ? "" : "disabled"}>${[["catalog", "등록 순"], ["score", "선호도 높은 순"], ["winRate", "승률 높은 순"], ["wins", "승수 많은 순"]].map(([value, label]) => `<option value="${value}" ${sortOrder === value ? "selected" : ""}>${label}</option>`).join("")}</select>` : "";
+  return `<section class="settings-component-group" data-settings-kind="${groupIdentifier}" aria-labelledby="settings-project-${groupIdentifier}"><div class="settings-component-group-heading"><h3 id="settings-project-${groupIdentifier}">${title}</h3>${sortControl}</div>${componentMarkup.join("")}</section>`;
 }
 
 /** Prompt·생성 조건·성분 탐색 범위를 현재 프로젝트에 한정해 편집합니다. */

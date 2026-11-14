@@ -316,6 +316,7 @@ async function verifySelectionUserExperience() {
     await waitForSelectionReady(page);
     assert.deepEqual((await readSelection(context, project, clientIdentifier)).rankings, beforeFailure.rankings);
     await expect(page.locator('.comparison-picked, .comparison-dimmed')).toHaveCount(0);
+    await expect(page.locator('[data-action=image-layout]')).toBeEnabled();
 
     for (const viewportWidth of [320, 390, 768, 1280]) {
       await page.setViewportSize({ width: viewportWidth, height: 844 });

@@ -1,5 +1,7 @@
 # 진화와 작가·LoRA 점수
 
+**2026-11-15 구현:** [프로젝트별 성분 통계와 진화 선택 보정](component_statistics_and_breeding_preferences.md)을 적용했습니다. 아래는 원본 복원 기준이며, 8388의 새 세대는 작가뿐 아니라 LoRA도 같은 점수 기반 선택 보정을 사용합니다. 프로젝트 설정에서 성분별 선호도·승패·승률·평가 조합을 확인합니다.
+
 아래 산식과 생존 규칙은 기존 구현의 복원 기준입니다. 새 구현에서는 [16번 문서](16_search_strategy_and_diversity.md)처럼 기본 Interactive Evolution을 유지하면서 계보별 부모 기회를 보강합니다. Prompt 변경 검증은 변이 없이 [17번 문서](17_prompt_retests_and_reranking.md)의 고정 조합 재시험을 사용합니다.
 
 [20번의 여러 Prompt 탐색·성분 제외](20_web_ux_fusion_multi_prompt_and_component_differences.md)를 추가 반영합니다. 여러 Prompt 결과를 함께 보고 조합 단위로 한 번 선택하며 이를 부모 선정·성분 점수에 중복 없이 반영합니다. 성분 제외는 Random·Mutate·Crossover와 상속에 공통 적용하되 기존 후보·Elo를 수정하지 않습니다. 아래 기존 단일 Prompt 산식만으로 다중 결과 선별의 사용성까지 검증됐다고 판단하지 않습니다.

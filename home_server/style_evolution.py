@@ -232,7 +232,9 @@ class StyleEvolutionService:
             ranked = ranked_candidate_statistics([candidate["identifier"] for candidate in candidates], state["statistics"])
             parent_identifiers = [entry["identifier"] for entry in ranked[:len(ranked) * 3 // 10]]
             parents = [next(candidate for candidate in candidates if candidate["identifier"] == identifier) for identifier in parent_identifiers]
-            all_candidates = [{"identifier": row["candidate_id"], "components": json.loads(row["components_json"])} for row in connection.execute("SELECT * FROM style_candidates WHERE project_id=? AND evaluation_id=? ORDER BY rowid", (project_identifier, evaluation_identifier))]
+            all_candidates = [{"identifier": row["candidate_id"], "components": json.loads(row["components_json"]), "lifecycle": row["lifecycle"]} for row in connection.execute(
+                "SELECT candidates.*,memberships.lifecycle FROM style_candidates AS candidates JOIN style_candidate_memberships AS memberships USING(candidate_id) "
+                "WHERE candidates.project_id=? AND candidates.evaluation_id=? ORDER BY candidates.rowid", (project_identifier, evaluation_identifier))]
             settings = ProjectSettings(**json.loads(project["settings_json"])).model_dump()
             source_generation = self.store.current_generation_number(connection, evaluation_identifier)
             parent_plans = []

@@ -4,32 +4,10 @@ import random
 
 from .style_random_generation import combination_selection_fingerprint, random_component_strength
 from .style_generation_sizing import GENERATION_COUNT_POLICY_VERSION
+from .style_component_statistics import COMPONENT_PREFERENCE_POLICY_VERSION, component_preference_scores, component_selection_preferences
 
 
-EVOLUTION_POLICY_VERSION = "style-evolution-v1"
-
-
-def component_preference_scores(candidates: list[dict], statistics: dict) -> dict:
-    """평가된 활성·퇴역 조합의 Ridge 기여도를 원본 60회 Coordinate Descent로 구합니다."""
-
-    rated_candidates = [candidate for candidate in candidates if statistics.get(candidate["identifier"], {}).get("matches", 0) or statistics.get(candidate["identifier"], {}).get("placed")]
-    if not rated_candidates:
-        return {}
-    mean_rating = sum(statistics[candidate["identifier"]]["rating"] for candidate in rated_candidates) / len(rated_candidates)
-    residuals = [statistics[candidate["identifier"]]["rating"] - mean_rating for candidate in rated_candidates]
-    observations = {}
-    for row_index, candidate in enumerate(rated_candidates):
-        for component in candidate["components"]:
-            observations.setdefault(component["identifier"], []).append((row_index, component["strength"]))
-    scores = dict.fromkeys(observations, 0.0)
-    for _ in range(60):
-        for identifier, hits in observations.items():
-            previous_score = scores[identifier]
-            next_score = sum(strength * (residuals[row_index] + strength * previous_score) for row_index, strength in hits) / (sum(strength * strength for _, strength in hits) + 2.0)
-            for row_index, strength in hits:
-                residuals[row_index] -= strength * (next_score - previous_score)
-            scores[identifier] = next_score
-    return {identifier: round(score) for identifier, score in scores.items()}
+EVOLUTION_POLICY_VERSION = "style-evolution-v2"
 
 
 def bounded_strength(strength: float, policy: dict) -> float:
@@ -72,15 +50,12 @@ def breed_component_kind(settings: dict, first_parent: dict, second_parent: dict
         components = components[:maximum_count]
 
     def fresh_component() -> dict:
-        """새 작가는 기여도·부모 사용량, 새 LoRA는 원본과 같이 균등 선택합니다."""
+        """작가와 LoRA 모두 기여도와 부모 사용량을 반영해 중복 없이 선택합니다."""
 
         used_identifiers = {component["identifier"] for component in components}
         available_identifiers = [identifier for identifier in policies if identifier not in used_identifiers]
-        if kind == "artist":
-            weights = [preference.get(identifier, 1.0) / (1 + parent_usage.get(identifier, 0)) for identifier in available_identifiers]
-            identifier = selection_random.choices(available_identifiers, weights=weights)[0]
-        else:
-            identifier = selection_random.choice(available_identifiers)
+        weights = [preference.get(identifier, 1.0) / (1 + parent_usage.get(identifier, 0)) for identifier in available_identifiers]
+        identifier = selection_random.choices(available_identifiers, weights=weights)[0]
         return {"identifier": identifier, "strength": random_component_strength(policies[identifier], selection_random)}
 
     if mode == "mutate":
@@ -116,9 +91,8 @@ def draw_evolution_children(settings: dict, parents: list[dict], statistics: dic
     selection_random = random.Random(f"{EVOLUTION_POLICY_VERSION}:{selection_seed}")
     existing_fingerprints = {combination_selection_fingerprint(candidate["components"]) for candidate in all_candidates}
     component_scores = component_preference_scores(all_candidates, statistics)
-    artist_identifiers = [identifier for identifier, policy in settings["componentPolicies"].items() if identifier.startswith("artist:") and policy["enabled"]]
-    maximum_score = max((abs(component_scores.get(identifier, 0)) for identifier in artist_identifiers), default=0)
-    preference = {identifier: 2 ** (component_scores.get(identifier, 0) / maximum_score) if maximum_score else 1.0 for identifier in artist_identifiers}
+    enabled_identifiers = [identifier for identifier, policy in settings["componentPolicies"].items() if policy["enabled"]]
+    preference = component_selection_preferences(component_scores, enabled_identifiers)
     parent_usage = {}
     for parent in parents:
         for component in parent["components"]:
@@ -146,7 +120,9 @@ def draw_evolution_children(settings: dict, parents: list[dict], statistics: dic
         "mode": "evolution", "algorithm": EVOLUTION_POLICY_VERSION, "selectionSeed": selection_seed,
         "countPolicyVersion": GENERATION_COUNT_POLICY_VERSION,
         "requestedCount": requested_count, "actualCount": len(children), "shortfallCount": requested_count - len(children),
-        "attempts": attempts, "maximumAttempts": requested_count * 30, "artistPreference": "ridge-60-usage", "newLoraChoice": "uniform",
+        "attempts": attempts, "maximumAttempts": requested_count * 30, "artistPreference": "ridge-60-usage", "newLoraChoice": "ridge-60-usage",
+        "componentPreferencePolicy": COMPONENT_PREFERENCE_POLICY_VERSION, "componentScores": component_scores,
+        "componentPreferenceMultipliers": preference, "parentComponentUsage": parent_usage,
         "modeCounts": {mode: sum(child["mode"] == mode for child in children) for mode in ("mutate", "crossover", "random")},
     }
     return children, provenance
