@@ -78,7 +78,7 @@ async function verifyViewerImageSpace(page) {
       toolbarBottom: toolbarBounds.bottom,
       dialogBottom: dialogBounds.bottom,
       viewportHeight: innerHeight,
-      maximumChromeHeight: innerWidth <= 600 ? 190 : 150,
+      maximumChromeHeight: innerWidth <= 600 || element.querySelector('.style-viewer-combination-navigation') ? 190 : 150,
       noOverflow: element.scrollWidth <= element.clientWidth && element.scrollHeight <= element.clientHeight,
     };
   });
@@ -117,6 +117,58 @@ async function verifyMobileViewerBackdrop(page, opener, width, height) {
   }
 }
 
+/** A/B 전환은 현재 Prompt와 비교 Pair를 유지하고 보기 요청만 발생시키는지 확인합니다. */
+async function verifyComparisonViewerCandidateSwitching(page, promptCount) {
+  const comparisonPaths = await page.locator('.case-section').evaluateAll(sections => sections.map(section =>
+    [...section.querySelectorAll('.image-button')].map(button => button.dataset.path)));
+  const startingCaseIndex = promptCount > 1 ? 1 : 0;
+  const mutationRequests = [];
+  const recordMutationRequest = request => {
+    if (request.method() !== 'GET') mutationRequests.push(request.url());
+  };
+  page.on('request', recordMutationRequest);
+  try {
+    await page.locator('.case-section').nth(startingCaseIndex).locator('.image-button').last().click();
+    const combinationButtons = page.locator('[data-style-library-action=switch-combination]');
+    const combinationA = combinationButtons.filter({ hasText: '조합 A' });
+    const combinationB = combinationButtons.filter({ hasText: '조합 B' });
+    await expect(combinationButtons).toHaveCount(2);
+    await expect(combinationB).toHaveAttribute('aria-pressed', 'true');
+    assert.equal(decodeURIComponent(await page.locator('.style-viewer-image').getAttribute('src')), `/media/${comparisonPaths[startingCaseIndex][1]}`);
+    await combinationA.click();
+    await expect(combinationA).toHaveAttribute('aria-pressed', 'true');
+    await expect(combinationB).toHaveAttribute('aria-pressed', 'false');
+    await expect(page.locator('.style-viewer-navigation [role=status]')).toHaveText(`${startingCaseIndex + 1} / ${promptCount}`);
+    assert.equal(decodeURIComponent(await page.locator('.style-viewer-image').getAttribute('src')), `/media/${comparisonPaths[startingCaseIndex][0]}`);
+    await combinationB.click();
+    assert.equal(decodeURIComponent(await page.locator('.style-viewer-image').getAttribute('src')), `/media/${comparisonPaths[startingCaseIndex][1]}`);
+    if (promptCount > 1) {
+      await page.locator('[data-style-library-action=previous]').click();
+      await expect(page.locator('.style-viewer-navigation [role=status]')).toHaveText(`1 / ${promptCount}`);
+      await expect(combinationB).toHaveAttribute('aria-pressed', 'true');
+      assert.equal(decodeURIComponent(await page.locator('.style-viewer-image').getAttribute('src')), `/media/${comparisonPaths[0][1]}`);
+      await combinationA.click();
+      await page.locator('[data-style-library-action=next]').click();
+      await expect(page.locator('.style-viewer-navigation [role=status]')).toHaveText(`2 / ${promptCount}`);
+      assert.equal(decodeURIComponent(await page.locator('.style-viewer-image').getAttribute('src')), `/media/${comparisonPaths[1][0]}`);
+    }
+    const buttonBounds = await page.locator('.style-viewer-navigation').evaluate(navigation => {
+      const promptBounds = navigation.querySelector('.style-viewer-prompt-navigation').getBoundingClientRect();
+      const combinationBounds = navigation.querySelector('.style-viewer-combination-navigation').getBoundingClientRect();
+      return { promptLeft: promptBounds.left, promptRight: promptBounds.right, combinationLeft: combinationBounds.left,
+        combinationRight: combinationBounds.right, promptTop: promptBounds.top, combinationTop: combinationBounds.top };
+    });
+    assert.ok(buttonBounds.promptRight < buttonBounds.combinationLeft, JSON.stringify(buttonBounds));
+    assert.ok(Math.abs(buttonBounds.promptTop - buttonBounds.combinationTop) <= 1, JSON.stringify(buttonBounds));
+    await verifyViewerImageSpace(page);
+    await expect(page.locator('#style-viewer-original-toggle')).toHaveCount(0);
+    assert.deepEqual(mutationRequests, []);
+    await page.keyboard.press('Escape');
+  } finally {
+    page.off('request', recordMutationRequest);
+  }
+}
+
 /** 세 가지 이미지 비율·1/3/5개 Prompt·카드 Fit·Backdrop 닫기를 함께 검증합니다. */
 async function verifyStyleLibrary() {
   const baseUrl = 'http://127.0.0.1:18388';
@@ -143,6 +195,7 @@ async function verifyStyleLibrary() {
       const thumbnailWidth = await firstCard.locator('img').first().evaluate(image => image.getBoundingClientRect().width);
       assert.ok(thumbnailWidth > 0 && thumbnailWidth < 120, String(thumbnailWidth));
       await firstCard.locator('.style-card-heading').click();
+      await expect(page.locator('.style-viewer-combination-navigation')).toHaveCount(0);
       await verifyViewerImageSpace(page);
       await expect(page.locator('.style-viewer-navigation [role=status]')).toHaveText(`1 / ${promptCount}`);
       await expect(page.locator('[data-style-library-action=previous]')).toBeDisabled();
@@ -190,6 +243,7 @@ async function verifyStyleLibrary() {
         await verifyComparisonCardFit(page);
         const comparisonSources = await page.locator('.comparison-result img').evaluateAll(images => images.map(image => image.getAttribute('src')));
         assert.ok(comparisonSources.every(source => source.startsWith('/media/')), JSON.stringify(comparisonSources));
+        await verifyComparisonViewerCandidateSwitching(page, promptCount);
       }
       await page.setViewportSize({ width: 390, height: 844 });
       await page.locator('[data-action=image-layout]').click();

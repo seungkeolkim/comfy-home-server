@@ -87,6 +87,11 @@ function currentStyleLibraryViewerResults() {
 /** CHS 공통 이미지 Viewer에 사진 식별 정보와 보기 기능만 붙입니다. */
 function prepareStyleLibraryViewer() {
   const dialog = document.querySelector("#illustration-dialog");
+  const comparisonCandidateIdentifiers = styleLibraryViewerState.comparisonCandidateIdentifiers;
+  const promptNavigationMarkup = `
+    <button data-style-library-action="previous" data-preview-previous aria-label="이전 Prompt">${comparisonCandidateIdentifiers ? "이전" : "← 이전"}</button>
+    <span role="status" aria-live="polite"></span>
+    <button data-style-library-action="next" data-preview-next aria-label="다음 Prompt">${comparisonCandidateIdentifiers ? "다음" : "다음 →"}</button>`;
   dialog.classList.add("style-library-viewer");
   dialog.innerHTML = `
     <div class="dialog-heading">
@@ -102,10 +107,13 @@ function prepareStyleLibraryViewer() {
     </div>
     <p id="style-viewer-image-status" role="status"></p>
     <div class="style-viewer-toolbar">
-      <div class="style-viewer-navigation">
-        <button data-style-library-action="previous" data-preview-previous>← 이전</button>
-        <span role="status" aria-live="polite"></span>
-        <button data-style-library-action="next" data-preview-next>다음 →</button>
+      <div class="style-viewer-navigation ${comparisonCandidateIdentifiers ? "style-viewer-comparison-navigation" : ""}">
+        ${comparisonCandidateIdentifiers ? `
+          <div class="style-viewer-prompt-navigation">${promptNavigationMarkup}</div>
+          <div class="style-viewer-combination-navigation" role="group" aria-label="비교 조합">
+            <button data-style-library-action="switch-combination" data-style-viewer-comparison-side="a" aria-pressed="false">조합 A</button>
+            <button data-style-library-action="switch-combination" data-style-viewer-comparison-side="b" aria-pressed="false">조합 B</button>
+          </div>` : promptNavigationMarkup}
       </div>
       <div class="style-viewer-source-actions">
         ${styleLibraryViewerState.originalFilesOnly ? "" : '<label class="settings-checkbox"><input id="style-viewer-original-toggle" type="checkbox" role="switch" data-preview-original-toggle /><span>원본 보기</span></label>'}
@@ -148,7 +156,20 @@ function renderStyleLibraryViewer() {
   document.querySelector("[data-style-library-action=previous]").disabled = caseIndex === 0;
   document.querySelector("[data-style-library-action=next]").disabled = caseIndex === caseResults.length - 1;
   document.querySelector(".style-viewer-navigation [role=status]").textContent = `${caseIndex + 1} / ${caseResults.length}`;
+  updateStyleComparisonViewerControls();
   if (!document.querySelector("#illustration-dialog").open) document.querySelector("#illustration-dialog").showModal();
+}
+
+/** 확대할 때 고정한 A/B 위치를 표시하고 사라진 조합으로의 이동은 막습니다. */
+function updateStyleComparisonViewerControls() {
+  const comparisonCandidateIdentifiers = styleLibraryViewerState?.comparisonCandidateIdentifiers;
+  if (!comparisonCandidateIdentifiers) return;
+  const results = currentStyleGenerationState(styleLibraryViewerState.projectIdentifier).results;
+  for (const button of document.querySelectorAll("[data-style-library-action=switch-combination]")) {
+    const candidateIdentifier = comparisonCandidateIdentifiers[button.dataset.styleViewerComparisonSide === "a" ? 0 : 1];
+    button.setAttribute("aria-pressed", String(candidateIdentifier === styleLibraryViewerState.candidateIdentifier));
+    button.disabled = !results?.candidates.some(candidate => candidate.identifier === candidateIdentifier);
+  }
 }
 
 /** Polling은 이미지 소스를 유지하며 현재 사진의 정보와 삭제 여부만 반영합니다. */
@@ -156,6 +177,7 @@ function refreshOpenStyleLibraryViewer() {
   if (!styleLibraryViewerState) return;
   const results = currentStyleLibraryViewerResults();
   if (!results) return closeStyleLibraryViewer();
+  updateStyleComparisonViewerControls();
   const result = results.caseResults[styleLibraryViewerState.caseIndex];
   if (styleLibraryViewerState.displayedPath !== (result?.file?.path || null)) return renderStyleLibraryViewer();
   const caseName = persistentPromptCaseName(result.promptCase);
@@ -167,7 +189,9 @@ function refreshOpenStyleLibraryViewer() {
 /** 선별은 항상 원본으로 열고 다른 화면은 CHS의 기기별 기본값을 사용합니다. */
 function openStyleLibraryViewer(candidateIdentifier, caseIndex, opener = document.activeElement) {
   const originalFilesOnly = previewState.screen === "compare";
+  const comparisonCandidateIdentifiers = originalFilesOnly ? currentPersistentComparison().candidates.map(candidate => candidate.identifier) : [];
   styleLibraryViewerState = { projectIdentifier: previewState.currentProjectIdentifier, candidateIdentifier, caseIndex,
+    comparisonCandidateIdentifiers: comparisonCandidateIdentifiers.length === 2 && comparisonCandidateIdentifiers.includes(candidateIdentifier) ? comparisonCandidateIdentifiers : null,
     originalFilesOnly, showOriginalFiles: originalFilesOnly || window.ComfyHomeImagePreview.defaultOriginalMode(), controller: null };
   styleLibraryDialogState.opener = opener;
   if (!currentStyleLibraryViewerResults()) {
@@ -221,6 +245,25 @@ function moveStyleLibraryViewer(direction) {
   renderStyleLibraryViewer();
 }
 
+/** 같은 Prompt의 이미지를 유지하며 확대할 때의 A/B 조합만 전환합니다. */
+function switchStyleComparisonViewerCandidate(comparisonSide) {
+  const comparisonCandidateIdentifiers = styleLibraryViewerState?.comparisonCandidateIdentifiers;
+  if (!comparisonCandidateIdentifiers || !["a", "b"].includes(comparisonSide)) return;
+  const candidateIdentifier = comparisonCandidateIdentifiers[comparisonSide === "a" ? 0 : 1];
+  if (candidateIdentifier === styleLibraryViewerState.candidateIdentifier) return;
+  const viewerResults = currentStyleLibraryViewerResults();
+  if (!viewerResults) return;
+  const promptCaseIdentifier = viewerResults.caseResults[styleLibraryViewerState.caseIndex].promptCase.identifier;
+  const results = currentStyleGenerationState(styleLibraryViewerState.projectIdentifier).results;
+  const candidate = results.candidates.find(candidate => candidate.identifier === candidateIdentifier);
+  const plan = results.plans.find(plan => plan.planIdentifier === candidate?.planIdentifier);
+  const caseIndex = plan?.cases.findIndex(promptCase => promptCase.identifier === promptCaseIdentifier) ?? -1;
+  if (caseIndex < 0) return;
+  styleLibraryViewerState.candidateIdentifier = candidateIdentifier;
+  styleLibraryViewerState.caseIndex = caseIndex;
+  renderStyleLibraryViewer();
+}
+
 /** 카드 상세의 버튼을 처리하며 생성·투표 요청을 발생시키지 않습니다. */
 function handleStyleLibraryAction(event) {
   if (!PERSISTENT_STYLE_WORKSPACE) return;
@@ -228,6 +271,7 @@ function handleStyleLibraryAction(event) {
   if (!button || button.disabled) return;
   const action = button.dataset.styleLibraryAction;
   if (action === "open") openStyleLibraryViewer(button.dataset.candidate, Number(event.target.closest("[data-library-case-index]")?.dataset.libraryCaseIndex || 0), button);
+  if (action === "switch-combination") switchStyleComparisonViewerCandidate(button.dataset.styleViewerComparisonSide);
   if (action === "close") closeStyleLibraryViewer();
 }
 
