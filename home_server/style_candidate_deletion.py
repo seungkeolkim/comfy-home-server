@@ -79,6 +79,7 @@ class StyleCandidateDeletionService:
                 output_identifiers.extend(row[0] for row in connection.execute("SELECT output_id FROM output_files JOIN style_candidate_renders USING(request_id) WHERE candidate_id=?", (identifier,)))
             for identifier in identifiers:
                 connection.execute("UPDATE style_candidate_memberships SET lifecycle='deleting' WHERE candidate_id=?", (identifier,))
+                connection.execute("DELETE FROM style_candidate_favorites WHERE candidate_id=?", (identifier,))
             remove_deleted_candidate_state(state, identifiers)
             state.update(match=None, placement=None, undoStack=[], lastPair=[], skippedTies=[])
             remaining = [candidate for candidate in candidates if candidate["identifier"] not in identifiers]

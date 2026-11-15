@@ -1,5 +1,7 @@
 # Style Lab 복원·프로젝트 확장 설계 문서
 
+**그림체 즐겨찾기:** [별표와 프로젝트별 모아보기](style_favorites.md). 조합·상세 Viewer에서 좋아요를 저장하고 퇴역을 포함해 모아봅니다. Elo·진화 정책은 유지합니다.
+
 **생성 화면 통합:** [그림체 안에서 조합 생성·결과 확인](library_generation_integration.md). 별도 생성 탭을 그림체에 흡수하고 Mobile 메뉴를 프로젝트·그림체·선별·진화 네 개로 정리합니다. Random·직접 조합·새 Prompt 재생성과 기존 Viewer·진화 Cycle을 유지합니다.
 
 **성분 통계와 진화:** [프로젝트별 작가·LoRA 점수](component_statistics_and_breeding_preferences.md). 프로젝트 설정에서 선호도·승패·승률·평가 조합을 확인하고, 두 종류 모두 다음 세대의 새 성분 선택에 0.5~2배 선호 보정을 적용합니다. STR 범위와 기존 결과는 유지합니다.

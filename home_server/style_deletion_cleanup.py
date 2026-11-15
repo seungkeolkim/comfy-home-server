@@ -12,6 +12,7 @@ def remove_deleted_candidate_history(connection, candidate_identifiers: list[str
     ).fetchall()
     if any(row["origin"] != "style" or row["status"] in {"submitting", "pending", "running", "cancelling"} for row in requests):
         raise ValueError("스타일 구성의 종료된 생성 요청만 정리할 수 있습니다.")
+    connection.execute(f"DELETE FROM style_candidate_favorites WHERE candidate_id IN ({candidate_placeholders})", candidate_identifiers)
     connection.execute(f"DELETE FROM style_candidate_renders WHERE candidate_id IN ({candidate_placeholders})", candidate_identifiers)
     for request in requests:
         connection.execute("DELETE FROM output_files WHERE request_id=?", (request["request_id"],))

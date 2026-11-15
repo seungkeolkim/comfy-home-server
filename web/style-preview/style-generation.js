@@ -242,6 +242,7 @@ function renderCurrentStyleGenerationResults(projectIdentifier) {
   }
   updateStyleVotingControls();
   refreshOpenStyleLibraryViewer();
+  refreshStyleFavoriteControls(projectIdentifier);
   for (const errorContainer of document.querySelectorAll("#style-generation-error, #style-generation-dialog-error")) errorContainer.textContent = state.error;
 }
 
@@ -270,7 +271,7 @@ async function loadStyleGenerationResults(projectIdentifier, refreshSequence) {
 async function refreshStyleGenerationResults(projectIdentifier = previewState.currentProjectIdentifier) {
   if (!PERSISTENT_STYLE_WORKSPACE || !projectIdentifier) return;
   const state = currentStyleGenerationState(projectIdentifier);
-  if (state.votingCommandBusy || state.evolutionCommandBusy || state.candidateCommandBusy) return;
+  if (state.votingCommandBusy || state.evolutionCommandBusy || state.candidateCommandBusy || state.pendingFavoriteCandidateIdentifiers?.size) return;
   if (state.resultRefreshPromise) {
     await state.resultRefreshPromise;
     if (state.completedResultRefreshSequence === state.resultRefreshSequence) return;
@@ -413,6 +414,8 @@ async function handleStyleGenerationAction(event) {
     if (action === "cancel") await styleProjectApi(`/api/jobs/${button.dataset.job}/cancel`, { method: "POST" });
     if (generationSubmitted) {
       state.libraryLifecycle = "active";
+      delete previewState.libraryFavoriteFilters?.[projectIdentifier];
+      persistStyleWorkspaceSession();
       if (generationDialog.open) generationDialog.close();
     }
     await refreshStyleGenerationResults(projectIdentifier);

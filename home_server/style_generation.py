@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from urllib.parse import quote
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from .output_directories import resolve_output_directory
 from .output_roots import STYLE_OUTPUT_PREFIX, STYLE_OUTPUT_ROOT_NAME
@@ -21,6 +21,13 @@ from .workflows import prepare_anima
 
 
 ARTIST_INSERTION_MARKER = "STYLECOMPOSITIONARTISTSLOTFROZEN"
+
+
+class StyleCandidateFavoriteInput(BaseModel):
+    """전송 재시도가 상태를 다시 뒤집지 않도록 원하는 즐겨찾기 값을 받습니다."""
+
+    model_config = ConfigDict(extra="forbid")
+    isFavorite: StrictBool
 
 
 class GenerationComponent(BaseModel):

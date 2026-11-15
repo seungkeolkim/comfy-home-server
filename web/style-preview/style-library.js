@@ -32,7 +32,7 @@ function styleCandidateCardMarkup(candidate, plan) {
     ? `<details class="style-card-generation-errors"><summary>생성 오류</summary>${generationErrors.map(message => `<p class="error">${escapeMarkup(message)}</p>`).join("")}</details>`
     : "";
   const selected = (currentStyleGenerationState().selectedCandidateIdentifiers || []).includes(candidate.identifier);
-  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><label class="style-card-selection"><input type="checkbox" data-style-candidate-select="${candidate.identifier}" ${selected ? "checked" : ""} aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 선택" />선택</label><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 자세히 보기"><span class="style-card-heading"><strong>${escapeMarkup(persistentCandidateLabel(candidate))}</strong><span>${availableCount} / ${caseResults.length}장</span></span>${styleCandidateRankingMarkup(candidate)}<span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">${candidate.generationNumber || 1}세대 · ${{active: "활성", evolving: "진화 중", retired: "퇴역", cancelled: "취소"}[candidate.lifecycle] || "활성"} · 작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button>${errorMarkup}<div class="style-card-actions">${styleCandidateManagementButtonsMarkup(candidate)}</div></article>`;
+  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><label class="style-card-selection"><input type="checkbox" data-style-candidate-select="${candidate.identifier}" ${selected ? "checked" : ""} aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 선택" />선택</label><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 자세히 보기"><span class="style-card-heading"><strong>${escapeMarkup(persistentCandidateLabel(candidate))}</strong><span>${availableCount} / ${caseResults.length}장</span></span>${styleCandidateRankingMarkup(candidate)}<span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">${candidate.generationNumber || 1}세대 · ${{active: "활성", evolving: "진화 중", retired: "퇴역", cancelled: "취소"}[candidate.lifecycle] || "활성"} · 작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button>${errorMarkup}<div class="style-card-actions">${styleCandidateManagementButtonsMarkup(candidate)}${styleCandidateFavoriteButtonMarkup(candidate)}</div></article>`;
 }
 
 /** 현재 생성 중인 최신 Prompt 요청만 세어 완료된 카드와 함께 진행을 표시합니다. */
@@ -75,11 +75,12 @@ function styleCandidateRankingMarkup(candidate) {
 function styleLibraryResultsMarkup(results) {
   if (previewState.blind) return rankingBlindNoticeMarkup();
   const groups = [];
-  const lifecycleFilter = currentStyleGenerationState().libraryLifecycle || "active";
+  const favoritesOnly = styleLibraryFavoritesOnly();
+  const lifecycleFilter = favoritesOnly ? "all" : currentStyleGenerationState().libraryLifecycle || "active";
   const plans = (results?.plans || []).filter(plan => results.candidates.some(candidate => candidate.planIdentifier === plan.planIdentifier && candidate.renders.length));
   const evaluations = plans.filter((plan, index) => plans.findIndex(item => item.evaluationIdentifier === plan.evaluationIdentifier) === index);
   for (const plan of evaluations) {
-    const candidates = results.candidates.filter(candidate => candidate.evaluationIdentifier === plan.evaluationIdentifier && candidate.renders.length && (lifecycleFilter === "all" || (lifecycleFilter === "active" ? ["active", "evolving"].includes(candidate.lifecycle) : candidate.lifecycle === lifecycleFilter)));
+    const candidates = results.candidates.filter(candidate => candidate.evaluationIdentifier === plan.evaluationIdentifier && candidate.renders.length && (!favoritesOnly || candidate.isFavorite) && (lifecycleFilter === "all" || (lifecycleFilter === "active" ? ["active", "evolving"].includes(candidate.lifecycle) : candidate.lifecycle === lifecycleFilter)));
     if (!candidates.length) continue;
     const orderedCandidates = [...candidates];
     if (previewState.candidateSortOrder === "matches") orderedCandidates.sort((first, second) => (second.statistics?.matches || 0) - (first.statistics?.matches || 0) || (first.statistics?.rank || Infinity) - (second.statistics?.rank || Infinity));
@@ -88,7 +89,10 @@ function styleLibraryResultsMarkup(results) {
     const cards = orderedCandidates.map(candidate => styleCandidateCardMarkup(candidate, plans.find(item => item.planIdentifier === candidate.planIdentifier))).join("");
     groups.push(`<section class="style-library-batch"><div class="settings-section-heading"><h2>${plan.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재 조건" : "이전 조건"} · Seed ${plan.sampling.seed} · ${candidates.length}개 그림체</h2><div class="form-actions">${actions}</div></div><div class="style-library-grid">${cards}</div></section>`);
   }
-  return styleLibraryGenerationProgressMarkup(results) + styleCandidateSelectionToolbarMarkup(results) + (groups.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-generation-action="open-generator">조합 생성</button></section>');
+  const emptyState = favoritesOnly
+    ? '<section class="panel empty-state"><p>즐겨찾기한 그림체가 없습니다.</p></section>'
+    : '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-generation-action="open-generator">조합 생성</button></section>';
+  return styleLibraryGenerationProgressMarkup(results) + styleCandidateSelectionToolbarMarkup(results) + (groups.join("") || emptyState);
 }
 
 /** 상세 보기는 열린 프로젝트와 후보 ID로만 조회해 다른 조합으로 넘어가지 않습니다. */
@@ -116,6 +120,7 @@ function prepareStyleLibraryViewer() {
         <h2 id="style-viewer-title"></h2>
         <p id="style-viewer-case-name" class="style-viewer-case-name"></p>
       </div>
+      ${styleLibraryViewerState.originalFilesOnly ? "" : styleCandidateFavoriteButtonMarkup(currentStyleLibraryViewerResults().candidate)}
       <button data-style-library-action="close" aria-label="그림체 상세 닫기">닫기</button>
     </div>
     <div class="style-viewer-image-frame">

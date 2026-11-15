@@ -287,6 +287,11 @@ dialog::backdrop { background: #070911b3; backdrop-filter: blur(3px); }
 .style-library-batch { margin-bottom: 28px; }
 .style-library-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); gap: 16px; }
 .style-library-card { min-width: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.style-candidate-favorite { min-width: 44px; min-height: 44px; padding: 6px 10px; font-size: 23px; color: #f7d46a; }
+.style-candidate-favorite[aria-pressed="true"] { color: #ffd85f; border-color: #927638; background: #3a3019; }
+.style-favorite-symbol { color: #f7d46a; }
+.style-library-favorites-filter { display: flex; align-items: center; gap: 8px; margin: 0; white-space: nowrap; font-size: 13px; }
+.style-library-favorites-filter input { width: 20px; height: 20px; margin: 0; accent-color: #f7d46a; }
 .style-card-open { display: block; width: 100%; padding: 16px; border: 0; background: transparent; text-align: left; }
 .style-card-open:hover { background: #1d2130; }
 .style-card-heading { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
@@ -307,7 +312,7 @@ dialog::backdrop { background: #070911b3; backdrop-filter: blur(3px); }
 #style-viewer-image-status { margin: 6px 0 0; font-size: 12px; }
 #style-viewer-image-status:empty { display: none; }
 .style-library-viewer .dialog-heading { gap: 8px; margin-bottom: 8px; }
-.style-viewer-heading-text { min-width: 0; }
+.style-viewer-heading-text { flex: 1; min-width: 0; }
 .style-library-viewer .dialog-heading h2 { min-width: 0; overflow-wrap: anywhere; font-size: 15px; }
 .style-library-viewer .dialog-heading button { flex-shrink: 0; }
 .style-viewer-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding-top: 8px; }
@@ -316,6 +321,7 @@ dialog::backdrop { background: #070911b3; backdrop-filter: blur(3px); }
 .style-library-viewer .style-viewer-toolbar button, .style-library-viewer .style-viewer-toolbar .button { min-height: 40px; padding: 8px 12px; font-size: 12px; }
 .style-card-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; padding: 10px; border-top: 1px solid var(--line); }
 .style-card-actions button { flex: 1; min-height: 40px; padding: 8px; font-size: 12px; }
+.style-card-actions > .style-candidate-favorite { flex: 0 0 44px; min-height: 44px; padding: 6px 10px; font-size: 23px; }
 button.danger { background: #3f1d29; border-color: #874654; color: #ffd5dc; }
 button.danger:hover:not(:disabled) { background: #542636; }
 .style-card-selection { display: flex; align-items: center; gap: 8px; padding: 10px; margin: 0; border-bottom: 1px solid var(--line); font-size: 12px; }

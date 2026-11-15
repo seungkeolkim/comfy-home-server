@@ -40,6 +40,11 @@ class StyleGenerationStore:
             "label TEXT NOT NULL, components_json TEXT NOT NULL, fingerprint TEXT NOT NULL)"
         )
         connection.execute(
+            "CREATE TABLE IF NOT EXISTS style_candidate_favorites ("
+            "candidate_id TEXT PRIMARY KEY REFERENCES style_candidates(candidate_id) ON DELETE CASCADE, "
+            "created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))"
+        )
+        connection.execute(
             "CREATE TABLE IF NOT EXISTS style_candidate_renders ("
             "render_id TEXT PRIMARY KEY, candidate_id TEXT NOT NULL REFERENCES style_candidates(candidate_id), "
             "plan_id TEXT NOT NULL REFERENCES style_generation_plans(plan_id), case_id TEXT NOT NULL, "
@@ -96,6 +101,26 @@ class StyleGenerationStore:
         return {**plan, "evolutionStatus": evolution[0] if evolution else None, "planIdentifier": plan_identifier,
                 "operationIdentifier": row["operation_id"], "projectRevision": row["project_revision"], "jobIdentifiers": [row[0] for row in job_rows]}
 
+    def set_candidate_favorite(self, project_identifier: str, candidate_identifier: str, is_favorite: bool) -> dict:
+        """소유 프로젝트의 생성된 조합에 좋아요를 저장하며 점수·평가 Revision은 유지합니다."""
+
+        with self.connection_factory() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            candidate = connection.execute(
+                "SELECT memberships.lifecycle FROM style_candidates AS candidates "
+                "JOIN style_candidate_memberships AS memberships USING(candidate_id) "
+                "WHERE candidates.candidate_id=? AND candidates.project_id=? AND EXISTS "
+                "(SELECT 1 FROM style_candidate_renders WHERE candidate_id=candidates.candidate_id)",
+                (candidate_identifier, project_identifier),
+            ).fetchone()
+            if candidate is None or candidate["lifecycle"] in {"deleting", "deleted"}:
+                raise LookupError("즐겨찾기할 프로젝트의 생성된 그림체를 찾을 수 없습니다.")
+            if is_favorite:
+                connection.execute("INSERT OR IGNORE INTO style_candidate_favorites(candidate_id) VALUES(?)", (candidate_identifier,))
+            else:
+                connection.execute("DELETE FROM style_candidate_favorites WHERE candidate_id=?", (candidate_identifier,))
+        return {"candidateIdentifier": candidate_identifier, "isFavorite": is_favorite}
+
     @staticmethod
     def browser_plan(row, job_identifiers: list[str]) -> dict:
         """같은 연결에서 읽은 계획·소유 Job·진화 상태를 Browser 형식으로 변환합니다."""
@@ -130,8 +155,9 @@ class StyleGenerationStore:
             plans = [stored_plans[row["plan_id"]] for row in plan_rows if row["evaluation_id"] == project["active_evaluation_id"] or row["has_renders"]]
             current_generation = connection.execute("SELECT generation_number FROM style_evolution_timelines WHERE evaluation_id=?", (project["active_evaluation_id"],)).fetchone()
             candidates = connection.execute(
-                "SELECT * FROM style_candidates WHERE project_id=? AND (evaluation_id=? OR EXISTS "
-                "(SELECT 1 FROM style_candidate_renders WHERE candidate_id=style_candidates.candidate_id)) ORDER BY rowid",
+                "SELECT style_candidates.*,favorites.candidate_id IS NOT NULL AS is_favorite FROM style_candidates "
+                "LEFT JOIN style_candidate_favorites AS favorites USING(candidate_id) WHERE project_id=? AND (evaluation_id=? OR EXISTS "
+                "(SELECT 1 FROM style_candidate_renders WHERE candidate_id=style_candidates.candidate_id)) ORDER BY style_candidates.rowid",
                 (project_identifier, project["active_evaluation_id"]),
             ).fetchall()
             # 원본 JSON의 Graph는 전송하지 않고 상세 화면이 쓰는 필드만 읽습니다.
@@ -181,6 +207,7 @@ class StyleGenerationStore:
                     **self.candidate_display_identity(candidate, stored_plans[candidate["plan_id"]], membership["generation_number"]),
                     "evaluationIdentifier": candidate["evaluation_id"], "generationNumber": membership["generation_number"],
                     "lifecycle": membership["lifecycle"], "evolutionBatchIdentifier": membership["batch_id"],
+                    "isFavorite": bool(candidate["is_favorite"]),
                     "breedingMode": membership["breeding_mode"], "parentIdentifiers": json.loads(membership["parent_ids_json"]),
                     "components": json.loads(candidate["components_json"]), "renders": renders_by_candidate.get(candidate["candidate_id"], []),
                 })

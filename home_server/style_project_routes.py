@@ -8,7 +8,7 @@ from fastapi import APIRouter, HTTPException
 
 from .style_projects import GlobalStyleSettings, ProjectWriteInput, StyleRevisionConflict
 from .workflows import load_workflows
-from .style_generation import StyleGenerationPlanInput, StyleGenerationSubmitInput, StylePromptRegenerationInput
+from .style_generation import StyleCandidateFavoriteInput, StyleGenerationPlanInput, StyleGenerationSubmitInput, StylePromptRegenerationInput
 from .style_random_generation import RandomStyleGenerationPlanInput
 from .style_project_rename import StyleProjectRenameService
 
@@ -87,6 +87,16 @@ def create_style_project_router(server) -> APIRouter:
             raise HTTPException(422, str(exception)) from exception
         except OSError as exception:
             raise HTTPException(409, "출력 폴더 이름을 변경하지 못했습니다. 파일 사용 상태를 확인하고 같은 요청을 다시 시도해 주세요.") from exception
+
+    @router.put("/api/style-projects/{project_identifier}/candidates/{candidate_identifier}/favorite")
+    def set_candidate_favorite(project_identifier: str, candidate_identifier: str, payload: StyleCandidateFavoriteInput):
+        """그림체 좋아요를 명시적인 값으로 저장하며 다른 프로젝트의 조합은 거부합니다."""
+
+        try:
+            with server.style_generation.mutation_lock:
+                return server.style_generation.store.set_candidate_favorite(project_identifier, candidate_identifier, payload.isFavorite)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
 
     @router.get("/api/style-projects/{project_identifier}/generation-options")
     def style_generation_options(project_identifier: str):

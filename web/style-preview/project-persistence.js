@@ -34,7 +34,7 @@ async function styleProjectApi(path, options = {}) {
 /** 서버 데이터 대신 탭별 선택과 미저장 초안만 Session Storage에 보관합니다. */
 function persistStyleWorkspaceSession() {
   const sessionState = {};
-  for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "candidateGenerationRequests", "randomGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
+  for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "libraryFavoriteFilters", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "candidateGenerationRequests", "randomGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
     sessionState[field] = previewState[field];
   }
   try {
@@ -64,7 +64,7 @@ async function loadPersistentStyleWorkspace(restoreSession = false) {
     try {
       const storedSession = JSON.parse(sessionStorage.getItem(STYLE_WORKSPACE_SESSION_KEY) || "null");
       if (storedSession && typeof storedSession === "object") {
-        for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "candidateGenerationRequests", "randomGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
+        for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "libraryFavoriteFilters", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "candidateGenerationRequests", "randomGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
           if (storedSession[field] !== undefined) previewState[field] = storedSession[field];
         }
       }
@@ -129,7 +129,7 @@ function renderPersistentProjectCreation() {
 function renderPersistentStyleLibrary() {
   const project = currentProject();
   if (previewState.blind) return rankingBlindNoticeMarkup();
-  return `<div class="page-heading"><h1>그림체</h1><button class="primary" data-generation-action="open-generator">＋ 조합 생성</button></div><div id="style-prompt-regeneration-controls">${stylePromptRegenerationMarkup(project, currentStyleGenerationState())}</div><p id="style-generation-error" class="error" role="alert">${escapeMarkup(currentStyleGenerationState().error)}</p><div class="toolbar"><label for="style-library-lifecycle">표시</label><select id="style-library-lifecycle">${[["active", "활성·진화 중"], ["retired", "퇴역"], ["cancelled", "취소"], ["all", "전체"]].map(([value, label]) => `<option value="${value}" ${(currentStyleGenerationState().libraryLifecycle || "active") === value ? "selected" : ""}>${label}</option>`).join("")}</select><label for="candidate-sort-order">정렬</label><select id="candidate-sort-order">${[["elo", "Elo 높은 순"], ["matches", "평가 횟수 많은 순"], ["creation", "등록 순"]].map(([value, label]) => `<option value="${value}" ${previewState.candidateSortOrder === value ? "selected" : ""}>${label}</option>`).join("")}</select></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
+  return `<div class="page-heading"><h1>그림체</h1><button class="primary" data-generation-action="open-generator">＋ 조합 생성</button></div><div id="style-prompt-regeneration-controls">${stylePromptRegenerationMarkup(project, currentStyleGenerationState())}</div><p id="style-generation-error" class="error" role="alert">${escapeMarkup(currentStyleGenerationState().error)}</p><div class="toolbar"><label for="style-library-lifecycle">표시</label><select id="style-library-lifecycle" ${styleLibraryFavoritesOnly() ? "disabled" : ""}>${[["active", "활성·진화 중"], ["retired", "퇴역"], ["cancelled", "취소"], ["all", "전체"]].map(([value, label]) => `<option value="${value}" ${(styleLibraryFavoritesOnly() ? "all" : currentStyleGenerationState().libraryLifecycle || "active") === value ? "selected" : ""}>${label}</option>`).join("")}</select><label for="candidate-sort-order">정렬</label><select id="candidate-sort-order">${[["elo", "Elo 높은 순"], ["matches", "평가 횟수 많은 순"], ["creation", "등록 순"]].map(([value, label]) => `<option value="${value}" ${previewState.candidateSortOrder === value ? "selected" : ""}>${label}</option>`).join("")}</select>${styleLibraryFavoritesFilterMarkup(currentStyleGenerationState().results)}</div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
 }
 
 /** 실제 설정은 Prompt부터 바로 편집하고 기존 공통 Workflow·성분 입력을 재사용합니다. */

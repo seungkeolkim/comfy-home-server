@@ -339,5 +339,5 @@ def test_schema_sixteen_migration_keeps_source_backup_and_existing_data(tmp_path
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 18
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
