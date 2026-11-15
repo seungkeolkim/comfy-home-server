@@ -27,8 +27,25 @@ function styleCandidateCardMarkup(candidate, plan) {
       : `<span class="style-thumbnail-status">${escapeMarkup(result.render ? styleRenderStatusLabel(result.render.status) : "미제출")}</span>`;
     return `<span class="style-card-thumbnail" data-library-case-index="${caseIndex}">${imageMarkup}<span class="style-thumbnail-name">${escapeMarkup(caseName)}</span></span>`;
   }).join("");
+  const generationErrors = [...new Set(caseResults.map(result => result.render?.error).filter(Boolean))];
+  const errorMarkup = generationErrors.length
+    ? `<details class="style-card-generation-errors"><summary>생성 오류</summary>${generationErrors.map(message => `<p class="error">${escapeMarkup(message)}</p>`).join("")}</details>`
+    : "";
   const selected = (currentStyleGenerationState().selectedCandidateIdentifiers || []).includes(candidate.identifier);
-  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><label class="style-card-selection"><input type="checkbox" data-style-candidate-select="${candidate.identifier}" ${selected ? "checked" : ""} aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 선택" />선택</label><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 자세히 보기"><span class="style-card-heading"><strong>${escapeMarkup(persistentCandidateLabel(candidate))}</strong><span>${availableCount} / ${caseResults.length}장</span></span>${styleCandidateRankingMarkup(candidate)}<span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">${candidate.generationNumber || 1}세대 · ${{active: "활성", evolving: "진화 중", retired: "퇴역", cancelled: "취소"}[candidate.lifecycle] || "활성"} · 작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button><div class="style-card-actions">${styleCandidateManagementButtonsMarkup(candidate)}</div></article>`;
+  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><label class="style-card-selection"><input type="checkbox" data-style-candidate-select="${candidate.identifier}" ${selected ? "checked" : ""} aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 선택" />선택</label><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 자세히 보기"><span class="style-card-heading"><strong>${escapeMarkup(persistentCandidateLabel(candidate))}</strong><span>${availableCount} / ${caseResults.length}장</span></span>${styleCandidateRankingMarkup(candidate)}<span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">${candidate.generationNumber || 1}세대 · ${{active: "활성", evolving: "진화 중", retired: "퇴역", cancelled: "취소"}[candidate.lifecycle] || "활성"} · 작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button>${errorMarkup}<div class="style-card-actions">${styleCandidateManagementButtonsMarkup(candidate)}</div></article>`;
+}
+
+/** 현재 생성 중인 최신 Prompt 요청만 세어 완료된 카드와 함께 진행을 표시합니다. */
+function styleLibraryGenerationProgressMarkup(results) {
+  let pendingImageCount = 0;
+  for (const candidate of results?.candidates || []) {
+    const plan = results.plans.find(item => item.planIdentifier === candidate.planIdentifier);
+    if (!plan) continue;
+    for (const result of styleCandidateCaseResults(candidate, plan)) {
+      if (["submitting", "pending", "running", "cancelling"].includes(result.render?.status)) pendingImageCount += 1;
+    }
+  }
+  return pendingImageCount ? `<p class="style-library-generation-progress" role="status">이미지 ${pendingImageCount}장 생성 중</p>` : "";
 }
 
 /** 생성 묶음의 취소·부분 실패 재시도는 조합 카드와 별도로 유지합니다. */
@@ -71,7 +88,7 @@ function styleLibraryResultsMarkup(results) {
     const cards = orderedCandidates.map(candidate => styleCandidateCardMarkup(candidate, plans.find(item => item.planIdentifier === candidate.planIdentifier))).join("");
     groups.push(`<section class="style-library-batch"><div class="settings-section-heading"><h2>${plan.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재 조건" : "이전 조건"} · Seed ${plan.sampling.seed} · ${candidates.length}개 그림체</h2><div class="form-actions">${actions}</div></div><div class="style-library-grid">${cards}</div></section>`);
   }
-  return styleCandidateSelectionToolbarMarkup(results) + (groups.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-action="navigate" data-screen="generation">이미지 생성</button></section>');
+  return styleLibraryGenerationProgressMarkup(results) + styleCandidateSelectionToolbarMarkup(results) + (groups.join("") || '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-generation-action="open-generator">조합 생성</button></section>');
 }
 
 /** 상세 보기는 열린 프로젝트와 후보 ID로만 조회해 다른 조합으로 넘어가지 않습니다. */

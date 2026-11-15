@@ -21,7 +21,7 @@ async function openStyleWorkspace(context, width = 1280) {
   await expect(page).toHaveURL(/\/style(?:[?#]|$)/);
   await expect(page.locator('#preview-application')).toBeVisible();
   await expect(page.locator('#preview-content h1')).toHaveText('프로젝트');
-  await expect(page.locator('#preview-mobile-navigation button')).toHaveCount(5);
+  await expect(page.locator('#preview-mobile-navigation button')).toHaveCount(4);
   return page;
 }
 
@@ -92,7 +92,7 @@ async function verifyPersistentStyleProjects() {
     await expect(desktopPage.locator('[data-project-card]')).toHaveCount(2);
     await expect(desktopPage.locator(`[data-project-card="${secondProject.identifier}"]`)).toHaveAttribute('aria-current', 'true');
     await desktopPage.locator(`[data-action=open-project][data-project="${firstProject.identifier}"]`).click();
-    await expect(desktopPage.locator('#preview-content h1')).toHaveText('이미지 생성');
+    await expect(desktopPage.locator('#preview-content h1')).toHaveText('그림체');
     await expect(desktopPage.locator('#active-project-picker')).toHaveValue(firstProject.identifier);
     await desktopPage.locator('.phase-badge[data-screen=project-settings]').click();
     await expect(desktopPage.locator('#settings-project-purpose')).toHaveValue('A의 미저장 초안');
@@ -148,7 +148,7 @@ async function verifyPersistentStyleProjects() {
       assert.ok(await mobilePage.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       if (width === 390 || width === 1280) await mobilePage.screenshot({ path: `runtime/verification/style-project-navigation-${width}.png`, fullPage: true });
       if (width === 390) {
-        for (const screen of ['generation', 'compare', 'evolution', 'candidates']) {
+        for (const screen of ['candidates', 'compare', 'evolution']) {
           await mobilePage.locator(`#preview-mobile-navigation [data-screen="${screen}"]`).click();
           await expect(mobilePage.locator(`#preview-mobile-navigation [data-screen="${screen}"]`)).toHaveClass('active');
           await mobilePage.locator('#preview-mobile-navigation [data-screen=projects]').click();
@@ -178,7 +178,7 @@ async function verifyPersistentStyleProjects() {
     fs.writeFileSync('runtime/verification/style-projects-browser-results.json', JSON.stringify({
       projectIdentifiers: [firstProject.identifier, secondProject.identifier],
       caseIdentifiers, widths: [320, 390, 768, 1280],
-      projectTabRestored: true, explicitCardSelection: true, selectedProjectIndicator: true, fiveTabNavigation: true,
+      projectTabRestored: true, explicitCardSelection: true, selectedProjectIndicator: true, fourTabNavigation: true,
       crossDevicePersistence: true, unsavedDraftPreservation: true, revisionConflict: true,
       renameBinding: true, evaluationSnapshots: true, generalInputPreserved: true,
       previewStillAvailable: true, browserErrors, generationRequests,

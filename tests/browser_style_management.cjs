@@ -28,10 +28,11 @@ async function verifyStyleManagement() {
     await page.setViewportSize({ width: 1280, height: 1000 });
     await page.goto(`${baseUrl}/style#generation`);
     await page.locator('#active-project-picker').selectOption(project.identifier);
+    await page.locator('.page-heading [data-generation-action=open-generator]').click();
     await page.locator('#style-generation-random-count').fill('4');
     await page.locator('[data-generation-action=generate-random]').click();
     await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
-    await expect(page.locator('.generation-result img')).toHaveCount(12, { timeout: 20000 });
+    await expect(page.locator('.style-card-thumbnail img')).toHaveCount(12, { timeout: 20000 });
     await page.goto(`${baseUrl}/style#candidates`);
     await expect(page.locator('.style-library-card')).toHaveCount(4);
     const names = await page.locator('.style-card-heading strong').allTextContents();

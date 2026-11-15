@@ -150,8 +150,9 @@ async function verifyPendingVoteMutationGuards(page, project, otherProject) {
   try {
     await page.locator('[data-style-voting-choice=a]').click();
     await voteIntercepted;
-    await page.locator('#preview-sidebar [data-screen=generation]').click();
-    await page.locator('[data-generation-action=generate-random]').click();
+    await page.locator('#preview-sidebar [data-screen=candidates]').click();
+    await page.locator('.page-heading [data-generation-action=open-generator]').click();
+    await expect(page.locator('#style-generation-dialog')).not.toBeVisible();
     await expect(page.locator('#style-generation-confirmation-dialog')).not.toBeVisible();
     await expect(page.locator('.toast')).toContainText('선택 결과를 처리하고 있습니다.');
 

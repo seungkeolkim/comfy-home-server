@@ -27,10 +27,11 @@ async function verifyStylePromptChanges() {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${baseUrl}/style#generation`);
     await page.locator('#active-project-picker').selectOption(project.identifier);
+    await page.locator('.page-heading [data-generation-action=open-generator]').click();
     await page.locator('#style-generation-random-count').fill('2');
     await page.locator('[data-generation-action=generate-random]').click();
     await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
-    await expect(page.locator('.generation-result img')).toHaveCount(4);
+    await expect(page.locator('.style-card-thumbnail img')).toHaveCount(4);
     const before = await (await context.request.get(endpoint + '/generation-results')).json();
     await page.goto(`${baseUrl}/style#project-settings`);
     await page.locator('[data-settings-action=add-prompt]').click();
@@ -79,7 +80,7 @@ async function verifyStylePromptChanges() {
     await page.locator('[data-generation-action=regenerate-prompts]').click();
     await expect(page.locator('#style-generation-confirmation-dialog')).toContainText('8장');
     await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
-    await expect(page.locator('.generation-result img')).toHaveCount(12);
+    await expect(page.locator('.style-card-thumbnail img')).toHaveCount(12);
     const after = await (await context.request.get(endpoint + '/generation-results')).json();
     const regenerationPlan = after.plans.find(plan => plan.selection.mode === 'prompt-regeneration');
     assert.equal(regenerationPlan.cases.length, 4);
@@ -88,7 +89,7 @@ async function verifyStylePromptChanges() {
     for (const candidate of before.candidates) assert.deepEqual(after.candidates.find(current => current.identifier === candidate.identifier), candidate);
     await page.goto(`${baseUrl}/style#compare`);
     await expect(page.locator('.comparison-result img')).toHaveCount(8);
-    await expect(page.locator('.comparison-result img').first()).toHaveAttribute('src', /^\/api\/outputs\/preview\//);
+    await expect(page.locator('.comparison-result img').first()).toHaveAttribute('src', /^\/media\//);
     await expect(page.locator('[data-style-voting-choice=a]')).toBeEnabled();
     assert.equal(await page.locator('.comparison-result img').first().evaluate(image => image.getBoundingClientRect().top < 560), true);
     await expect(page.locator('.evolution-panel')).toHaveCount(0);

@@ -105,7 +105,7 @@ function styleRandomGenerationPanelMarkup() {
   let pendingMessage = '';
   if (evolution?.batch) pendingMessage = '<p class="form-note">진행 중인 세대를 확정하거나 취소한 뒤 새 조합을 추가할 수 있습니다.</p>';
   else if (evolution?.pendingRequestCount) pendingMessage = '<p class="form-note">이미지 생성이 끝나면 새 조합을 추가할 수 있습니다.</p>';
-  return `<section class="panel random-generation-panel"><h2>Random 신규 조합</h2><p class="form-note random-population-summary">현재 ${activeCount}개 · 부모 ${parentCount}개 (평가 조합 상위 30%)</p><div class="generation-start-controls"><label for="style-generation-random-count">추가 조합 수</label><input id="style-generation-random-count" type="number" min="1" max="${sizing.randomMaximumCount}" step="1" value="${escapeMarkup(count)}" ${canGenerate ? '' : 'disabled'} /><button class="primary" data-generation-action="generate-random" ${canGenerate ? '' : 'disabled'}>Random 조합 생성</button>${expandPopulationButton}${evolution?.candidateCount ? '<button data-action="navigate" data-screen="compare">선별하기</button>' : ''}<button data-action="navigate" data-screen="evolution">진화 보기</button></div>${pendingMessage}</section>`;
+  return `<section class="panel random-generation-panel"><h2>Random 신규 조합</h2><p class="form-note random-population-summary">현재 ${activeCount}개 · 부모 ${parentCount}개 (평가 조합 상위 30%)</p><div class="generation-start-controls"><label for="style-generation-random-count">추가 조합 수</label><input id="style-generation-random-count" type="number" min="1" max="${sizing.randomMaximumCount}" step="1" value="${escapeMarkup(count)}" ${canGenerate ? '' : 'disabled'} /><button class="primary" data-generation-action="generate-random" ${canGenerate ? '' : 'disabled'}>Random 조합 생성</button>${expandPopulationButton}</div>${pendingMessage}</section>`;
 }
 
 /** 응답 유실·취소·새로고침 뒤에도 같은 Random 계획으로 다시 확인합니다. */
@@ -128,16 +128,54 @@ async function prepareStyleRandomGeneration(projectIdentifier, combinationCount)
   }
 }
 
-/** 조합 목록 없이 생성 입력과 실제 결과만 표시합니다. */
-function renderStyleGeneration() {
-  const project = currentProject();
+/** 생성 입력만 별도 창에 표시하고 결과·순위는 그림체 카드에서 관리합니다. */
+function renderStyleGenerationDialog() {
+  const dialog = document.querySelector("#style-generation-dialog");
+  const focusedIdentifier = dialog.contains(document.activeElement) ? document.activeElement.id : "";
+  const previousScrollTop = dialog.scrollTop;
   const state = currentStyleGenerationState();
-  let controls = `<div id="style-prompt-regeneration-controls">${stylePromptRegenerationMarkup(project, state)}</div><div id="style-random-generation-controls">${styleRandomGenerationPanelMarkup()}</div>`;
+  let controls = `<div id="style-random-generation-controls">${styleRandomGenerationPanelMarkup()}</div>`;
   if (!state.evolution?.batch && !state.options) controls += '<details class="panel"><summary>직접 조합 지정</summary><button data-generation-action="prepare">생성 조합 준비</button></details>';
   if (state.options && !state.evolution?.batch) {
     controls += `<details class="panel" open><summary>직접 조합 지정</summary><div class="form-row"><label>확인할 조합 수<select id="style-generation-count"><option value="2" ${state.options.combinations.length === 2 ? "selected" : ""}>2개</option><option value="1" ${state.options.combinations.length === 1 ? "selected" : ""}>1개</option></select></label></div>${state.options.combinations.map((combination, index) => styleCombinationEditorMarkup(combination, index, state.options.settings)).join("")}<button class="primary" data-generation-action="preview" ${styleGenerationViewState.busy ? "disabled" : ""}>이미지 생성</button></details>`;
   }
-  return `<div class="page-heading"><h1>이미지 생성</h1><button data-action="navigate" data-screen="project-settings">프로젝트 설정</button></div>${controls}<p id="style-generation-error" class="error" role="alert">${escapeMarkup(state.error)}</p><div id="style-render-results">${initialStyleResultsMarkup(state.results)}</div>`;
+  dialog.innerHTML = `<div class="dialog-heading"><h2 id="style-generation-dialog-title">조합 생성</h2><button data-generation-action="close-generator">닫기</button></div>${controls}<p id="style-generation-dialog-error" class="error" role="alert">${escapeMarkup(state.error)}</p>`;
+  if (focusedIdentifier) dialog.querySelector(`#${CSS.escape(focusedIdentifier)}`)?.focus({ preventScroll: true });
+  dialog.scrollTop = previousScrollTop;
+}
+
+/** 현재 프로젝트의 생성 창을 열며 화면 진입만으로 계획을 만들지 않습니다. */
+function openStyleGenerationDialog(opener) {
+  if (previewState.screen !== "candidates") navigatePreview("candidates");
+  const dialog = document.querySelector("#style-generation-dialog");
+  styleGenerationViewState.dialogProjectIdentifier = previewState.currentProjectIdentifier;
+  styleGenerationViewState.dialogOpener = opener;
+  renderStyleGenerationDialog();
+  if (!dialog.open) dialog.showModal();
+}
+
+/** 화면·프로젝트 이동 후에는 이전 작업 대상의 생성 창을 남기지 않습니다. */
+function synchronizeStyleGenerationDialog() {
+  const dialog = document.querySelector("#style-generation-dialog");
+  if (!dialog?.open) return;
+  if (previewState.screen !== "candidates" || styleGenerationViewState.dialogProjectIdentifier !== previewState.currentProjectIdentifier) dialog.close();
+}
+
+/** 닫힌 창의 입력은 프로젝트 초안에 남기고 현재 화면의 버튼으로 Focus를 돌립니다. */
+function finishStyleGenerationDialog() {
+  const opener = styleGenerationViewState.dialogOpener;
+  const sameProject = styleGenerationViewState.dialogProjectIdentifier === previewState.currentProjectIdentifier;
+  styleGenerationViewState.dialogProjectIdentifier = null;
+  styleGenerationViewState.dialogOpener = null;
+  document.querySelector("#style-generation-dialog").replaceChildren();
+  if (previewState.screen !== "candidates" || !sameProject) return;
+  const focusTarget = opener?.isConnected ? opener : document.querySelector('[data-generation-action="open-generator"]');
+  focusTarget?.focus({ preventScroll: true });
+}
+
+/** 계획 접수 중 Escape로 창을 닫아 중복 동작을 시작하지 않게 합니다. */
+function guardStyleGenerationDialogCancellation(event) {
+  if (styleGenerationViewState.busy) event.preventDefault();
 }
 
 /** 현재 화면의 결과 영역을 같은 경로로 구성해 첫 Polling의 중복 교체를 막습니다. */
@@ -145,7 +183,7 @@ function styleResultsMarkupForCurrentScreen(results) {
   if (previewState.screen === "compare") return styleComparisonResultsMarkup();
   if (previewState.screen === "candidates") return styleLibraryResultsMarkup(results);
   if (previewState.screen === "evolution") return styleEvolutionResultsMarkup(results);
-  return styleGenerationResultsMarkup(results);
+  return "";
 }
 
 /** 최초로 표시한 원문을 기록해 변경 없는 조회가 Scroll·Focus를 끊지 않게 합니다. */
@@ -153,27 +191,6 @@ function initialStyleResultsMarkup(results) {
   const markup = styleResultsMarkupForCurrentScreen(results);
   currentStyleGenerationState().lastResultMarkup = markup;
   return markup;
-}
-
-/** 실패·완료·미확인을 구분하고 같은 Case의 실제 결과를 나란히 표시합니다. */
-function styleGenerationResultsMarkup(results) {
-  const submittedPlans = (results?.plans || []).filter(plan => plan.jobIdentifiers.length);
-  if (!submittedPlans.length) return '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p></section>';
-  const project = currentProject();
-  const statusLabels = { submitting: "제출 준비 중", pending: "대기 중", running: "생성 중", completed: "완료", failed: "실패", stopped: "중단·접수 미확인", cancelled: "취소됨", cancelling: "취소 중" };
-  return submittedPlans.map(plan => {
-    const candidates = results.candidates.filter(candidate => candidate.planIdentifier === plan.planIdentifier);
-    if (!candidates.length) return "";
-    const renders = candidates.flatMap(candidate => candidate.renders);
-    const latestRenders = candidates.flatMap(candidate => plan.cases.map(promptCase => candidate.renders.filter(render => render.caseIdentifier === promptCase.identifier).at(-1))).filter(Boolean);
-    const hasRetryTargets = latestRenders.some(render => ["failed", "cancelled"].includes(render.status));
-    const activeJobs = [...new Set(renders.filter(render => ["submitting", "pending", "running", "cancelling"].includes(render.status)).map(render => render.jobIdentifier))];
-    return `<section class="panel generation-results"><div class="settings-section-heading"><h2>${plan.generationNumber || 1}세대 · ${candidates.length}개 조합 · ${plan.cases.length}개 Prompt</h2></div>${plan.cases.map(promptCase => `<section><h3>${escapeMarkup(persistentPromptCaseName(promptCase))}</h3><div class="generation-result-grid">${candidates.map(candidate => {
-      const render = candidate.renders.filter(item => item.caseIdentifier === promptCase.identifier).at(-1);
-      const file = render?.files.find(item => item.is_available && !item.is_deleted);
-      return `<article class="generation-result"><strong>${escapeMarkup(persistentCandidateLabel(candidate))}</strong>${file ? `<button class="image-button" data-generation-action="enlarge" data-path="${escapeMarkup(file.path)}"><img loading="lazy" src="${styleImageUrl(file.path)}" alt="${escapeMarkup(persistentPromptCaseName(promptCase))} · ${escapeMarkup(persistentCandidateLabel(candidate))}" style="aspect-ratio:${plan.sampling.width}/${plan.sampling.height}" /></button>` : `<div class="empty-state">${render ? escapeMarkup(statusLabels[render.status] || render.status) : "계획 확인 완료 · 미제출"}</div>`}${render?.error ? `<p class="error">${escapeMarkup(render.error)}</p>` : ""}<details><summary>성분·실제 생성 조건</summary><ul>${candidate.components.map(component => `<li>${escapeMarkup(component.identifier)} · STR ${component.strength}</li>`).join("")}</ul>${render?.settings ? `<p>Seed ${render.settings.seed} · ${render.settings.width}×${render.settings.height} · Steps ${render.settings.steps} · CFG ${render.settings.cfg}</p>` : ""}${render?.prompt ? `<p class="form-note">${escapeMarkup(render.prompt)}</p>` : ""}</details></article>`;
-    }).join("")}</div></section>`).join("")}<div class="form-actions">${hasRetryTargets && !activeJobs.length && !["cancelled", "confirmed"].includes(plan.evolutionStatus) ? `<button data-generation-action="retry" data-plan="${plan.planIdentifier}">실패·취소 항목만 재시도</button>` : ""}${activeJobs.map(jobIdentifier => `<button data-generation-action="cancel" data-job="${jobIdentifier}">이 생성 작업 취소</button>`).join("")}</div></section>`;
-  }).join("");
 }
 
 /** 같은 URL의 이미지 노드를 재사용해 Elo 갱신 중 Decode와 표시를 유지합니다. */
@@ -225,12 +242,13 @@ function renderCurrentStyleGenerationResults(projectIdentifier) {
   }
   updateStyleVotingControls();
   refreshOpenStyleLibraryViewer();
+  for (const errorContainer of document.querySelectorAll("#style-generation-error, #style-generation-dialog-error")) errorContainer.textContent = state.error;
 }
 
 /** 결과를 먼저 표시하고 선별·진화 부가 정보는 독립적으로 읽습니다. */
-async function loadStyleGenerationResults(projectIdentifier, refreshSequence, summary) {
+async function loadStyleGenerationResults(projectIdentifier, refreshSequence) {
   const state = currentStyleGenerationState(projectIdentifier);
-  const results = await styleProjectApi(`/api/style-projects/${projectIdentifier}/generation-results?summary=${summary}`);
+  const results = await styleProjectApi(`/api/style-projects/${projectIdentifier}/generation-results?summary=true`);
   if (refreshSequence !== state.resultRefreshSequence) return;
   state.results = results;
   const project = previewState.projects.find(project => project.identifier === projectIdentifier);
@@ -245,7 +263,6 @@ async function loadStyleGenerationResults(projectIdentifier, refreshSequence, su
   await Promise.all(auxiliaryRequests);
   if (refreshSequence === state.resultRefreshSequence) {
     state.completedResultRefreshSequence = refreshSequence;
-    state.resultsAreSummary = summary;
   }
 }
 
@@ -254,15 +271,14 @@ async function refreshStyleGenerationResults(projectIdentifier = previewState.cu
   if (!PERSISTENT_STYLE_WORKSPACE || !projectIdentifier) return;
   const state = currentStyleGenerationState(projectIdentifier);
   if (state.votingCommandBusy || state.evolutionCommandBusy || state.candidateCommandBusy) return;
-  const summary = previewState.screen !== "generation";
   if (state.resultRefreshPromise) {
     await state.resultRefreshPromise;
-    if (state.completedResultRefreshSequence === state.resultRefreshSequence && (summary || !state.resultsAreSummary)) return;
+    if (state.completedResultRefreshSequence === state.resultRefreshSequence) return;
     return refreshStyleGenerationResults(projectIdentifier);
   }
   const refreshSequence = (state.resultRefreshSequence || 0) + 1;
   state.resultRefreshSequence = refreshSequence;
-  state.resultRefreshPromise = loadStyleGenerationResults(projectIdentifier, refreshSequence, summary);
+  state.resultRefreshPromise = loadStyleGenerationResults(projectIdentifier, refreshSequence);
   try {
     await state.resultRefreshPromise;
   } finally {
@@ -287,7 +303,7 @@ function handleStyleGenerationInput(event) {
   if (field.id === "style-generation-count") {
     if (field.value === "1") state.options.combinations = state.options.combinations.slice(0, 1);
     else if (state.options.combinations.length < 2) state.options.combinations.push(structuredClone(state.options.combinations[0]));
-    renderPreview(false);
+    renderStyleGenerationDialog();
     return;
   }
   if (field.dataset.generationCombination === undefined) return;
@@ -296,7 +312,7 @@ function handleStyleGenerationInput(event) {
   if (field.dataset.generationComponent) {
     combination.components = combination.components.filter(component => component.identifier !== identifier);
     if (field.checked) combination.components.push({ identifier, strength: state.options.settings.componentPolicies[identifier].minimumStrength });
-    renderPreview(false);
+    field.closest(".generation-component").querySelector("[data-generation-strength]").disabled = !field.checked;
   } else {
     combination.components.find(component => component.identifier === identifier).strength = Number(field.value);
   }
@@ -319,19 +335,31 @@ async function handleStyleGenerationAction(event) {
     return;
   }
   if (blockStyleMutationDuringVoting(projectIdentifier)) return;
+  if (action === "open-generator") {
+    openStyleGenerationDialog(button);
+    return;
+  }
+  if (action === "close-generator") {
+    document.querySelector("#style-generation-dialog").close();
+    return;
+  }
   if (action === "expand-population") {
     state.randomGenerationCount = Number(button.dataset.combinationCount);
-    renderPreview(false);
-    document.querySelector("#style-generation-random-count")?.focus();
+    const countInput = document.querySelector("#style-generation-random-count");
+    countInput.value = state.randomGenerationCount;
+    countInput.focus();
     return;
   }
   if (action === "generate-candidates" && !document.querySelector("#style-generation-candidate-count").reportValidity()) return;
   if (action === "generate-random" && !document.querySelector("#style-generation-random-count").reportValidity()) return;
   styleGenerationViewState.busy = true;
   const contentContainer = document.querySelector("#preview-content");
+  const generationDialog = document.querySelector("#style-generation-dialog");
   contentContainer.inert = true;
+  generationDialog.inert = true;
   button.disabled = true;
   state.error = "";
+  let generationSubmitted = false;
   try {
     if (action === "generate-random") {
       const combinationCount = Number(document.querySelector("#style-generation-random-count").value);
@@ -339,6 +367,7 @@ async function handleStyleGenerationAction(event) {
       const plan = await prepareStyleRandomGeneration(projectIdentifier, combinationCount);
       if (await confirmStyleGeneration(plan)) {
         await submitConfirmedStyleGeneration(projectIdentifier, plan);
+        generationSubmitted = true;
         state.comparisonPlanIdentifier = plan.planIdentifier;
         delete previewState.randomGenerationRequests[projectIdentifier];
         persistStyleWorkspaceSession();
@@ -349,6 +378,7 @@ async function handleStyleGenerationAction(event) {
       const plan = await prepareStyleCandidateGeneration(projectIdentifier, Number(document.querySelector("#style-generation-candidate-count").value));
       if (await confirmStyleGeneration(plan)) {
         await submitConfirmedStyleGeneration(projectIdentifier, plan);
+        generationSubmitted = true;
         state.comparisonPlanIdentifier = plan.planIdentifier;
         delete previewState.candidateGenerationRequests[projectIdentifier];
         persistStyleWorkspaceSession();
@@ -362,6 +392,7 @@ async function handleStyleGenerationAction(event) {
       const plan = await prepareStylePromptRegeneration(currentProject(), state);
       if (await confirmStyleGeneration(plan)) {
         await submitConfirmedStyleGeneration(projectIdentifier, plan);
+        generationSubmitted = true;
         state.pendingPromptRegeneration = null;
       }
     }
@@ -370,20 +401,31 @@ async function handleStyleGenerationAction(event) {
     }
     if (action === "preview") {
       const plan = await styleProjectApi(`/api/style-projects/${projectIdentifier}/generation-plans`, { method: "POST", body: JSON.stringify({ expectedRevision: state.options.projectRevision, operationIdentifier: newStyleClientIdentifier(), combinations: state.options.combinations }) });
-      if (await confirmStyleGeneration(plan)) await submitConfirmedStyleGeneration(projectIdentifier, plan);
+      if (await confirmStyleGeneration(plan)) {
+        await submitConfirmedStyleGeneration(projectIdentifier, plan);
+        generationSubmitted = true;
+      }
     }
     if (action === "retry") {
       await styleProjectApi(`/api/style-projects/${projectIdentifier}/generation-plans/${button.dataset.plan}/submit`, { method: "POST", body: JSON.stringify({ operationIdentifier: newStyleClientIdentifier(), retryFailedOnly: true }) });
       showToast("실패·취소 항목의 생성을 접수했습니다.");
     }
     if (action === "cancel") await styleProjectApi(`/api/jobs/${button.dataset.job}/cancel`, { method: "POST" });
+    if (generationSubmitted) {
+      state.libraryLifecycle = "active";
+      if (generationDialog.open) generationDialog.close();
+    }
     await refreshStyleGenerationResults(projectIdentifier);
   } catch (error) {
     state.error = error.message;
   } finally {
     styleGenerationViewState.busy = false;
     contentContainer.inert = false;
-    if (projectIdentifier === previewState.currentProjectIdentifier) renderPreview(false);
+    generationDialog.inert = false;
+    if (projectIdentifier === previewState.currentProjectIdentifier) {
+      renderPreview(false);
+      if (generationDialog.open) renderStyleGenerationDialog();
+    }
     button.disabled = false;
   }
 }
@@ -393,7 +435,7 @@ function scheduleStyleGenerationRefresh() {
   clearTimeout(styleGenerationViewState.timer);
   const scheduleSequence = (styleGenerationViewState.scheduleSequence || 0) + 1;
   styleGenerationViewState.scheduleSequence = scheduleSequence;
-  if (!PERSISTENT_STYLE_WORKSPACE || !["generation", "candidates", "compare", "evolution"].includes(previewState.screen) || !currentProject()) return;
+  if (!PERSISTENT_STYLE_WORKSPACE || !["candidates", "compare", "evolution"].includes(previewState.screen) || !currentProject()) return;
   const projectIdentifier = previewState.currentProjectIdentifier;
   const remainingDelay = (currentStyleGenerationState(projectIdentifier).resultRefreshNotBefore || 0) - Date.now();
   if (remainingDelay > 0) {
@@ -416,3 +458,5 @@ function scheduleStyleGenerationRefresh() {
 document.addEventListener("change", handleStyleGenerationInput);
 document.addEventListener("input", handleStyleGenerationInput);
 document.addEventListener("click", handleStyleGenerationAction);
+document.querySelector("#style-generation-dialog").addEventListener("close", finishStyleGenerationDialog);
+document.querySelector("#style-generation-dialog").addEventListener("cancel", guardStyleGenerationDialogCancellation);

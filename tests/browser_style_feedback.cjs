@@ -61,7 +61,8 @@ async function verifyStyleFeedback() {
     const project = await saveStyleFeedbackForm(page, '#persistent-project-form', 'POST');
     assert.equal(project.settings.artistMaximumCount, 1);
     assert.equal(project.settings.seed, '18446744073709551615');
-    await page.locator('#preview-sidebar [data-screen=generation]').click();
+    await page.locator('#preview-sidebar [data-screen=candidates]').click();
+    await page.locator('.page-heading [data-generation-action=open-generator]').click();
     await page.getByText('직접 조합 지정', { exact: true }).click();
     await page.locator('[data-generation-action=prepare]').click();
     await page.locator('[data-generation-component="artist:feedback_alpha"][data-generation-combination="1"]').uncheck();
@@ -70,7 +71,7 @@ async function verifyStyleFeedback() {
     await page.locator('[data-generation-strength="lora:example.safetensors"][data-generation-combination="1"]').fill('0.8');
     await page.locator('[data-generation-action=preview]').click();
     await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
-    await expect(page.locator('.generation-result img')).toHaveCount(4, { timeout: 15000 });
+    await expect(page.locator('.style-card-thumbnail img')).toHaveCount(4, { timeout: 15000 });
     await page.goto(`${baseUrl}/style#project-settings`);
     await page.locator('#settings-project-purpose').fill('선별 왕복 후에도 남아야 하는 미저장 메모');
     await page.locator('#preview-sidebar [data-screen=compare]').click();

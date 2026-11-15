@@ -27,6 +27,7 @@ async function verifyStyleGeneration() {
     await expect(page.locator('#preview-application')).toBeVisible();
     if (await page.locator('#active-project-picker').count()) await page.locator('#active-project-picker').selectOption(project.identifier);
     await page.goto(`${baseUrl}/style#generation`);
+    await page.locator('.page-heading [data-generation-action=open-generator]').click();
     await page.getByText('직접 조합 지정', { exact: true }).click();
     await page.locator('[data-generation-action=prepare]').click();
     await expect(page.locator('.generation-component')).toHaveCount(2);
@@ -40,7 +41,7 @@ async function verifyStyleGeneration() {
     await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
     const submitted = await submittedResponse;
     assert.equal(submitted.status(), 200, await submitted.text());
-    await expect(page.locator('.generation-result img')).toHaveCount(4, { timeout: 15000 });
+    await expect(page.locator('.style-card-thumbnail img')).toHaveCount(4, { timeout: 15000 });
     for (const width of [320, 390, 768, 1280]) {
       await page.setViewportSize({ width, height: 1000 });
       const dimensions = await page.evaluate(() => ({ width: innerWidth, contentWidth: document.documentElement.scrollWidth }));
@@ -48,12 +49,12 @@ async function verifyStyleGeneration() {
     }
     await page.setViewportSize({ width: 390, height: 844 });
     await page.screenshot({ path: 'runtime/verification/style-generation-mobile.png', fullPage: true });
-    await page.locator('[data-generation-action=enlarge]').first().click();
+    await page.locator('.style-card-open').first().click();
     await expect(page.locator('#illustration-dialog')).toBeVisible();
     await expect(page.locator('#style-viewer-original-toggle')).not.toBeChecked();
     await page.locator('[data-style-library-action=close]').click();
     await page.reload();
-    await expect(page.locator('.generation-result img')).toHaveCount(4, { timeout: 10000 });
+    await expect(page.locator('.style-card-thumbnail img')).toHaveCount(4, { timeout: 10000 });
     await page.setViewportSize({ width: 1280, height: 1000 });
     await page.screenshot({ path: 'runtime/verification/style-generation-desktop.png', fullPage: true });
     await page.goto(`${baseUrl}/?view=jobs`);

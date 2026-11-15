@@ -177,16 +177,15 @@ function renderNavigation() {
   document.querySelector("#preview-sidebar").innerHTML = `
     <button data-action="navigate" data-screen="projects" class="${previewState.screen === "projects" ? "active" : ""}">▦　프로젝트</button>
     <p class="project-label">현재 프로젝트</p><p class="project-name">${escapeMarkup(project.name)}</p>
-    ${PERSISTENT_STYLE_WORKSPACE ? '<button data-action="navigate" data-screen="generation" class="' + (previewState.screen === "generation" ? "active" : "") + '">＋　이미지 생성</button>' : ""}
+    <button data-action="navigate" data-screen="candidates" class="${["candidates", "candidate-detail"].includes(previewState.screen) ? "active" : ""}">◇　그림체 <small>　${project.candidateCount}</small></button>
     <button data-action="navigate" data-screen="compare" class="${previewState.screen === "compare" ? "active" : ""}">↔　선별</button>
     ${PERSISTENT_STYLE_WORKSPACE ? '<button data-action="navigate" data-screen="evolution" class="' + (previewState.screen === "evolution" ? "active" : "") + '">⟳　진화</button>' : ""}
-    <button data-action="navigate" data-screen="candidates" class="${["candidates", "candidate-detail"].includes(previewState.screen) ? "active" : ""}">◇　그림체 <small>　${project.candidateCount}</small></button>
     <button data-action="navigate" data-screen="project-settings" class="${previewState.screen === "project-settings" ? "active" : ""}">⚙　프로젝트 설정</button>
     <p class="project-label">시스템 공통</p>
     <button data-action="navigate" data-screen="global-settings" class="${previewState.screen === "global-settings" ? "active" : ""}">◎　글로벌 설정</button>
     ${PERSISTENT_STYLE_WORKSPACE ? "" : '<p class="sidebar-note">먼저 화면을 사용해 보고<br>함께 흐름을 정합니다.</p>'}`;
   const navigationItems = PERSISTENT_STYLE_WORKSPACE
-    ? [["projects", "▦", "프로젝트"], ["generation", "＋", "생성"], ["compare", "↔", "선별"], ["evolution", "⟳", "진화"], ["candidates", "◇", "그림체"]]
+    ? [["projects", "▦", "프로젝트"], ["candidates", "◇", "그림체"], ["compare", "↔", "선별"], ["evolution", "⟳", "진화"]]
     : [["projects", "▦", "프로젝트"], ["compare", "↔", "선별"], ["candidates", "◇", "그림체"], ["project-settings", "⚙", "설정"]];
   document.querySelector("#preview-mobile-navigation").innerHTML = navigationItems.map(([screen, symbol, label]) => `<button data-action="navigate" data-screen="${screen}" class="${previewState.screen === screen || (screen === "project-settings" && previewState.screen === "global-settings") || (screen === "candidates" && previewState.screen === "candidate-detail") ? "active" : ""}"><b>${symbol}</b>${label}</button>`).join("");
 }
@@ -401,7 +400,7 @@ function handlePreviewAction(event) {
     previewState.currentProjectIdentifier = button.dataset.project;
     previewState.activeCaseIndex = 0;
     previewState.libraryFilter = "current";
-    navigatePreview(PERSISTENT_STYLE_WORKSPACE ? "generation" : "compare");
+    navigatePreview(PERSISTENT_STYLE_WORKSPACE ? "candidates" : "compare");
   }
   if (action === "add-prompt") {
     previewState.draft.promptCases.push({ name: `Prompt ${previewState.draft.promptCases.length + 1}`, prompt: "", scene: "garden" });
@@ -527,9 +526,10 @@ function renderPreview(scrollToTop = true) {
   if (PERSISTENT_STYLE_WORKSPACE && !currentProject() && !["projects", "create", "global-settings", "scope"].includes(previewState.screen)) {
     previewState.screen = "projects";
   }
-  if (PERSISTENT_STYLE_WORKSPACE && previewState.screen === "candidate-detail") previewState.screen = "candidates";
+  if (PERSISTENT_STYLE_WORKSPACE && ["candidate-detail", "generation"].includes(previewState.screen)) previewState.screen = "candidates";
+  synchronizeStyleGenerationDialog();
   renderNavigation();
-  const screenRenderers = { projects: renderProjects, create: renderProjectCreation, candidates: renderCandidates, compare: renderComparison, scope: renderPreviewScope, "global-settings": renderGlobalSettingsPreview, "project-settings": renderProjectSettingsPreview, "candidate-detail": renderCandidateDetailPreview, generation: renderStyleGeneration, evolution: renderStyleEvolutionWorkspace };
+  const screenRenderers = { projects: renderProjects, create: renderProjectCreation, candidates: renderCandidates, compare: renderComparison, scope: renderPreviewScope, "global-settings": renderGlobalSettingsPreview, "project-settings": renderProjectSettingsPreview, "candidate-detail": renderCandidateDetailPreview, evolution: renderStyleEvolutionWorkspace };
   previewContent.innerHTML = PERSISTENT_STYLE_WORKSPACE && previewState.screen === "scope" ? renderPersistentScope() : screenRenderers[previewState.screen]();
   if (previewState.rankingReturnScrollY !== null) {
     window.scrollTo(0, previewState.rankingReturnScrollY);
@@ -546,11 +546,11 @@ function renderPreview(scrollToTop = true) {
 /** 주소의 화면 이름을 제한하고 뒤로 가기를 지원합니다. */
 function restorePreviewScreen() {
   let requestedScreen = window.location.hash.slice(1) || previewState.screen;
-  if (requestedScreen === "ranking") {
+  if (requestedScreen === "ranking" || requestedScreen === "generation") {
     requestedScreen = "candidates";
     window.history.replaceState(window.history.state, "", "#candidates");
   }
-  previewState.screen = ["projects", "create", "candidates", "compare", "scope", "global-settings", "project-settings", "candidate-detail", "generation", "evolution"].includes(requestedScreen) ? requestedScreen : "projects";
+  previewState.screen = ["projects", "create", "candidates", "compare", "scope", "global-settings", "project-settings", "candidate-detail", "evolution"].includes(requestedScreen) ? requestedScreen : "projects";
   renderPreview();
 }
 

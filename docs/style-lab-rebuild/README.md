@@ -1,5 +1,7 @@
 # Style Lab 복원·프로젝트 확장 설계 문서
 
+**생성 화면 통합:** [그림체 안에서 조합 생성·결과 확인](library_generation_integration.md). 별도 생성 탭을 그림체에 흡수하고 Mobile 메뉴를 프로젝트·그림체·선별·진화 네 개로 정리합니다. Random·직접 조합·새 Prompt 재생성과 기존 Viewer·진화 Cycle을 유지합니다.
+
 **성분 통계와 진화:** [프로젝트별 작가·LoRA 점수](component_statistics_and_breeding_preferences.md). 프로젝트 설정에서 선호도·승패·승률·평가 조합을 확인하고, 두 종류 모두 다음 세대의 새 성분 선택에 0.5~2배 선호 보정을 적용합니다. STR 범위와 기존 결과는 유지합니다.
 
 **조합 탐색 규모:** [StyleLab 생성 수량과 Pool 확장](style_population_size_2026-11-15.md). Random 50개·진화 12개 기본값, 프로젝트별 마지막 제출 수량 복원, 50개까지 확장 입력과 큰 Pool의 Prompt 재생성을 적용했습니다. 10개는 최소 진화 조건이며 활성 수 상한이 아닙니다. 운영 재기동·기존 데이터 보존을 확인했습니다.
@@ -8,7 +10,7 @@
 
 **현재 실제 연결:** `/style`에 프로젝트 설정 저장, Random 조합·여러 Prompt 이미지 생성, 작업·출력 분리, [투표·Elo·Undo](phase_four_review.md)를 연결했습니다. 사용자 진행 요청으로 [진화 1회: 부모 선정·자녀 생성·Selection·세대 확정/취소](phase_five_review.md)를 추가하며, 작은 Cycle의 사용자 확인을 기다립니다. 기존 `/style-preview`는 예시 목업입니다.
 
-**그림체 통합:** [검토한 목업](ranking_preview_review.md)에 따라 실제 순위·Elo·전적, 조합별 여러 Prompt의 작은 이미지와 Viewer를 그림체 탭에 통합했습니다. 진화 후 퇴역·취소 조합도 필터로 조회합니다. Mobile 메뉴는 프로젝트·생성·선별·진화·그림체의 다섯 개입니다.
+**그림체 통합:** [검토한 목업](ranking_preview_review.md)에 따라 실제 순위·Elo·전적, 조합별 여러 Prompt의 작은 이미지와 Viewer를 그림체 탭에 통합했습니다. 진화 후 퇴역·취소 조합도 필터로 조회합니다. 현재 메뉴 구성은 위의 생성 화면 통합 문서를 따릅니다.
 
 **사용성 보완:** [8389 비교·Elo 수정·조합 폐기·공통 Viewer·고정 선호 버튼](style_usability_review.md)을 연결합니다. 표시 이름은 파일의 세대·조합 규칙을 따르고 Mobile Viewer는 CHS의 기존 Thumbnail Cache를 사용합니다.
 

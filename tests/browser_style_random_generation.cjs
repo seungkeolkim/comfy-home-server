@@ -30,6 +30,7 @@ async function verifyRandomStyleGeneration() {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${baseUrl}/style#generation`);
     await page.locator('#active-project-picker').selectOption(project.identifier);
+    await page.locator('.page-heading [data-generation-action=open-generator]').click();
     await expect(page.locator('#style-generation-random-count')).toHaveValue('50');
     await page.locator('#style-generation-random-count').fill('0');
     await page.locator('[data-generation-action=generate-random]').click();
@@ -86,12 +87,13 @@ async function verifyRandomStyleGeneration() {
     await page.reload();
     await expect.poll(() => page.evaluate(() => currentStyleGenerationState().results?.plans.length || 0)).toBe(1);
     await expect(page.locator('[data-generation-action=open-plan]')).toHaveCount(0);
+    await page.locator('.page-heading [data-generation-action=open-generator]').click();
     await page.locator('[data-generation-action=generate-random]').click();
     await expect(confirmationDialog).toBeVisible();
     assert.equal(additionalPlanRequests, 2);
     await confirmationDialog.locator('button[value=confirm]').click();
     await expect(confirmationDialog).not.toBeVisible();
-    await expect(page.locator('.generation-result img')).toHaveCount(12, { timeout: 20000 });
+    await expect(page.locator('.style-card-thumbnail img')).toHaveCount(12, { timeout: 20000 });
     await page.goto(`${baseUrl}/style#candidates`);
     await expect(page.locator('.style-library-card')).toHaveCount(4);
     await expect(page.locator('.style-card-thumbnail')).toHaveCount(12);
@@ -151,6 +153,7 @@ async function verifyRandomStyleGeneration() {
     await page.goto(`${baseUrl}/style#generation`);
     await page.reload();
     await page.locator('#active-project-picker').selectOption(baseOnlyProject.identifier);
+    await page.locator('.page-heading [data-generation-action=open-generator]').click();
     await page.locator('[data-generation-action=generate-random]').click();
     await expect(confirmationDialog).toContainText('50개 중 1개');
     await expect(confirmationDialog).toContainText('3장');

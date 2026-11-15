@@ -102,7 +102,7 @@ function renderEmptyPersistentNavigation() {
   document.querySelector('.phase-badge').dataset.screen = 'global-settings';
   document.querySelector("#project-context").innerHTML = '<span>현재 프로젝트 없음</span><span>새 프로젝트를 만들어 시작하세요.</span>';
   document.querySelector("#preview-sidebar").innerHTML = '<button data-action="navigate" data-screen="projects">▦　모든 프로젝트</button><button data-action="navigate" data-screen="global-settings">◎　글로벌 설정</button>';
-  document.querySelector("#preview-mobile-navigation").innerHTML = '<button class="active" data-action="navigate" data-screen="projects"><b>▦</b>프로젝트</button><button disabled><b>＋</b>생성</button><button disabled><b>↔</b>선별</button><button disabled><b>⟳</b>진화</button><button disabled><b>◇</b>그림체</button>';
+  document.querySelector("#preview-mobile-navigation").innerHTML = '<button class="active" data-action="navigate" data-screen="projects"><b>▦</b>프로젝트</button><button disabled><b>◇</b>그림체</button><button disabled><b>↔</b>선별</button><button disabled><b>⟳</b>진화</button>';
 }
 
 /** 전체 프로젝트의 조건·현재 선택을 표시하고 카드에서 작업 대상을 명시적으로 고릅니다. */
@@ -129,7 +129,7 @@ function renderPersistentProjectCreation() {
 function renderPersistentStyleLibrary() {
   const project = currentProject();
   if (previewState.blind) return rankingBlindNoticeMarkup();
-  return `<div class="page-heading"><h1>그림체</h1><button class="primary" data-action="navigate" data-screen="generation">이미지 생성</button></div><div class="toolbar"><label for="style-library-lifecycle">표시</label><select id="style-library-lifecycle">${[["active", "활성·진화 중"], ["retired", "퇴역"], ["cancelled", "취소"], ["all", "전체"]].map(([value, label]) => `<option value="${value}" ${(currentStyleGenerationState().libraryLifecycle || "active") === value ? "selected" : ""}>${label}</option>`).join("")}</select><label for="candidate-sort-order">정렬</label><select id="candidate-sort-order">${[["elo", "Elo 높은 순"], ["matches", "평가 횟수 많은 순"], ["creation", "등록 순"]].map(([value, label]) => `<option value="${value}" ${previewState.candidateSortOrder === value ? "selected" : ""}>${label}</option>`).join("")}</select></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
+  return `<div class="page-heading"><h1>그림체</h1><button class="primary" data-generation-action="open-generator">＋ 조합 생성</button></div><div id="style-prompt-regeneration-controls">${stylePromptRegenerationMarkup(project, currentStyleGenerationState())}</div><p id="style-generation-error" class="error" role="alert">${escapeMarkup(currentStyleGenerationState().error)}</p><div class="toolbar"><label for="style-library-lifecycle">표시</label><select id="style-library-lifecycle">${[["active", "활성·진화 중"], ["retired", "퇴역"], ["cancelled", "취소"], ["all", "전체"]].map(([value, label]) => `<option value="${value}" ${(currentStyleGenerationState().libraryLifecycle || "active") === value ? "selected" : ""}>${label}</option>`).join("")}</select><label for="candidate-sort-order">정렬</label><select id="candidate-sort-order">${[["elo", "Elo 높은 순"], ["matches", "평가 횟수 많은 순"], ["creation", "등록 순"]].map(([value, label]) => `<option value="${value}" ${previewState.candidateSortOrder === value ? "selected" : ""}>${label}</option>`).join("")}</select></div><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
 }
 
 /** 실제 설정은 Prompt부터 바로 편집하고 기존 공통 Workflow·성분 입력을 재사용합니다. */

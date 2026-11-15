@@ -51,13 +51,14 @@ async function verifyStyleEvolution() {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(`${baseUrl}/style#generation`);
     await page.locator('#active-project-picker').selectOption(project.identifier);
+    await page.locator('.page-heading [data-generation-action=open-generator]').click();
     const prepare = page.locator('[data-generation-action=generate-candidates]');
     await expect(page.locator('[data-generation-action=generate-random]')).toBeEnabled();
     await expect(page.locator('.random-generation-panel')).toContainText('Random 신규 조합');
     await page.locator('#style-generation-random-count').fill('10');
     await page.locator('[data-generation-action=generate-random]').click();
     await page.locator('#style-generation-confirmation-dialog button[value=confirm]').click();
-    await expect(page.locator('.generation-result img')).toHaveCount(30, { timeout: 20000 });
+    await expect(page.locator('.style-card-thumbnail img')).toHaveCount(30, { timeout: 20000 });
     await page.goto(`${baseUrl}/style#compare`);
     const clientIdentifier = await page.evaluate(() => styleVotingClientIdentifier());
     let selection = await readEvolutionSelection(context, project, clientIdentifier);
