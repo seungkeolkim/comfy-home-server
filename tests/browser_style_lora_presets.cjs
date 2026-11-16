@@ -3,7 +3,7 @@ const { expect } = require('playwright/test');
 const assert = require('node:assert/strict');
 const filesystem = require('node:fs');
 
-/** 실제 임시 PNG와 서로 다른 STR·CLIP을 가진 조합을 격리 서버에만 생성합니다. */
+/** 실제 임시 PNG와 서로 다른 STR·고정 CLIP 1 조합을 격리 서버에만 생성합니다. */
 async function createLoraRegistrationProject(context, baseUrl, name) {
   const settings = {
     name, width: 64, height: 96, steps: 3, cfg: 1, seed: 42,
@@ -73,7 +73,7 @@ async function verifyStyleLoraPresets() {
     assert.ok(await firstCard.locator('img').first().evaluate(image => image === window.styleRegistrationImageReference));
     let presets = await (await context.request.get(`${baseUrl}/api/loras/presets`)).json();
     const firstPreset = presets.find(preset => preset.style_source?.candidate_id === firstIdentifier);
-    assert.deepEqual(firstPreset.loras, [{ name: 'example.safetensors', strength: 0.4, clip_strength: 0 }]);
+    assert.deepEqual(firstPreset.loras, [{ name: 'example.safetensors', strength: 0.4, clip_strength: 1 }]);
     await secondCard.locator('[data-style-candidate-favorite]').click();
     await expect(secondCard.locator('[data-style-candidate-favorite]')).toHaveAttribute('aria-pressed', 'true');
     await page.locator('#style-library-lora-presets-only').check();
@@ -165,7 +165,7 @@ async function verifyStyleLoraPresets() {
     await expect(page.locator('#generate-lora-preset')).toHaveValue(firstPreset.preset_id);
     const actualLoras = await page.evaluate(() => applicationState.selectedLoras);
     assert.equal(actualLoras[0].strength, 0.4);
-    assert.equal(actualLoras[0].clip_strength, 0);
+    assert.equal(actualLoras[0].clip_strength, 1);
     const option = page.locator(`#generate-lora-preset option[value="${firstPreset.preset_id}"]`);
     await expect(option).toContainText('001-01');
     assert.ok((await option.textContent()).includes('…'));

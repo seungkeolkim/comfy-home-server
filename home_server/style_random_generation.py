@@ -7,9 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .style_projects import snapshot_hash
 from .style_generation_sizing import DEFAULT_RANDOM_COMBINATION_COUNT, GENERATION_COUNT_POLICY_VERSION, MAXIMUM_RANDOM_COMBINATION_COUNT
+from .style_lora_strength_policy import fixed_clip_style_component
 
 
-RANDOM_SELECTION_VERSION = "initial-random-v2"
+RANDOM_SELECTION_VERSION = "initial-random-v3"
 STRENGTH_STEP = Decimal("0.05")
 ATTEMPTS_PER_COMBINATION = 30
 
@@ -100,7 +101,8 @@ def draw_initial_combinations(settings: dict, requested_count: int, selection_se
             maximum_count = min(settings[component_kind + "MaximumCount"], len(permitted_identifiers))
             selected_count = selection_random.randint(minimum_count, maximum_count)
             for identifier in sorted(selection_random.sample(permitted_identifiers, selected_count)):
-                components.append({"identifier": identifier, "strength": random_component_strength(settings["componentPolicies"][identifier], selection_random)})
+                strength = random_component_strength(settings["componentPolicies"][identifier], selection_random)
+                components.append(fixed_clip_style_component(identifier, strength))
         fingerprint = combination_selection_fingerprint(components)
         if fingerprint in fingerprints:
             continue

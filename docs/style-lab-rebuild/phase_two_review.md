@@ -18,7 +18,7 @@
 - 프로젝트의 저장된 등록 Workflow API/UI Snapshot을 CHS `prepare_anima` Adapter에 전달합니다. Comfy 주소·Port·인증·Queue·완료 감시는 Home과 공유합니다. 현재 등록 Anima 이미지 Workflow가 대상이며 Moss·영상 지원 완료를 뜻하지 않습니다.
 - 1~2개 고정 조합을 사용합니다. 초기 입력값은 허용 STR 범위의 1/3·2/3 지점이며 진화 알고리즘이 아닙니다. 둘이 동일하면 한 조합으로 준비합니다. 필요 없는 성분을 제외할 수 있고 프로젝트 설정 자체를 수정하지 않습니다.
 - 같은 조합의 성분·STR는 모든 Prompt Case에서 동일합니다. Sampling Seed와 Case별 태그·Wildcard 전개를 고정한 뒤 후보에 공통 적용합니다. `{artist}`는 공통 전개에서 보호했다가 조합별 작가 문자열로 치환하며 슬롯이 없으면 뒤에 추가합니다.
-- LoRA는 별도 Loader 입력으로 전달합니다. UI는 STR를 사용하고 별도 CLIP 지정이 없으면 Model STR와 같은 값을 전달합니다. 내부 API의 명시적인 CLIP 0도 보존합니다. Trigger Words 자동 삽입은 일반 CHS Adapter와 같이 비활성입니다.
+- LoRA는 별도 Loader 입력으로 전달합니다. 2026-11-17 [CLIP 고정 정책](lora_clip_strength_policy.md)에 따라 앞으로 생성하는 스타일 이미지는 CLIP 1을 사용하고 STR만 조절합니다. Trigger Words 자동 삽입은 일반 CHS Adapter와 같이 비활성입니다.
 - 실제 Saver 의존 Node·모델/CLIP/VAE 파일·LoRA 존재를 확인합니다. 미사용 Detector Node는 사전 검사에서 제외합니다. LoRA Manager가 제공하면 Hash·크기·수정 시각과 그 출처를 기록하고 제출 전에 다시 비교합니다. 서버가 파일 바이트를 직접 다시 Hash한 것으로 표시하지 않습니다. 파일 존재 검사만으로 모델 호환성·시각적 효과를 보장하지 않습니다.
 - 계획·후보·Case Render를 CHS Job/Request와 연결합니다. 제출 Graph·확정 Prompt·Negative·LoRA·Sampling·소유 ID를 제출 전에 저장하고 PNG Metadata에도 담습니다.
 - 동일 Operation의 중복 요청과 이미 제출한 계획의 재제출을 막습니다. 실패·취소가 확인된 최신 Render만 재시도하며 완료 Case·후보 ID는 유지합니다. 접수 여부 미확인은 `stopped`로 남기고 자동 재전송하지 않습니다.

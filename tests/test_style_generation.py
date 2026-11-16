@@ -131,7 +131,7 @@ def test_project_generation_freezes_cases_seed_loras_and_metadata(tmp_path: Path
             assert graph["24"]["inputs"]["seed"] == 123456
             assert graph["24"]["inputs"]["steps"] == 3
             assert graph["45"]["inputs"]["value"] == 64
-            assert graph["5"]["inputs"]["loras"]["__value__"][0]["clipStrength"] == 0
+            assert graph["5"]["inputs"]["loras"]["__value__"][0]["clipStrength"] == 1
             assert graph["462"]["class_type"] == "CLIPNegPip"
             assert graph["13"]["inputs"]["extension"] == "png"
             assert metadata["home_server_request"]["style_context"]["project_id"] == project["identifier"]

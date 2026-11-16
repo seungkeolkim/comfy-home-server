@@ -6,6 +6,8 @@ import sqlite3
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
+
 from home_server.database import Database
 from test_style_favorites import favorite_independent_rows
 from test_style_generation import StyleComfyClient, prepare_style_generation, submit_and_wait
@@ -20,7 +22,7 @@ def candidate_registration_endpoint(project, candidate):
 
 
 def test_registration_is_persistent_idempotent_and_uses_the_frozen_lora_snapshot(tmp_path):
-    """별표·점수·원본을 유지하고 LoRA STR·독립 CLIP을 다른 Session에서도 보존합니다."""
+    """별표·점수·원본 STR을 유지하며 고정 CLIP 1 등록을 다른 Session에서도 보존합니다."""
 
     application, client, project, payload = prepare_style_generation(tmp_path, StyleComfyClient())
     try:
@@ -39,7 +41,7 @@ def test_registration_is_persistent_idempotent_and_uses_the_frozen_lora_snapshot
         preset = presets[0]
         assert preset["preset_id"] == registered["loraPresetIdentifier"]
         assert preset["name"] == f"[스타일] {project['name']} · 세대001-조합01"
-        assert preset["loras"] == [{"name": "example.safetensors", "strength": 0.4, "clip_strength": 0}]
+        assert preset["loras"] == [{"name": "example.safetensors", "strength": 0.4, "clip_strength": 1}]
         assert preset["style_source"]["project_id"] == project["identifier"]
         assert preset["style_source"]["candidate_id"] == candidate["identifier"]
         assert preset["style_source"]["model_identifier"]
@@ -55,6 +57,33 @@ def test_registration_is_persistent_idempotent_and_uses_the_frozen_lora_snapshot
             assert client.put(endpoint, json={"isRegistered": False}).json()["isRegistered"] is False
         assert client.get("/api/loras/presets").json() == []
         assert favorite_independent_rows(application.state.home_server.database.database_path) == before
+    finally:
+        client.__exit__(None, None, None)
+
+
+@pytest.mark.parametrize("legacy_clip_strength", [None, 0, 0.6])
+def test_legacy_candidate_registration_fixes_clip_without_rewriting_original(tmp_path, legacy_clip_strength):
+    """과거 CLIP 생략·0·STR 연동 Snapshot도 새 등록본만 CLIP 1로 내보냅니다."""
+
+    application, client, project, payload = prepare_style_generation(tmp_path, StyleComfyClient())
+    try:
+        plan, _, _ = submit_and_wait(client, project, payload)
+        candidate = plan["candidates"][0]
+        with application.state.home_server.database._connect() as connection:
+            original_components = json.loads(connection.execute("SELECT components_json FROM style_candidates WHERE candidate_id=?", (candidate["identifier"],)).fetchone()[0])
+            for component in original_components:
+                if component["identifier"].startswith("lora:"):
+                    component.pop("clip_strength", None)
+                    if legacy_clip_strength is not None:
+                        component["clip_strength"] = legacy_clip_strength
+            legacy_snapshot = json.dumps(original_components, ensure_ascii=False)
+            connection.execute("UPDATE style_candidates SET components_json=? WHERE candidate_id=?", (legacy_snapshot, candidate["identifier"]))
+        response = client.put(candidate_registration_endpoint(project, candidate), json={"isRegistered": True})
+        assert response.status_code == 200, response.text
+        preset = client.get("/api/loras/presets").json()[0]
+        assert preset["loras"] == [{"name": "example.safetensors", "strength": 0.4, "clip_strength": 1}]
+        with application.state.home_server.database._connect() as connection:
+            assert connection.execute("SELECT components_json FROM style_candidates WHERE candidate_id=?", (candidate["identifier"],)).fetchone()[0] == legacy_snapshot
     finally:
         client.__exit__(None, None, None)
 

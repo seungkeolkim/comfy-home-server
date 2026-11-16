@@ -11,7 +11,7 @@
 - 차이 보기의 사용자 표시 강도는 작가·LoRA 모두 **STR**로 통일합니다. CLIP 등 실제 생성 입력은 내부 Snapshot에 보존하며 이 화면에서 숨겼다는 이유로 값을 바꾸지 않습니다.
 - 그림체 목록은 현재 프로젝트만 보기를 기본으로 합니다. 전체 보기에서는 프로젝트별로 묶고 소유 프로젝트를 표시합니다.
 
-CLIP은 항상 1이라는 계약이 아닙니다. 현재 Home Anima Adapter는 별도 `clip_strength`를 받으며, 미지정 시 Model STR을 사용합니다. 0도 보존합니다. 단순 비교 UI와 모델/Workflow의 실제 Encoder 강도 계약을 구분합니다.
+2026-11-17 재확인으로 스타일 탐색은 [CLIP 1 고정](lora_clip_strength_policy.md)입니다. 앞으로 생성·새 등록하는 LoRA는 STR만 바뀌며 CLIP은 1입니다. 기존 Snapshot과 일반 생성의 독립 CLIP 설정은 보존합니다.
 
 20번에 미정으로 남겼던 두 투표 방식 중 **조합 단위 한 번 선택**으로 결정됐습니다. 일반 Vote·Placement·Evolution Selection의 기존 의미를 유지하며 같은 선택을 Prompt 수만큼 중복 가산하지 않습니다. Parent Score 고정·Skip·Undo 계약도 유지합니다.
 

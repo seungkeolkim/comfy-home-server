@@ -14,6 +14,12 @@ from .output_directories import resolve_output_directory
 from .output_roots import STYLE_OUTPUT_PREFIX, STYLE_OUTPUT_ROOT_NAME
 from .style_generation_store import StyleGenerationStore
 from .style_generation_sizing import MAXIMUM_RANDOM_COMBINATION_COUNT
+from .style_lora_strength_policy import (
+    FIXED_STYLE_LORA_CLIP_STRENGTH,
+    STYLE_LORA_STRENGTH_POLICY_VERSION,
+    fixed_clip_style_component,
+    fixed_clip_style_lora_selections,
+)
 from .style_projects import ProjectSettings, StyleRevisionConflict, browser_sampling_settings, encode_snapshot, snapshot_hash
 from .style_random_generation import RandomStyleGenerationPlanInput, combination_selection_fingerprint, draw_initial_combinations
 from .tag_builder import resolve_anima_prompts
@@ -31,7 +37,7 @@ class StyleCandidateFavoriteInput(BaseModel):
 
 
 class GenerationComponent(BaseModel):
-    """프로젝트가 허용한 성분의 독립 강도를 고정합니다."""
+    """프로젝트 성분과 STR을 받으며 LoRA CLIP은 계획에서 1로 정규화합니다."""
 
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     identifier: str = Field(min_length=1, max_length=500)
@@ -139,7 +145,7 @@ class StyleGenerationService:
                     continue
                 selected_counts[kind] += 1
                 strength = policy["minimumStrength"] + (policy["maximumStrength"] - policy["minimumStrength"]) * strength_fraction
-                components.append({"identifier": identifier, "strength": round(strength, 6)})
+                components.append(fixed_clip_style_component(identifier, round(strength, 6)))
             combinations.append({"components": components})
         if combinations[0] == combinations[1]:
             combinations = combinations[:1]
@@ -265,6 +271,8 @@ class StyleGenerationService:
                     raise ValueError(f"프로젝트 STR 범위를 벗어났습니다: {identifier}")
                 if "clip_strength" in component and not identifier.startswith("lora:"):
                     raise ValueError("작가에는 CLIP 강도를 별도로 지정할 수 없습니다.")
+                if identifier.startswith("lora:"):
+                    component["clip_strength"] = FIXED_STYLE_LORA_CLIP_STRENGTH
             fingerprint = combination_selection_fingerprint(components)
             if not regeneration_source and fingerprint in fingerprints:
                 raise ValueError("A/B 조합이 동일합니다. 범위 안에서 강도나 포함 성분을 다르게 선택해 주세요.")
@@ -307,6 +315,7 @@ class StyleGenerationService:
             resolved_cases = evolution_context["resolvedCases"]
             generation_number = evolution_context["targetGeneration"]
             selection = {"mode": "evolution", **evolution_context["provenance"], "batchIdentifier": evolution_context["identifier"]}
+        selection.update(loraStrengthPolicy=STYLE_LORA_STRENGTH_POLICY_VERSION, loraClipStrength=FIXED_STYLE_LORA_CLIP_STRENGTH)
         plan_identifier = uuid.uuid4().hex
         candidates = [{"identifier": uuid.uuid4().hex, "label": combination_letter_label(index), "components": components} for index, components in enumerate(component_sets)]
         plan = {"projectIdentifier": project_identifier, "evaluationIdentifier": project["active_evaluation_id"],
@@ -460,7 +469,7 @@ class StyleGenerationService:
         return {**binding, "folder_id": project_folder_identifier, "state": "created"}
 
     def prepare_request(self, request: dict) -> dict:
-        """공통 Adapter에 고정 RenderPlan을 전달하고 실제 Graph를 제출 전에 기록합니다."""
+        """공통 Adapter에 STR·고정 CLIP 1을 전달하고 실제 Graph를 기록합니다."""
 
         render_identifier = request["detail"]["resolved"]["style_render_identifier"]
         with self.server.database._connect() as connection:
@@ -468,9 +477,7 @@ class StyleGenerationService:
             render_plan = json.loads(row[0])
             contract = json.loads(connection.execute("SELECT contract_json FROM style_evaluation_revisions WHERE evaluation_id=?", (render_plan["evaluationIdentifier"],)).fetchone()[0])
         prompt_text = compose_artist_prompt(render_plan["case"]["prompt"], render_plan["components"])
-        selected_loras = [{"name": component["identifier"][5:], "strength": component["strength"],
-                           "clip_strength": component.get("clip_strength", component["strength"])}
-                          for component in render_plan["components"] if component["identifier"].startswith("lora:")]
+        selected_loras = fixed_clip_style_lora_selections(render_plan["components"])
         request_workflow, metadata_workflow = prepare_anima(contract["workflow"]["api"], contract["workflow"]["ui"], prompt_text,
                                                           render_plan["case"]["negative"], render_plan["sampling"], selected_loras, request["output_stem"])
         prepared = {"prompt": prompt_text, "negative": render_plan["case"]["negative"], "settings": render_plan["sampling"],

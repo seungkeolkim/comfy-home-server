@@ -48,9 +48,13 @@ def test_draw_respects_counts_ranges_enabled_components_and_reproducibility() ->
             assert policy["enabled"]
             assert policy["minimumStrength"] <= component["strength"] <= policy["maximumStrength"]
             assert Decimal(str(component["strength"])) % Decimal("0.05") == 0
+            if component["identifier"].startswith("lora:"):
+                assert component["clip_strength"] == 1
+            else:
+                assert "clip_strength" not in component
     assert provenance["shortfallCount"] == 0
     assert provenance["strengthStep"] == 0.05
-    assert provenance["algorithm"] == "initial-random-v2"
+    assert provenance["algorithm"] == "initial-random-v3"
 
 
 @pytest.mark.parametrize("minimum_strength,maximum_strength,expected_strengths", [
@@ -154,6 +158,9 @@ def test_random_preview_is_idempotent_and_submits_frozen_four_by_three_then_retr
             components = original_components[context["candidate_id"]]
             lora = next(component for component in components if component["identifier"].startswith("lora:"))
             assert graph["5"]["inputs"]["loras"]["__value__"][0]["strength"] == lora["strength"]
+            assert lora["clip_strength"] == 1
+            assert graph["5"]["inputs"]["loras"]["__value__"][0]["clipStrength"] == 1
+            assert metadata["home_server_request"]["loras"][0]["clip_strength"] == 1
             assert graph["24"]["inputs"]["seed"] == 123456
         retry_response = client.post(submission_endpoint, json={"operationIdentifier": uuid.uuid4().hex, "retryFailedOnly": True})
         assert retry_response.status_code == 200, retry_response.text

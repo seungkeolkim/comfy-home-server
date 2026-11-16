@@ -139,8 +139,8 @@ def test_selection_matches_original_golden_with_ties_and_conflicting_votes(selec
             raise AssertionError("Selection이 유한 횟수 안에 종료되지 않았습니다.")
 
 
-def test_breeding_exclusions_limits_clip_zero_and_duplicate_exhaustion() -> None:
-    """세 Mode 모두 새 범위·제외·독립 CLIP 0을 지키며 중복 공간은 유한 종료합니다."""
+def test_breeding_exclusions_limits_fixed_clip_and_duplicate_exhaustion() -> None:
+    """세 Mode 모두 새 범위·제외·CLIP 1을 지키며 중복 공간은 유한 종료합니다."""
 
     settings = {"artistMinimumCount": 0, "artistMaximumCount": 0, "loraMinimumCount": 1, "loraMaximumCount": 1,
                 "componentPolicies": {"lora:allowed": {"enabled": True, "minimumStrength": 0.4, "maximumStrength": 0.4}, "lora:excluded": {"enabled": False, "minimumStrength": 0, "maximumStrength": 1}}}
@@ -150,8 +150,7 @@ def test_breeding_exclusions_limits_clip_zero_and_duplicate_exhaustion() -> None
         components = breed_component_kind(settings, parent, other, mode, "lora", random.Random(1), {}, {})
         assert len(components) == 1
         assert components[0]["identifier"] == "lora:allowed" and components[0]["strength"] == 0.4
-        if mode != "random":
-            assert components[0]["clip_strength"] == 0
+        assert components[0]["clip_strength"] == 1
     children, provenance = draw_evolution_children(settings, [parent, other], {}, [], 6, "seed")
     assert children and len(children) <= 2
     assert provenance["shortfallCount"] == 6 - len(children)
@@ -160,7 +159,7 @@ def test_breeding_exclusions_limits_clip_zero_and_duplicate_exhaustion() -> None
 
 
 def test_all_breeding_modes_quantize_legacy_parents_without_modifying_them() -> None:
-    """기존 소수 STR의 부모도 자녀만 0.05 배수로 바꾸고 독립 CLIP과 원본은 보존합니다."""
+    """부모 원본은 유지하며 자녀 STR만 0.05 배수로 바꾸고 CLIP은 1로 고정합니다."""
 
     settings = {
         "artistMinimumCount": 1, "artistMaximumCount": 1, "loraMinimumCount": 1, "loraMaximumCount": 1,
@@ -183,8 +182,10 @@ def test_all_breeding_modes_quantize_legacy_parents_without_modifying_them() -> 
                 policy = settings["componentPolicies"][component["identifier"]]
                 assert policy["minimumStrength"] <= component["strength"] <= policy["maximumStrength"]
                 assert Decimal(str(component["strength"])) % Decimal("0.05") == 0
-                if component_kind == "lora" and mode != "random":
-                    assert component["clip_strength"] == 0
+                if component_kind == "lora":
+                    assert component["clip_strength"] == 1
+                else:
+                    assert "clip_strength" not in component
     assert parents == original_parents
 
 

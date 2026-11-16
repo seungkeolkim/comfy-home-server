@@ -144,7 +144,7 @@ def test_evolution_records_the_same_component_preferences_shown_in_settings(rate
     statistics = component_statistics(client, project)
     plan = prepare_evolution(client, project)
     provenance = plan["selection"]
-    assert provenance["algorithm"] == "style-evolution-v3"
+    assert provenance["algorithm"] == "style-evolution-v4"
     assert provenance["newLoraChoice"] == "ridge-60-usage"
     for identifier, multiplier in provenance["componentPreferenceMultipliers"].items():
         assert multiplier == statistics["components"][identifier]["selectionMultiplier"]

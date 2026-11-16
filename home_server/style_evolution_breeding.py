@@ -11,9 +11,10 @@ from .style_random_generation import (
 )
 from .style_generation_sizing import GENERATION_COUNT_POLICY_VERSION
 from .style_component_statistics import COMPONENT_PREFERENCE_POLICY_VERSION, component_preference_scores, component_selection_preferences
+from .style_lora_strength_policy import fixed_clip_style_component
 
 
-EVOLUTION_POLICY_VERSION = "style-evolution-v3"
+EVOLUTION_POLICY_VERSION = "style-evolution-v4"
 
 
 def bounded_strength(strength: float, policy: dict) -> float:
@@ -23,12 +24,10 @@ def bounded_strength(strength: float, policy: dict) -> float:
 
 
 def inherit_component(component: dict, policy: dict, jitter: float, selection_random: random.Random) -> dict:
-    """명시적인 독립 CLIP 0을 보존하며 Model STR만 허용 범위에서 변이합니다."""
+    """부모 Snapshot은 보존하고 자녀의 STR만 변이하며 CLIP은 1로 고정합니다."""
 
-    inherited = {"identifier": component["identifier"], "strength": bounded_strength(component["strength"] + selection_random.uniform(-jitter, jitter), policy)}
-    if component.get("clip_strength") is not None and component["clip_strength"] != component["strength"]:
-        inherited["clip_strength"] = component["clip_strength"]
-    return inherited
+    strength = bounded_strength(component["strength"] + selection_random.uniform(-jitter, jitter), policy)
+    return fixed_clip_style_component(component["identifier"], strength)
 
 
 def breed_component_kind(settings: dict, first_parent: dict, second_parent: dict, mode: str, kind: str, selection_random: random.Random, parent_usage: dict, preference: dict) -> list[dict]:
@@ -62,7 +61,8 @@ def breed_component_kind(settings: dict, first_parent: dict, second_parent: dict
         available_identifiers = [identifier for identifier in policies if identifier not in used_identifiers]
         weights = [preference.get(identifier, 1.0) / (1 + parent_usage.get(identifier, 0)) for identifier in available_identifiers]
         identifier = selection_random.choices(available_identifiers, weights=weights)[0]
-        return {"identifier": identifier, "strength": random_component_strength(policies[identifier], selection_random)}
+        strength = random_component_strength(policies[identifier], selection_random)
+        return fixed_clip_style_component(identifier, strength)
 
     if mode == "mutate":
         action_count = selection_random.randint(1, 3) if kind == "artist" else int(selection_random.random() < 0.5)

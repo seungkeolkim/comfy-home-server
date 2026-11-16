@@ -27,7 +27,7 @@
 - 순위가 나중에 바뀌어도 이미 선택한 대상은 자동 교체하지 않습니다.
 - 시험 범위의 순위를 **시험한 N개 중 순위**로 표시합니다. 전체 Pool 순위로 부르지 않습니다.
 
-후보별 작가·LoRA Identity와 Hash, 순서, Weight, Model/CLIP Strength, Trigger 적용 정책을 그대로 복제합니다. 현재 Registry 범위가 바뀌었어도 Weight를 다시 뽑거나 Clamp하지 않습니다. 파일이 없어졌거나 바뀌면 재현 불가를 안내하고 생성 전에 해결하게 합니다.
+후보별 작가·LoRA Identity와 Hash, 순서, STR, Trigger 적용 정책을 그대로 복제합니다. 현재 Registry 범위가 바뀌었어도 STR을 다시 뽑거나 Clamp하지 않습니다. 2026-11-17 [CLIP 고정 정책](lora_clip_strength_policy.md)에 따라 새 Prompt 생성은 CLIP 1이며 과거 원본은 유지합니다. 파일이 없어졌거나 바뀌면 재현 불가를 안내하고 생성 전에 해결하게 합니다.
 
 Mutate/Crossover/Random과 새 조합 추출을 호출하지 않습니다. Candidate ID는 새 평가 범위에 맞게 발급하되 성분 Fingerprint는 원본과 같아야 합니다. Generation 번호를 올리지 않습니다.
 

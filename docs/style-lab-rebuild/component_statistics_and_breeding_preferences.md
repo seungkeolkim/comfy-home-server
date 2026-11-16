@@ -20,7 +20,7 @@
 
 ## 다음 세대
 
-새 세대의 정책은 `style-evolution-v3`, 성분 선호 정책은 `ridge-60-component-preference-v1`입니다. 2026-11-16부터 [STR을 0.05 배수로 생성](strength_step_policy.md)하며 성분 선호 보정은 기존 v2와 같습니다. 작가와 LoRA 각각 현재 프로젝트에서 사용할 수 있는 성분끼리 정규화합니다.
+새 세대의 정책은 `style-evolution-v4`, 성분 선호 정책은 `ridge-60-component-preference-v1`입니다. [STR을 0.05 배수로 생성](strength_step_policy.md)하며 성분 선호 보정은 기존 v2와 같습니다. 2026-11-17부터 [CLIP은 1로 고정](lora_clip_strength_policy.md)합니다. 작가와 LoRA 각각 현재 프로젝트에서 사용할 수 있는 성분끼리 정규화합니다.
 
 ```text
 preference(component) = 2 ** (score(component) / max_abs_score_of_same_kind)
@@ -29,7 +29,7 @@ draw_weight(component) = preference(component) / (1 + parent_usage(component))
 
 기록이 없거나 같은 종류의 점수가 모두 0이면 선호 보정은 1배입니다. 선호 보정은 0.5~2배이며 부모 Pool에서 많이 사용한 성분에는 별도 사용량 보정을 적용합니다. 낮은 점수 성분을 자동 제외하지 않습니다.
 
-Mutate의 새 성분 교체·추가와 진화 Random의 새 성분 선택에 두 종류 모두 같은 보정을 사용합니다. 상속된 성분·Crossover 구성·부모의 상위 30% 선정·Mutate/Crossover/Random의 1:1:1 확률은 유지합니다. 성분의 STR 자체를 점수만큼 올리지 않으며 기존 개수·STR 범위·성분 제외·독립 CLIP 값은 그대로 적용합니다. 초기 Random 생성에는 새 선호 보정을 적용하지 않습니다.
+Mutate의 새 성분 교체·추가와 진화 Random의 새 성분 선택에 두 종류 모두 같은 보정을 사용합니다. 상속된 성분·Crossover 구성·부모의 상위 30% 선정·Mutate/Crossover/Random의 1:1:1 확률은 유지합니다. 성분의 STR 자체를 점수만큼 올리지 않으며 기존 개수·STR 범위·성분 제외는 유지하고 신규 LoRA의 CLIP은 1입니다. 초기 Random 생성에는 새 선호 보정을 적용하지 않습니다.
 
 새 계획의 `selection`에는 정책 Version, 실제 계산 점수, 선택 보정 배수, 부모별 성분 사용량과 기존 Selection Seed를 기록합니다. 이미 만들어진 계획·후보·이미지·Elo는 다시 추첨하거나 수정하지 않습니다.
 

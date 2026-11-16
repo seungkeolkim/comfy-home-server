@@ -59,7 +59,7 @@ def test_third_prompt_saved_after_images_and_original_snapshots_preserved(tmp_pa
 
 
 def test_same_combinations_render_all_new_prompts_without_copying_ratings(tmp_path):
-    """세대·작가·LoRA·독립 CLIP은 유지하고 새 Prompt 세 개를 실제로 생성합니다."""
+    """세대·작가·LoRA STR과 CLIP 1을 유지하고 새 Prompt 세 개를 생성합니다."""
 
     application, client, project, plan_input = prepare_style_generation(tmp_path, StyleComfyClient())
     endpoint = f"/api/style-projects/{project['identifier']}"

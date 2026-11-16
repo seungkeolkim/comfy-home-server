@@ -1,5 +1,7 @@
 # Style Lab 복원·프로젝트 확장 설계 문서
 
+**CLIP 고정:** [스타일 탐색의 CLIP 1 정책](lora_clip_strength_policy.md). 앞으로 스타일 이미지 생성과 새 CHS LoRA 조합 등록은 CLIP 1을 고정하고 STR만 조절합니다.
+
 **CHS LoRA 조합 등록:** [그림체의 등록·해제와 모아보기](lora_preset_registration.md). 등록본을 일반 생성에서 사용하며 전체 프로젝트명·세대·조합번호와 출처를 보존합니다. 원본 폐기 뒤에도 등록본은 유지합니다.
 
 **신규 조합 STR:** [0.05 배수 선택 규칙](strength_step_policy.md). Random·진화 후보는 작가 태그와 LoRA STR을 설정 범위 안의 0.05 배수로 생성합니다. 기존 조합과 같은 조합의 Prompt 재시험은 원래 값을 유지합니다.

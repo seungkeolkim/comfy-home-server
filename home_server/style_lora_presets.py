@@ -8,6 +8,8 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, ConfigDict, StrictBool
 
+from .style_lora_strength_policy import fixed_clip_style_lora_selections
+
 
 class StyleLoraPresetRegistrationInput(BaseModel):
     """응답 유실 뒤 재전송해도 상태가 뒤집히지 않도록 등록 여부를 명시합니다."""
@@ -74,12 +76,7 @@ class StyleLoraPresetStore:
             if existing:
                 return {"candidateIdentifier": candidate_identifier, "isRegistered": True,
                         "loraPresetIdentifier": existing["preset_id"], "presetName": existing["name"]}
-            selected_loras = []
-            for component in json.loads(candidate["components_json"]):
-                if not component["identifier"].startswith("lora:"):
-                    continue
-                selected_loras.append({"name": component["identifier"][5:], "strength": component["strength"],
-                                       "clip_strength": component.get("clip_strength", component["strength"])})
+            selected_loras = fixed_clip_style_lora_selections(json.loads(candidate["components_json"]))
             if not selected_loras:
                 raise ValueError("이 그림체에는 등록할 LoRA가 없습니다.")
             settings = json.loads(candidate["settings_json"])

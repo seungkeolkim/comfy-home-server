@@ -14,8 +14,8 @@
 
 - 저장된 조합·STR·Elo·승패·이미지와 확정된 생성 계획을 변경하지 않습니다. 부모가 0.63이어도 부모는 그대로 두고 새 자녀만 0.05 단위가 됩니다.
 - 기존 조합으로 새 Prompt를 시험하거나 기존 계획을 재전송·실패 재시도할 때는 저장된 원래 STR을 사용합니다.
-- 직접 조합 입력은 사용자 지정 값을 유지합니다. 별도로 지정된 CLIP 강도도 원래 상속 규칙을 유지하며, STR과 함께 사용하는 기본 CLIP은 새 STR을 따릅니다.
-- 새 Random 계획은 `initial-random-v2`, 진화 계획은 `style-evolution-v3`이며 두 계획의 Selection Snapshot에 `strengthStep: 0.05`를 기록합니다. 기존 성분 선호도 보정과 생성 수량 정책은 유지합니다. DB Schema 변경은 없습니다.
+- 직접 조합 입력은 사용자 지정 STR을 유지합니다. 2026-11-17 [CLIP 고정 정책](lora_clip_strength_policy.md)에 따라 신규 생성·자녀·새 Prompt 재생성·새 CHS 등록은 CLIP 1을 사용합니다.
+- 새 Random 계획은 `initial-random-v3`, 진화 계획은 `style-evolution-v4`이며 두 계획의 Selection Snapshot에 `strengthStep: 0.05`를 기록합니다. 기존 성분 선호도 보정과 생성 수량 정책은 유지합니다. DB Schema 변경은 없습니다.
 
 ## 검증과 반영
 
