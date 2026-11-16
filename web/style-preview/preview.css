@@ -50,6 +50,8 @@
 .evolution-history ol { list-style: none; padding: 0; }
 .evolution-history li { display: flex; justify-content: space-between; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 .evolution-history li span { color: var(--muted); }
+.evolution-candidate-status[data-evolution-outcome="survived"], .evolution-history [data-evolution-outcome="survived"] { color: var(--accent); }
+.evolution-candidate-status[data-evolution-outcome="eliminated"], .evolution-history [data-evolution-outcome="eliminated"] { color: #ff9ca7; }
 .evolution-secondary-actions, .evolution-blockers { margin-top: 16px; }
 .evolution-secondary-actions button { margin-top: 10px; }
 .cycle-next-action { margin: 12px 0; }

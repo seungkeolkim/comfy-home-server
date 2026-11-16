@@ -67,11 +67,14 @@ function renderStyleEvolutionWorkspace() {
 /** 같은 조합 카드·Viewer를 사용하면서 세대의 평가·생존 상태만 덧붙입니다. */
 function styleEvolutionCandidateGroupMarkup(title, identifiers, results, outcomes = {}) {
   const cards = [];
+  const outcomeKinds = { '생존': 'survived', '생존 예정': 'survived', '탈락': 'eliminated', '탈락 예정': 'eliminated' };
   for (const identifier of identifiers) {
     const candidate = results.candidates.find(item => item.identifier === identifier);
     if (!candidate) continue;
     const plan = results.plans.find(item => item.planIdentifier === candidate.planIdentifier);
-    cards.push(`<div class="evolution-candidate"><span class="evolution-candidate-status">${escapeMarkup(outcomes[identifier] || '')}</span>${styleCandidateCardMarkup(candidate, plan)}</div>`);
+    const outcomeLabel = outcomes[identifier] || '';
+    const outcomeKind = outcomeKinds[outcomeLabel] || '';
+    cards.push(`<div class="evolution-candidate"><span class="evolution-candidate-status" data-evolution-outcome="${outcomeKind}">${escapeMarkup(outcomeLabel)}</span>${styleCandidateCardMarkup(candidate, plan)}</div>`);
   }
   return cards.length ? `<section class="evolution-candidate-group"><h2>${title}</h2><div class="style-library-grid">${cards.join('')}</div></section>` : '';
 }
@@ -104,7 +107,7 @@ function styleEvolutionResultsMarkup(results) {
   const children = styleEvolutionCandidateGroupMarkup(title, childIdentifiers, results, outcomes);
   const parents = styleEvolutionCandidateGroupMarkup(batch ? '조합을 만든 부모' : '현재 상위 30%', evolution.parentCandidateIdentifiers, results);
   const generationActions = batch ? styleLibraryBatchActionsMarkup(results.candidates.filter(candidate => childIdentifiers.includes(candidate.identifier)), batch.plan) : '';
-  const history = evolution.history?.length ? `<details class="panel evolution-history"><summary>세대 이력 · ${evolution.history.length}회</summary><ol>${evolution.history.map(item => `<li><strong>${item.targetGeneration}세대</strong><span>${item.status === 'cancelled' ? '취소' : `생존 ${item.enteredCount} · 탈락 ${item.failedCount}`}</span></li>`).join('')}</ol></details>` : '';
+  const history = evolution.history?.length ? `<details class="panel evolution-history"><summary>세대 이력 · ${evolution.history.length}회</summary><ol>${evolution.history.map(item => `<li><strong>${item.targetGeneration}세대</strong><span>${item.status === 'cancelled' ? '취소' : `<span data-evolution-outcome="survived">생존 ${item.enteredCount}</span> · <span data-evolution-outcome="eliminated">탈락 ${item.failedCount}</span>`}</span></li>`).join('')}</ol></details>` : '';
   const emptyState = !children && !parents ? '<section class="panel empty-state"><p>아직 후보가 없습니다.</p><button data-generation-action="open-generator">후보 만들기</button></section>' : '';
   return children + (generationActions ? `<div class="form-actions">${generationActions}</div>` : '') + emptyState + parents + history;
 }
