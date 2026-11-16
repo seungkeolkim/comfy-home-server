@@ -116,7 +116,7 @@ def test_schema_eighteen_migration_preserves_data_and_creates_verified_backup(tm
         before = {table_name: connection.execute(f"SELECT * FROM {table_name} ORDER BY rowid").fetchall() for table_name in table_names}
     Database(database_path)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
         assert connection.execute("SELECT COUNT(*) FROM style_candidate_favorites").fetchone()[0] == 0
         assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         for table_name in table_names:

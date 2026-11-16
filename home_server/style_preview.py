@@ -19,6 +19,7 @@ PREVIEW_ASSETS = {
     "style-comparison.js": "text/javascript",
     "style-library.js": "text/javascript",
     "style-favorites.js": "text/javascript",
+    "style-lora-presets.js": "text/javascript",
     "style-component-statistics.js": "text/javascript",
 }
 

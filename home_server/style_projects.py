@@ -351,6 +351,9 @@ class StyleProjectStore:
                     connection.execute("INSERT INTO style_evolution_timelines VALUES(?,?,?)", (
                         evaluation_identifier, project_identifier, previous_generation[0] if previous_generation else 1,
                     ))
+            from .style_lora_presets import StyleLoraPresetStore
+
+            StyleLoraPresetStore.rename_project_registrations(connection, project_identifier, settings["name"])
             row = connection.execute("SELECT * FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
         return self.project_from_row(row)
 

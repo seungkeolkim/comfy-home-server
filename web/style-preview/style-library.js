@@ -40,7 +40,7 @@ function styleCandidateCardMarkup(candidate, plan) {
       <span class="style-card-thumbnails">${thumbnails}</span>
       <span class="style-card-summary">${candidate.generationNumber || 1}세대 · ${{active: "활성", evolving: "진화 중", retired: "퇴역", cancelled: "취소"}[candidate.lifecycle] || "활성"} · 작가 ${artistCount}개 · LoRA ${loraCount}개</span>
     </button>
-    <button class="style-card-composition" data-style-library-action="open-components" data-candidate="${candidate.identifier}" aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 조합 보기">조합 보기</button>
+    <div class="style-card-composition-actions"><button class="style-card-composition" data-style-library-action="open-components" data-candidate="${candidate.identifier}" aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 조합 보기">조합 보기</button>${styleCandidateLoraPresetButtonMarkup(candidate)}</div>
     ${errorMarkup}
     <div class="style-card-actions">${styleCandidateManagementButtonsMarkup(candidate)}${styleCandidateFavoriteButtonMarkup(candidate)}</div>
   </article>`;
@@ -109,11 +109,12 @@ function styleLibraryResultsMarkup(results) {
   if (previewState.blind) return rankingBlindNoticeMarkup();
   const groups = [];
   const favoritesOnly = styleLibraryFavoritesOnly();
-  const lifecycleFilter = favoritesOnly ? "all" : currentStyleGenerationState().libraryLifecycle || "active";
+  const loraPresetsOnly = styleLibraryLoraPresetsOnly();
+  const lifecycleFilter = styleLibrarySavedOnly() ? "all" : currentStyleGenerationState().libraryLifecycle || "active";
   const plans = (results?.plans || []).filter(plan => results.candidates.some(candidate => candidate.planIdentifier === plan.planIdentifier && candidate.renders.length));
   const evaluations = plans.filter((plan, index) => plans.findIndex(item => item.evaluationIdentifier === plan.evaluationIdentifier) === index);
   for (const plan of evaluations) {
-    const candidates = results.candidates.filter(candidate => candidate.evaluationIdentifier === plan.evaluationIdentifier && candidate.renders.length && (!favoritesOnly || candidate.isFavorite) && (lifecycleFilter === "all" || (lifecycleFilter === "active" ? ["active", "evolving"].includes(candidate.lifecycle) : candidate.lifecycle === lifecycleFilter)));
+    const candidates = results.candidates.filter(candidate => candidate.evaluationIdentifier === plan.evaluationIdentifier && candidate.renders.length && (!favoritesOnly || candidate.isFavorite) && (!loraPresetsOnly || candidate.loraPresetIdentifier) && (lifecycleFilter === "all" || (lifecycleFilter === "active" ? ["active", "evolving"].includes(candidate.lifecycle) : candidate.lifecycle === lifecycleFilter)));
     if (!candidates.length) continue;
     const orderedCandidates = [...candidates];
     if (previewState.candidateSortOrder === "matches") orderedCandidates.sort((first, second) => (second.statistics?.matches || 0) - (first.statistics?.matches || 0) || (first.statistics?.rank || Infinity) - (second.statistics?.rank || Infinity));
@@ -122,8 +123,8 @@ function styleLibraryResultsMarkup(results) {
     const cards = orderedCandidates.map(candidate => styleCandidateCardMarkup(candidate, plans.find(item => item.planIdentifier === candidate.planIdentifier))).join("");
     groups.push(`<section class="style-library-batch"><div class="settings-section-heading"><h2>${plan.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재 조건" : "이전 조건"} · Seed ${plan.sampling.seed} · ${candidates.length}개 그림체</h2><div class="form-actions">${actions}</div></div><div class="style-library-grid">${cards}</div></section>`);
   }
-  const emptyState = favoritesOnly
-    ? '<section class="panel empty-state"><p>즐겨찾기한 그림체가 없습니다.</p></section>'
+  const emptyState = favoritesOnly || loraPresetsOnly
+    ? `<section class="panel empty-state"><p>${favoritesOnly && loraPresetsOnly ? "즐겨찾기와 LoRA 등록 조건에 맞는 그림체가 없습니다." : loraPresetsOnly ? "LoRA 조합으로 등록한 그림체가 없습니다." : "즐겨찾기한 그림체가 없습니다."}</p></section>`
     : '<section class="panel empty-state"><p>아직 생성한 이미지가 없습니다.</p><button data-generation-action="open-generator">조합 생성</button></section>';
   return styleLibraryGenerationProgressMarkup(results) + styleCandidateSelectionToolbarMarkup(results) + (groups.join("") || emptyState);
 }

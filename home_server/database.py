@@ -19,9 +19,10 @@ from .style_projects import StyleProjectStore
 from .style_generation_store import StyleGenerationStore
 from .style_voting import StyleVotingService
 from .style_evolution_store import StyleEvolutionStore
+from .style_lora_presets import StyleLoraPresetStore
 
 
-DATABASE_SCHEMA_VERSION = 19
+DATABASE_SCHEMA_VERSION = 20
 
 
 def current_timestamp() -> str:
@@ -64,9 +65,11 @@ class Database:
                 self._create_verified_database_backup(connection, "style_evolution")
             elif schema_version == 18:
                 self._create_verified_database_backup(connection, "style_candidate_favorites")
+            elif schema_version == 19:
+                self._create_verified_database_backup(connection, "style_lora_presets")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, DATABASE_SCHEMA_VERSION}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, DATABASE_SCHEMA_VERSION}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -189,10 +192,12 @@ class Database:
             StyleGenerationStore.prepare_schema(connection)
             StyleVotingService.prepare_schema(connection)
             StyleEvolutionStore.prepare_schema(connection)
+            StyleLoraPresetStore.prepare_schema(connection)
             connection.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
         self.job_folders = JobFolderStore(self._connect)
         self.favorites = RequestFavoriteStore(self._connect, database_path.parent)
         self.style_projects = StyleProjectStore(self._connect)
+        self.style_lora_presets = StyleLoraPresetStore(self._connect)
 
     def _separate_request_detail(
         self, detail: dict[str, Any],
@@ -622,7 +627,8 @@ class Database:
 
         with self._connect() as connection:
             rows = connection.execute("SELECT * FROM lora_presets ORDER BY updated_at DESC, preset_id").fetchall()
-        return [self._lora_preset_from_row(row) for row in rows]
+            sources = self.style_lora_presets.preset_sources(connection)
+        return [{**self._lora_preset_from_row(row), "style_source": sources.get(row["preset_id"])} for row in rows]
 
     def create_lora_preset(self, preset_id: str, name: str, workflow: str, selected_loras: list[dict[str, Any]]) -> dict[str, Any]:
         """개별 LoRA 기본값과 독립된 조합 snapshot을 저장합니다."""

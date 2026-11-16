@@ -327,7 +327,7 @@ def test_schema_seventeen_migration_keeps_verified_backup(tmp_path) -> None:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
         assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 19
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
         assert not connection.execute("PRAGMA foreign_key_check").fetchall()
 
 

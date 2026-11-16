@@ -71,6 +71,8 @@ const applicationState = {
   availableLoras: [],
   loraProfiles: [],
   loraPresets: [],
+  loraPresetsStyleOnly: false,
+  loraPresetSearch: "",
   currentLoraPresetId: null,
   loraEditorPresetId: null,
   loraEditorEntries: [],
@@ -707,6 +709,7 @@ async function loadNavigationState(navigationState, restoreOpenJobs) {
       }
     }
     if (navigationState.viewName === "outputs") await loadOutputs();
+    if (navigationState.viewName === "lora-presets") await loadLoraPresets({ preserveEditor: true });
     if (navigationState.viewName === "administration") await loadAdministration();
   } finally {
     if (applicationState.pendingNavigationScroll === pendingScroll) {
@@ -2144,10 +2147,59 @@ function addLoraEntry(selectedLoras, workflow, filename) {
 }
 
 /** 조합 목록은 ComfyUI 연결과 독립적으로 불러옵니다. */
-async function loadLoraPresets() {
+async function loadLoraPresets({ preserveEditor = false } = {}) {
   applicationState.loraPresets = await apiRequest("/api/loras/presets");
   renderLoraPresetList();
-  renderLoraPresetEditor();
+  if (preserveEditor) renderLoraPresetEditorStatus();
+  else renderLoraPresetEditor();
+}
+
+/** 자동 등록 조합의 번호를 유지하고 선택 목록에서만 긴 프로젝트명을 줄입니다. */
+function loraPresetOptionLabel(preset) {
+  const source = preset.style_source;
+  if (!source) return preset.name;
+  if (!source.automatic_name) return preset.name.startsWith("[스타일] ") ? preset.name : `[스타일] ${preset.name}`;
+  const projectCharacters = Array.from(source.project_name);
+  const projectName = projectCharacters.length > 12 ? `${projectCharacters.slice(0, 12).join("")}…` : source.project_name;
+  return `[스타일] ${projectName} · ${String(source.generation_number).padStart(3, "0")}-${String(source.combination_number).padStart(2, "0")}`;
+}
+
+/** 원본의 전체 이름·모델·세대는 편집 상세에서 Mobile에도 줄이지 않고 표시합니다. */
+function loraPresetSourceMarkup(source) {
+  if (!source) return "";
+  return `<span class="lora-preset-source-badge">스타일 구성 · 자동 등록</span><span class="lora-preset-source-project">${escapeHtml(source.project_name)}</span><small>세대${String(source.generation_number).padStart(3, "0")} · 조합${String(source.combination_number).padStart(2, "0")} · ${escapeHtml(source.model_identifier)}</small>${source.modified ? '<small>원본에서 수정됨</small>' : ""}`;
+}
+
+/** 저장된 LoRA preset의 기존 편집·복사·삭제 동작에 출처와 원본 이동만 덧붙입니다. */
+function loraPresetRowMarkup(preset) {
+  const source = preset.style_source;
+  const modelName = source ? source.model_identifier.replace(/\\/g, "/").split("/").at(-1) : preset.workflow === "anima" ? "Anima Turbo V9" : "MiniMax H3";
+  const sourceLabel = source ? `<span class="lora-preset-source-badge">스타일 구성 · 자동 등록</span>` : "";
+  const identity = source ? `세대${String(source.generation_number).padStart(3, "0")} · 조합${String(source.combination_number).padStart(2, "0")} · ` : "";
+  const sourceAction = source?.source_available
+    ? `<a class="button subtle small" href="/style?project=${encodeURIComponent(source.project_id)}&candidate=${encodeURIComponent(source.candidate_id)}#candidates">원본 그림체</a>`
+    : source ? '<span class="hint">원본 삭제됨</span>' : "";
+  return `<article class="preset-row lora-preset-row" data-lora-preset="${escapeHtml(preset.preset_id)}"><div>${sourceLabel}<strong class="lora-preset-name" title="${escapeHtml(preset.name)}">${escapeHtml(preset.name)}</strong><small>${identity}${escapeHtml(modelName)} · ${preset.loras.length} LoRA</small>${source?.modified ? '<small>원본에서 수정됨</small>' : ""}<small>${escapeHtml(preset.loras.map(lora => lora.name).join(" · "))}</small></div><div class="inline-actions"><button class="button subtle small" type="button" data-edit-lora-preset="${escapeHtml(preset.preset_id)}">열기</button><button class="button subtle small" type="button" data-rename-lora-preset="${escapeHtml(preset.preset_id)}">이름 변경</button><button class="button subtle small" type="button" data-use-lora-preset="${escapeHtml(preset.preset_id)}">생성에서 사용</button><button class="button subtle small" type="button" data-copy-lora-preset="${escapeHtml(preset.preset_id)}">복제</button>${sourceAction}<button class="button subtle small" type="button" data-delete-lora-preset="${escapeHtml(preset.preset_id)}">삭제</button></div></article>`;
+}
+
+/** 전체 이름·모델·LoRA를 검색하고 일반 저장과 프로젝트별 등록본을 묶습니다. */
+function loraPresetGroupsMarkup() {
+  const search = applicationState.loraPresetSearch.trim().toLocaleLowerCase();
+  const groups = new Map();
+  for (const preset of applicationState.loraPresets) {
+    const source = preset.style_source;
+    if (applicationState.loraPresetsStyleOnly && !source) continue;
+    const searchableText = [preset.name, source?.project_name || "", source?.model_identifier || "", ...preset.loras.map(lora => lora.name)].join(" ").toLocaleLowerCase();
+    if (search && !searchableText.includes(search)) continue;
+    const groupIdentifier = source?.project_id || "manual";
+    if (!groups.has(groupIdentifier)) groups.set(groupIdentifier, { name: source ? source.project_name : "직접 저장", presets: [] });
+    groups.get(groupIdentifier).presets.push(preset);
+  }
+  const markup = [];
+  for (const [identifier, group] of groups) {
+    markup.push(`<section class="lora-preset-group" data-lora-preset-project="${escapeHtml(identifier)}"><h4>${escapeHtml(group.name)} <span>${group.presets.length}개</span></h4>${group.presets.map(loraPresetRowMarkup).join("")}</section>`);
+  }
+  return markup.join("") || `<p class="empty-state">${applicationState.loraPresets.length ? "조건에 맞는 LoRA 조합이 없습니다." : "저장된 LoRA 조합이 없습니다."}</p>`;
 }
 
 /** Workflow별 선택 목록과 관리 화면의 저장된 조합들을 표시합니다. */
@@ -2156,15 +2208,11 @@ function renderLoraPresetList() {
   let options = '<option value="">직접 구성</option>';
   for (const preset of applicationState.loraPresets) {
     if (preset.workflow === workflow)
-      options += `<option value="${escapeHtml(preset.preset_id)}">${escapeHtml(preset.name)} · ${preset.loras.length} LoRA</option>`;
+      options += `<option value="${escapeHtml(preset.preset_id)}" title="${escapeHtml(preset.name)}">${escapeHtml(loraPresetOptionLabel(preset))} · ${preset.loras.length} LoRA</option>`;
   }
   element("generate-lora-preset").innerHTML = options;
   renderGenerationLoraPresetStatus();
-  element("lora-preset-list").innerHTML = applicationState.loraPresets.length
-    ? applicationState.loraPresets.map((preset) => `
-      <article class="preset-row lora-preset-row"><div><strong>${escapeHtml(preset.name)}</strong><small>${preset.workflow === "anima" ? "Anima Turbo V9" : "MiniMax H3"} · ${preset.loras.length} LoRA</small><small>${escapeHtml(preset.loras.map((lora) => lora.name).join(" · "))}</small></div>
-      <div class="inline-actions"><button class="button subtle small" type="button" data-edit-lora-preset="${escapeHtml(preset.preset_id)}">열기</button><button class="button subtle small" type="button" data-rename-lora-preset="${escapeHtml(preset.preset_id)}">이름 변경</button><button class="button subtle small" type="button" data-use-lora-preset="${escapeHtml(preset.preset_id)}">생성에서 사용</button><button class="button subtle small" type="button" data-copy-lora-preset="${escapeHtml(preset.preset_id)}">복제</button><button class="button subtle small" type="button" data-delete-lora-preset="${escapeHtml(preset.preset_id)}">삭제</button></div></article>`).join("")
-    : '<p class="empty-state">저장된 LoRA 조합이 없습니다.</p>';
+  element("lora-preset-list").innerHTML = loraPresetGroupsMarkup();
 }
 
 /** 실제 선택 조합이 원본과 일치할 때만 표시용 preset명을 제출합니다. */
@@ -2231,6 +2279,8 @@ function renderLoraPresetEditorStatus() {
     JSON.stringify(normalizeLoraEntries(applicationState.loraEditorEntries, workflow)) !== JSON.stringify(normalizeLoraEntries(preset.loras, workflow))
   );
   element("lora-preset-editor-status").textContent = `${preset?.name || "새 조합"} · ${applicationState.loraEditorEntries.length} LoRA${modified ? " · 수정됨" : ""}`;
+  element("lora-preset-style-source").classList.toggle("hidden", !preset?.style_source);
+  element("lora-preset-style-source").innerHTML = loraPresetSourceMarkup(preset?.style_source);
   element("update-lora-preset-button").disabled = !preset || !modified || !applicationState.loraEditorEntries.length;
   element("create-lora-preset-button").disabled = !applicationState.loraEditorEntries.length;
   element("use-lora-preset-editor-button").disabled = !applicationState.loraEditorEntries.length;
@@ -4847,6 +4897,14 @@ function bindEvents() {
 
 /** LoRA 조합의 불러오기, 편집, 저장과 관리 화면 이동을 연결합니다. */
 function bindLoraPresetEvents() {
+  element("lora-presets-style-only").addEventListener("change", event => {
+    applicationState.loraPresetsStyleOnly = event.target.checked;
+    renderLoraPresetList();
+  });
+  element("lora-preset-search").addEventListener("input", event => {
+    applicationState.loraPresetSearch = event.target.value;
+    renderLoraPresetList();
+  });
   element("generate-lora-preset").addEventListener("change", (event) => {
     const preset = applicationState.loraPresets.find((item) => item.preset_id === event.target.value);
     applyLoraCombination(element("generate-workflow").value, preset?.loras || [], preset?.preset_id || null);

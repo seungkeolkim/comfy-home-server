@@ -308,6 +308,10 @@ dialog::backdrop { background: #070911b3; backdrop-filter: blur(3px); }
 .style-card-statistics strong { display: block; color: #b4e8db; font-size: 14px; }
 .style-card-statistics small { display: block; color: var(--muted); margin-top: 4px; }
 .style-card-composition { margin: 0 16px 4px; min-height: 44px; padding: 8px 12px; font-size: 12px; color: var(--accent); }
+.style-card-composition-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 16px 4px; }
+.style-card-composition-actions .style-card-composition { margin: 0; }
+.style-candidate-lora-preset { min-height: 44px; padding: 8px 12px; font-size: 12px; }
+.style-candidate-lora-preset[aria-pressed="true"] { color: var(--accent); background: #19382f; border-color: #417e6c; }
 .style-composition-candidate-name { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
 .style-composition-group { margin-top: 24px; }
 .style-composition-group h3 { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; }

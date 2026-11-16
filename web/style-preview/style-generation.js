@@ -243,6 +243,7 @@ function renderCurrentStyleGenerationResults(projectIdentifier) {
   updateStyleVotingControls();
   refreshOpenStyleLibraryViewer();
   refreshStyleFavoriteControls(projectIdentifier);
+  refreshStyleLoraPresetControls(projectIdentifier);
   for (const errorContainer of document.querySelectorAll("#style-generation-error, #style-generation-dialog-error")) errorContainer.textContent = state.error;
 }
 
@@ -271,7 +272,7 @@ async function loadStyleGenerationResults(projectIdentifier, refreshSequence) {
 async function refreshStyleGenerationResults(projectIdentifier = previewState.currentProjectIdentifier) {
   if (!PERSISTENT_STYLE_WORKSPACE || !projectIdentifier) return;
   const state = currentStyleGenerationState(projectIdentifier);
-  if (state.votingCommandBusy || state.evolutionCommandBusy || state.candidateCommandBusy || state.pendingFavoriteCandidateIdentifiers?.size) return;
+  if (state.votingCommandBusy || state.evolutionCommandBusy || state.candidateCommandBusy || state.pendingFavoriteCandidateIdentifiers?.size || state.pendingLoraRegistrationCandidateIdentifiers?.size) return;
   if (state.resultRefreshPromise) {
     await state.resultRefreshPromise;
     if (state.completedResultRefreshSequence === state.resultRefreshSequence) return;
@@ -415,6 +416,7 @@ async function handleStyleGenerationAction(event) {
     if (generationSubmitted) {
       state.libraryLifecycle = "active";
       delete previewState.libraryFavoriteFilters?.[projectIdentifier];
+      delete previewState.libraryLoraPresetFilters?.[projectIdentifier];
       persistStyleWorkspaceSession();
       if (generationDialog.open) generationDialog.close();
     }

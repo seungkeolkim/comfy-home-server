@@ -573,6 +573,7 @@ async function initializePreview() {
     }
     document.querySelector("#preview-application").hidden = false;
     if (PERSISTENT_STYLE_WORKSPACE) await loadPersistentStyleWorkspace(true);
+    restoreStyleLoraPresetSourceNavigation();
     restorePreviewScreen();
     loadWorkspaceConnection();
   } catch (error) {

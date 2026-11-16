@@ -155,8 +155,9 @@ class StyleGenerationStore:
             plans = [stored_plans[row["plan_id"]] for row in plan_rows if row["evaluation_id"] == project["active_evaluation_id"] or row["has_renders"]]
             current_generation = connection.execute("SELECT generation_number FROM style_evolution_timelines WHERE evaluation_id=?", (project["active_evaluation_id"],)).fetchone()
             candidates = connection.execute(
-                "SELECT style_candidates.*,favorites.candidate_id IS NOT NULL AS is_favorite FROM style_candidates "
-                "LEFT JOIN style_candidate_favorites AS favorites USING(candidate_id) WHERE project_id=? AND (evaluation_id=? OR EXISTS "
+                "SELECT style_candidates.*,favorites.candidate_id IS NOT NULL AS is_favorite,sources.preset_id AS lora_preset_id FROM style_candidates "
+                "LEFT JOIN style_candidate_favorites AS favorites USING(candidate_id) "
+                "LEFT JOIN style_lora_preset_sources AS sources USING(candidate_id) WHERE style_candidates.project_id=? AND (style_candidates.evaluation_id=? OR EXISTS "
                 "(SELECT 1 FROM style_candidate_renders WHERE candidate_id=style_candidates.candidate_id)) ORDER BY style_candidates.rowid",
                 (project_identifier, project["active_evaluation_id"]),
             ).fetchall()
@@ -208,6 +209,7 @@ class StyleGenerationStore:
                     "evaluationIdentifier": candidate["evaluation_id"], "generationNumber": membership["generation_number"],
                     "lifecycle": membership["lifecycle"], "evolutionBatchIdentifier": membership["batch_id"],
                     "isFavorite": bool(candidate["is_favorite"]),
+                    "loraPresetIdentifier": candidate["lora_preset_id"],
                     "breedingMode": membership["breeding_mode"], "parentIdentifiers": json.loads(membership["parent_ids_json"]),
                     "components": json.loads(candidate["components_json"]), "renders": renders_by_candidate.get(candidate["candidate_id"], []),
                 })

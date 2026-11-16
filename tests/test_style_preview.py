@@ -22,6 +22,7 @@ def test_preview_serves_only_allowed_files() -> None:
             ("/style-preview/project-persistence.js", "text/javascript"),
             ("/style-preview/style-library.js", "text/javascript"),
             ("/style-preview/style-favorites.js", "text/javascript"),
+            ("/style-preview/style-lora-presets.js", "text/javascript"),
         ):
             response = client.get(path)
             assert response.status_code == 200

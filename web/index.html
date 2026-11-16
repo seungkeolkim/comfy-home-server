@@ -581,6 +581,7 @@
               <div><label for="lora-preset-workflow">Workflow</label><select id="lora-preset-workflow"><option value="anima">Anima Turbo V9</option><option value="minimax_h3">MiniMax H3</option></select></div>
             </div>
             <p id="lora-preset-editor-status" class="hint" aria-live="polite">새 조합 · 0 LoRA</p>
+            <div id="lora-preset-style-source" class="lora-preset-style-source hidden"></div>
             <div class="field-row lora-add">
               <div class="lora-file-picker"><label for="lora-preset-available-files">LoRA 파일</label><select id="lora-preset-available-files"><option value="">LoRA 목록을 불러오는 중</option></select></div>
               <button id="add-lora-preset-entry-button" class="button subtle" type="button">추가</button>
@@ -595,6 +596,7 @@
           </div>
           <div class="panel stack lora-panel">
             <div class="panel-heading"><h3>저장된 조합</h3></div>
+            <div class="lora-preset-filters"><label class="checkbox"><input id="lora-presets-style-only" type="checkbox" />스타일 구성에서 등록한 조합만</label><input id="lora-preset-search" type="search" aria-label="LoRA 조합 검색" placeholder="프로젝트·조합·모델·LoRA 검색" /></div>
             <p class="hint">생성 화면에서는 저장된 조합을 불러와 자유롭게 수정할 수 있습니다.</p>
             <div id="lora-preset-list" class="preset-list"></div>
           </div>
