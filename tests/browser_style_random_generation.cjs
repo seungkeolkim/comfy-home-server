@@ -64,6 +64,8 @@ async function verifyRandomStyleGeneration() {
     await expect(confirmationDialog).not.toContainText('artist:first');
     await expect(page.locator('.generation-plan-candidates')).toHaveCount(0);
     assert.equal(new Set(plan.candidates.map(candidate => JSON.stringify(candidate.components))).size, 4);
+    assert.equal(plan.selection.strengthStep, 0.05);
+    assert.ok(plan.candidates.every(candidate => candidate.components.every(component => Math.abs(component.strength * 20 - Math.round(component.strength * 20)) < 1e-9)));
     assert.equal((await (await context.request.get(`${baseUrl}/api/jobs?include_style=true`)).json()).total, previousJobCount);
     for (const width of [320, 390, 768, 1280]) {
       await page.setViewportSize({ width, height: 1000 });

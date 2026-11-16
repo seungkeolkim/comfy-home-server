@@ -9,6 +9,7 @@ import sqlite3
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -158,6 +159,35 @@ def test_breeding_exclusions_limits_clip_zero_and_duplicate_exhaustion() -> None
     assert draw_evolution_children(settings, [parent, other], {}, [], 6, "seed") == (children, provenance)
 
 
+def test_all_breeding_modes_quantize_legacy_parents_without_modifying_them() -> None:
+    """기존 소수 STR의 부모도 자녀만 0.05 배수로 바꾸고 독립 CLIP과 원본은 보존합니다."""
+
+    settings = {
+        "artistMinimumCount": 1, "artistMaximumCount": 1, "loraMinimumCount": 1, "loraMaximumCount": 1,
+        "componentPolicies": {
+            "artist:legacy": {"enabled": True, "minimumStrength": 0.401, "maximumStrength": 0.799},
+            "lora:legacy": {"enabled": True, "minimumStrength": -0.121, "maximumStrength": 0.373},
+        },
+    }
+    parents = [
+        {"identifier": "first", "components": [{"identifier": "artist:legacy", "strength": 0.63}, {"identifier": "lora:legacy", "strength": 0.37, "clip_strength": 0}]},
+        {"identifier": "second", "components": [{"identifier": "artist:legacy", "strength": 0.57}, {"identifier": "lora:legacy", "strength": 0.13, "clip_strength": 0}]},
+    ]
+    original_parents = copy.deepcopy(parents)
+    for mode in ("mutate", "crossover", "random"):
+        for component_kind in ("artist", "lora"):
+            for selection_seed in range(50):
+                components = breed_component_kind(settings, parents[0], parents[1], mode, component_kind, random.Random(selection_seed), {}, {})
+                assert len(components) == 1
+                component = components[0]
+                policy = settings["componentPolicies"][component["identifier"]]
+                assert policy["minimumStrength"] <= component["strength"] <= policy["maximumStrength"]
+                assert Decimal(str(component["strength"])) % Decimal("0.05") == 0
+                if component_kind == "lora" and mode != "random":
+                    assert component["clip_strength"] == 0
+    assert parents == original_parents
+
+
 def test_one_generation_freezes_parents_supports_undo_and_confirms_checkpoint(rated_population) -> None:
     """실제 PNG·CHS Job·Selection·Undo·생존·퇴역·2세대 경로를 한 Cycle로 검증합니다."""
 
@@ -167,6 +197,8 @@ def test_one_generation_freezes_parents_supports_undo_and_confirms_checkpoint(ra
     wildcard_count = len(fake.wildcard_prompts)
     plan = prepare_evolution(client, project)
     assert plan["generationNumber"] == 2 and plan["cases"] == initial_plan["cases"]
+    assert plan["selection"]["strengthStep"] == 0.05
+    assert all(Decimal(str(component["strength"])) % Decimal("0.05") == 0 for candidate in plan["candidates"] for component in candidate["components"])
     assert len(fake.wildcard_prompts) == wildcard_count
     assert len(fake.submissions) == 20
     batch = evolution_view(client, project)["batch"]

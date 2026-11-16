@@ -1,5 +1,7 @@
 # Style Lab 복원·프로젝트 확장 설계 문서
 
+**신규 조합 STR:** [0.05 배수 선택 규칙](strength_step_policy.md). Random·진화 후보는 작가 태그와 LoRA STR을 설정 범위 안의 0.05 배수로 생성합니다. 기존 조합과 같은 조합의 Prompt 재시험은 원래 값을 유지합니다.
+
 **그림체 즐겨찾기:** [별표와 프로젝트별 모아보기](style_favorites.md). 조합·상세 Viewer에서 좋아요를 저장하고 퇴역을 포함해 모아봅니다. Elo·진화 정책은 유지합니다.
 
 **생성 화면 통합:** [그림체 안에서 조합 생성·결과 확인](library_generation_integration.md). 별도 생성 탭을 그림체에 흡수하고 Mobile 메뉴를 프로젝트·그림체·선별·진화 네 개로 정리합니다. Random·직접 조합·새 Prompt 재생성과 기존 Viewer·진화 Cycle을 유지합니다.

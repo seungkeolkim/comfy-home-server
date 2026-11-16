@@ -4,6 +4,7 @@ import copy
 import random
 import time
 import uuid
+from decimal import Decimal
 
 import pytest
 
@@ -27,7 +28,7 @@ def test_draw_respects_counts_ranges_enabled_components_and_reproducibility() ->
         componentPolicies={
             "artist:first": {"enabled": True, "minimumStrength": -0.123, "maximumStrength": -0.002},
             "artist:second": {"enabled": True, "minimumStrength": 0.4, "maximumStrength": 0.4},
-            "lora:first": {"enabled": True, "minimumStrength": 0.2001, "maximumStrength": 0.2002},
+            "lora:first": {"enabled": True, "minimumStrength": 0.2001, "maximumStrength": 0.2502},
             "lora:second": {"enabled": True, "minimumStrength": 0, "maximumStrength": 1},
             "lora:disabled": {"enabled": False, "minimumStrength": 1, "maximumStrength": 1},
         },
@@ -46,16 +47,58 @@ def test_draw_respects_counts_ranges_enabled_components_and_reproducibility() ->
             policy = settings["componentPolicies"][component["identifier"]]
             assert policy["enabled"]
             assert policy["minimumStrength"] <= component["strength"] <= policy["maximumStrength"]
+            assert Decimal(str(component["strength"])) % Decimal("0.05") == 0
     assert provenance["shortfallCount"] == 0
+    assert provenance["strengthStep"] == 0.05
+    assert provenance["algorithm"] == "initial-random-v2"
 
 
-def test_strength_grid_preserves_non_aligned_endpoints() -> None:
-    """좁은 범위와 0.01 배수가 아닌 경계도 범위 밖으로 반올림하지 않습니다."""
+@pytest.mark.parametrize("minimum_strength,maximum_strength,expected_strengths", [
+    (0.23, 0.37, {0.25, 0.3, 0.35}),
+    (-0.123, -0.002, {-0.1, -0.05}),
+    (-0.027, 0.027, {0}),
+    (-0.4, -0.4, {-0.4}),
+    (0.3, 0.3, {0.3}),
+])
+def test_strength_grid_uses_absolute_multiples_inside_bounds(minimum_strength, maximum_strength, expected_strengths) -> None:
+    """음수·0·고정 범위도 최솟값 기준 간격이 아닌 0.05의 절대 배수만 추첨합니다."""
 
-    policy = {"minimumStrength": 0.2001, "maximumStrength": 0.2002}
+    policy = {"minimumStrength": minimum_strength, "maximumStrength": maximum_strength}
     strengths = {random_component_strength(policy, random.Random(index)) for index in range(100)}
-    assert strengths == {0.2001, 0.2002}
-    assert random_component_strength({"minimumStrength": -0.4, "maximumStrength": -0.4}, random.Random(0)) == -0.4
+    assert strengths == expected_strengths
+
+
+@pytest.mark.parametrize("minimum_strength,maximum_strength", [(0.2001, 0.2002), (0.33, 0.33), (-0.04, -0.01)])
+def test_strength_grid_rejects_ranges_without_a_permitted_multiple(minimum_strength, maximum_strength) -> None:
+    """범위 안에 0.05 배수가 없으면 경계 밖 값이나 임의 끝점을 생성하지 않습니다."""
+
+    policy = {"minimumStrength": minimum_strength, "maximumStrength": maximum_strength}
+    with pytest.raises(ValueError, match="0.05의 배수가 없습니다"):
+        random_component_strength(policy, random.Random(0))
+
+
+def test_invalid_strength_range_rejects_preview_before_any_plan_or_job(tmp_path) -> None:
+    """사용 성분의 불가능한 STR 범위는 추첨 전에 알리고 계획·작업은 저장하지 않습니다."""
+
+    fake_client = StyleComfyClient()
+    _, client, project, _ = prepare_style_generation(tmp_path, fake_client)
+    endpoint = f"/api/style-projects/{project['identifier']}"
+    try:
+        settings = copy.deepcopy(project["settings"])
+        settings.update(artistMinimumCount=1, artistMaximumCount=1)
+        settings["componentPolicies"]["artist:example"].update(minimumStrength=0.41, maximumStrength=0.44)
+        saved = client.put(endpoint, json={"settings": settings, "expectedRevision": project["revision"], "operationIdentifier": uuid.uuid4().hex})
+        assert saved.status_code == 200, saved.text
+        project = saved.json()
+        response = client.post(endpoint + "/random-generation-plans", json=random_plan_input(project))
+        assert response.status_code == 422, response.text
+        assert "artist:example" in response.json()["detail"]
+        assert "0.05의 배수가 없습니다" in response.json()["detail"]
+        assert client.get(endpoint + "/generation-results").json()["plans"] == []
+        assert client.get("/api/jobs?include_style=true").json()["total"] == 0
+        assert not fake_client.submissions
+    finally:
+        client.__exit__(None, None, None)
 
 
 def test_fingerprint_ignores_order_metadata_and_implicit_clip_but_preserves_zero_clip() -> None:

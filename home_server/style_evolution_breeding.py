@@ -2,18 +2,24 @@
 
 import random
 
-from .style_random_generation import combination_selection_fingerprint, random_component_strength
+from .style_random_generation import (
+    STRENGTH_STEP,
+    combination_selection_fingerprint,
+    quantized_component_strength,
+    random_component_strength,
+    validate_component_strength_ranges,
+)
 from .style_generation_sizing import GENERATION_COUNT_POLICY_VERSION
 from .style_component_statistics import COMPONENT_PREFERENCE_POLICY_VERSION, component_preference_scores, component_selection_preferences
 
 
-EVOLUTION_POLICY_VERSION = "style-evolution-v2"
+EVOLUTION_POLICY_VERSION = "style-evolution-v3"
 
 
 def bounded_strength(strength: float, policy: dict) -> float:
-    """새 정책의 범위 안으로 상속·변이 STR을 보정하되 부모 원본은 변경하지 않습니다."""
+    """부모 원본을 유지하며 상속·변이 STR만 범위 내 0.05 배수로 보정합니다."""
 
-    return max(policy["minimumStrength"], min(policy["maximumStrength"], round(strength, 2)))
+    return quantized_component_strength(strength, policy)
 
 
 def inherit_component(component: dict, policy: dict, jitter: float, selection_random: random.Random) -> dict:
@@ -88,6 +94,7 @@ def breed_component_kind(settings: dict, first_parent: dict, second_parent: dict
 def draw_evolution_children(settings: dict, parents: list[dict], statistics: dict, all_candidates: list[dict], requested_count: int, selection_seed: str) -> tuple[list[dict], dict]:
     """상위 부모 선형 가중치와 1:1:1 Mode 확률로 중복 없는 자녀를 유한 추첨합니다."""
 
+    validate_component_strength_ranges(settings)
     selection_random = random.Random(f"{EVOLUTION_POLICY_VERSION}:{selection_seed}")
     existing_fingerprints = {combination_selection_fingerprint(candidate["components"]) for candidate in all_candidates}
     component_scores = component_preference_scores(all_candidates, statistics)
@@ -118,6 +125,7 @@ def draw_evolution_children(settings: dict, parents: list[dict], statistics: dic
         children.append({"components": components, "mode": mode, "parentIdentifiers": [first_parent["identifier"], second_parent["identifier"]] if mode == "crossover" else [first_parent["identifier"]] if mode == "mutate" else []})
     provenance = {
         "mode": "evolution", "algorithm": EVOLUTION_POLICY_VERSION, "selectionSeed": selection_seed,
+        "strengthStep": float(STRENGTH_STEP),
         "countPolicyVersion": GENERATION_COUNT_POLICY_VERSION,
         "requestedCount": requested_count, "actualCount": len(children), "shortfallCount": requested_count - len(children),
         "attempts": attempts, "maximumAttempts": requested_count * 30, "artistPreference": "ridge-60-usage", "newLoraChoice": "ridge-60-usage",

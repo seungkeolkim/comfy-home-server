@@ -65,6 +65,7 @@ def test_same_combinations_render_all_new_prompts_without_copying_ratings(tmp_pa
     endpoint = f"/api/style-projects/{project['identifier']}"
     try:
         for component in plan_input["combinations"][0]["components"]:
+            component["strength"] = 0.43 if component["identifier"].startswith("lora:") else 0.63
             if component["identifier"].startswith("lora:"):
                 component["clip_strength"] = 0
         _, _, original_results = submit_and_wait(client, project, plan_input)

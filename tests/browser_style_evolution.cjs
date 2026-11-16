@@ -36,7 +36,7 @@ async function verifyStyleEvolution() {
         name: '진화 한 세대 Browser 검증', width: 64, height: 96, steps: 3, cfg: 1, seed: 42,
         artistMinimumCount: 0, artistMaximumCount: 0, loraMinimumCount: 1, loraMaximumCount: 1,
         promptCases: ['인물', '거리', '정원'].map((name, index) => ({ identifier: `case-${index}`, name, prompt: `scene ${index}` })),
-        componentPolicies: { 'lora:example.safetensors': { enabled: true, minimumStrength: 0.2, maximumStrength: 0.9 } },
+        componentPolicies: { 'lora:example.safetensors': { enabled: true, minimumStrength: 0.2, maximumStrength: 2.9 } },
       },
     } });
     assert.equal(projectResponse.status(), 201, await projectResponse.text());
@@ -93,6 +93,8 @@ async function verifyStyleEvolution() {
     assert.equal(selection.automaticPlacement.referenceCount, 3);
     assert.deepEqual(evolution.batch.referenceCandidateIdentifiers, evolution.batch.parentIdentifiers);
     const children = new Set(evolution.batch.plan.candidates.map(candidate => candidate.identifier));
+    assert.equal(evolution.batch.plan.selection.strengthStep, 0.05);
+    assert.ok(evolution.batch.plan.candidates.every(candidate => candidate.components.every(component => Math.abs(component.strength * 20 - Math.round(component.strength * 20)) < 1e-9)));
     const firstPair = { ...selection.match };
     await clickEvolutionVote(page, 'similar');
     await page.locator('[data-style-voting-action=undo]').click();

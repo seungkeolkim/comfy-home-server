@@ -19,6 +19,8 @@ def test_random_default_fifty_and_thousand_limit_without_gpu_submission(tmp_path
     try:
         settings = copy.deepcopy(project["settings"])
         settings.update(artistMinimumCount=1, loraMinimumCount=1)
+        for policy in settings["componentPolicies"].values():
+            policy.update(minimumStrength=0, maximumStrength=2)
         project = client.put(f"/api/style-projects/{project['identifier']}", json={
             "expectedRevision": project["revision"], "operationIdentifier": uuid.uuid4().hex, "settings": settings,
         }).json()

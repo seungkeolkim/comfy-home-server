@@ -20,7 +20,7 @@
 
 ## 다음 세대
 
-새 세대의 정책은 `style-evolution-v2`, 성분 선호 정책은 `ridge-60-component-preference-v1`입니다. 작가와 LoRA 각각 현재 프로젝트에서 사용할 수 있는 성분끼리 정규화합니다.
+새 세대의 정책은 `style-evolution-v3`, 성분 선호 정책은 `ridge-60-component-preference-v1`입니다. 2026-11-16부터 [STR을 0.05 배수로 생성](strength_step_policy.md)하며 성분 선호 보정은 기존 v2와 같습니다. 작가와 LoRA 각각 현재 프로젝트에서 사용할 수 있는 성분끼리 정규화합니다.
 
 ```text
 preference(component) = 2 ** (score(component) / max_abs_score_of_same_kind)
