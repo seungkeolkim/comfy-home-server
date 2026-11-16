@@ -305,7 +305,15 @@ dialog::backdrop { background: #070911b3; backdrop-filter: blur(3px); }
 .style-card-statistics { display: block; margin: 12px 0; }
 .style-card-statistics strong { display: block; color: #b4e8db; font-size: 14px; }
 .style-card-statistics small { display: block; color: var(--muted); margin-top: 4px; }
-.style-card-open-label { display: block; margin-top: 8px; font-size: 12px; color: #b4e8db; }
+.style-card-composition { margin: 0 16px 4px; min-height: 44px; padding: 8px 12px; font-size: 12px; color: var(--accent); }
+.style-composition-candidate-name { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.style-composition-group { margin-top: 24px; }
+.style-composition-group h3 { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 15px; }
+.style-composition-group h3 span { color: var(--muted); font-size: 12px; font-weight: normal; }
+.style-composition-group dl { margin: 0; }
+.style-composition-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.style-composition-row dt { overflow-wrap: anywhere; }
+.style-composition-row dd { margin: 0; color: var(--accent); white-space: nowrap; }
 .style-library-viewer { width: min(760px, calc(100vw - 24px)); height: calc(100dvh - 32px); max-height: calc(100dvh - 32px); overflow: hidden; }
 .style-library-viewer[open] { display: flex; flex-direction: column; }
 .style-library-viewer > :not(.style-viewer-image-frame) { flex-shrink: 0; }

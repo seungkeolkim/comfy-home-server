@@ -32,7 +32,40 @@ function styleCandidateCardMarkup(candidate, plan) {
     ? `<details class="style-card-generation-errors"><summary>생성 오류</summary>${generationErrors.map(message => `<p class="error">${escapeMarkup(message)}</p>`).join("")}</details>`
     : "";
   const selected = (currentStyleGenerationState().selectedCandidateIdentifiers || []).includes(candidate.identifier);
-  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}"><label class="style-card-selection"><input type="checkbox" data-style-candidate-select="${candidate.identifier}" ${selected ? "checked" : ""} aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 선택" />선택</label><button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 자세히 보기"><span class="style-card-heading"><strong>${escapeMarkup(persistentCandidateLabel(candidate))}</strong><span>${availableCount} / ${caseResults.length}장</span></span>${styleCandidateRankingMarkup(candidate)}<span class="style-card-thumbnails">${thumbnails}</span><span class="style-card-summary">${candidate.generationNumber || 1}세대 · ${{active: "활성", evolving: "진화 중", retired: "퇴역", cancelled: "취소"}[candidate.lifecycle] || "활성"} · 작가 ${artistCount}개 · LoRA ${loraCount}개</span><span class="style-card-open-label">이미지 자세히 보기 ↗</span></button>${errorMarkup}<div class="style-card-actions">${styleCandidateManagementButtonsMarkup(candidate)}${styleCandidateFavoriteButtonMarkup(candidate)}</div></article>`;
+  return `<article class="style-library-card" data-style-candidate="${candidate.identifier}">
+    <label class="style-card-selection"><input type="checkbox" data-style-candidate-select="${candidate.identifier}" ${selected ? "checked" : ""} aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 선택" />선택</label>
+    <button class="style-card-open" data-style-library-action="open" data-candidate="${candidate.identifier}" aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 이미지 확대">
+      <span class="style-card-heading"><strong>${escapeMarkup(persistentCandidateLabel(candidate))}</strong><span>${availableCount} / ${caseResults.length}장</span></span>
+      ${styleCandidateRankingMarkup(candidate)}
+      <span class="style-card-thumbnails">${thumbnails}</span>
+      <span class="style-card-summary">${candidate.generationNumber || 1}세대 · ${{active: "활성", evolving: "진화 중", retired: "퇴역", cancelled: "취소"}[candidate.lifecycle] || "활성"} · 작가 ${artistCount}개 · LoRA ${loraCount}개</span>
+    </button>
+    <button class="style-card-composition" data-style-library-action="open-components" data-candidate="${candidate.identifier}" aria-label="${escapeMarkup(persistentCandidateLabel(candidate))} 조합 보기">조합 보기</button>
+    ${errorMarkup}
+    <div class="style-card-actions">${styleCandidateManagementButtonsMarkup(candidate)}${styleCandidateFavoriteButtonMarkup(candidate)}</div>
+  </article>`;
+}
+
+/** 생성 당시 조합의 작가 태그·LoRA와 STR을 종류별 목록으로 표시합니다. */
+function styleCandidateComponentGroupMarkup(components, componentKind, title) {
+  const selectedComponents = components.filter(component => component.identifier.startsWith(`${componentKind}:`));
+  const rows = selectedComponents.map(component => {
+    const componentName = component.identifier.slice(componentKind.length + 1);
+    return `<div class="style-composition-row"><dt>${escapeMarkup(componentName)}</dt><dd>${persistentStrengthLabel(component.strength)}</dd></div>`;
+  }).join("");
+  return `<section class="style-composition-group" data-style-component-kind="${componentKind}"><h3>${title}<span>${selectedComponents.length}개</span></h3>${rows ? `<dl>${rows}</dl>` : '<p class="muted">없음</p>'}</section>`;
+}
+
+/** 현재 설정 대신 선택한 조합에 저장된 실제 성분을 공통 상세 Dialog로 엽니다. */
+function openStyleCandidateComposition(candidateIdentifier) {
+  if (previewState.blind) return;
+  const candidate = currentStyleGenerationState().results?.candidates.find(candidate => candidate.identifier === candidateIdentifier);
+  if (!candidate) return showToast("조합을 찾을 수 없습니다. 목록을 다시 불러와 주세요.");
+  componentDialog.innerHTML = `<div class="dialog-heading"><h2 id="component-dialog-title">조합 보기</h2><button data-action="close-differences" aria-label="조합 보기 닫기">닫기</button></div>
+    <p class="style-composition-candidate-name">${escapeMarkup(persistentCandidateLabel(candidate))}</p>
+    ${styleCandidateComponentGroupMarkup(candidate.components, "artist", "작가 태그")}
+    ${styleCandidateComponentGroupMarkup(candidate.components, "lora", "LoRA")}`;
+  componentDialog.showModal();
 }
 
 /** 현재 생성 중인 최신 Prompt 요청만 세어 완료된 카드와 함께 진행을 표시합니다. */
@@ -293,6 +326,7 @@ function handleStyleLibraryAction(event) {
   if (!button || button.disabled) return;
   const action = button.dataset.styleLibraryAction;
   if (action === "open") openStyleLibraryViewer(button.dataset.candidate, Number(event.target.closest("[data-library-case-index]")?.dataset.libraryCaseIndex || 0), button);
+  if (action === "open-components") openStyleCandidateComposition(button.dataset.candidate);
   if (action === "switch-combination") switchStyleComparisonViewerCandidate(button.dataset.styleViewerComparisonSide);
   if (action === "close") closeStyleLibraryViewer();
 }
