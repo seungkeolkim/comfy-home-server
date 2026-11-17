@@ -121,7 +121,7 @@ function styleLibraryResultsMarkup(results) {
     else if (previewState.candidateSortOrder !== "creation") orderedCandidates.sort((first, second) => (first.statistics?.rank || Infinity) - (second.statistics?.rank || Infinity));
     const actions = plans.filter(item => item.evaluationIdentifier === plan.evaluationIdentifier).map(item => styleLibraryBatchActionsMarkup(candidates.filter(candidate => candidate.planIdentifier === item.planIdentifier), item)).join("");
     const cards = orderedCandidates.map(candidate => styleCandidateCardMarkup(candidate, plans.find(item => item.planIdentifier === candidate.planIdentifier))).join("");
-    groups.push(`<section class="style-library-batch"><div class="settings-section-heading"><h2>${plan.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재 조건" : "이전 조건"} · Seed ${plan.sampling.seed} · ${candidates.length}개 그림체</h2><div class="form-actions">${actions}</div></div><div class="style-library-grid">${cards}</div></section>`);
+    groups.push(`<section class="style-library-batch"><div class="settings-section-heading"><h2>${plan.evaluationIdentifier === currentProject().evaluationIdentifier ? "현재 조건" : "이전 조건"} · ${stylePlanSeedSummary(plan)} · ${candidates.length}개 그림체</h2><div class="form-actions">${actions}</div></div><div class="style-library-grid">${cards}</div></section>`);
   }
   const emptyState = favoritesOnly || loraPresetsOnly
     ? `<section class="panel empty-state"><p>${favoritesOnly && loraPresetsOnly ? "즐겨찾기와 LoRA 등록 조건에 맞는 그림체가 없습니다." : loraPresetsOnly ? "LoRA 조합으로 등록한 그림체가 없습니다." : "즐겨찾기한 그림체가 없습니다."}</p></section>`

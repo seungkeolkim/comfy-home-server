@@ -352,7 +352,7 @@ function projectSettingsPromptMarkup(promptCase, caseIndex) {
     <label class="visually-hidden" for="settings-case-name-${caseIndex}">Prompt ${caseIndex + 1} 이름</label>
     <input id="settings-case-name-${caseIndex}" required maxlength="60" value="${escapeMarkup(promptCase.name)}" data-settings-case="${caseIndex}" data-settings-case-field="name" />
     <button type="button" class="quiet small" data-settings-action="remove-prompt" data-case="${caseIndex}" ${settingsPreviewDraft("project").promptCases.length === 1 ? "disabled" : ""}>제거</button></div>
-    <label for="settings-case-prompt-${caseIndex}">Positive Prompt</label><textarea id="settings-case-prompt-${caseIndex}" required maxlength="3000" data-settings-case="${caseIndex}" data-settings-case-field="prompt">${escapeMarkup(promptCase.prompt)}</textarea></section>`;
+    <label for="settings-case-prompt-${caseIndex}">Positive Prompt</label><textarea id="settings-case-prompt-${caseIndex}" required maxlength="3000" data-settings-case="${caseIndex}" data-settings-case-field="prompt">${escapeMarkup(promptCase.prompt)}</textarea>${stylePromptSeedEditorMarkup(promptCase, caseIndex)}</section>`;
 }
 
 /** 특정 성분의 허용 여부와 STR 범위를 여러 줄의 프로젝트 설정으로 표시합니다. */
@@ -417,7 +417,7 @@ function projectWorkflowOptionsMarkup(draft) {
     <div class="form-row">
       ${projectSamplingField("steps", "Steps", draft.steps, 'min="1"')}
       ${projectSamplingField("cfg", "CFG", draft.cfg, 'step="0.1"')}</div>
-    <label for="settings-project-seed">고정 Seed</label><input id="settings-project-seed" type="text" inputmode="numeric" pattern="[0-9]+" required data-settings-scope="project" data-settings-field="seed" value="${escapeMarkup(String(draft.seed))}" /><p class="form-note">모든 조합과 Prompt에 같은 Seed를 사용합니다. 변경하면 이후 생성부터 적용하며 기존 이미지는 그대로 유지합니다.</p></section>`;
+    <label for="settings-project-seed">기본 Seed</label><input id="settings-project-seed" type="text" inputmode="numeric" pattern="[0-9]+" required data-settings-scope="project" data-settings-field="seed" value="${escapeMarkup(String(draft.seed))}" /><p class="form-note">개별 Seed가 없는 Prompt에 사용합니다. 기존 이미지는 유지합니다.</p></section>`;
 }
 
 /** 선택한 비율의 해상도 목록과 현재 선택값을 CHS 공통 후보로 만듭니다. */
@@ -475,6 +475,9 @@ function validateSettingsPreview(scope, draft) {
     return "";
   }
   if (!/^\d+$/.test(String(draft.seed)) || BigInt(draft.seed) > 18446744073709551615n) return "고정 Seed는 0~18446744073709551615의 정수로 입력해 주세요.";
+  for (const promptCase of draft.promptCases) {
+    if (promptCase.seed !== undefined && promptCase.seed !== null && !isValidStylePromptSeed(promptCase.seed)) return `${promptCase.name}: Seed는 0~18446744073709551615의 정수로 입력해 주세요.`;
+  }
   if (!draft.name.trim() || draft.promptCases.some(promptCase => !promptCase.name.trim() || !promptCase.prompt.trim())) {
     return "프로젝트 이름과 각 Prompt의 이름·내용을 입력해 주세요.";
   }
@@ -544,6 +547,7 @@ function applySettingsDefaultsPreview() {
 function handleSettingsPreviewInput(event) {
   const field = event.target;
   if (!field.isConnected || !field.closest(".settings-form")) return;
+  if (field.hasAttribute("data-prompt-seed-case")) return;
   const form = field.closest("form");
   const scope = form.id === "global-settings-form" ? "global" : "project";
   // 프로젝트 전환 직후 늦게 전달된 change도 입력을 작성한 프로젝트에 귀속합니다.
@@ -558,6 +562,7 @@ function handleSettingsPreviewInput(event) {
     let fieldValue = field.value;
     if (field.type === "number" && field.value !== "") fieldValue = Number(field.value);
     draft[field.dataset.settingsField] = fieldValue;
+    if (field.dataset.settingsField === "seed") updateInheritedStylePromptSeedInputs(form);
     if (field.dataset.settingsField === "aspectRatio") {
       if (draft.aspectRatio !== "custom") {
         [draft.width, draft.height] = ANIMA_RESOLUTIONS[draft.aspectRatio][0];
@@ -611,6 +616,7 @@ function handleSettingsPreviewAction(event) {
   if (action === "reset-draft") {
     if (button.dataset.settingsScope === "global") previewState.settingsDrafts.global = null;
     else {
+      delete previewState.promptSeedDrafts?.[currentProject().identifier];
       delete previewState.settingsDrafts.projects[currentProject().identifier];
       if (PERSISTENT_STYLE_WORKSPACE) delete previewState.projectDraftRevisions[currentProject().identifier];
     }

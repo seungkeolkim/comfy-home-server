@@ -20,7 +20,7 @@ from .style_lora_strength_policy import (
     fixed_clip_style_component,
     fixed_clip_style_lora_selections,
 )
-from .style_projects import ProjectSettings, StyleRevisionConflict, browser_sampling_settings, encode_snapshot, snapshot_hash
+from .style_projects import ProjectSettings, StyleRevisionConflict, browser_sampling_settings, encode_snapshot, prompt_case_sampling_settings, snapshot_hash
 from .style_random_generation import RandomStyleGenerationPlanInput, combination_selection_fingerprint, draw_initial_combinations
 from .tag_builder import resolve_anima_prompts
 from .workflows import prepare_anima
@@ -301,7 +301,8 @@ class StyleGenerationService:
                     component["file_identity"] = identities.get(component["identifier"][5:].replace("\\", "/"))
         resolved_cases = []
         for case_index, prompt_case in enumerate(contract["prompt_cases"] if not evolution_context else []):
-            resolution_seed = random.Random(f"{contract['sampling']['seed']}:{prompt_case['identifier']}").randrange(2**31)
+            case_sampling = prompt_case_sampling_settings(contract["sampling"], prompt_case)
+            resolution_seed = random.Random(f"{case_sampling['seed']}:{prompt_case['identifier']}").randrange(2**31)
             body = {"prompt": prompt_case["prompt"].replace("{artist}", ARTIST_INSERTION_MARKER),
                     "negative": "\n".join(part for part in [contract["negative_prompt"], prompt_case.get("negativePrompt", "")] if part)}
             positive_template, negative_template, _, _ = resolve_anima_prompts(body, [], resolution_seed)
@@ -309,10 +310,14 @@ class StyleGenerationService:
                 "identifier": prompt_case["identifier"], "name": prompt_case["name"], "index": case_index + 1,
                 "prompt": await self.server.comfy.populate_wildcards(positive_template, resolution_seed),
                 "negative": await self.server.comfy.populate_wildcards(negative_template, resolution_seed),
-                "resolutionSeed": resolution_seed,
+                "resolutionSeed": resolution_seed, "seed": case_sampling["seed"],
             })
         if evolution_context:
-            resolved_cases = evolution_context["resolvedCases"]
+            configured_cases = {prompt_case["identifier"]: prompt_case for prompt_case in contract["prompt_cases"]}
+            resolved_cases = []
+            for reference_case in evolution_context["resolvedCases"]:
+                case_sampling = prompt_case_sampling_settings(contract["sampling"], configured_cases[reference_case["identifier"]])
+                resolved_cases.append({**reference_case, "seed": case_sampling["seed"]})
             generation_number = evolution_context["targetGeneration"]
             selection = {"mode": "evolution", **evolution_context["provenance"], "batchIdentifier": evolution_context["identifier"]}
         selection.update(loraStrengthPolicy=STYLE_LORA_STRENGTH_POLICY_VERSION, loraClipStrength=FIXED_STYLE_LORA_CLIP_STRENGTH)
@@ -435,9 +440,10 @@ class StyleGenerationService:
                         continue
                     render_identifier = uuid.uuid4().hex
                     request_identifier = uuid.uuid4().hex
+                    case_sampling = prompt_case_sampling_settings(plan["sampling"], prompt_case)
                     output_stem = f"{STYLE_OUTPUT_PREFIX}{binding['model_folder']}/{binding['project_folder']}/세대{generation_number:03}-조합{combination_number:02}-Prompt{prompt_case['index']:02}-{render_identifier}"
                     render_plan = {"projectIdentifier": project_identifier, "candidateIdentifier": candidate["identifier"], "components": candidate["components"],
-                                   "case": prompt_case, "sampling": plan["sampling"], "evaluationIdentifier": plan["evaluationIdentifier"], "generationNumber": generation_number}
+                                   "case": prompt_case, "sampling": case_sampling, "evaluationIdentifier": plan["evaluationIdentifier"], "generationNumber": generation_number}
                     detail = {**common_detail, "resolved": {"style_render_identifier": render_identifier}}
                     requests.append({"request_id": request_identifier, "job_id": job_identifier, "workflow": "anima", "status": "submitting", "output_stem": output_stem, "detail": detail})
                     render_records.append((render_identifier, candidate["identifier"], plan_identifier, prompt_case["identifier"], request_identifier, encode_snapshot(render_plan)))

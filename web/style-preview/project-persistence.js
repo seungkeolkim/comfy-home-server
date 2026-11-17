@@ -34,7 +34,7 @@ async function styleProjectApi(path, options = {}) {
 /** 서버 데이터 대신 탭별 선택과 미저장 초안만 Session Storage에 보관합니다. */
 function persistStyleWorkspaceSession() {
   const sessionState = {};
-  for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "libraryFavoriteFilters", "libraryLoraPresetFilters", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "pendingProjectForks", "candidateGenerationRequests", "randomGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
+  for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "libraryFavoriteFilters", "libraryLoraPresetFilters", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "pendingProjectForks", "promptSeedDrafts", "pendingPromptSeedSaves", "candidateGenerationRequests", "randomGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
     sessionState[field] = previewState[field];
   }
   try {
@@ -64,7 +64,7 @@ async function loadPersistentStyleWorkspace(restoreSession = false) {
     try {
       const storedSession = JSON.parse(sessionStorage.getItem(STYLE_WORKSPACE_SESSION_KEY) || "null");
       if (storedSession && typeof storedSession === "object") {
-        for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "libraryFavoriteFilters", "libraryLoraPresetFilters", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "pendingProjectForks", "candidateGenerationRequests", "randomGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
+        for (const field of ["currentProjectIdentifier", "screen", "libraryFilter", "libraryFavoriteFilters", "libraryLoraPresetFilters", "settingsDrafts", "projectDraftRevisions", "creationSettings", "pendingProjectSaves", "pendingProjectForks", "promptSeedDrafts", "pendingPromptSeedSaves", "candidateGenerationRequests", "randomGenerationRequests", "artistBulkInput", "candidateSortOrder"]) {
           if (storedSession[field] !== undefined) previewState[field] = storedSession[field];
         }
       }
@@ -155,7 +155,7 @@ function persistentProjectPayload(settings) {
   const copiedSettings = structuredClone(settings);
   copiedSettings.promptCases = settings.promptCases.map(promptCase => {
     promptCase.identifier ??= newStyleClientIdentifier();
-    return { identifier: promptCase.identifier, name: promptCase.name, prompt: promptCase.prompt, negativePrompt: promptCase.negativePrompt || "" };
+    return { identifier: promptCase.identifier, name: promptCase.name, prompt: promptCase.prompt, negativePrompt: promptCase.negativePrompt || "", seed: promptCase.seed ?? null };
   });
   return copiedSettings;
 }

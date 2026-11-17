@@ -95,7 +95,7 @@ class StyleGenerationStore:
                 "SELECT job_id FROM style_job_ownership WHERE plan_id=? ORDER BY sequence", (plan_identifier,),
             ).fetchall()
             evolution = connection.execute("SELECT status FROM style_evolution_batches WHERE plan_id=?", (plan_identifier,)).fetchone()
-        plan = json.loads(row["plan_json"])
+        plan = browser_sampling_settings(json.loads(row["plan_json"]))
         plan.setdefault("generationNumber", 1)
         plan["sampling"] = browser_sampling_settings(plan["sampling"])
         return {**plan, "evolutionStatus": evolution[0] if evolution else None, "planIdentifier": plan_identifier,
@@ -125,7 +125,7 @@ class StyleGenerationStore:
     def browser_plan(row, job_identifiers: list[str]) -> dict:
         """같은 연결에서 읽은 계획·소유 Job·진화 상태를 Browser 형식으로 변환합니다."""
 
-        plan = json.loads(row["plan_json"])
+        plan = browser_sampling_settings(json.loads(row["plan_json"]))
         plan.setdefault("generationNumber", 1)
         plan["sampling"] = browser_sampling_settings(plan["sampling"])
         return {**plan, "evolutionStatus": row["evolution_status"], "planIdentifier": row["plan_id"],

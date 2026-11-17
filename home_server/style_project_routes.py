@@ -3,11 +3,12 @@
 import asyncio
 import logging
 import sqlite3
+import json
 
 import httpx
 from fastapi import APIRouter, HTTPException
 
-from .style_projects import GlobalStyleSettings, ProjectWriteInput, StyleRevisionConflict
+from .style_projects import GlobalStyleSettings, ProjectPromptSeedInput, ProjectSettings, ProjectWriteInput, StyleRevisionConflict
 from .workflows import load_workflows
 from .style_generation import StyleCandidateFavoriteInput, StyleGenerationPlanInput, StyleGenerationSubmitInput, StylePromptRegenerationInput
 from .style_random_generation import RandomStyleGenerationPlanInput
@@ -99,6 +100,23 @@ def create_style_project_router(server) -> APIRouter:
         """Revision을 검사한 뒤 설정과 평가 Snapshot을 저장합니다."""
 
         return save_style_project(payload, project_identifier)
+
+    @router.put("/api/style-projects/{project_identifier}/prompt-cases/{case_identifier}/seed")
+    def update_project_prompt_seed(project_identifier: str, case_identifier: str, payload: ProjectPromptSeedInput):
+        """저장된 설정에서 해당 Prompt Seed만 바꾸고 기존 Revision·Snapshot 저장을 공유합니다."""
+
+        with server.style_generation.mutation_lock:
+            try:
+                project = server.style_generation.store.project(project_identifier)
+            except LookupError as exception:
+                raise HTTPException(404, str(exception)) from exception
+            settings = ProjectSettings(**json.loads(project["settings_json"]))
+            prompt_case = next((prompt_case for prompt_case in settings.promptCases if prompt_case.identifier == case_identifier), None)
+            if prompt_case is None:
+                raise HTTPException(404, "이 프로젝트의 Prompt를 찾을 수 없습니다.")
+            prompt_case.seed = payload.seed
+            project_payload = ProjectWriteInput(settings=settings, operationIdentifier=payload.operationIdentifier, expectedRevision=payload.expectedRevision)
+            return save_style_project(project_payload, project_identifier)
 
     def save_style_project(payload: ProjectWriteInput, project_identifier: str | None = None):
         """저장 오류를 기존 초안을 보존할 수 있는 HTTP 응답으로 변환합니다."""

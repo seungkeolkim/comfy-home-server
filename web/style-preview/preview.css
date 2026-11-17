@@ -166,6 +166,9 @@ textarea { resize: vertical; min-height: 90px; line-height: 1.6; }
 .prompt-editor { padding: 18px; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 12px; background: #0e1522; }
 .prompt-editor-heading { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 10px; }
 .prompt-editor-heading input { background: transparent; padding: 6px 0; border: 0; font-weight: 650; }
+.prompt-seed-editor { margin-top: 14px; }
+.prompt-seed-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.prompt-seed-controls button { padding: 8px 10px; min-height: 40px; font-size: 12px; white-space: nowrap; }
 .form-actions { display: flex; gap: 10px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
 .generation-estimate { margin-right: auto; color: var(--muted); font-size: 13px; }
 .form-note { font-size: 12px; color: var(--muted); margin: 12px 0 0; }

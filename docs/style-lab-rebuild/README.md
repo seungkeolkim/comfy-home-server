@@ -1,5 +1,7 @@
 # Style Lab 복원·프로젝트 확장 설계 문서
 
+**Prompt별 Seed:** [직접 입력·랜덤·변경 확정](prompt_case_seeds.md). 개별 Seed를 확정하고 실제 생성·진화·Snapshot·Fork에서 유지합니다. 미지정 Prompt는 기존 프로젝트 기본 Seed를 사용합니다.
+
 **프로젝트 Fork:** [세대별 설정 Snapshot과 독립 0세대 시작](project_forks.md). 설정 저장 때 현재 세대 Snapshot을 갱신하고, 어느 저장 세대에서든 설정만 또는 작가·LoRA 선호도 Score·승패를 함께 가져옵니다. 이미지·조합 Elo는 새로 만듭니다.
 
 **CLIP 고정:** [스타일 탐색의 CLIP 1 정책](lora_clip_strength_policy.md). 앞으로 스타일 이미지 생성과 새 CHS LoRA 조합 등록은 CLIP 1을 고정하고 STR만 조절합니다.

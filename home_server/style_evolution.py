@@ -12,7 +12,7 @@ from .style_evolution_selection import STYLELAB_SELECTION_POLICY, build_selectio
 from .style_evolution_store import StyleEvolutionStore
 from .style_generation import FixedCombination, StyleGenerationPlanInput
 from .style_generation_sizing import DEFAULT_EVOLUTION_CHILD_COUNT, MAXIMUM_EVOLUTION_CHILD_COUNT
-from .style_projects import ProjectSettings, StyleRevisionConflict, encode_snapshot, snapshot_hash
+from .style_projects import ProjectSettings, StyleRevisionConflict, encode_snapshot, prompt_case_sampling_settings, snapshot_hash
 from .style_voting import ranked_candidate_statistics
 from .style_voting_rules import boundary_tie_match, candidate_is_rated, initial_candidate_statistics
 from .style_component_statistics import inherited_component_statistics
@@ -243,8 +243,14 @@ class StyleEvolutionService:
                 row = connection.execute("SELECT plan_json FROM style_generation_plans JOIN style_candidates USING(plan_id) WHERE candidate_id=?", (identifier,)).fetchone()
                 parent_plans.append(json.loads(row[0]))
             reference_cases = parent_plans[0]["cases"]
-            case_contents = [{key: value for key, value in prompt_case.items() if key != "name"} for prompt_case in reference_cases]
-            if any([{key: value for key, value in prompt_case.items() if key != "name"} for prompt_case in plan["cases"]] != case_contents for plan in parent_plans):
+            parent_case_contents = []
+            for parent_plan in parent_plans:
+                case_contents = []
+                for prompt_case in parent_plan["cases"]:
+                    case_sampling = prompt_case_sampling_settings(parent_plan["sampling"], prompt_case)
+                    case_contents.append({**{key: value for key, value in prompt_case.items() if key != "name"}, "seed": case_sampling["seed"]})
+                parent_case_contents.append(case_contents)
+            if any(case_contents != parent_case_contents[0] for case_contents in parent_case_contents[1:]):
                 raise ValueError("부모의 실제 Prompt 전개가 서로 다릅니다. 같은 조건으로 생성한 조합을 평가해 주세요.")
             context = {"identifier": uuid.uuid4().hex, "projectIdentifier": project_identifier, "evaluationIdentifier": evaluation_identifier,
                        "sourceGeneration": source_generation, "targetGeneration": source_generation + 1, "parent_ids": parent_identifiers,

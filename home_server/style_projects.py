@@ -44,6 +44,7 @@ class PromptCase(BaseModel):
     name: str = Field(min_length=1, max_length=60)
     prompt: str = Field(min_length=1, max_length=3000)
     negativePrompt: str = Field(default="", max_length=3000)
+    seed: int | None = Field(default=None, ge=0, le=18446744073709551615)
 
 
 class ComponentCountSettings(BaseModel):
@@ -113,6 +114,15 @@ class ProjectWriteInput(BaseModel):
     expectedRevision: int | None = Field(default=None, ge=1)
 
 
+class ProjectPromptSeedInput(BaseModel):
+    """다른 설정 초안과 분리해 Prompt 하나의 확정 Seed만 저장합니다."""
+
+    model_config = ConfigDict(extra="forbid")
+    seed: int = Field(ge=0, le=18446744073709551615)
+    operationIdentifier: str = Field(min_length=16, max_length=100)
+    expectedRevision: int = Field(ge=1)
+
+
 class ArtistRegistration(BaseModel):
     """작가 Catalog에는 실제 등록한 이름만 허용합니다."""
 
@@ -165,7 +175,21 @@ def browser_sampling_settings(settings: dict) -> dict:
     public_settings = copy.deepcopy(settings)
     if int(public_settings.get("seed", 0)) > 9007199254740991:
         public_settings["seed"] = str(public_settings["seed"])
+    for field in ("promptCases", "cases"):
+        for prompt_case in public_settings.get(field, []):
+            seed = prompt_case.get("seed")
+            if seed is not None and int(seed) > 9007199254740991:
+                prompt_case["seed"] = str(seed)
     return public_settings
+
+
+def prompt_case_sampling_settings(sampling: dict, prompt_case: dict) -> dict:
+    """Prompt의 확정 Seed를 우선하고 옛 계획·미지정 Prompt는 공통 Seed를 사용합니다."""
+
+    seed = prompt_case.get("seed")
+    if seed is None:
+        seed = sampling["seed"]
+    return {**sampling, "seed": int(seed)}
 
 
 def evaluation_without_seed(contract: dict) -> dict:
@@ -173,6 +197,8 @@ def evaluation_without_seed(contract: dict) -> dict:
 
     normalized_contract = copy.deepcopy(contract)
     normalized_contract["sampling"].pop("seed", None)
+    for prompt_case in normalized_contract["prompt_cases"]:
+        prompt_case.pop("seed", None)
     return normalized_contract
 
 
@@ -396,4 +422,10 @@ class StyleProjectStore:
         """표시 이름만 바꿀 때 기존 불변 Snapshot과 평가 ID를 유지합니다."""
 
         previous_names = {prompt_case["identifier"]: prompt_case["name"] for prompt_case in (previous_contract or {}).get("prompt_cases", [])}
-        return [{**prompt_case, "name": previous_names.get(prompt_case["identifier"], prompt_case["name"])} for prompt_case in prompt_cases]
+        frozen_cases = []
+        for prompt_case in prompt_cases:
+            frozen_case = {**prompt_case, "name": previous_names.get(prompt_case["identifier"], prompt_case["name"])}
+            if frozen_case.get("seed") is None:
+                frozen_case.pop("seed", None)
+            frozen_cases.append(frozen_case)
+        return frozen_cases

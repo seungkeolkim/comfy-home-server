@@ -11,6 +11,7 @@ PREVIEW_ASSETS = {
     "preview.css": "text/css",
     "preview.js": "text/javascript",
     "settings-preview.js": "text/javascript",
+    "style-prompt-seeds.js": "text/javascript",
     "ranking-preview.js": "text/javascript",
     "project-persistence.js": "text/javascript",
     "style-project-forks.js": "text/javascript",
