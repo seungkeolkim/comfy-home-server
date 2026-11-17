@@ -3,7 +3,7 @@
 import sqlite3
 import uuid
 
-from home_server.database import Database
+from home_server.database import DATABASE_SCHEMA_VERSION, Database
 from test_style_generation import StyleComfyClient, prepare_style_generation, submit_and_wait
 from test_style_management import management_payload
 from test_style_voting import read_selection, vote_input
@@ -116,7 +116,7 @@ def test_schema_eighteen_migration_preserves_data_and_creates_verified_backup(tm
         before = {table_name: connection.execute(f"SELECT * FROM {table_name} ORDER BY rowid").fetchall() for table_name in table_names}
     Database(database_path)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == DATABASE_SCHEMA_VERSION
         assert connection.execute("SELECT COUNT(*) FROM style_candidate_favorites").fetchone()[0] == 0
         assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
         for table_name in table_names:

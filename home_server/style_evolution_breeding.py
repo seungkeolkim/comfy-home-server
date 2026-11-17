@@ -91,13 +91,16 @@ def breed_component_kind(settings: dict, first_parent: dict, second_parent: dict
     return sorted(components, key=lambda component: component["identifier"])
 
 
-def draw_evolution_children(settings: dict, parents: list[dict], statistics: dict, all_candidates: list[dict], requested_count: int, selection_seed: str) -> tuple[list[dict], dict]:
-    """상위 부모 선형 가중치와 1:1:1 Mode 확률로 중복 없는 자녀를 유한 추첨합니다."""
+def draw_evolution_children(settings: dict, parents: list[dict], statistics: dict, all_candidates: list[dict], requested_count: int, selection_seed: str,
+                            component_prior_scores: dict | None = None) -> tuple[list[dict], dict]:
+    """Fork의 성분 선호도와 새 관측을 더해 기존 범위 안에서 중복 없는 자녀를 추첨합니다."""
 
     validate_component_strength_ranges(settings)
     selection_random = random.Random(f"{EVOLUTION_POLICY_VERSION}:{selection_seed}")
     existing_fingerprints = {combination_selection_fingerprint(candidate["components"]) for candidate in all_candidates}
     component_scores = component_preference_scores(all_candidates, statistics)
+    for identifier, score in (component_prior_scores or {}).items():
+        component_scores[identifier] = component_scores.get(identifier, 0) + score
     enabled_identifiers = [identifier for identifier, policy in settings["componentPolicies"].items() if policy["enabled"]]
     preference = component_selection_preferences(component_scores, enabled_identifiers)
     parent_usage = {}

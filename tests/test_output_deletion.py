@@ -10,7 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from home_server.database import Database
+from home_server.database import DATABASE_SCHEMA_VERSION, Database
 from home_server.output_catalog import OutputCatalog
 from home_server.output_listing import iterate_output_directory_entries
 from test_application import FakeComfyClient, create_processing_test_app
@@ -114,7 +114,7 @@ def test_schema_ten_migration_preserves_catalog_and_json(tmp_path: Path) -> None
 
     Database(database_path)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == DATABASE_SCHEMA_VERSION
         migrated_catalog = connection.execute("SELECT * FROM output_files ORDER BY output_id").fetchall()
         assert [catalog_row[:-1] for catalog_row in migrated_catalog] == original_catalog
         assert [catalog_row[-1] for catalog_row in migrated_catalog] == [0, 0]

@@ -61,7 +61,7 @@ function styleEvolutionPanelMarkup() {
 /** 실제 후보·부모와 세대 이력을 확인하는 진화 화면입니다. */
 function renderStyleEvolutionWorkspace() {
   const evolution = currentStyleGenerationState().evolution;
-  return `<div class="page-heading"><h1>진화</h1><span class="generation-current-badge">현재 ${evolution?.currentGeneration || currentProject().generation || 1}세대</span></div>${styleEvolutionContainerMarkup()}<p id="style-generation-error" class="error" role="alert">${escapeMarkup(currentStyleGenerationState().error)}</p><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
+  return `<div class="page-heading"><h1>진화</h1><span class="generation-current-badge">현재 ${evolution?.currentGeneration ?? currentProject().generation ?? 0}세대</span></div>${styleEvolutionContainerMarkup()}<p id="style-generation-error" class="error" role="alert">${escapeMarkup(currentStyleGenerationState().error)}</p><div id="style-render-results">${initialStyleResultsMarkup(currentStyleGenerationState().results)}</div>`;
 }
 
 /** 같은 조합 카드·Viewer를 사용하면서 세대의 평가·생존 상태만 덧붙입니다. */

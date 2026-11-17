@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from home_server.administration import AdministrationStore, diagnose_connections, storage_overview
+from home_server.database import DATABASE_SCHEMA_VERSION
 from test_application import FakeComfyClient, create_processing_test_app
 from test_output_catalog import add_catalog_test_request
 
@@ -310,7 +311,7 @@ def test_restore_preparation_failure_keeps_operational_db(tmp_path: Path) -> Non
     server = application.state.home_server
     invalid_path = server.administration.backup_directory / "incomplete.sqlite3"
     with closing(sqlite3.connect(invalid_path)) as connection:
-        connection.execute("PRAGMA user_version = 20")
+        connection.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
     server.database.save_preset("keep", "보존", "anima", {"prompt": "keep"})
     with TestClient(application) as client:
         client.post("/api/login", json={"password": "test"})

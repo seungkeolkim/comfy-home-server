@@ -57,7 +57,7 @@ def test_fresh_projects_persist_without_jobs_and_keep_evaluation_snapshots(tmp_p
         second_settings["promptCases"][0]["prompt"] = "different character"
         second_project = client.post("/api/style-projects", json=project_request(second_settings)).json()
         assert first_project["candidates"] == first_project["decisions"] == []
-        assert first_project["generation"] == 1
+        assert first_project["generation"] == 0
         assert client.post("/api/style-projects", json=request).json()["identifier"] == first_project["identifier"]
         settings = first_project["settings"]
         settings["name"] = "바뀐 이름"

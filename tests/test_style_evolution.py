@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from home_server.database import Database
+from home_server.database import DATABASE_SCHEMA_VERSION, Database
 from home_server.style_evolution_breeding import breed_component_kind, draw_evolution_children
 from home_server.style_evolution_selection import STYLELAB_SELECTION_POLICY, build_selection_ranking, next_selection_pair
 from home_server.style_projects import encode_snapshot, snapshot_hash
@@ -328,7 +328,7 @@ def test_schema_seventeen_migration_keeps_verified_backup(tmp_path) -> None:
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 17
         assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
     with sqlite3.connect(path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == DATABASE_SCHEMA_VERSION
         assert not connection.execute("PRAGMA foreign_key_check").fetchall()
 
 

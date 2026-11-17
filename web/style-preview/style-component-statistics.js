@@ -15,12 +15,15 @@ function projectComponentStatisticsValuesMarkup(identifier) {
   const statistics = projectStatistics.components[identifier] || { score: 0, ratedCombinationCount: 0, wins: 0, losses: 0, winRate: null };
   const score = statistics.ratedCombinationCount ? `${statistics.score > 0 ? "+" : ""}${statistics.score.toLocaleString("ko-KR")}` : "—";
   const winRate = statistics.winRate === null ? "—" : `${Math.round(statistics.winRate * 100)}%`;
+  const inheritedScore = statistics.inheritedScore > 0 ? `+${statistics.inheritedScore}` : statistics.inheritedScore;
+  const inheritedCaption = statistics.inheritedMatches || statistics.inheritedScore
+    ? `<small class="component-inherited-statistics">이전 Score ${inheritedScore} · ${statistics.inheritedWins}승 ${statistics.inheritedLosses}패 · 새 비교 ${statistics.localMatches}회</small>` : "";
   return `<dl class="component-statistics-values">
     <div><dt title="현재 조건의 활성·퇴역 조합 Elo와 STR로 추정한 기여 점수입니다. 다음 세대의 새 성분 선택에 0.5~2배로 반영합니다.">선호도</dt><dd class="${statistics.score > 0 ? "positive" : statistics.score < 0 ? "negative" : ""}">${score}</dd></div>
     <div><dt title="일반 대결에서 한쪽에만 포함된 성분의 전적입니다. 배치 선별·비슷함·공통 성분은 제외합니다.">승패</dt><dd>${statistics.wins}승 ${statistics.losses}패</dd></div>
     <div><dt>승률</dt><dd>${winRate}</dd></div>
     <div><dt>평가 조합</dt><dd>${statistics.ratedCombinationCount}</dd></div>
-  </dl>`;
+  </dl>${inheritedCaption}`;
 }
 
 /** 성분 이름 오른쪽 공간을 사용하고 STR 입력은 기존 행에 유지합니다. */

@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 
 from .style_projects import encode_snapshot, snapshot_hash
+from .style_fork_snapshots import StyleForkSnapshotStore
 
 
 class StyleEvolutionStore:
@@ -31,10 +32,10 @@ class StyleEvolutionStore:
 
     @staticmethod
     def current_generation_number(connection, evaluation_identifier: str) -> int:
-        """기존 평가 조건은 Timeline이 생기기 전까지 1세대로 취급합니다."""
+        """첫 생성 전에는 0세대를 반환하고 제출 이후에는 저장된 세대 번호를 사용합니다."""
 
         row = connection.execute("SELECT generation_number FROM style_evolution_timelines WHERE evaluation_id=?", (evaluation_identifier,)).fetchone()
-        return row[0] if row else 1
+        return row[0] if row else 0
 
     @staticmethod
     def find_open_evolution_batch(connection, evaluation_identifier: str):
@@ -45,9 +46,10 @@ class StyleEvolutionStore:
     def create_generation_checkpoint(self, connection, project_identifier: str, evaluation_identifier: str, generation_number: int, state: dict, reason: str) -> str:
         """설정·평가 상태·Event 경계·후보·실제 파일 Manifest를 불변 Snapshot으로 저장합니다."""
 
-        existing = connection.execute("SELECT checkpoint_id FROM style_generation_checkpoints WHERE evaluation_id=? AND generation_number=?", (evaluation_identifier, generation_number)).fetchone()
+        existing = connection.execute("SELECT checkpoint_id,snapshot_json,created_at FROM style_generation_checkpoints WHERE evaluation_id=? AND generation_number=?", (evaluation_identifier, generation_number)).fetchone()
         if existing:
-            return existing[0]
+            StyleForkSnapshotStore.capture_checkpoint(connection, existing["checkpoint_id"], json.loads(existing["snapshot_json"]), existing["created_at"], replace_existing=False)
+            return existing["checkpoint_id"]
         project = connection.execute("SELECT settings_json,storage_binding_json FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
         evaluation = connection.execute("SELECT contract_json FROM style_evaluation_revisions WHERE evaluation_id=?", (evaluation_identifier,)).fetchone()
         scope = (project_identifier, evaluation_identifier, generation_number)
@@ -87,5 +89,7 @@ class StyleEvolutionStore:
                     "settings": json.loads(project["settings_json"]), "storageBinding": json.loads(project["storage_binding_json"]), "contract": json.loads(evaluation[0]), "arena": state,
                     "memberships": memberships, "candidates": candidates, "plans": plans, "renders": renders, "batches": batches, "evolutionCommandBoundary": evolution_boundary, "assets": assets, "voteEventBoundary": event_boundary, "votingCommandBoundary": command_boundary}
         identifier = uuid.uuid4().hex
-        connection.execute("INSERT INTO style_generation_checkpoints VALUES(?,?,?,?,?,?,?)", (identifier, project_identifier, evaluation_identifier, generation_number, encode_snapshot(snapshot), snapshot_hash(snapshot), datetime.now(timezone.utc).isoformat()))
+        created_at = datetime.now(timezone.utc).isoformat()
+        connection.execute("INSERT INTO style_generation_checkpoints VALUES(?,?,?,?,?,?,?)", (identifier, project_identifier, evaluation_identifier, generation_number, encode_snapshot(snapshot), snapshot_hash(snapshot), created_at))
+        StyleForkSnapshotStore.capture_checkpoint(connection, identifier, snapshot, created_at)
         return identifier

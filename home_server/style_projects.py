@@ -256,24 +256,31 @@ class StyleProjectStore:
                 "SELECT project_id,COUNT(DISTINCT candidate_id) FROM style_candidates JOIN style_candidate_renders USING(candidate_id) "
                 "JOIN style_projects USING(project_id) JOIN style_candidate_memberships USING(candidate_id) WHERE lifecycle IN ('active','evolving') GROUP BY project_id"
             ).fetchall())
-        return [{**self.project_from_row(row), "generation": generation_numbers.get(row["active_evaluation_id"], 1), "candidateCount": candidate_counts.get(row["project_id"], 0)} for row in rows]
+        return [{**self.project_from_row(row), "generation": generation_numbers.get(row["active_evaluation_id"], 0), "candidateCount": candidate_counts.get(row["project_id"], 0)} for row in rows]
 
-    def project_from_row(self, row: sqlite3.Row) -> dict:
+    def project_from_row(self, row: sqlite3.Row, *, connection: sqlite3.Connection | None = None) -> dict:
         """설정 저장 응답에도 현재 세대를 반영하고 후보 목록은 별도로 조회합니다."""
 
         settings = browser_sampling_settings(ProjectSettings(**json.loads(row["settings_json"])).model_dump())
-        with self.connection_factory() as connection:
+        with nullcontext(connection) if connection is not None else self.connection_factory() as connection:
             timeline = connection.execute("SELECT generation_number FROM style_evolution_timelines WHERE evaluation_id=?", (row["active_evaluation_id"],)).fetchone()
+            fork = connection.execute(
+                "SELECT source_project_id,source_project_name,source_evaluation_id,source_generation_number,source_snapshot_id,include_component_statistics "
+                "FROM style_project_forks WHERE project_id=?", (row["project_id"],),
+            ).fetchone()
         return {
             "identifier": row["project_id"], "revision": row["revision"], "settings": settings,
-            "name": settings["name"], "promptCases": settings["promptCases"], "generation": timeline[0] if timeline else 1,
+            "name": settings["name"], "promptCases": settings["promptCases"], "generation": timeline[0] if timeline else 0,
             "evaluationIdentifier": row["active_evaluation_id"], "candidateCount": 0,
             "candidates": [], "decisions": [], "savedCandidates": [], "excludedComponents": [], "pairIndex": 0,
             "storageBinding": json.loads(row["storage_binding_json"]),
+            "forkSource": {"projectIdentifier": fork["source_project_id"], "projectName": fork["source_project_name"],
+                           "evaluationIdentifier": fork["source_evaluation_id"], "generationNumber": fork["source_generation_number"],
+                           "snapshotIdentifier": fork["source_snapshot_id"], "includesComponentStatistics": bool(fork["include_component_statistics"])} if fork else None,
         }
 
     def save_project(self, payload: ProjectWriteInput, workflow_directory: Path, project_identifier: str | None = None,
-                     *, connection: sqlite3.Connection | None = None, storage_binding_override: dict | None = None) -> dict:
+                     *, connection: sqlite3.Connection | None = None, storage_binding_override: dict | None = None, record_snapshot: bool = True) -> dict:
         """설정 저장과 평가 Snapshot 추가를 하나의 Transaction으로 처리합니다."""
 
         settings = payload.settings.model_dump()
@@ -297,7 +304,7 @@ class StyleProjectStore:
                     expected_hash = existing["creation_payload_hash"] if creation_matches else existing["last_payload_hash"]
                     if payload_hash != expected_hash:
                         raise StyleRevisionConflict("같은 요청 Identifier로 다른 설정을 저장할 수 없습니다.")
-                    return self.project_from_row(existing)
+                    return self.project_from_row(existing, connection=connection)
                 if connection.execute("SELECT 1 FROM style_evolution_batches WHERE project_id=? AND status IN ('planned','active')", (project_identifier,)).fetchone():
                     raise StyleRevisionConflict("준비·진행 중인 진화를 확정하거나 취소한 뒤 프로젝트 설정을 변경해 주세요.")
                 if payload.expectedRevision != existing["revision"]:
@@ -349,13 +356,19 @@ class StyleProjectStore:
                         (existing["active_evaluation_id"],),
                     ).fetchone()
                     connection.execute("INSERT INTO style_evolution_timelines VALUES(?,?,?)", (
-                        evaluation_identifier, project_identifier, previous_generation[0] if previous_generation else 1,
+                        evaluation_identifier, project_identifier, previous_generation[0] if previous_generation else 0,
                     ))
+                else:
+                    connection.execute("INSERT INTO style_evolution_timelines VALUES(?,?,0)", (evaluation_identifier, project_identifier))
             from .style_lora_presets import StyleLoraPresetStore
 
             StyleLoraPresetStore.rename_project_registrations(connection, project_identifier, settings["name"])
+            if record_snapshot:
+                from .style_fork_snapshots import StyleForkSnapshotStore
+
+                StyleForkSnapshotStore.capture_project(connection, project_identifier)
             row = connection.execute("SELECT * FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
-        return self.project_from_row(row)
+            return self.project_from_row(row, connection=connection)
 
     @staticmethod
     def evaluation_contract(settings: dict, workflow_directory: Path, previous_contract: dict | None) -> dict:

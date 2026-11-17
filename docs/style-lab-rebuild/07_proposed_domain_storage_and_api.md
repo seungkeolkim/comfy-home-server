@@ -2,6 +2,8 @@
 
 아래 전체 테이블과 API 목록은 **설계 제안**입니다. 실제 구현한 부분은 다음 진행 상태와 구분합니다.
 
+2026-11-17 Fork 구현: Schema 21의 `style_project_generation_snapshots`와 `style_project_forks`를 사용합니다. 현재 세대 설정 Snapshot 갱신·독립 0세대 생성·성분 Score/승패 선택 복사를 지원하며, 과거 제안의 조합·이미지 참조 공유 분기는 대체했습니다. [실제 계약](project_forks.md)을 우선합니다.
+
 2026-11-10 구현 상태: 1단계의 실제 Schema 15는 `style_projects`, `style_evaluation_revisions`, `style_workspace_settings`만 사용합니다. `/api/style-workspace`, `/api/style-projects` GET/POST, `/api/style-projects/{project_id}` GET/PUT, `/api/style-settings` PUT을 연결했습니다. 나머지 표는 후속 제안이며 [1단계 검토 안내](phase_one_review.md)를 현재 구현 기준으로 봅니다. 평가 Snapshot은 불변이며 Project의 활성 참조를 바꿉니다.
 
 글로벌 실행기·Endpoint·파이프라인/Catalog·STR 기본값과 프로젝트의 실제 선택·Prompt·범위 Snapshot은 [21번](21_project_context_settings_and_fork.md)의 경계로 분리합니다. 현재 프로젝트는 탭의 작업 맥락이며 요청에는 소유 Project/Evaluation/Match ID를 고정합니다. 그림체 필터 변경으로 요청 소속을 바꾸지 않습니다. 한 Match는 여러 Prompt의 같은 조합 A/B에 대한 한 표입니다.
@@ -31,7 +33,8 @@
 | `style_prompt_retest_sessions` | trial_id, source_evaluation/generation/event/timeline, trial_evaluation_id, 조건 Snapshot, 상태 |
 | `style_prompt_retest_entries` | trial_id, source/trial candidate_id, 원본 성분 Fingerprint·순위, 제외 상태 |
 | `style_component_lock_policies` | policy_id, project/lineage, revision, 성분 Identity·Hash·순서, 고정 Weight 축·값 |
-| `style_project_branch_snapshots` | branch_id, source Project/Evaluation/Checkpoint/Event, target_project_id, 불변 출처 Snapshot, ID 대응·Asset 참조 |
+| `style_project_generation_snapshots` | 실제 구현: Project/Evaluation·세대, Revision·설정·성분 Score/승패·Hash·갱신 시각 |
+| `style_project_forks` | 실제 구현: 대상 Project·출처 세대·Snapshot Hash·통계 포함 여부·독립 성분 기준값·Operation ID |
 | `style_ablation_experiments` | experiment_id, source Snapshot, diagnostic_evaluation_id, Baseline·변형 Delta, RenderPlan·상태 |
 | `style_validation_suites` | suite_id, version, Case 정의·공통 Seed, 불변 조건·출처 |
 | `style_validation_runs` | run_id, source Snapshot, suite_version, 선택 후보·계획·Asset Manifest·상태 |
@@ -78,8 +81,8 @@ stateDiagram-v2
 | POST | `.../{project_id}/score-snapshots` | 이전용 불변 점수 Snapshot |
 | POST | `.../{project_id}/candidate-batches` | 초기 후보 생성 |
 | GET/POST | `.../{project_id}/component-lock-policies` | 프로젝트/계보 잠금 조회·정책 Revision 생성 |
-| POST | `.../{project_id}/branches/preview` | 현재 안정 상태·Checkpoint의 분기 영향 확인 |
-| POST | `.../{project_id}/branches` | 새 Project Snapshot 분기 |
+| GET | `.../{project_id}/fork-options` | 실제 구현: 저장된 세대별 설정 Snapshot 목록·Revision |
+| POST | `.../{project_id}/forks` | 실제 구현: 독립 0세대 생성, 성분 Score/승패 포함 선택 |
 | POST | `.../{project_id}/ablation-experiments` | 고정 조건 Baseline·변형 계획 생성 |
 | POST | `.../{project_id}/ablation-experiments/{experiment_id}/renders` | 계획 확인 후 진단 생성 |
 | POST | `.../{project_id}/ablation-experiments/{experiment_id}/candidates` | 제약 확인 후 변형을 새 후보로 가져오기 |

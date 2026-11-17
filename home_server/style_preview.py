@@ -13,6 +13,7 @@ PREVIEW_ASSETS = {
     "settings-preview.js": "text/javascript",
     "ranking-preview.js": "text/javascript",
     "project-persistence.js": "text/javascript",
+    "style-project-forks.js": "text/javascript",
     "style-generation.js": "text/javascript",
     "style-voting.js": "text/javascript",
     "style-evolution.js": "text/javascript",

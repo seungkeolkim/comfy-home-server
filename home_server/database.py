@@ -20,9 +20,10 @@ from .style_generation_store import StyleGenerationStore
 from .style_voting import StyleVotingService
 from .style_evolution_store import StyleEvolutionStore
 from .style_lora_presets import StyleLoraPresetStore
+from .style_fork_snapshots import StyleForkSnapshotStore
 
 
-DATABASE_SCHEMA_VERSION = 20
+DATABASE_SCHEMA_VERSION = 21
 
 
 def current_timestamp() -> str:
@@ -67,9 +68,11 @@ class Database:
                 self._create_verified_database_backup(connection, "style_candidate_favorites")
             elif schema_version == 19:
                 self._create_verified_database_backup(connection, "style_lora_presets")
+            elif schema_version == 20:
+                self._create_verified_database_backup(connection, "style_project_forks")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, DATABASE_SCHEMA_VERSION}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, DATABASE_SCHEMA_VERSION}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -193,6 +196,19 @@ class Database:
             StyleVotingService.prepare_schema(connection)
             StyleEvolutionStore.prepare_schema(connection)
             StyleLoraPresetStore.prepare_schema(connection)
+            StyleForkSnapshotStore.prepare_schema(connection)
+            connection.execute(
+                "INSERT OR IGNORE INTO style_evolution_timelines "
+                "SELECT evaluations.evaluation_id,evaluations.project_id,COALESCE((SELECT MAX(memberships.generation_number) "
+                "FROM style_candidates AS candidates JOIN style_candidate_memberships AS memberships USING(candidate_id) "
+                "WHERE candidates.evaluation_id=evaluations.evaluation_id AND memberships.lifecycle='active' "
+                "AND EXISTS(SELECT 1 FROM style_candidate_renders WHERE candidate_id=candidates.candidate_id)),0) "
+                "FROM style_evaluation_revisions AS evaluations"
+            )
+            StyleForkSnapshotStore.backfill_checkpoints(connection)
+            if schema_version < 21:
+                for project in connection.execute("SELECT project_id FROM style_projects").fetchall():
+                    StyleForkSnapshotStore.capture_project(connection, project["project_id"])
             connection.execute(f"PRAGMA user_version = {DATABASE_SCHEMA_VERSION}")
         self.job_folders = JobFolderStore(self._connect)
         self.favorites = RequestFavoriteStore(self._connect, database_path.parent)

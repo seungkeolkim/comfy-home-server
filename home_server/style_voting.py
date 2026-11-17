@@ -106,8 +106,8 @@ class StyleVotingService:
             "action TEXT NOT NULL, payload_hash TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL)"
         )
 
-    def load_evaluation_candidates(self, connection, project_identifier: str, evaluation_identifier: str, *, verify_files: bool = True) -> tuple[list[dict], list[str]]:
-        """준비 상태는 Catalog에서 일괄 읽고 동작 경계에서는 실제 파일도 확인합니다."""
+    def load_evaluation_candidates(self, connection, project_identifier: str, evaluation_identifier: str, *, verify_files: bool = True, include_retired: bool = False) -> tuple[list[dict], list[str]]:
+        """Catalog와 파일로 준비 상태를 확인하며 결원 보충 때만 보관 조합을 포함합니다."""
 
         evaluation = connection.execute("SELECT 1 FROM style_evaluation_revisions WHERE evaluation_id=? AND project_id=?", (evaluation_identifier, project_identifier)).fetchone()
         if not evaluation:
@@ -116,8 +116,10 @@ class StyleVotingService:
             "SELECT candidates.*,plans.plan_json FROM style_candidates AS candidates "
             "JOIN style_generation_plans AS plans USING(plan_id) JOIN style_candidate_memberships AS memberships USING(candidate_id) "
             "LEFT JOIN style_evolution_batches AS batches ON batches.batch_id=memberships.batch_id "
-            "WHERE candidates.project_id=? AND candidates.evaluation_id=? AND (memberships.lifecycle='active' OR (memberships.lifecycle='evolving' AND batches.status='active')) ORDER BY candidates.rowid",
-            (project_identifier, evaluation_identifier),
+            "WHERE candidates.project_id=? AND candidates.evaluation_id=? AND (memberships.lifecycle='active' "
+            "OR (memberships.lifecycle='evolving' AND batches.status='active') "
+            "OR (? AND memberships.lifecycle='retired')) ORDER BY candidates.rowid",
+            (project_identifier, evaluation_identifier, include_retired),
         ).fetchall()
         render_rows = connection.execute(
             "SELECT renders.candidate_id,renders.case_id,requests.status,(SELECT files.relative_path "

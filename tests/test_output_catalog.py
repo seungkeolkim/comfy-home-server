@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from home_server.database import Database
+from home_server.database import DATABASE_SCHEMA_VERSION, Database
 from home_server.output_catalog import OUTPUT_SORT_ORDER, OutputCatalog
 from test_application import FakeComfyClient, create_processing_test_app
 
@@ -76,7 +76,7 @@ def test_schema_nine_backfill_preserves_json_and_hides_missing_files(tmp_path: P
     assert listing["files"][0]["generated_at"] == datetime(2026, 10, 15, 9, 1, 2).timestamp()
     assert listing["files"][0]["dimensions_source"] == "settings"
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == DATABASE_SCHEMA_VERSION
         assert connection.execute("SELECT COUNT(*) FROM output_files").fetchone()[0] == 2
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

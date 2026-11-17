@@ -279,7 +279,7 @@ class StyleGenerationService:
             fingerprints.add(fingerprint)
         with self.server.database._connect() as connection:
             evaluation = connection.execute("SELECT contract_json FROM style_evaluation_revisions WHERE evaluation_id=? AND project_id=?", (project["active_evaluation_id"], project_identifier)).fetchone()
-            generation_number = self.server.style_evolution.store.current_generation_number(connection, project["active_evaluation_id"])
+            generation_number = max(1, self.server.style_evolution.store.current_generation_number(connection, project["active_evaluation_id"]))
             if not evolution_context and self.server.style_evolution.store.find_open_evolution_batch(connection, project["active_evaluation_id"]):
                 raise StyleRevisionConflict("진화를 확정하거나 취소한 뒤 일반 조합을 추가해 주세요.")
         contract = json.loads(evaluation[0])
@@ -336,7 +336,7 @@ class StyleGenerationService:
                     membership = connection.execute("SELECT lifecycle FROM style_candidate_memberships WHERE candidate_id=?", (identifier,)).fetchone()
                     if not membership or membership[0] != "active":
                         raise StyleRevisionConflict("원본 조합이 변경됐습니다. 최신 목록에서 다시 선택해 주세요.")
-            if not evolution_context and (self.server.style_evolution.store.find_open_evolution_batch(connection, project["active_evaluation_id"]) or generation_number != self.server.style_evolution.store.current_generation_number(connection, project["active_evaluation_id"])):
+            if not evolution_context and (self.server.style_evolution.store.find_open_evolution_batch(connection, project["active_evaluation_id"]) or generation_number != max(1, self.server.style_evolution.store.current_generation_number(connection, project["active_evaluation_id"]))):
                 raise StyleRevisionConflict("계획 중 세대 상태가 바뀌었습니다. 최신 세대에서 다시 시작해 주세요.")
             if selection["mode"] == "random":
                 previous_candidates = connection.execute("SELECT components_json FROM style_candidates WHERE project_id=? AND evaluation_id=?", (project_identifier, project["active_evaluation_id"])).fetchall()
@@ -444,6 +444,11 @@ class StyleGenerationService:
             if not requests:
                 raise StyleRevisionConflict("실패·취소가 확인된 재시도 대상이 없습니다. 미확인 요청은 자동 재제출하지 않습니다.")
             self.server.database.add_job(job_identifier, "anima", f"세대{generation_number:03}-{generation_sequence:02} 이미지 생성", requests, binding["folder_id"], origin="style", connection=connection)
+            if self.server.style_evolution.store.current_generation_number(connection, plan["evaluationIdentifier"]) == 0:
+                from .style_fork_snapshots import StyleForkSnapshotStore
+
+                connection.execute("UPDATE style_evolution_timelines SET generation_number=1 WHERE evaluation_id=? AND generation_number=0", (plan["evaluationIdentifier"],))
+                StyleForkSnapshotStore.capture_project(connection, project_identifier)
             connection.execute("INSERT INTO style_job_ownership VALUES(?,?,?,?,?)", (job_identifier, project_identifier, plan_identifier, payload.operationIdentifier, sequence))
             connection.executemany("INSERT INTO style_candidate_renders VALUES(?,?,?,?,?,?)", render_records)
         return job_identifier, requests

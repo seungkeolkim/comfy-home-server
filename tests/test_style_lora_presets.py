@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from home_server.database import Database
+from home_server.database import DATABASE_SCHEMA_VERSION, Database
 from test_style_favorites import favorite_independent_rows
 from test_style_generation import StyleComfyClient, prepare_style_generation, submit_and_wait
 from test_style_management import management_payload
@@ -208,7 +208,7 @@ def test_schema_nineteen_migration_preserves_all_original_rows_and_backup(tmp_pa
         before = {table: connection.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() for table in tables}
     Database(database_path)
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == DATABASE_SCHEMA_VERSION
         assert connection.execute("SELECT count(*) FROM style_lora_preset_sources").fetchone()[0] == 0
         for table in tables:
             assert connection.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall() == before[table]

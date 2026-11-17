@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pydantic import Field
 
 from .style_projects import StyleRevisionConflict, encode_snapshot, snapshot_hash
-from .style_voting import StyleVotingCommand
+from .style_voting import StyleVotingCommand, ranked_candidate_statistics
 from .style_deletion_cleanup import remove_deleted_candidate_history
 from .style_voting_rules import remove_deleted_candidate_state
 
@@ -50,7 +50,7 @@ class StyleCandidateDeletionService:
                     raise StyleRevisionConflict("같은 요청 ID로 다른 조합을 폐기할 수 없습니다.")
                 return json.loads(existing["response_json"])
             voting = self.server.style_voting
-            candidates, ready_identifiers = voting.load_evaluation_candidates(connection, project_identifier, payload.evaluationIdentifier)
+            voting.load_evaluation_candidates(connection, project_identifier, payload.evaluationIdentifier, verify_files=False)
             revision, state = voting.load_arena(connection, project_identifier, payload.evaluationIdentifier)
             if revision != payload.expectedRevision:
                 raise StyleRevisionConflict("선별 상태가 바뀌었습니다. 최신 그림체를 확인한 뒤 다시 폐기해 주세요.")
@@ -59,6 +59,12 @@ class StyleCandidateDeletionService:
             identifiers = payload.candidateIdentifiers
             if len(set(identifiers)) != len(identifiers):
                 raise ValueError("같은 조합을 중복 선택할 수 없습니다.")
+            active_population_count = connection.execute(
+                "SELECT COUNT(*) FROM style_candidate_memberships AS memberships "
+                "JOIN style_candidates USING(candidate_id) WHERE project_id=? "
+                "AND memberships.evaluation_id=? AND lifecycle='active'",
+                (project_identifier, payload.evaluationIdentifier),
+            ).fetchone()[0]
             output_identifiers = []
             for identifier in identifiers:
                 candidate = connection.execute(
@@ -82,15 +88,53 @@ class StyleCandidateDeletionService:
                 connection.execute("DELETE FROM style_candidate_favorites WHERE candidate_id=?", (identifier,))
             remove_deleted_candidate_state(state, identifiers)
             state.update(match=None, placement=None, undoStack=[], lastPair=[], skippedTies=[])
-            remaining = [candidate for candidate in candidates if candidate["identifier"] not in identifiers]
-            remaining_ready = [identifier for identifier in ready_identifiers if identifier not in identifiers]
+            promoted_identifiers = self.replenish_active_candidates(
+                connection, project_identifier, payload.evaluationIdentifier, state, active_population_count,
+            )
+            remaining, remaining_ready = voting.load_evaluation_candidates(connection, project_identifier, payload.evaluationIdentifier)
             voting.synchronize_candidates(state, remaining, remaining_ready)
             voting.save_arena(connection, payload.evaluationIdentifier, revision + 1, state)
             operation = {"status": "deleting", "operationIdentifier": payload.operationIdentifier, "projectIdentifier": project_identifier,
                          "evaluationIdentifier": payload.evaluationIdentifier, "candidateIdentifiers": identifiers,
+                         "promotedCandidateIdentifiers": promoted_identifiers,
                          "outputIdentifiers": sorted(set(output_identifiers)), "requestPayload": payload.model_dump(), "error": ""}
             connection.execute("INSERT INTO style_voting_commands VALUES(?,?,?,?,?,?,?)", (payload.operationIdentifier, project_identifier, payload.evaluationIdentifier, "delete", request_hash, encode_snapshot(operation), datetime.now(timezone.utc).isoformat()))
             return operation
+
+    def replenish_active_candidates(self, connection, project_identifier: str, evaluation_identifier: str, state: dict, population_count: int) -> list[str]:
+        """삭제 전 활성 수까지 이미지가 준비된 보관 조합을 기존 순위대로 승격합니다."""
+
+        membership_rows = connection.execute(
+            "SELECT candidate_id,lifecycle FROM style_candidate_memberships AS memberships "
+            "JOIN style_candidates USING(candidate_id) WHERE project_id=? AND memberships.evaluation_id=?",
+            (project_identifier, evaluation_identifier),
+        ).fetchall()
+        active_count = sum(row["lifecycle"] == "active" for row in membership_rows)
+        vacancy_count = population_count - active_count
+        retired_identifiers = {row["candidate_id"] for row in membership_rows if row["lifecycle"] == "retired"}
+        if vacancy_count <= 0 or not retired_identifiers:
+            return []
+        voting = self.server.style_voting
+        candidates, ready_identifiers = voting.load_evaluation_candidates(
+            connection, project_identifier, evaluation_identifier, verify_files=False, include_retired=True,
+        )
+        candidates_by_identifier = {candidate["identifier"]: candidate for candidate in candidates}
+        available_identifiers = [identifier for identifier in ready_identifiers if identifier in retired_identifiers]
+        ranked_candidates = ranked_candidate_statistics(available_identifiers, state["statistics"])
+        promoted_identifiers = []
+        for candidate in ranked_candidates:
+            candidate_identifier = candidate["identifier"]
+            if not candidate["rated"] or not voting.candidate_files_exist(candidates_by_identifier[candidate_identifier]):
+                continue
+            # Elo·승패·계보와 파일은 유지하고 생존 상태만 바꿉니다.
+            connection.execute(
+                "UPDATE style_candidate_memberships SET lifecycle='active' WHERE candidate_id=? AND lifecycle='retired'",
+                (candidate_identifier,),
+            )
+            promoted_identifiers.append(candidate_identifier)
+            if len(promoted_identifiers) == vacancy_count:
+                break
+        return promoted_identifiers
 
     def finish_deletion(self, operation_identifier: str) -> dict:
         """이미 지운 파일은 건너뛰고 CHS의 경로·보호·Cache 처리를 그대로 사용합니다."""

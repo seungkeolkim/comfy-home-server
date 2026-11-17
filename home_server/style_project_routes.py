@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import sqlite3
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -12,6 +13,7 @@ from .style_generation import StyleCandidateFavoriteInput, StyleGenerationPlanIn
 from .style_random_generation import RandomStyleGenerationPlanInput
 from .style_project_rename import StyleProjectRenameService
 from .style_lora_presets import StyleLoraPresetRegistrationInput
+from .style_project_forks import ProjectForkInput, StyleProjectForkStore
 
 
 LOGGER = logging.getLogger(__name__)
@@ -61,6 +63,31 @@ def create_style_project_router(server) -> APIRouter:
                 return project
         raise HTTPException(404, "프로젝트를 찾을 수 없습니다.")
 
+    @router.get("/api/style-projects/{project_identifier}/fork-options")
+    def read_project_fork_options(project_identifier: str):
+        """0세대를 포함해 실제 저장된 세대별 설정의 Fork 선택지를 조회합니다."""
+
+        try:
+            return StyleProjectForkStore(server.database.style_projects, server.config.workflow_directory).options(project_identifier)
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+
+    @router.post("/api/style-projects/{project_identifier}/forks", status_code=201)
+    def fork_style_project(project_identifier: str, payload: ProjectForkInput):
+        """이미지·조합·Elo·CHS 작업 없이 독립적인 새 프로젝트를 만듭니다."""
+
+        try:
+            return StyleProjectForkStore(server.database.style_projects, server.config.workflow_directory).create_fork(project_identifier, payload)
+        except StyleRevisionConflict as exception:
+            raise HTTPException(409, str(exception)) from exception
+        except LookupError as exception:
+            raise HTTPException(404, str(exception)) from exception
+        except ValueError as exception:
+            raise HTTPException(422, str(exception)) from exception
+        except sqlite3.Error as exception:
+            LOGGER.warning("프로젝트 Fork 저장 실패: %s", type(exception).__name__)
+            raise HTTPException(409, "프로젝트 Fork를 저장하지 못했습니다. 다시 시도해 주세요.") from exception
+
     @router.post("/api/style-projects", status_code=201)
     def create_style_project(payload: ProjectWriteInput):
         """후보·Vote·GPU 작업 없이 Fresh 프로젝트를 생성합니다."""
@@ -88,6 +115,9 @@ def create_style_project_router(server) -> APIRouter:
             raise HTTPException(422, str(exception)) from exception
         except OSError as exception:
             raise HTTPException(409, "출력 폴더 이름을 변경하지 못했습니다. 파일 사용 상태를 확인하고 같은 요청을 다시 시도해 주세요.") from exception
+        except sqlite3.Error as exception:
+            LOGGER.warning("스타일 프로젝트 설정 저장 실패: %s", type(exception).__name__)
+            raise HTTPException(409, "프로젝트 설정을 저장하지 못했습니다. 다시 시도해 주세요.") from exception
 
     @router.put("/api/style-projects/{project_identifier}/candidates/{candidate_identifier}/favorite")
     def set_candidate_favorite(project_identifier: str, candidate_identifier: str, payload: StyleCandidateFavoriteInput):

@@ -15,6 +15,7 @@ from .style_generation_sizing import DEFAULT_EVOLUTION_CHILD_COUNT, MAXIMUM_EVOL
 from .style_projects import ProjectSettings, StyleRevisionConflict, encode_snapshot, snapshot_hash
 from .style_voting import ranked_candidate_statistics
 from .style_voting_rules import boundary_tie_match, candidate_is_rated, initial_candidate_statistics
+from .style_component_statistics import inherited_component_statistics
 
 
 class EvolutionPlanInput(BaseModel):
@@ -253,7 +254,11 @@ class StyleEvolutionService:
                        "sourceCandidateIdentifiers": [candidate["identifier"] for candidate in candidates], "beforeArena": copy.deepcopy(state), "votingRevision": revision,
                        "operationIdentifier": payload.operationIdentifier, "payloadHash": request_hash, "resolvedCases": reference_cases}
         selection_seed = snapshot_hash({"projectIdentifier": project_identifier, "operationIdentifier": payload.operationIdentifier})
-        children, provenance = draw_evolution_children(settings, parents, state["statistics"], all_candidates, payload.childCount, selection_seed)
+        with self.server.database._connect() as connection:
+            inherited_statistics = inherited_component_statistics(connection, project_identifier)
+        prior_scores = {identifier: observation.get("score", 0) for identifier, observation in inherited_statistics.items()}
+        children, provenance = draw_evolution_children(settings, parents, state["statistics"], all_candidates, payload.childCount, selection_seed, component_prior_scores=prior_scores)
+        provenance["componentPriorScores"] = prior_scores
         if not children:
             raise ValueError("범위 안에서 중복 없는 자녀를 만들지 못했습니다. 성분·개수·STR 범위를 넓혀 주세요.")
         context["children"] = children
@@ -290,7 +295,7 @@ class StyleEvolutionService:
         if not row:
             if open_batch:
                 raise StyleRevisionConflict("진화를 확정하거나 취소한 뒤 일반 조합을 추가해 주세요.")
-            if not retry and plan.get("generationNumber", 1) != self.store.current_generation_number(connection, plan["evaluationIdentifier"]):
+            if not retry and plan.get("generationNumber", 1) != max(1, self.store.current_generation_number(connection, plan["evaluationIdentifier"])):
                 raise StyleRevisionConflict("이전 세대에서 준비한 생성 계획입니다. 현재 세대의 새 조합으로 다시 시작해 주세요.")
             return
         if row["status"] in {"cancelled", "confirmed"}:

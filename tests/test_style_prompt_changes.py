@@ -43,7 +43,7 @@ def test_third_prompt_saved_after_images_and_original_snapshots_preserved(tmp_pa
                         for candidate in original_results["candidates"] for render in candidate["renders"] for file in render["files"]}
         updated = save_changed_prompts(client, project, width=768)
         assert updated["evaluationIdentifier"] != project["evaluationIdentifier"]
-        assert updated["generation"] == project["generation"]
+        assert updated["generation"] == 1
         assert client.get(endpoint).json()["settings"]["promptCases"][2]["prompt"] == "night garden"
         assert client.get("/api/style-workspace").json()["projects"][0]["promptCases"][2]["name"] == "세 번째"
         assert client.get(endpoint + "/generation-results").json()["candidates"] == original_results["candidates"]

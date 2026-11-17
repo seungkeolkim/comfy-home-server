@@ -8,6 +8,34 @@ from .style_voting_rules import candidate_is_rated
 COMPONENT_PREFERENCE_POLICY_VERSION = "ridge-60-component-preference-v1"
 
 
+def inherited_component_statistics(connection, project_identifier: str) -> dict:
+    """Fork 시 복사한 성분 Score·승패를 읽으며 원본 프로젝트나 조합 Elo를 참조하지 않습니다."""
+
+    row = connection.execute("SELECT component_statistics_json FROM style_project_forks WHERE project_id=?", (project_identifier,)).fetchone()
+    return json.loads(row[0]) if row else {}
+
+
+def component_win_loss_statistics(candidates: list[dict], votes) -> dict:
+    """양쪽에 공통인 성분을 제외하고 유효한 일반 대결의 성분별 승패만 집계합니다."""
+
+    components_by_candidate = {}
+    for candidate in candidates:
+        components_by_candidate[candidate["identifier"]] = {component["identifier"] for component in candidate["components"]}
+    statistics = {}
+    for vote in votes:
+        first_components = components_by_candidate.get(vote["first_candidate"])
+        second_components = components_by_candidate.get(vote["second_candidate"])
+        if first_components is None or second_components is None:
+            continue
+        for identifier in first_components ^ second_components:
+            observation = statistics.setdefault(identifier, {"matches": 0, "wins": 0, "losses": 0})
+            observation["matches"] += 1
+            won = (identifier in first_components) == (vote["choice"] == "a")
+            observation["wins"] += int(won)
+            observation["losses"] += int(not won)
+    return statistics
+
+
 def rated_component_candidates(candidates: list[dict], statistics: dict) -> list[dict]:
     """확정된 활성·퇴역 후보만 사용하고 진행·취소·삭제 후보의 점수는 제외합니다."""
 
@@ -73,7 +101,11 @@ def read_component_statistics(connection, project_identifier: str, evaluation_id
     candidates = [{"identifier": row["candidate_id"], "components": json.loads(row["components_json"]), "lifecycle": row["lifecycle"]} for row in candidate_rows]
     arena = connection.execute("SELECT revision,state_json FROM style_voting_arenas WHERE project_id=? AND evaluation_id=?", (project_identifier, evaluation_identifier)).fetchone()
     statistics = json.loads(arena["state_json"])["statistics"] if arena else {}
-    scores = component_preference_scores(candidates, statistics)
+    local_scores = component_preference_scores(candidates, statistics)
+    inherited_statistics = inherited_component_statistics(connection, project_identifier)
+    scores = {}
+    for identifier in local_scores.keys() | inherited_statistics.keys():
+        scores[identifier] = local_scores.get(identifier, 0) + inherited_statistics.get(identifier, {}).get("score", 0)
     policies = json.loads(project["settings_json"])["componentPolicies"]
     enabled_identifiers = [identifier for identifier, policy in policies.items() if policy["enabled"]]
     preferences = component_selection_preferences(scores, enabled_identifiers)
@@ -82,24 +114,21 @@ def read_component_statistics(connection, project_identifier: str, evaluation_id
         for component in candidate["components"]:
             observation = components.setdefault(component["identifier"], {"score": 0, "ratedCombinationCount": 0, "matches": 0, "wins": 0})
             observation["ratedCombinationCount"] += 1
-    components_by_candidate = {candidate["identifier"]: {component["identifier"] for component in candidate["components"]} for candidate in candidates}
     votes = connection.execute(
         "SELECT json_extract(match_json,'$.a') AS first_candidate,json_extract(match_json,'$.b') AS second_candidate,choice "
         "FROM style_vote_events WHERE evaluation_id=? AND undone_by IS NULL AND choice IN ('a','b') "
         "AND json_extract(match_json,'$.kind') IN ('league','top','tie') ORDER BY rowid", (evaluation_identifier,),
     )
-    for vote in votes:
-        first_components = components_by_candidate.get(vote["first_candidate"])
-        second_components = components_by_candidate.get(vote["second_candidate"])
-        if first_components is None or second_components is None:
-            continue
-        # 양쪽에 같은 성분이 있으면 STR 차이만으로 해당 성분의 승패를 단정하지 않습니다.
-        for identifier in first_components ^ second_components:
-            observation = components.setdefault(identifier, {"score": 0, "ratedCombinationCount": 0, "matches": 0, "wins": 0})
-            observation["matches"] += 1
-            observation["wins"] += int((identifier in first_components) == (vote["choice"] == "a"))
+    local_statistics = component_win_loss_statistics(candidates, votes)
+    for identifier in local_statistics.keys() | inherited_statistics.keys():
+        components.setdefault(identifier, {"score": 0, "ratedCombinationCount": 0, "matches": 0, "wins": 0})
     for identifier, observation in components.items():
-        observation.update(score=scores.get(identifier, 0), losses=observation["matches"] - observation["wins"],
+        local = local_statistics.get(identifier, {"matches": 0, "wins": 0, "losses": 0})
+        inherited = inherited_statistics.get(identifier, {"matches": 0, "wins": 0, "losses": 0})
+        observation.update(matches=local["matches"] + inherited["matches"], wins=local["wins"] + inherited["wins"],
+                           losses=local["losses"] + inherited["losses"], localMatches=local["matches"], localWins=local["wins"],
+                           inheritedMatches=inherited["matches"], inheritedWins=inherited["wins"], inheritedLosses=inherited["losses"])
+        observation.update(score=scores.get(identifier, 0), localScore=local_scores.get(identifier, 0), inheritedScore=inherited.get("score", 0),
                            winRate=observation["wins"] / observation["matches"] if observation["matches"] else None,
                            selectionMultiplier=preferences.get(identifier, 1.0))
     return {"projectIdentifier": project_identifier, "evaluationIdentifier": evaluation_identifier,

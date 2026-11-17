@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from home_server.style_voting_rules import apply_match_choice, calculate_regular_ratings, choose_next_match, initial_candidate_statistics, placement_position, placement_rating
-from home_server.database import Database
+from home_server.database import DATABASE_SCHEMA_VERSION, Database
 from test_application import create_processing_test_app
 from test_style_generation import StyleComfyClient, prepare_style_generation, submit_and_wait
 
@@ -339,5 +339,5 @@ def test_schema_sixteen_migration_keeps_source_backup_and_existing_data(tmp_path
         assert connection.execute("PRAGMA user_version").fetchone()[0] == 16
         assert connection.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
     with sqlite3.connect(database_path) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 20
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == DATABASE_SCHEMA_VERSION
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []

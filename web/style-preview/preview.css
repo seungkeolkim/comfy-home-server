@@ -150,6 +150,12 @@ small { font-size: 12px; }
 .project-card p { font-size: 13px; }
 .project-card .card-meta { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin-bottom: 22px; flex-wrap: wrap; }
 .project-card button { width: 100%; }
+.project-card-actions { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
+.project-card .project-fork-button { width: auto; }
+.project-fork-source, .component-inherited-statistics { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+#style-project-fork-dialog .form-layout { gap: 14px; }
+#style-project-fork-dialog .checkbox-row { display: flex; align-items: center; gap: 10px; }
+#style-project-fork-statistics { flex: 0 0 18px; width: 18px; min-height: 18px; margin: 0; }
 .section-label { color: var(--muted); font-size: 12px; margin: 28px 0 12px; }
 .form-layout { max-width: 840px; display: grid; gap: 18px; }
 label { display: block; margin-bottom: 8px; font-size: 12px; font-weight: 700; color: #c4cde0; }
