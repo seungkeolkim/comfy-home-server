@@ -23,7 +23,7 @@ from .style_lora_presets import StyleLoraPresetStore
 from .style_fork_snapshots import StyleForkSnapshotStore
 
 
-DATABASE_SCHEMA_VERSION = 21
+DATABASE_SCHEMA_VERSION = 22
 
 
 def current_timestamp() -> str:
@@ -70,9 +70,11 @@ class Database:
                 self._create_verified_database_backup(connection, "style_lora_presets")
             elif schema_version == 20:
                 self._create_verified_database_backup(connection, "style_project_forks")
+            elif schema_version == 21:
+                self._create_verified_database_backup(connection, "style_selection_performance")
             connection.execute("BEGIN IMMEDIATE")
             schema_version = connection.execute("PRAGMA user_version").fetchone()[0]
-            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, DATABASE_SCHEMA_VERSION}:
+            if schema_version not in {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, DATABASE_SCHEMA_VERSION}:
                 raise RuntimeError("지원하지 않는 DB 버전입니다.")
             if schema_version == 4:
                 self._migrate_group_tag_keys(connection)
@@ -1002,9 +1004,43 @@ class Database:
 
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT request_id, status, prompt_id FROM job_requests WHERE request_id = ?", (request_id,),
+                "SELECT request_id, job_requests.job_id, job_requests.status, prompt_id FROM job_requests JOIN jobs USING(job_id) "
+                "JOIN request_results USING(request_id) "
+                "WHERE request_id = ?", (request_id,),
             ).fetchone()
         return dict(row) if row else None
+
+    def list_unsubmitted_upload_identifiers(self) -> set[str]:
+        """대기 요청이 공유하는 임시 입력을 다른 작업의 정리에서 보호합니다."""
+
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT upload_id FROM request_results JOIN job_requests USING(request_id) "
+                "WHERE job_requests.status='submitting' AND upload_id IS NOT NULL",
+            ).fetchall()
+        return {row[0] for row in rows}
+
+    def stop_unsubmitted_requests(self, request_identifiers: list[str], message: str) -> None:
+        """이미 접수·취소·완료된 상태는 유지하고 미확인 제출만 중단으로 기록합니다."""
+
+        with closing(self._connect()) as connection, connection:
+            connection.executemany(
+                "UPDATE job_requests SET status='stopped',error_message=?,updated_at=? "
+                "WHERE request_id=? AND prompt_id IS NULL AND status IN ('submitting','cancelling')",
+                [(message, current_timestamp(), request_identifier) for request_identifier in request_identifiers],
+            )
+
+    def record_submission_failure(self, request_identifier: str, message: str, *, acceptance_unknown: bool) -> None:
+        """삭제·완료·이미 접수한 상태는 보존하고 아직 미접수인 요청의 오류만 반영합니다."""
+
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT status,prompt_id FROM job_requests WHERE request_id=?", (request_identifier,)).fetchone()
+            if row is None or row["prompt_id"] is not None or row["status"] not in {"submitting", "cancelling"}:
+                return
+            status = "stopped" if acceptance_unknown else "cancelled" if row["status"] == "cancelling" else "failed"
+            connection.execute("UPDATE job_requests SET status=?,error_message=?,updated_at=? WHERE request_id=?",
+                               (status, None if status == "cancelled" else message, current_timestamp(), request_identifier))
 
     def request_job_cancellation(self, job_id: str) -> int | None:
         """제출 중인 요청까지 취소 의도를 원자적으로 기록하고 대상 수를 반환합니다."""
@@ -1034,6 +1070,16 @@ class Database:
                 "UPDATE job_requests SET status = 'cancelled', error_message = NULL, updated_at = ? "
                 "WHERE request_id = ? AND prompt_id IS NULL AND status = 'cancelling'",
                 (current_timestamp(), request_id),
+            )
+
+    def cancel_unsubmitted_requests(self, request_identifiers: list[str]) -> None:
+        """Worker 대기 표시로 전송되지 않음이 보장된 요청만 한 Transaction에서 취소합니다."""
+
+        with closing(self._connect()) as connection, connection:
+            connection.executemany(
+                "UPDATE job_requests SET status='cancelled',error_message=NULL,updated_at=? "
+                "WHERE request_id=? AND prompt_id IS NULL AND status='cancelling'",
+                [(current_timestamp(), request_identifier) for request_identifier in request_identifiers],
             )
 
     def record_cancellation_error(self, request_ids: list[str], error_message: str | None) -> None:
@@ -1173,11 +1219,15 @@ class Database:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT status FROM job_requests WHERE request_id = ?",
+                "SELECT job_requests.status,job_requests.prompt_id FROM job_requests JOIN jobs USING(job_id) "
+                "JOIN request_results USING(request_id) WHERE request_id = ?",
                 (request_id,),
             ).fetchone()
             if row is None:
                 raise ValueError("접수한 요청을 찾을 수 없습니다.")
+            awaiting_prompt_identifier = row["status"] == "pending" and row["prompt_id"] is None
+            if row["status"] not in {"submitting", "cancelling"} and not awaiting_prompt_identifier:
+                raise ValueError("접수 응답을 저장하기 전에 요청 상태가 변경됐습니다.")
             connection.execute(
                 "UPDATE job_requests SET prompt_id = ?, status = ?, updated_at = ? WHERE request_id = ?",
                 (prompt_id, "cancelling" if row["status"] == "cancelling" else "pending",

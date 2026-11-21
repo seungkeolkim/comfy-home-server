@@ -1,6 +1,7 @@
 """기존 Style Lab의 일반 Elo·신규 배치·비교 우선순위를 복원합니다."""
 
 import math
+from bisect import bisect_left
 import random
 import uuid
 
@@ -142,11 +143,12 @@ def league_match_weights(state: dict, identifiers: list[str], rated_identifiers:
     confirmation_count = round(math.log2(max(len(rated_identifiers), 2))) + 3
     tier_multipliers = [(0.1, 1.0), (0.3, 0.9), (0.7, 0.6), (0.9, 0.3), (1.0, 0.1)]
     weights = []
+    ordered_ratings = sorted(statistics[identifier]["rating"] for identifier in rated_identifiers)
     for identifier in identifiers:
         candidate = statistics[identifier]
         weight = 1 / (candidate["matches"] + 1)
         if len(rated_identifiers) >= 2 and candidate["matches"] >= confirmation_count:
-            rank = sum(statistics[other_identifier]["rating"] >= candidate["rating"] for other_identifier in rated_identifiers)
+            rank = len(ordered_ratings) - bisect_left(ordered_ratings, candidate["rating"])
             percentile = rank / len(rated_identifiers)
             weight *= next(multiplier for boundary, multiplier in tier_multipliers if percentile <= boundary)
         weights.append(weight)

@@ -18,7 +18,7 @@
 
 **조합 탐색 규모:** [StyleLab 생성 수량과 Pool 확장](style_population_size_2026-11-15.md). Random 50개·진화 12개 기본값, 프로젝트별 마지막 제출 수량 복원, 50개까지 확장 입력과 큰 Pool의 Prompt 재생성을 적용했습니다. 10개는 최소 진화 조건이며 활성 수 상한이 아닙니다. 운영 재기동·기존 데이터 보존을 확인했습니다.
 
-**성능 개선:** [2026-11-14 원인 조사](style_performance_investigation_2026-11-14.md)와 [2026-11-15 적용·측정](style_performance_improvements_2026-11-15.md). 중복 Polling 병합, 투표 응답 재사용·다음 이미지 Prefetch, Summary·Catalog 일괄 조회와 비교 대상 파일 검사를 적용하고 운영 재기동·데이터 보존을 확인했습니다.
+**성능 개선:** [2026-11-14 원인 조사](style_performance_investigation_2026-11-14.md)와 [2026-11-15 적용·측정](style_performance_improvements_2026-11-15.md). [2026-11-17 세대 누적 지연 개선](style_selection_performance_2026-11-17.md)은 Checkpoint의 큰 본문 읽기 제거, 조회의 Write Lock 분리, 활성 후보 조회와 파일 Hash 재사용을 다룹니다.
 
 **현재 실제 연결:** `/style`에 프로젝트 설정 저장, Random 조합·여러 Prompt 이미지 생성, 작업·출력 분리, [투표·Elo·Undo](phase_four_review.md)를 연결했습니다. 사용자 진행 요청으로 [진화 1회: 부모 선정·자녀 생성·Selection·세대 확정/취소](phase_five_review.md)를 추가하며, 작은 Cycle의 사용자 확인을 기다립니다. 기존 `/style-preview`는 예시 목업입니다.
 

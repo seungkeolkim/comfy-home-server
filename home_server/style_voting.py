@@ -3,6 +3,7 @@
 import copy
 import json
 import uuid
+from contextlib import closing
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -11,6 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field
 from .style_projects import StyleRevisionConflict, encode_snapshot, snapshot_hash
 from .style_evolution_selection import build_selection_ranking, synchronize_selection_statistics
 from .style_voting_rules import VOTING_POLICY_VERSION, apply_match_choice, candidate_is_rated, choose_next_match, initial_candidate_statistics, league_candidate_identifiers, new_match, remove_deleted_candidate_state
+
+
+class StyleArenaRefreshRequired(Exception):
+    """조회 Snapshot의 변경을 저장하려면 별도 Write Transaction이 필요함을 알립니다."""
 
 
 class StyleVotingCommand(BaseModel):
@@ -105,6 +110,8 @@ class StyleVotingService:
             "evaluation_id TEXT NOT NULL REFERENCES style_voting_arenas(evaluation_id), "
             "action TEXT NOT NULL, payload_hash TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL)"
         )
+        connection.execute("CREATE INDEX IF NOT EXISTS style_voting_pending_deletions ON style_voting_commands(project_id,evaluation_id) WHERE action='delete'")
+        connection.execute("CREATE INDEX IF NOT EXISTS style_votes_evaluation ON style_vote_events(evaluation_id)")
 
     def load_evaluation_candidates(self, connection, project_identifier: str, evaluation_identifier: str, *, verify_files: bool = True, include_retired: bool = False) -> tuple[list[dict], list[str]]:
         """Catalog와 파일로 준비 상태를 확인하며 결원 보충 때만 보관 조합을 포함합니다."""
@@ -112,37 +119,45 @@ class StyleVotingService:
         evaluation = connection.execute("SELECT 1 FROM style_evaluation_revisions WHERE evaluation_id=? AND project_id=?", (evaluation_identifier, project_identifier)).fetchone()
         if not evaluation:
             raise LookupError("프로젝트의 평가 조건을 찾을 수 없습니다.")
-        rows = connection.execute(
-            "SELECT candidates.*,plans.plan_json FROM style_candidates AS candidates "
-            "JOIN style_generation_plans AS plans USING(plan_id) JOIN style_candidate_memberships AS memberships USING(candidate_id) "
+        membership_joins = (
+            " JOIN style_candidate_memberships AS memberships USING(candidate_id) "
             "LEFT JOIN style_evolution_batches AS batches ON batches.batch_id=memberships.batch_id "
-            "WHERE candidates.project_id=? AND candidates.evaluation_id=? AND (memberships.lifecycle='active' "
+        )
+        candidate_filter = (
+            " WHERE candidates.project_id=? AND candidates.evaluation_id=? AND (memberships.lifecycle='active' "
             "OR (memberships.lifecycle='evolving' AND batches.status='active') "
-            "OR (? AND memberships.lifecycle='retired')) ORDER BY candidates.rowid",
-            (project_identifier, evaluation_identifier, include_retired),
+            "OR (? AND memberships.lifecycle='retired'))"
+        )
+        parameters = (project_identifier, evaluation_identifier, include_retired)
+        rows = connection.execute(
+            "SELECT candidates.candidate_id,candidates.plan_id,candidates.components_json FROM style_candidates AS candidates "
+            + membership_joins + candidate_filter + " ORDER BY candidates.rowid", parameters,
         ).fetchall()
+        if not rows:
+            return [], []
+        plan_rows = connection.execute(
+            "SELECT plan_id,json_extract(plan_json,'$.cases') AS cases_json FROM style_generation_plans WHERE plan_id IN "
+            "(SELECT DISTINCT candidates.plan_id FROM style_candidates AS candidates " + membership_joins + candidate_filter + ")", parameters,
+        ).fetchall()
+        cases_by_plan = {row["plan_id"]: json.loads(row["cases_json"]) for row in plan_rows}
         render_rows = connection.execute(
             "SELECT renders.candidate_id,renders.case_id,requests.status,(SELECT files.relative_path "
             "FROM output_files AS files WHERE files.request_id=renders.request_id AND files.is_available=1 "
-            "AND files.is_deleted=0 LIMIT 1) AS relative_path FROM style_candidate_renders AS renders "
-            "JOIN style_candidates AS candidates USING(candidate_id) JOIN job_requests AS requests USING(request_id) "
-            "WHERE candidates.project_id=? AND candidates.evaluation_id=? ORDER BY renders.rowid",
-            (project_identifier, evaluation_identifier),
+            "AND files.is_deleted=0 LIMIT 1) AS relative_path FROM style_candidates AS candidates "
+            + membership_joins + " JOIN style_candidate_renders AS renders USING(candidate_id) "
+            "JOIN job_requests AS requests USING(request_id)" + candidate_filter + " ORDER BY renders.rowid", parameters,
         ).fetchall()
         latest_by_candidate = {}
         for render in render_rows:
             latest_by_candidate.setdefault(render["candidate_id"], {})[render["case_id"]] = render
         candidates = []
         ready_identifiers = []
-        cases_by_plan = {}
         for row in rows:
             latest_renders = latest_by_candidate.get(row["candidate_id"], {})
             if not latest_renders:
                 continue
             candidate = {"identifier": row["candidate_id"], "components": json.loads(row["components_json"]), "imagePaths": []}
             candidates.append(candidate)
-            if row["plan_id"] not in cases_by_plan:
-                cases_by_plan[row["plan_id"]] = json.loads(row["plan_json"])["cases"]
             cases = cases_by_plan[row["plan_id"]]
             all_cases_ready = True
             for prompt_case in cases:
@@ -185,21 +200,25 @@ class StyleVotingService:
                 return
             self.synchronize_candidates(state, candidates, ready_identifiers)
 
-    def load_arena(self, connection, project_identifier: str, evaluation_identifier: str) -> tuple[int, dict]:
+    def load_arena(self, connection, project_identifier: str, evaluation_identifier: str, *, read_only: bool = False) -> tuple[int, dict]:
         """최초 조회에 빈 Arena를 만들고 이미지 생성과 독립된 평가 상태를 읽습니다."""
 
         row = connection.execute("SELECT revision,state_json FROM style_voting_arenas WHERE evaluation_id=? AND project_id=?", (evaluation_identifier, project_identifier)).fetchone()
         if row:
             state = json.loads(row["state_json"])
             revision = row["revision"]
-            changed = self.server.style_evolution.migrate_parent_selection(connection, project_identifier, evaluation_identifier, state)
+            changed = self.server.style_evolution.migrate_parent_selection(connection, project_identifier, evaluation_identifier, state, read_only=read_only)
             deleted_identifiers = [membership[0] for membership in connection.execute(
                 "SELECT candidate_id FROM style_candidate_memberships WHERE evaluation_id=? AND lifecycle IN ('deleting','deleted')", (evaluation_identifier,),
             )]
             if remove_deleted_candidate_state(state, deleted_identifiers) or changed:
+                if read_only:
+                    raise StyleArenaRefreshRequired()
                 revision += 1
                 self.save_arena(connection, evaluation_identifier, revision, state)
             return revision, state
+        if read_only:
+            raise StyleArenaRefreshRequired()
         state = {"policyVersion": VOTING_POLICY_VERSION, "mode": "auto", "statistics": {}, "componentStatistics": {}, "match": None, "placement": None, "skippedTies": [], "lastPair": [], "undoStack": []}
         connection.execute("INSERT INTO style_voting_arenas VALUES(?,?,?,?)", (evaluation_identifier, project_identifier, 1, encode_snapshot(state)))
         return 1, state
@@ -242,25 +261,42 @@ class StyleVotingService:
             "undoUnavailableReason": "최근 선택은 다른 Browser에서 했습니다." if latest_event and latest_event["client_id"] != client_identifier else "",
         }
 
-    def read(self, project_identifier: str, evaluation_identifier: str, client_identifier: str) -> dict:
-        """재접속 시 현재 Pair와 점수를 복원하고 새 이미지가 준비된 경우만 갱신합니다."""
+    def read_with_arena_refresh(self, read_snapshot) -> dict:
+        """조회 연결을 먼저 닫은 뒤 필요한 경우에만 최신 상태를 Write Transaction에서 다시 읽습니다."""
 
-        with self.server.database._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
+        for read_only in (True, False):
+            try:
+                with closing(self.server.database._connect()) as connection, connection:
+                    connection.execute("BEGIN" if read_only else "BEGIN IMMEDIATE")
+                    return read_snapshot(connection, read_only)
+            except StyleArenaRefreshRequired:
+                if not read_only:
+                    raise
+
+    def read(self, project_identifier: str, evaluation_identifier: str, client_identifier: str) -> dict:
+        """재접속 시 현재 Pair를 읽고 새 이미지·파일 유실이 있을 때만 상태를 저장합니다."""
+
+        def read_selection_snapshot(connection, read_only: bool) -> dict:
+            """같은 Read Snapshot에서 후보·Pair·Undo를 만들고 저장 필요 여부를 판별합니다."""
+
             candidates, ready_identifiers = self.load_evaluation_candidates(connection, project_identifier, evaluation_identifier, verify_files=False)
-            revision, state = self.load_arena(connection, project_identifier, evaluation_identifier)
+            revision, state = self.load_arena(connection, project_identifier, evaluation_identifier, read_only=read_only)
             previous_snapshot = encode_snapshot(state)
             self.synchronize_available_match(state, candidates, ready_identifiers)
             if encode_snapshot(state) != previous_snapshot:
+                if read_only:
+                    raise StyleArenaRefreshRequired()
                 revision += 1
                 self.save_arena(connection, evaluation_identifier, revision, state)
             return self.arena_view(connection, project_identifier, evaluation_identifier, client_identifier, revision, state, candidates, ready_identifiers)
+
+        return self.read_with_arena_refresh(read_selection_snapshot)
 
     def execute(self, project_identifier: str, action: str, payload: StyleVotingCommand) -> dict:
         """Vote·Undo·Pair 변경을 검증 후 원자 반영하고 재전송에는 저장한 응답을 줍니다."""
 
         request_hash = snapshot_hash({"projectIdentifier": project_identifier, "action": action, **payload.model_dump()})
-        with self.server.database._connect() as connection:
+        with closing(self.server.database._connect()) as connection, connection:
             connection.execute("BEGIN IMMEDIATE")
             existing = connection.execute("SELECT payload_hash,response_json FROM style_voting_commands WHERE operation_id=?", (payload.operationIdentifier,)).fetchone()
             if existing:

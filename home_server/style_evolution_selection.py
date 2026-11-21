@@ -51,7 +51,8 @@ def child_auxiliary_scores(selection: dict) -> tuple[dict, dict]:
 
     scores = dict(selection["parent_scores"])
     children = set(selection["candidate_ids"])
-    scores.update({identifier: min(scores.values()) for identifier in children})
+    minimum_parent_score = min(scores.values())
+    scores.update(dict.fromkeys(children, minimum_parent_score))
     counts = dict.fromkeys(children, 0)
     for vote in reversed(batch_history(selection)):
         if vote["type"] != "selection_vote":
@@ -98,7 +99,8 @@ def least_conflicting_slots(votes: list, ladder_size: int) -> list[int]:
             for rung_index, result in votes
         )
         costs.append(violations)
-    return [slot_index for slot_index, cost in enumerate(costs) if cost == min(costs)]
+    minimum_cost = min(costs)
+    return [slot_index for slot_index, cost in enumerate(costs) if cost == minimum_cost]
 
 
 def verification_rung(best_slots: list[int], slot_index: int, tried_rungs: set[int], ladder_size: int) -> int | None:
@@ -223,13 +225,22 @@ def synchronize_selection_statistics(state: dict) -> None:
     ranking = build_selection_ranking(selection)
     history = batch_history(selection)
     rating_offsets = selection.get("ratingOffsets", {})
+    child_identifiers = set(selection["candidate_ids"])
+    wins_by_child = dict.fromkeys(child_identifiers, 0)
+    skips_by_child = dict.fromkeys(child_identifiers, 0)
+    for vote in history:
+        if vote["type"] == "selection_vote" and vote["winner_id"] in child_identifiers:
+            wins_by_child[vote["winner_id"]] += 1
+        elif vote["type"] == "selection_skip":
+            for identifier in set(vote["pair"].values()) & child_identifiers:
+                skips_by_child[identifier] += 1
     for identifier in selection["candidate_ids"]:
         statistics = state["statistics"][identifier]
         decisive_votes = ranking["counts"][identifier]
         judged = bool(ranking["info"][identifier]["votes"])
         statistics["rating"] = (ranking["scores"][identifier] if judged else 10000) + rating_offsets.get(identifier, 0)
         statistics["matches"] = decisive_votes
-        statistics["wins"] = sum(vote.get("winner_id") == identifier for vote in history if vote["type"] == "selection_vote") if decisive_votes else 0
-        statistics["skips"] = sum(identifier in vote["pair"].values() for vote in history if vote["type"] == "selection_skip")
+        statistics["wins"] = wins_by_child[identifier] if decisive_votes else 0
+        statistics["skips"] = skips_by_child[identifier]
         statistics["placementPending"] = False
         statistics["placed"] = judged or identifier in rating_offsets

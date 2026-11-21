@@ -1,12 +1,12 @@
 """세대 Timeline·후보 소속·진화 Batch·확정 Checkpoint를 보관합니다."""
 
-import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
 
 from .style_projects import encode_snapshot, snapshot_hash
 from .style_fork_snapshots import StyleForkSnapshotStore
+from .style_checkpoint_files import StyleCheckpointFileStore
 
 
 class StyleEvolutionStore:
@@ -16,6 +16,7 @@ class StyleEvolutionStore:
         """같은 Home DB와 관리 이미지 경로를 사용합니다."""
 
         self.server = server
+        self.checkpoint_files = StyleCheckpointFileStore(server)
 
     @staticmethod
     def prepare_schema(connection) -> None:
@@ -28,7 +29,10 @@ class StyleEvolutionStore:
         connection.execute("CREATE TABLE IF NOT EXISTS style_candidate_memberships (candidate_id TEXT PRIMARY KEY REFERENCES style_candidates(candidate_id), evaluation_id TEXT NOT NULL REFERENCES style_evaluation_revisions(evaluation_id), generation_number INTEGER NOT NULL, lifecycle TEXT NOT NULL, batch_id TEXT REFERENCES style_evolution_batches(batch_id), breeding_mode TEXT NOT NULL, parent_ids_json TEXT NOT NULL)")
         connection.execute("INSERT OR IGNORE INTO style_candidate_memberships SELECT candidate_id,evaluation_id,1,'active',NULL,'legacy','[]' FROM style_candidates")
         connection.execute("CREATE TABLE IF NOT EXISTS style_generation_checkpoints (checkpoint_id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES style_projects(project_id), evaluation_id TEXT NOT NULL REFERENCES style_evaluation_revisions(evaluation_id), generation_number INTEGER NOT NULL, snapshot_json TEXT NOT NULL, snapshot_hash TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(evaluation_id,generation_number))")
+        connection.execute("CREATE INDEX IF NOT EXISTS style_checkpoint_listing ON style_generation_checkpoints(evaluation_id,generation_number,created_at)")
+        connection.execute("CREATE INDEX IF NOT EXISTS style_evolution_evaluation ON style_evolution_batches(evaluation_id,status)")
         connection.execute("CREATE TABLE IF NOT EXISTS style_evolution_commands (operation_id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES style_projects(project_id), batch_id TEXT NOT NULL REFERENCES style_evolution_batches(batch_id), action TEXT NOT NULL, payload_hash TEXT NOT NULL, response_json TEXT NOT NULL, created_at TEXT NOT NULL)")
+        StyleCheckpointFileStore.prepare_schema(connection)
 
     @staticmethod
     def current_generation_number(connection, evaluation_identifier: str) -> int:
@@ -68,20 +72,11 @@ class StyleEvolutionStore:
             "WHERE project_id=? AND candidates.evaluation_id=? AND generation_number<=? ORDER BY renders.rowid", scope)]
         batches = [dict(row) for row in connection.execute(
             "SELECT * FROM style_evolution_batches WHERE project_id=? AND evaluation_id=? AND CAST(json_extract(batch_json,'$.targetGeneration') AS INTEGER)<=? ORDER BY rowid", scope)]
-        assets = []
-        for row in connection.execute(
+        asset_rows = connection.execute(
             "SELECT DISTINCT files.output_id,files.relative_path,files.is_available,files.is_deleted FROM output_files AS files "
             "JOIN style_candidate_renders USING(request_id) JOIN style_candidates AS candidates USING(candidate_id) JOIN style_candidate_memberships USING(candidate_id) "
-            "WHERE project_id=? AND candidates.evaluation_id=? AND generation_number<=? ORDER BY files.output_id", scope):
-            asset = dict(row)
-            if row["is_available"] and not row["is_deleted"]:
-                image_path = self.server.managed_path(row["relative_path"])
-                if image_path.is_file():
-                    asset["sha256"] = hashlib.sha256(image_path.read_bytes()).hexdigest()
-                    asset["fileSize"] = image_path.stat().st_size
-                else:
-                    asset["missingFile"] = True
-            assets.append(asset)
+            "WHERE project_id=? AND candidates.evaluation_id=? AND generation_number<=? ORDER BY files.output_id", scope).fetchall()
+        assets = self.checkpoint_files.describe_assets(connection, project_identifier, asset_rows)
         event_boundary = connection.execute("SELECT COALESCE(MAX(rowid),0) FROM style_vote_events WHERE evaluation_id=?", (evaluation_identifier,)).fetchone()[0]
         command_boundary = connection.execute("SELECT COALESCE(MAX(rowid),0) FROM style_voting_commands WHERE evaluation_id=?", (evaluation_identifier,)).fetchone()[0]
         evolution_boundary = connection.execute("SELECT COALESCE(MAX(commands.rowid),0) FROM style_evolution_commands AS commands JOIN style_evolution_batches USING(batch_id) WHERE evaluation_id=?", (evaluation_identifier,)).fetchone()[0]

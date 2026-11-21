@@ -2,6 +2,27 @@
 
 이 문서는 Schema 8을 적용한 당시의 구현·측정 기록입니다. 현재 Schema 9의 공통 입력·확정 결과 분리는 [작업·요청 저장 구조](job_request_storage_split.md)를 참고하세요.
 
+## 2026-11-21 단일 제출 Worker
+
+100개씩 연속 접수하면 작업별 Background Task가 HTTP·DB `await` 사이에 실행되어 서로 다른 작업의 Prompt가 ComfyUI Queue에 섞였습니다. 현재는 `home_server/submission_worker.py`의 단일 Worker에 기존 요청 Metadata 참조만 `put_nowait()`로 전달합니다. 내부 접수는 파일·Graph를 새로 읽거나 직렬화하지 않으며 같은 Event loop에서 처리하므로 별도 제출 Lock을 사용하지 않습니다.
+
+일반 생성, 즐겨찾기 복원, 스타일 생성·실패 재시도가 같은 Worker를 사용합니다. 내부 접수 순서대로 한 작업의 전체 요청을 준비·전송하고 접수 ID를 기록한 뒤 다음 작업으로 넘어갑니다. GPU 생성 완료를 기다리는 구조는 아닙니다. API의 입력 Snapshot 복사·검증과 기존 응답 형식은 유지하며, Worker 대기 요청도 DB에서는 기존 `submitting` 상태로 표시합니다. ComfyUI 직접 접속이나 별도 StyleLab 8389의 제출은 이 Worker를 통과하지 않습니다.
+
+- 대기 작업·요청은 취소 표시를 Worker Metadata에 먼저 반영하고 미전송 요청만 즉시 `cancelled`로 기록합니다. 앞 작업의 느린 전송 응답을 기다리지 않고 대기 작업을 취소·삭제할 수 있습니다.
+- 요청·상위 작업·확정 결과가 삭제됐다면 전송 전 DB 재확인에서 건너뜁니다. 스타일 Render·평가 조건이 유실됐다면 해당 요청에 명시적 오류를 기록합니다.
+- 실제 필요한 임시 입력이 없거나 링크 파일로 바뀌었다면 실패로 기록합니다. 여러 대기 작업이 공유하는 임시 입력은 마지막 참조가 처리되기 전에 앞 작업의 정리가 삭제하지 않도록 보호합니다.
+- 접수 시 복사한 입력·태그·설정은 유지하므로 원본 이미지·작업·즐겨찾기 삭제만으로 이미 접수한 생성을 막지 않습니다. 필요한 Snapshot이 남아 있는지가 기준입니다.
+- Worker가 작업을 시작하면 LoRA 목록을 다시 확인합니다. 대기 중 삭제된 LoRA는 전송 전에 실패로 기록합니다. ComfyUI가 모델·Node 등의 참조를 4xx로 거부한 경우도 해당 요청만 실패하며 다음 요청·작업을 계속 처리합니다.
+- `/prompt` 응답을 받지 못해 접수 여부가 모호하면 `stopped`로 남기고 자동 재제출하지 않습니다. 이미 접수 ID를 받았는데 요청 삭제·상태 변경·저장 오류가 경합했다면 그 Prompt만 개별 취소하고 로그에 ID를 남깁니다. 다른 작업의 Queue를 비우거나 전역 Interrupt를 보내지 않습니다.
+- 파일 정리나 작업 처리 오류가 있어도 공유 Worker는 다음 작업을 이어갑니다. 완료·취소·이미 접수된 상태를 오류 기록으로 되살리거나 덮어쓰지 않습니다.
+- CHS 종료 시 Worker를 먼저 멈춥니다. 아직 ComfyUI 접수 ID가 없는 처리·대기 요청은 `stopped`로 기록하며 재시작 때 자동 재실행하지 않습니다. 이미 접수한 `pending`·`running` 요청은 기존 Prompt ID로 감시를 이어갑니다. Memory Queue 자체를 영속 복구하는 변경은 아닙니다.
+
+DB Schema는 기존 22를 유지하며 Table·상태 코드·API 응답은 추가하지 않습니다. 기존 파일·작업 데이터와 앞서 적용한 선별 성능 개선도 유지합니다. 새로운 회귀 검증은 작업 두 개의 100+100 연속 제출, 세 제출 경로의 공유 Worker 사용, 대기 취소·삭제, Snapshot·Workflow·LoRA·Render 유실, 응답 지연 중 수동 삭제/종료, 정리 실패, 공유 임시 입력 보호, 미접수 종료·접수 완료 요청의 재시작 보존을 포함합니다.
+
+검증 결과는 **Python 614 passed, 1 skipped**입니다. 기존 Starlette/httpx DeprecationWarning 1건이 있습니다. 격리 서버의 실제 Browser에서 스타일 생성과 여러 세대의 선별·Undo·확정·취소 Cycle도 통과했습니다. 원시 결과와 운영 반영 Backup·Manifest는 Git 제외 경로 `runtime/verification/submission-worker-20261121/`에 보관합니다.
+
+아래는 2026-10-10 당시의 취소·조회 성능 기록입니다.
+
 - 작업일: 2026-10-10
 - 브랜치: `codex/job-cancellation-performance`
 - 기준 테스트 입력: 작업 `820f0bd49c29`의 Prompt, Negative Prompt, 태그 후보, LoRA, Workflow 옵션

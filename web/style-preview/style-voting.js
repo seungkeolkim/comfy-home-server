@@ -43,8 +43,9 @@ function applyStyleVotingResponse(projectIdentifier, selection) {
   const existing = state.votingEvaluations[selection.evaluationIdentifier];
   if (existing && existing.revision > selection.revision) return false;
   state.votingEvaluations[selection.evaluationIdentifier] = selection;
+  const candidatesByIdentifier = new Map((state.results?.candidates || []).map(candidate => [candidate.identifier, candidate]));
   for (const statistics of selection.rankings) {
-    const candidate = state.results?.candidates.find(candidate => candidate.identifier === statistics.identifier);
+    const candidate = candidatesByIdentifier.get(statistics.identifier);
     if (candidate) candidate.statistics = statistics;
   }
   return true;

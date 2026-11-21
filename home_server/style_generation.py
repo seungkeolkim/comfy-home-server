@@ -484,9 +484,19 @@ class StyleGenerationService:
 
         render_identifier = request["detail"]["resolved"]["style_render_identifier"]
         with self.server.database._connect() as connection:
-            row = connection.execute("SELECT render_plan_json FROM style_candidate_renders WHERE render_id=? AND request_id=?", (render_identifier, request["request_id"])).fetchone()
+            row = connection.execute(
+                "SELECT renders.render_plan_json FROM style_candidate_renders AS renders "
+                "JOIN style_candidates USING(candidate_id) JOIN style_candidate_memberships AS memberships USING(candidate_id) "
+                "JOIN style_projects USING(project_id) WHERE renders.render_id=? AND renders.request_id=? "
+                "AND memberships.lifecycle IN ('active','evolving')", (render_identifier, request["request_id"]),
+            ).fetchone()
+            if row is None:
+                raise LookupError("제출 대기 중 스타일 프로젝트·조합 또는 생성 계획이 삭제되거나 취소됐습니다.")
             render_plan = json.loads(row[0])
-            contract = json.loads(connection.execute("SELECT contract_json FROM style_evaluation_revisions WHERE evaluation_id=?", (render_plan["evaluationIdentifier"],)).fetchone()[0])
+            contract_row = connection.execute("SELECT contract_json FROM style_evaluation_revisions WHERE evaluation_id=?", (render_plan["evaluationIdentifier"],)).fetchone()
+            if contract_row is None:
+                raise LookupError("제출 대기 중 스타일 평가 조건이 삭제됐습니다.")
+            contract = json.loads(contract_row[0])
         prompt_text = compose_artist_prompt(render_plan["case"]["prompt"], render_plan["components"])
         selected_loras = fixed_clip_style_lora_selections(render_plan["components"])
         request_workflow, metadata_workflow = prepare_anima(contract["workflow"]["api"], contract["workflow"]["ui"], prompt_text,

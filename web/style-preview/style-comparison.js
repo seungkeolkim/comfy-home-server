@@ -4,9 +4,16 @@
 function currentPersistentComparison() {
   const state = currentStyleGenerationState();
   const results = state.results;
-  const submittedPlans = (results?.plans || []).filter(plan => results.candidates.some(candidate => candidate.planIdentifier === plan.planIdentifier && candidate.renders.length));
+  const renderedPlanIdentifiers = new Set((results?.candidates || []).filter(candidate => candidate.renders.length).map(candidate => candidate.planIdentifier));
+  const submittedPlans = (results?.plans || []).filter(plan => renderedPlanIdentifiers.has(plan.planIdentifier));
   const selectedPlan = submittedPlans.find(plan => plan.planIdentifier === state.comparisonPlanIdentifier) || submittedPlans[0];
-  const plans = submittedPlans.filter((plan, index) => submittedPlans.findIndex(item => item.evaluationIdentifier === plan.evaluationIdentifier) === index);
+  const seenEvaluationIdentifiers = new Set();
+  const plans = [];
+  for (const submittedPlan of submittedPlans) {
+    if (seenEvaluationIdentifiers.has(submittedPlan.evaluationIdentifier)) continue;
+    seenEvaluationIdentifiers.add(submittedPlan.evaluationIdentifier);
+    plans.push(submittedPlan);
+  }
   const plan = plans.find(plan => plan.evaluationIdentifier === selectedPlan?.evaluationIdentifier);
   const feedback = state.votingFeedback;
   if (feedback && feedback.comparison.plan?.evaluationIdentifier === plan?.evaluationIdentifier) return feedback.comparison;

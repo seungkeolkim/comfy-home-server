@@ -4,6 +4,23 @@
 async function refreshStyleEvolution(projectIdentifier, force = false) {
   const state = currentStyleGenerationState(projectIdentifier);
   if (state.evolutionCommandBusy && !force) return;
+  if (state.evolutionRefreshPromise) {
+    await state.evolutionRefreshPromise;
+    if (state.completedEvolutionRefreshSequence === state.evolutionRefreshSequence) return;
+    return refreshStyleEvolution(projectIdentifier, force);
+  }
+  const refreshPromise = loadStyleEvolutionSnapshot(projectIdentifier, force);
+  state.evolutionRefreshPromise = refreshPromise;
+  try {
+    await refreshPromise;
+  } finally {
+    if (state.evolutionRefreshPromise === refreshPromise) state.evolutionRefreshPromise = null;
+  }
+}
+
+/** 변경 명령 전의 응답을 버리고 같은 프로젝트의 진행 상태를 한 번만 반영합니다. */
+async function loadStyleEvolutionSnapshot(projectIdentifier, force) {
+  const state = currentStyleGenerationState(projectIdentifier);
   const project = previewState.projects.find(item => item.identifier === projectIdentifier);
   if (!project?.evaluationIdentifier) return;
   const sequence = (state.evolutionRefreshSequence || 0) + 1;
@@ -12,6 +29,7 @@ async function refreshStyleEvolution(projectIdentifier, force = false) {
   const evolution = await styleProjectApi(`/api/style-projects/${projectIdentifier}/evolution?${parameters}`);
   if (sequence !== state.evolutionRefreshSequence || ((state.evolutionCommandBusy || state.votingCommandBusy || state.candidateCommandBusy) && !force)) return;
   state.evolution = evolution;
+  state.completedEvolutionRefreshSequence = sequence;
   project.generation = evolution.currentGeneration;
   if (projectIdentifier !== previewState.currentProjectIdentifier) return;
   const generationBadge = document.querySelector('.generation-current-badge');

@@ -97,6 +97,28 @@ async function verifySlowStylePolling(page, project) {
   await page.unroute(resultsEndpoint);
 }
 
+/** 같은 프로젝트에서 겹친 진화 조회가 하나의 요청을 공유하는지 확인합니다. */
+async function verifyEvolutionRefreshCoalescing(page, project) {
+  await page.waitForFunction(() => !currentStyleGenerationState().resultRefreshPromise && !currentStyleGenerationState().evolutionRefreshPromise);
+  await page.evaluate(() => clearTimeout(styleGenerationViewState.timer));
+  const evolutionEndpoint = `${baseUrl}/api/style-projects/${project.identifier}/evolution**`;
+  let requestCount = 0;
+  await page.route(evolutionEndpoint, async route => {
+    requestCount += 1;
+    await new Promise(resolve => setTimeout(resolve, 350));
+    await route.continue();
+  });
+  try {
+    await page.evaluate(identifier => Promise.all([
+      refreshStyleEvolution(identifier), refreshStyleEvolution(identifier), refreshStyleEvolution(identifier),
+    ]), project.identifier);
+    assert.equal(requestCount, 1, 'Concurrent evolution refreshes must share one request');
+  } finally {
+    await page.unroute(evolutionEndpoint);
+    await page.evaluate(() => scheduleStyleGenerationRefresh());
+  }
+}
+
 /** 표를 보낼 수 없는 Focus·Keyboard 상황에서 서버 요청이 생기지 않는지 확인합니다. */
 async function verifyKeyboardGuards(page, voteRequests) {
   const originalCount = voteRequests.length;
@@ -198,6 +220,7 @@ async function verifySelectionUserExperience() {
     await page.reload();
     await waitForSelectionReady(page);
     await verifySlowStylePolling(page, project);
+    await verifyEvolutionRefreshCoalescing(page, project);
     const voteEndpoint = `${baseUrl}/api/style-projects/${project.identifier}/votes`;
     const voteRequests = [];
     page.on('request', request => {
@@ -365,6 +388,7 @@ async function verifySelectionUserExperience() {
       modeAndVoteErrorsRecover: true, mobileMultiplePrompts: true, projectSwitchDuringReveal: true, browserErrors,
       pendingVoteBlocksSameProjectMutations: true, pendingVoteAllowsOtherProjectDialogs: true,
       slowPollingDisplaysResults: true, concurrentRefreshesCoalesced: true, revealPreservesImageNodes: true, nextPairPreloaded: true,
+      concurrentEvolutionRefreshesCoalesced: true,
       viewportWidths: [320, 390, 768, 1280],
     }, null, 2));
     console.log('Style selection UX Browser verification passed');

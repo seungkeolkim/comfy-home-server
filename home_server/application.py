@@ -40,6 +40,7 @@ from .system_resources import RESOURCE_POLL_INTERVAL_SECONDS, SystemResourceMoni
 from .style_preview import create_style_preview_router
 from .style_project_routes import create_style_project_router
 from .style_generation import StyleGenerationService
+from .submission_worker import SubmissionWorker
 from .style_voting import StyleVotingService
 from .style_evolution import StyleEvolutionService
 from .style_candidate_deletion import StyleCandidateDeletionService
@@ -420,7 +421,7 @@ class HomeServer:
         self.sessions: dict[str, float] = {}
         self.login_failures: dict[str, list[float]] = {}
         self.comfy_queue_available: bool | None = None
-        self.submission_tasks: set[asyncio.Task[Any]] = set()
+        self.submission_worker = SubmissionWorker(self)
         self.request_refresh_lock = asyncio.Lock()
         self.missing_request_since: dict[str, float] = {}
         self.cancellation_retry_after: dict[str, float] = {}
@@ -442,7 +443,7 @@ class HomeServer:
     def ensure_restore_idle(self) -> None:
         """진행 중인 생성이나 제출 Task가 있으면 DB 복원을 거절합니다."""
 
-        if self.submission_tasks or self.database.list_active_requests(limit=1):
+        if self.submission_worker.busy or self.database.list_active_requests(limit=1):
             raise RuntimeError("진행 중인 생성·제출·취소 작업이 있어 복원할 수 없습니다. 작업 종료 후 다시 시도해 주세요.")
 
     def _mark_interrupted_submissions(self) -> None:
@@ -636,7 +637,10 @@ def find_uploaded_image(upload_directory: Path, upload_id: str) -> Path:
     """Worker에서 업로드 파일을 찾고 이미 사라진 입력을 명시적으로 표시합니다."""
 
     for upload_path in upload_directory.glob(f"{upload_id}.*"):
-        return upload_path
+        if upload_path.is_symlink() or upload_path.is_junction():
+            raise ValueError("업로드 입력 이미지는 링크 파일로 사용할 수 없습니다.")
+        if upload_path.is_file():
+            return upload_path
     raise ValueError("업로드 입력 이미지를 찾을 수 없습니다.")
 
 
@@ -683,6 +687,15 @@ def clear_batch_uploads(upload_directory: Path, requests: list[dict[str, Any]]) 
         if upload_id:
             for upload_path in upload_directory.glob(f"{upload_id}.*"):
                 upload_path.unlink(missing_ok=True)
+
+
+async def cleanup_submission_uploads(server: HomeServer, requests: list[dict[str, Any]]) -> None:
+    """다른 대기 요청이 참조하는 입력은 보존하고 더 이상 필요 없는 임시 파일만 정리합니다."""
+
+    protected_upload_identifiers = await asyncio.to_thread(server.database.list_unsubmitted_upload_identifiers)
+    releasable_requests = [request for request in requests
+                          if request["detail"].get("upload_id") not in protected_upload_identifiers]
+    await asyncio.to_thread(clear_batch_uploads, server.upload_directory, releasable_requests)
 
 
 def delete_recorded_output(server: HomeServer, output_id: int) -> dict:
@@ -740,21 +753,19 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if server.config.thumbnail_cache_warmup_enabled:
             server.thumbnail_cache.start_warmup(server.config.managed_output_directory)
         server.video_previews.start()
+        server.submission_worker.start()
         monitor_task = asyncio.create_task(_monitor_requests(server))
         cancellation_task = asyncio.create_task(_monitor_cancellations(server))
         resource_monitor_task = asyncio.create_task(_monitor_system_resources(server))
         try:
             yield
         finally:
+            await server.submission_worker.stop()
             await asyncio.to_thread(server.video_previews.stop)
             monitor_task.cancel()
             cancellation_task.cancel()
             resource_monitor_task.cancel()
             await asyncio.gather(monitor_task, cancellation_task, resource_monitor_task, return_exceptions=True)
-            for submission_task in list(server.submission_tasks):
-                submission_task.cancel()
-            if server.submission_tasks:
-                await asyncio.gather(*server.submission_tasks, return_exceptions=True)
             await server.comfy.close()
             await asyncio.to_thread(server.thumbnail_cache.stop_warmup)
             LOGGER.info("서버 종료")
@@ -1261,9 +1272,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(422, str(exception)) from exception
         except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exception:
             raise HTTPException(422, "입력 이미지를 읽거나 임시 저장할 수 없습니다. 다시 선택해 주세요.") from exception
-        submission_task = asyncio.create_task(_submit_requests(server, submitted_requests))
-        server.submission_tasks.add(submission_task)
-        submission_task.add_done_callback(server.submission_tasks.discard)
+        server.submission_worker.enqueue(submitted_requests)
         LOGGER.info("Batch 생성: job_id=%s workflow=%s count=%s", job_id, payload.workflow, len(submitted_requests))
         return {"job_id": job_id, "request_ids": [request["request_id"] for request in submitted_requests]}
 
@@ -1413,6 +1422,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(409, "진행 중인 요청만 취소할 수 있습니다.")
         if not await asyncio.to_thread(server.database.mark_request_cancelling, request_id):
             raise HTTPException(409, "요청이 이미 종료되었습니다.")
+        waiting_request_identifiers = server.submission_worker.cancel_waiting_requests(request["job_id"], request_id)
+        if waiting_request_identifiers:
+            await asyncio.to_thread(server.database.cancel_unsubmitted_requests, waiting_request_identifiers)
         server.cancellation_retry_after.pop(request_id, None)
         server.cancellation_wakeup.set()
         return {"status": "cancelling"}
@@ -1426,6 +1438,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(404, "작업을 찾을 수 없습니다.")
         if not requested_count:
             raise HTTPException(409, "취소할 수 있는 요청이 없습니다.")
+        waiting_request_identifiers = server.submission_worker.cancel_waiting_requests(job_id)
+        if waiting_request_identifiers:
+            await asyncio.to_thread(server.database.cancel_unsubmitted_requests, waiting_request_identifiers)
         active_requests = await asyncio.to_thread(server.database.list_active_requests, job_id=job_id)
         for request in active_requests:
             server.cancellation_retry_after.pop(request["request_id"], None)
@@ -1615,9 +1630,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(422, str(exception)) from exception
         except Exception as exception:
             raise HTTPException(502, str(exception)) from exception
-        submission_task = asyncio.create_task(_submit_requests(server, requests))
-        server.submission_tasks.add(submission_task)
-        submission_task.add_done_callback(server.submission_tasks.discard)
+        server.submission_worker.enqueue(requests)
         return {"job_id": job_id, "request_ids": [request["request_id"] for request in requests]}
 
     @app.get("/api/outputs/{output_id}/neighbors")
@@ -1932,21 +1945,44 @@ async def _skip_cancelled_submission(server: HomeServer, request_id: str) -> boo
 
     submission_state = await asyncio.to_thread(server.database.get_submission_state, request_id)
     if submission_state is None or submission_state["status"] != "submitting":
+        if submission_state is None:
+            LOGGER.info("삭제된 제출 요청 건너뜀: request_id=%s", request_id)
         if submission_state and submission_state["status"] == "cancelling" and not submission_state["prompt_id"]:
             await asyncio.to_thread(server.database.cancel_unsubmitted_request, request_id)
         return True
     return False
 
 
+async def record_submission_failure(server: HomeServer, request_id: str, exception: Exception,
+                                    submission_started: bool, prompt_id: str | None) -> None:
+    """참조 유실을 요청별로 기록하고 삭제된 요청에 뒤늦게 접수된 Prompt는 개별 중단합니다."""
+
+    submission_state = await asyncio.to_thread(server.database.get_submission_state, request_id)
+    if prompt_id is not None and (submission_state is None or submission_state["prompt_id"] != prompt_id):
+        try:
+            await server.comfy.cancel_prompt(prompt_id)
+            LOGGER.warning("저장되지 않은 접수 개별 취소: request_id=%s prompt_id=%s", request_id, prompt_id)
+        except Exception:
+            LOGGER.exception("저장되지 않은 접수 개별 취소 실패: request_id=%s prompt_id=%s", request_id, prompt_id)
+    rejected_before_acceptance = isinstance(exception, ComfyHttpError) and 400 <= exception.status_code < 500
+    acceptance_unknown = submission_started and not rejected_before_acceptance
+    message = "ComfyUI 접수 여부가 미확인입니다. 자동 재시도하지 않습니다." if acceptance_unknown else str(exception)
+    if prompt_id is not None:
+        message = "ComfyUI 접수 후 상태 저장에 실패해 개별 취소를 시도했습니다. Prompt ID: " + prompt_id
+    await asyncio.to_thread(server.database.record_submission_failure, request_id, message, acceptance_unknown=acceptance_unknown)
+
+
 async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -> None:
     """ComfyUI에 요청을 순서대로 접수하고 업로드 임시 파일을 제거합니다."""
 
     workflow_templates: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
+    available_loras: set[str] | None = None
     try:
         for request in requests:
             request_id = request["request_id"]
             detail = request["detail"]
             submission_started = False
+            prompt_id = None
             try:
                 if await _skip_cancelled_submission(server, request_id):
                     continue
@@ -2034,6 +2070,13 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                 }
                 if style_prepared:
                     metadata["home_server_request"]["style_context"] = style_prepared["style_context"]
+                selected_loras = metadata["home_server_request"]["loras"]
+                if selected_loras:
+                    if available_loras is None:
+                        available_loras = set(await server.comfy.list_loras())
+                    missing_loras = [lora["name"] for lora in selected_loras if lora["name"] not in available_loras]
+                    if missing_loras:
+                        raise ValueError("제출 대기 중 LoRA 파일이 삭제됐거나 사용할 수 없습니다: " + ", ".join(missing_loras))
                 if await _skip_cancelled_submission(server, request_id):
                     continue
                 submission_started = True
@@ -2048,24 +2091,13 @@ async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -
                 server.cancellation_wakeup.set()
                 LOGGER.info("요청 접수: request_id=%s prompt_id=%s", request_id, prompt_id)
             except Exception as exception:
-                submission_state = await asyncio.to_thread(server.database.get_submission_state, request_id)
-                if submission_state and submission_state["status"] == "cancelling" and not submission_state["prompt_id"]:
-                    if submission_started:
-                        await asyncio.to_thread(
-                            server.database.update_request, request_id, "stopped",
-                            "제출 응답을 받지 못해 ComfyUI 접수 여부를 확인할 수 없습니다.",
-                        )
-                    else:
-                        await asyncio.to_thread(server.database.cancel_unsubmitted_request, request_id)
-                else:
-                    rejected_before_acceptance = isinstance(exception, ComfyHttpError) and 400 <= exception.status_code < 500
-                    if detail.get("style_plan_identifier") and submission_started and not rejected_before_acceptance:
-                        await asyncio.to_thread(server.database.update_request, request_id, "stopped", "ComfyUI 접수 여부가 미확인입니다. 자동 재시도하지 않습니다.")
-                    else:
-                        await asyncio.to_thread(server.database.update_request, request_id, "failed", str(exception))
+                try:
+                    await record_submission_failure(server, request_id, exception, submission_started, prompt_id)
+                except Exception:
+                    LOGGER.exception("제출 오류 상태 기록 실패: request_id=%s", request_id)
                 LOGGER.error("요청 제출 실패: request_id=%s error_type=%s", request_id, type(exception).__name__)
     finally:
-        await asyncio.to_thread(clear_batch_uploads, server.upload_directory, requests)
+        await cleanup_submission_uploads(server, requests)
 
 
 async def _monitor_system_resources(server: HomeServer) -> None:

@@ -3,6 +3,7 @@
 import json
 import sqlite3
 from collections.abc import Callable
+from contextlib import closing, nullcontext
 
 from .style_projects import browser_sampling_settings
 from .style_generation_sizing import generation_sizing_from_plans
@@ -70,6 +71,7 @@ class StyleGenerationStore:
         )
         connection.execute("CREATE INDEX IF NOT EXISTS style_renders_candidate ON style_candidate_renders(candidate_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS style_renders_plan ON style_candidate_renders(plan_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS style_candidates_evaluation ON style_candidates(project_id,evaluation_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS output_files_request ON output_files(request_id)")
 
     def project(self, project_identifier: str) -> sqlite3.Row:
@@ -81,10 +83,10 @@ class StyleGenerationStore:
             raise LookupError("프로젝트를 찾을 수 없습니다.")
         return row
 
-    def plan(self, plan_identifier: str, project_identifier: str) -> dict:
-        """요청한 프로젝트가 소유한 불변 생성 계획만 조회합니다."""
+    def plan(self, plan_identifier: str, project_identifier: str, *, connection: sqlite3.Connection | None = None) -> dict:
+        """소유 생성 계획을 읽으며 조회 Transaction 안에서는 같은 연결을 재사용합니다."""
 
-        with self.connection_factory() as connection:
+        with (nullcontext(connection) if connection is not None else closing(self.connection_factory())) as connection:
             row = connection.execute(
                 "SELECT * FROM style_generation_plans WHERE plan_id=? AND project_id=?",
                 (plan_identifier, project_identifier),

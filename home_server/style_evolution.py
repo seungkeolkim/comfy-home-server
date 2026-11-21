@@ -13,7 +13,7 @@ from .style_evolution_store import StyleEvolutionStore
 from .style_generation import FixedCombination, StyleGenerationPlanInput
 from .style_generation_sizing import DEFAULT_EVOLUTION_CHILD_COUNT, MAXIMUM_EVOLUTION_CHILD_COUNT
 from .style_projects import ProjectSettings, StyleRevisionConflict, encode_snapshot, prompt_case_sampling_settings, snapshot_hash
-from .style_voting import ranked_candidate_statistics
+from .style_voting import StyleArenaRefreshRequired, ranked_candidate_statistics
 from .style_voting_rules import boundary_tie_match, candidate_is_rated, initial_candidate_statistics
 from .style_component_statistics import inherited_component_statistics
 
@@ -51,7 +51,7 @@ class StyleEvolutionService:
         self.server = server
         self.store = StyleEvolutionStore(server)
 
-    def migrate_parent_selection(self, connection, project_identifier: str, evaluation_identifier: str, state: dict) -> bool:
+    def migrate_parent_selection(self, connection, project_identifier: str, evaluation_identifier: str, state: dict, *, read_only: bool = False) -> bool:
         """미확정 Batch를 고정 부모 기준으로 복원하며 기존 Vote·Undo 기록은 보존합니다."""
 
         row = self.store.find_open_evolution_batch(connection, evaluation_identifier)
@@ -64,6 +64,8 @@ class StyleEvolutionService:
             "reference_scores": batch["parent_scores"],
         }
         if any(batch.get(field) != value for field, value in parent_policy.items()):
+            if read_only:
+                raise StyleArenaRefreshRequired()
             batch.update(copy.deepcopy(parent_policy))
             connection.execute("UPDATE style_evolution_batches SET batch_json=? WHERE batch_id=?", (encode_snapshot(batch), row["batch_id"]))
         if row["status"] != "active":
@@ -96,20 +98,22 @@ class StyleEvolutionService:
                 if self.migrate_parent_selection(connection, row["project_id"], row["evaluation_id"], state):
                     self.server.style_voting.save_arena(connection, row["evaluation_id"], arena["revision"] + 1, state)
 
-    def load_evolution_context(self, connection, project_identifier: str, evaluation_identifier: str, *, verify_files: bool = True) -> tuple[dict, int, dict, list[dict], list[str]]:
+    def load_evolution_context(self, connection, project_identifier: str, evaluation_identifier: str, *, verify_files: bool = True, read_only: bool = False) -> tuple[dict, int, dict, list[dict], list[str]]:
         """평가 소유·현재 Arena·준비된 활성 조합을 같은 연결에서 읽습니다."""
 
         project = connection.execute("SELECT * FROM style_projects WHERE project_id=?", (project_identifier,)).fetchone()
         if not project:
             raise LookupError("프로젝트를 찾을 수 없습니다.")
         candidates, ready_identifiers = self.server.style_voting.load_evaluation_candidates(connection, project_identifier, evaluation_identifier, verify_files=verify_files)
-        revision, state = self.server.style_voting.load_arena(connection, project_identifier, evaluation_identifier)
+        revision, state = self.server.style_voting.load_arena(connection, project_identifier, evaluation_identifier, read_only=read_only)
         before = encode_snapshot(state)
         if verify_files:
             self.server.style_voting.synchronize_candidates(state, candidates, ready_identifiers)
         else:
             self.server.style_voting.synchronize_available_match(state, candidates, ready_identifiers)
         if encode_snapshot(state) != before:
+            if read_only:
+                raise StyleArenaRefreshRequired()
             revision += 1
             self.server.style_voting.save_arena(connection, evaluation_identifier, revision, state)
         return dict(project), revision, state, candidates, ready_identifiers
@@ -142,9 +146,10 @@ class StyleEvolutionService:
     def read_evolution(self, project_identifier: str, evaluation_identifier: str) -> dict:
         """현재 세대·진행 Batch·필요 평가량과 마지막 확정 결과를 조회합니다."""
 
-        with self.server.database._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            project, revision, state, candidates, ready_identifiers = self.load_evolution_context(connection, project_identifier, evaluation_identifier, verify_files=False)
+        def read_evolution_snapshot(connection, read_only: bool) -> dict:
+            """같은 Snapshot에서 진화 표시 정보를 구성하고 필요할 때만 상태 저장을 요청합니다."""
+
+            project, revision, state, candidates, ready_identifiers = self.load_evolution_context(connection, project_identifier, evaluation_identifier, verify_files=False, read_only=read_only)
             row = self.store.find_open_evolution_batch(connection, evaluation_identifier)
             generation_number = self.store.current_generation_number(connection, evaluation_identifier)
             rated_count = sum(candidate_is_rated(state["statistics"][identifier]) for identifier in ready_identifiers)
@@ -168,6 +173,8 @@ class StyleEvolutionService:
                     "parentCandidateIdentifiers": parent_identifiers, "history": self.read_generation_history(connection, evaluation_identifier),
                     "blockers": messages, "batch": batch_view, "lastConfirmed": json.loads(latest[0]) if latest else None, "checkpoints": checkpoints}
 
+        return self.server.style_voting.read_with_arena_refresh(read_evolution_snapshot)
+
     @staticmethod
     def read_generation_history(connection, evaluation_identifier: str) -> list[dict]:
         """기존 Batch 결과에서 세대별 생존·탈락과 원본 후보 ID만 조회합니다."""
@@ -189,7 +196,7 @@ class StyleEvolutionService:
         """성분 목록 없이 자녀 준비 수와 확정에 필요한 상태를 반환합니다."""
 
         batch = json.loads(row["batch_json"])
-        plan = self.server.style_generation.store.plan(row["plan_id"], row["project_id"])
+        plan = self.server.style_generation.store.plan(row["plan_id"], row["project_id"], connection=connection)
         ready_children = [identifier for identifier in batch["candidate_ids"] if identifier in ready_identifiers]
         request_states = [request[0] for request in connection.execute("SELECT job_requests.status FROM style_candidate_renders JOIN job_requests USING(request_id) WHERE plan_id=? AND style_candidate_renders.rowid IN (SELECT MAX(rowid) FROM style_candidate_renders WHERE plan_id=? GROUP BY candidate_id,case_id)", (row["plan_id"], row["plan_id"]))]
         selection = state.get("evolution")
