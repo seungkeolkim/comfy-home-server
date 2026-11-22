@@ -40,7 +40,8 @@ from .system_resources import RESOURCE_POLL_INTERVAL_SECONDS, SystemResourceMoni
 from .style_preview import create_style_preview_router
 from .style_project_routes import create_style_project_router
 from .style_generation import StyleGenerationService
-from .submission_worker import SubmissionWorker
+from .submission_worker import SubmissionAttempt, SubmissionBatch, SubmissionWorker
+from .background_tasks import BackgroundTaskSupervisor, complete_thread_call
 from .style_voting import StyleVotingService
 from .style_evolution import StyleEvolutionService
 from .style_candidate_deletion import StyleCandidateDeletionService
@@ -421,13 +422,33 @@ class HomeServer:
         self.sessions: dict[str, float] = {}
         self.login_failures: dict[str, list[float]] = {}
         self.comfy_queue_available: bool | None = None
+        self.background_tasks = BackgroundTaskSupervisor()
         self.submission_worker = SubmissionWorker(self)
         self.request_refresh_lock = asyncio.Lock()
         self.missing_request_since: dict[str, float] = {}
         self.cancellation_retry_after: dict[str, float] = {}
         self.cancellation_wakeup = asyncio.Event()
+        self.background_tasks.register("comfy-submission-worker", "ComfyUI 작업 제출", self.submission_worker.run)
+        self.background_tasks.register("request-monitor", "작업 상태 확인", self.monitor_requests)
+        self.background_tasks.register("cancellation-monitor", "취소 요청 전달", self.monitor_cancellations)
+        self.background_tasks.register("resource-monitor", "시스템 리소스 수집", self.monitor_system_resources, timeout_seconds=15)
         self._mark_interrupted_submissions()
         self.style_candidate_deletion.recover_pending_deletions()
+
+    async def monitor_requests(self) -> None:
+        """공통 Supervisor에서 작업 상태 감시를 실행합니다."""
+
+        await _monitor_requests(self)
+
+    async def monitor_cancellations(self) -> None:
+        """공통 Supervisor에서 취소 전달 감시를 실행합니다."""
+
+        await _monitor_cancellations(self)
+
+    async def monitor_system_resources(self) -> None:
+        """공통 Supervisor에서 시스템 리소스 수집을 실행합니다."""
+
+        await _monitor_system_resources(self)
 
     def record_comfy_connection(self, connected: bool, error_type: str | None = None) -> None:
         """ComfyUI 연결 상태가 바뀔 때만 로그를 남깁니다."""
@@ -692,10 +713,10 @@ def clear_batch_uploads(upload_directory: Path, requests: list[dict[str, Any]]) 
 async def cleanup_submission_uploads(server: HomeServer, requests: list[dict[str, Any]]) -> None:
     """다른 대기 요청이 참조하는 입력은 보존하고 더 이상 필요 없는 임시 파일만 정리합니다."""
 
-    protected_upload_identifiers = await asyncio.to_thread(server.database.list_unsubmitted_upload_identifiers)
+    protected_upload_identifiers = await complete_thread_call(server.database.list_unsubmitted_upload_identifiers)
     releasable_requests = [request for request in requests
                           if request["detail"].get("upload_id") not in protected_upload_identifiers]
-    await asyncio.to_thread(clear_batch_uploads, server.upload_directory, releasable_requests)
+    await complete_thread_call(clear_batch_uploads, server.upload_directory, releasable_requests)
 
 
 def delete_recorded_output(server: HomeServer, output_id: int) -> dict:
@@ -754,18 +775,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             server.thumbnail_cache.start_warmup(server.config.managed_output_directory)
         server.video_previews.start()
         server.submission_worker.start()
-        monitor_task = asyncio.create_task(_monitor_requests(server))
-        cancellation_task = asyncio.create_task(_monitor_cancellations(server))
-        resource_monitor_task = asyncio.create_task(_monitor_system_resources(server))
+        server.background_tasks.start()
         try:
             yield
         finally:
+            await server.background_tasks.stop()
             await server.submission_worker.stop()
             await asyncio.to_thread(server.video_previews.stop)
-            monitor_task.cancel()
-            cancellation_task.cancel()
-            resource_monitor_task.cancel()
-            await asyncio.gather(monitor_task, cancellation_task, resource_monitor_task, return_exceptions=True)
             await server.comfy.close()
             await asyncio.to_thread(server.thumbnail_cache.stop_warmup)
             LOGGER.info("서버 종료")
@@ -948,6 +964,13 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """2초 간격의 공통 Snapshot을 반환하며 브라우저 조회마다 추가 수집하지 않습니다."""
 
         return JSONResponse(server.system_resources.snapshot, headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/background-tasks")
+    async def background_task_status():
+        """인증된 운영 조회에 공통 Supervisor와 제출 Queue 상태를 제공합니다."""
+
+        return JSONResponse({**server.background_tasks.snapshot(), "submission": server.submission_worker.snapshot()},
+                            headers={"Cache-Control": "no-store"})
 
     @app.post("/api/comfy/free-memory")
     async def free_comfy_memory():
@@ -1231,6 +1254,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
     async def submit_batch(payload: BatchInput):
         """작업을 기록하고 ComfyUI 제출을 백그라운드에서 시작합니다."""
 
+        try:
+            server.submission_worker.ensure_accepting()
+        except RuntimeError as exception:
+            raise HTTPException(503, str(exception)) from exception
         if payload.workflow not in {"anima", "minimax_h3"}:
             raise HTTPException(422, "지원하지 않는 workflow입니다.")
         if payload.workflow == "minimax_h3" and not (payload.upload_ids or payload.output_ids):
@@ -1272,7 +1299,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(422, str(exception)) from exception
         except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exception:
             raise HTTPException(422, "입력 이미지를 읽거나 임시 저장할 수 없습니다. 다시 선택해 주세요.") from exception
-        server.submission_worker.enqueue(submitted_requests)
+        try:
+            await server.submission_worker.enqueue_saved(submitted_requests)
+        except RuntimeError as exception:
+            raise HTTPException(503, str(exception)) from exception
         LOGGER.info("Batch 생성: job_id=%s workflow=%s count=%s", job_id, payload.workflow, len(submitted_requests))
         return {"job_id": job_id, "request_ids": [request["request_id"] for request in submitted_requests]}
 
@@ -1612,6 +1642,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         """사용자가 생성 버튼을 눌렀을 때만 고정 Seed로 요청 한 건을 접수합니다."""
 
         try:
+            server.submission_worker.ensure_accepting()
+        except RuntimeError as exception:
+            raise HTTPException(503, str(exception)) from exception
+        try:
             favorite = await asyncio.to_thread(server.database.favorites.get, favorite_id)
             if payload.workflow != favorite["workflow"]:
                 raise ValueError("즐겨찾기와 같은 Workflow로 복원해 주세요.")
@@ -1630,7 +1664,10 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(422, str(exception)) from exception
         except Exception as exception:
             raise HTTPException(502, str(exception)) from exception
-        server.submission_worker.enqueue(requests)
+        try:
+            await server.submission_worker.enqueue_saved(requests)
+        except RuntimeError as exception:
+            raise HTTPException(503, str(exception)) from exception
         return {"job_id": job_id, "request_ids": [request["request_id"] for request in requests]}
 
     @app.get("/api/outputs/{output_id}/neighbors")
@@ -1895,13 +1932,16 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 async def _monitor_cancellations(server: HomeServer) -> None:
     """취소된 작업의 접수 ID만 묶어 전송하고 실패 시 간격을 두고 재시도합니다."""
 
+    registration = server.background_tasks.registrations["cancellation-monitor"]
     while True:
+        registration.progress("sending_cancellations", timeout_seconds=300)
         try:
             if not server.administration_maintenance.restoring:
                 with server.administration_maintenance.operation():
                     await _send_pending_cancellations(server)
         except Exception:
             LOGGER.exception("취소 요청 처리 중 오류가 발생했습니다.")
+        registration.progress("waiting_for_cancellation", timeout_seconds=15)
         try:
             await asyncio.wait_for(server.cancellation_wakeup.wait(), timeout=1)
         except TimeoutError:
@@ -1912,7 +1952,7 @@ async def _monitor_cancellations(server: HomeServer) -> None:
 async def _send_pending_cancellations(server: HomeServer) -> None:
     """복원 Gate 안에서 활성 취소 요청을 읽고 ComfyUI에 전달합니다."""
 
-    active_requests = await asyncio.to_thread(server.database.list_active_requests)
+    active_requests = await complete_thread_call(server.database.list_active_requests)
     active_request_ids = {request["request_id"] for request in active_requests}
     server.cancellation_retry_after = {
         request_id: retry_after for request_id, retry_after in server.cancellation_retry_after.items()
@@ -1926,6 +1966,7 @@ async def _send_pending_cancellations(server: HomeServer) -> None:
             continue
         cancellation_requests.append(request)
     for first_index in range(0, len(cancellation_requests), 100):
+        server.background_tasks.registrations["cancellation-monitor"].progress("sending_cancellations", timeout_seconds=300)
         request_batch = cancellation_requests[first_index:first_index + 100]
         request_ids = [request["request_id"] for request in request_batch]
         cancellation_error = None
@@ -1937,18 +1978,18 @@ async def _send_pending_cancellations(server: HomeServer) -> None:
             LOGGER.warning("ComfyUI 취소 전송 실패: count=%s error_type=%s", len(request_batch), type(exception).__name__)
         for request_id in request_ids:
             server.cancellation_retry_after[request_id] = time.monotonic() + 5
-        await asyncio.to_thread(server.database.record_cancellation_error, request_ids, cancellation_error)
+        await complete_thread_call(server.database.record_cancellation_error, request_ids, cancellation_error)
 
 
 async def _skip_cancelled_submission(server: HomeServer, request_id: str) -> bool:
     """네트워크 전송 직전 취소를 재확인하고 미접수 요청을 취소 완료로 만듭니다."""
 
-    submission_state = await asyncio.to_thread(server.database.get_submission_state, request_id)
+    submission_state = await complete_thread_call(server.database.get_submission_state, request_id)
     if submission_state is None or submission_state["status"] != "submitting":
         if submission_state is None:
             LOGGER.info("삭제된 제출 요청 건너뜀: request_id=%s", request_id)
         if submission_state and submission_state["status"] == "cancelling" and not submission_state["prompt_id"]:
-            await asyncio.to_thread(server.database.cancel_unsubmitted_request, request_id)
+            await complete_thread_call(server.database.cancel_unsubmitted_request, request_id)
         return True
     return False
 
@@ -1957,7 +1998,7 @@ async def record_submission_failure(server: HomeServer, request_id: str, excepti
                                     submission_started: bool, prompt_id: str | None) -> None:
     """참조 유실을 요청별로 기록하고 삭제된 요청에 뒤늦게 접수된 Prompt는 개별 중단합니다."""
 
-    submission_state = await asyncio.to_thread(server.database.get_submission_state, request_id)
+    submission_state = await complete_thread_call(server.database.get_submission_state, request_id)
     if prompt_id is not None and (submission_state is None or submission_state["prompt_id"] != prompt_id):
         try:
             await server.comfy.cancel_prompt(prompt_id)
@@ -1969,144 +2010,163 @@ async def record_submission_failure(server: HomeServer, request_id: str, excepti
     message = "ComfyUI 접수 여부가 미확인입니다. 자동 재시도하지 않습니다." if acceptance_unknown else str(exception)
     if prompt_id is not None:
         message = "ComfyUI 접수 후 상태 저장에 실패해 개별 취소를 시도했습니다. Prompt ID: " + prompt_id
-    await asyncio.to_thread(server.database.record_submission_failure, request_id, message, acceptance_unknown=acceptance_unknown)
+    await complete_thread_call(server.database.record_submission_failure, request_id, message, acceptance_unknown=acceptance_unknown)
 
 
-async def _submit_requests(server: HomeServer, requests: list[dict[str, Any]]) -> None:
-    """ComfyUI에 요청을 순서대로 접수하고 업로드 임시 파일을 제거합니다."""
+async def _submit_requests(server: HomeServer, batch: SubmissionBatch) -> None:
+    """ComfyUI에 요청을 순서대로 접수하고 요청별 복구 위치를 보존합니다."""
 
     workflow_templates: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {}
     available_loras: set[str] | None = None
-    try:
-        for request in requests:
-            request_id = request["request_id"]
-            detail = request["detail"]
-            submission_started = False
-            prompt_id = None
-            try:
-                if await _skip_cancelled_submission(server, request_id):
-                    continue
-                style_prepared = None
-                if detail.get("style_plan_identifier"):
-                    style_prepared = await asyncio.to_thread(server.style_generation.prepare_request, request)
-                favorite_restore = detail.get("favorite_restore")
-                if style_prepared:
-                    prompt_text = style_prepared["prompt"]
-                    negative_text = style_prepared["negative"]
-                    selected_path = negative_selected_path = []
-                    wildcard_seed = style_prepared["wildcard_seed"]
-                    tag_seed = style_prepared["tag_seed"]
-                elif favorite_restore and favorite_restore["mode"] == "exact":
-                    prompt_text = detail["body"]["prompt"]
-                    negative_text = detail["body"].get("negative", "")
-                    saved_resolved = favorite_restore["resolved"]
-                    selected_path = saved_resolved.get("selected_path", [])
-                    negative_selected_path = saved_resolved.get("negative_selected_path", [])
-                    wildcard_seed = saved_resolved.get("wildcard_seed")
-                    tag_seed = saved_resolved.get("tag_seed")
-                elif request["workflow"] == "anima":
-                    wildcard_seed = secrets.randbelow(2**31)
-                    tag_seed = wildcard_seed
-                    prompt_template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
-                        resolve_anima_prompts,
-                        detail["body"], detail["selected_tags"], wildcard_seed,
-                    )
-                    prompt_text = await server.comfy.populate_wildcards(prompt_template, wildcard_seed)
-                    negative_text = await server.comfy.populate_wildcards(
-                        negative_template, wildcard_seed,
-                    )
-                else:
-                    wildcard_seed = None
-                    tag_seed = secrets.randbelow(2**31)
-                    prompt_text, selected_path = await asyncio.to_thread(
-                        resolve_tag_text, minimax_prompt_template(detail["body"]), detail["selected_tags"], random.Random(tag_seed),
-                    )
-                    negative_selected_path = []
-                    negative_text = ""
-                if not style_prepared and request["workflow"] not in workflow_templates:
-                    workflow_templates[request["workflow"]] = await asyncio.to_thread(
-                        load_workflows, server.config.workflow_directory, request["workflow"],
-                    )
-                if style_prepared:
-                    request_workflow = style_prepared["prepared_graph"]
-                    metadata_workflow = style_prepared["metadata_workflow"]
-                    request_settings = style_prepared["settings"]
-                elif request["workflow"] == "anima":
-                    api_workflow, ui_workflow = workflow_templates[request["workflow"]]
-                    request_settings = dict(detail["settings"])
-                    request_settings["seed"] = detail["favorite_seed"] if "favorite_seed" in detail else secrets.randbelow(2**31)
-                    request_workflow, metadata_workflow = await asyncio.to_thread(
-                        prepare_anima,
-                        api_workflow, ui_workflow, prompt_text, negative_text,
-                        request_settings, detail["loras"], request["output_stem"],
-                    )
-                else:
-                    api_workflow, ui_workflow = workflow_templates[request["workflow"]]
-                    request_settings = minimax_execution_settings(detail["settings"])
-                    upload_id = detail["upload_id"]
-                    upload_path = await asyncio.to_thread(find_uploaded_image, server.upload_directory, upload_id)
-                    if detail.get("resolved", {}).get("source_image"):
-                        upload_path = await asyncio.to_thread(
-                            prepare_input_canvas, upload_path, request_settings["width"], request_settings["height"],
-                        )
-                    uploaded_name = f"{request_id}_{upload_path.name}"
-                    uploaded_reference = await server.comfy.upload_image(upload_path, uploaded_name)
-                    request_workflow, metadata_workflow = await asyncio.to_thread(
-                        prepare_minimax,
-                        api_workflow, ui_workflow, uploaded_reference, prompt_text,
-                        request_settings, detail["loras"], request["output_stem"],
-                    )
-                metadata = {
-                    "workflow": metadata_workflow,
-                    "home_server_request": {
-                        "request_id": request_id, "job_id": request["job_id"],
-                        "prompt": prompt_text, "negative": negative_text,
-                        "selected_path": selected_path,
-                        "negative_selected_path": negative_selected_path,
-                        "wildcard_seed": wildcard_seed, "tag_seed": tag_seed, "settings": request_settings,
-                        "loras": style_prepared["loras"] if style_prepared else detail["loras"],
-                        "source_image": detail.get("resolved", {}).get("source_image"),
-                    },
-                }
-                if style_prepared:
-                    metadata["home_server_request"]["style_context"] = style_prepared["style_context"]
-                selected_loras = metadata["home_server_request"]["loras"]
-                if selected_loras:
-                    if available_loras is None:
-                        available_loras = set(await server.comfy.list_loras())
-                    missing_loras = [lora["name"] for lora in selected_loras if lora["name"] not in available_loras]
-                    if missing_loras:
-                        raise ValueError("제출 대기 중 LoRA 파일이 삭제됐거나 사용할 수 없습니다: " + ", ".join(missing_loras))
-                if await _skip_cancelled_submission(server, request_id):
-                    continue
-                submission_started = True
-                prompt_id = await server.comfy.submit(request_workflow, metadata)
-                await asyncio.to_thread(
-                    server.database.set_request_accepted,
-                    request_id, prompt_id, {**detail.get("resolved", {}), **(style_prepared or {}), "prompt": prompt_text, "negative": negative_text,
-                                            "selected_path": selected_path,
-                                            "negative_selected_path": negative_selected_path,
-                                            "wildcard_seed": wildcard_seed, "tag_seed": tag_seed, "settings": request_settings},
+    for request_index in range(batch.next_request_index, len(batch.requests)):
+        request = batch.requests[request_index]
+        request_id = request["request_id"]
+        detail = request["detail"]
+        attempt = SubmissionAttempt(request_id)
+        batch.attempt = attempt
+        request_finished = False
+        server.submission_worker.progress("preparing_request", timeout_seconds=300)
+        submission_started = False
+        prompt_id = None
+        try:
+            if await _skip_cancelled_submission(server, request_id):
+                request_finished = True
+                continue
+            style_prepared = None
+            if detail.get("style_plan_identifier"):
+                style_prepared = await complete_thread_call(server.style_generation.prepare_request, request)
+            favorite_restore = detail.get("favorite_restore")
+            if style_prepared:
+                prompt_text = style_prepared["prompt"]
+                negative_text = style_prepared["negative"]
+                selected_path = negative_selected_path = []
+                wildcard_seed = style_prepared["wildcard_seed"]
+                tag_seed = style_prepared["tag_seed"]
+            elif favorite_restore and favorite_restore["mode"] == "exact":
+                prompt_text = detail["body"]["prompt"]
+                negative_text = detail["body"].get("negative", "")
+                saved_resolved = favorite_restore["resolved"]
+                selected_path = saved_resolved.get("selected_path", [])
+                negative_selected_path = saved_resolved.get("negative_selected_path", [])
+                wildcard_seed = saved_resolved.get("wildcard_seed")
+                tag_seed = saved_resolved.get("tag_seed")
+            elif request["workflow"] == "anima":
+                wildcard_seed = secrets.randbelow(2**31)
+                tag_seed = wildcard_seed
+                prompt_template, negative_template, selected_path, negative_selected_path = await complete_thread_call(
+                    resolve_anima_prompts,
+                    detail["body"], detail["selected_tags"], wildcard_seed,
                 )
-                server.cancellation_wakeup.set()
-                LOGGER.info("요청 접수: request_id=%s prompt_id=%s", request_id, prompt_id)
-            except Exception as exception:
-                try:
-                    await record_submission_failure(server, request_id, exception, submission_started, prompt_id)
-                except Exception:
-                    LOGGER.exception("제출 오류 상태 기록 실패: request_id=%s", request_id)
-                LOGGER.error("요청 제출 실패: request_id=%s error_type=%s", request_id, type(exception).__name__)
-    finally:
-        await cleanup_submission_uploads(server, requests)
+                server.submission_worker.progress("resolving_wildcards", timeout_seconds=300)
+                prompt_text = await server.comfy.populate_wildcards(prompt_template, wildcard_seed)
+                negative_text = await server.comfy.populate_wildcards(
+                    negative_template, wildcard_seed,
+                )
+            else:
+                wildcard_seed = None
+                tag_seed = secrets.randbelow(2**31)
+                prompt_text, selected_path = await complete_thread_call(
+                    resolve_tag_text, minimax_prompt_template(detail["body"]), detail["selected_tags"], random.Random(tag_seed),
+                )
+                negative_selected_path = []
+                negative_text = ""
+            if not style_prepared and request["workflow"] not in workflow_templates:
+                workflow_templates[request["workflow"]] = await complete_thread_call(
+                    load_workflows, server.config.workflow_directory, request["workflow"],
+                )
+            if style_prepared:
+                request_workflow = style_prepared["prepared_graph"]
+                metadata_workflow = style_prepared["metadata_workflow"]
+                request_settings = style_prepared["settings"]
+            elif request["workflow"] == "anima":
+                api_workflow, ui_workflow = workflow_templates[request["workflow"]]
+                request_settings = dict(detail["settings"])
+                request_settings["seed"] = detail["favorite_seed"] if "favorite_seed" in detail else secrets.randbelow(2**31)
+                request_workflow, metadata_workflow = await complete_thread_call(
+                    prepare_anima,
+                    api_workflow, ui_workflow, prompt_text, negative_text,
+                    request_settings, detail["loras"], request["output_stem"],
+                )
+            else:
+                api_workflow, ui_workflow = workflow_templates[request["workflow"]]
+                request_settings = minimax_execution_settings(detail["settings"])
+                upload_id = detail["upload_id"]
+                upload_path = await complete_thread_call(find_uploaded_image, server.upload_directory, upload_id)
+                if detail.get("resolved", {}).get("source_image"):
+                    upload_path = await complete_thread_call(
+                        prepare_input_canvas, upload_path, request_settings["width"], request_settings["height"],
+                    )
+                uploaded_name = f"{request_id}_{upload_path.name}"
+                server.submission_worker.progress("uploading_input", timeout_seconds=300)
+                uploaded_reference = await server.comfy.upload_image(upload_path, uploaded_name)
+                request_workflow, metadata_workflow = await complete_thread_call(
+                    prepare_minimax,
+                    api_workflow, ui_workflow, uploaded_reference, prompt_text,
+                    request_settings, detail["loras"], request["output_stem"],
+                )
+            metadata = {
+                "workflow": metadata_workflow,
+                "home_server_request": {
+                    "request_id": request_id, "job_id": request["job_id"],
+                    "prompt": prompt_text, "negative": negative_text,
+                    "selected_path": selected_path,
+                    "negative_selected_path": negative_selected_path,
+                    "wildcard_seed": wildcard_seed, "tag_seed": tag_seed, "settings": request_settings,
+                    "loras": style_prepared["loras"] if style_prepared else detail["loras"],
+                    "source_image": detail.get("resolved", {}).get("source_image"),
+                },
+            }
+            if style_prepared:
+                metadata["home_server_request"]["style_context"] = style_prepared["style_context"]
+            selected_loras = metadata["home_server_request"]["loras"]
+            if selected_loras:
+                server.submission_worker.progress("checking_loras", timeout_seconds=300)
+                if available_loras is None:
+                    available_loras = set(await server.comfy.list_loras())
+                missing_loras = [lora["name"] for lora in selected_loras if lora["name"] not in available_loras]
+                if missing_loras:
+                    raise ValueError("제출 대기 중 LoRA 파일이 삭제됐거나 사용할 수 없습니다: " + ", ".join(missing_loras))
+            if await _skip_cancelled_submission(server, request_id):
+                request_finished = True
+                continue
+            attempt.resolved_result = {
+                **detail.get("resolved", {}), **(style_prepared or {}), "prompt": prompt_text, "negative": negative_text,
+                "selected_path": selected_path, "negative_selected_path": negative_selected_path,
+                "wildcard_seed": wildcard_seed, "tag_seed": tag_seed, "settings": request_settings,
+            }
+            submission_started = attempt.submission_started = True
+            server.submission_worker.progress("submitting_prompt", timeout_seconds=300)
+            prompt_id = await server.comfy.submit(request_workflow, metadata)
+            attempt.prompt_identifier = prompt_id
+            server.submission_worker.progress("recording_acceptance")
+            await complete_thread_call(server.database.set_request_accepted, request_id, prompt_id, attempt.resolved_result)
+            server.cancellation_wakeup.set()
+            LOGGER.info("요청 접수: request_id=%s prompt_id=%s", request_id, prompt_id)
+            request_finished = True
+        except Exception as exception:
+            try:
+                await record_submission_failure(server, request_id, exception, submission_started, prompt_id)
+            except Exception:
+                LOGGER.exception("제출 오류 상태 기록 실패: request_id=%s", request_id)
+                raise
+            LOGGER.error("요청 제출 실패: request_id=%s error_type=%s", request_id, type(exception).__name__)
+            request_finished = True
+        finally:
+            if request_finished:
+                batch.next_request_index = request_index + 1
+                batch.attempt = None
 
 
 async def _monitor_system_resources(server: HomeServer) -> None:
     """접속자 수·작업 상태에 관계없이 2초 간격으로 한 번씩 순차 수집합니다."""
 
+    registration = server.background_tasks.registrations["resource-monitor"]
     while True:
+        registration.progress("collecting_resources", timeout_seconds=15)
         collection_started = time.monotonic()
         await server.system_resources.refresh(server.comfy)
         elapsed_seconds = time.monotonic() - collection_started
+        registration.progress("waiting_for_resource_poll", timeout_seconds=15)
         await asyncio.sleep(max(0, RESOURCE_POLL_INTERVAL_SECONDS - elapsed_seconds))
 
 
@@ -2151,7 +2211,9 @@ async def _refresh_requests_before_restore(server: HomeServer) -> None:
     """복원 Gate 안에서 ComfyUI 상태를 조회하고 DB에 반영합니다."""
 
     async with server.request_refresh_lock:
-        active_requests = await asyncio.to_thread(server.database.list_active_requests)
+        registration = server.background_tasks.registrations["request-monitor"]
+        registration.progress("reading_request_states", timeout_seconds=180)
+        active_requests = await complete_thread_call(server.database.list_active_requests)
         accepted_requests = [request for request in active_requests if request["prompt_id"]]
         active_request_ids = {request["request_id"] for request in active_requests}
         server.missing_request_since = {
@@ -2161,6 +2223,7 @@ async def _refresh_requests_before_restore(server: HomeServer) -> None:
         if not accepted_requests:
             return
         try:
+            registration.progress("reading_comfy_queue", timeout_seconds=180)
             queue = await server.comfy.queue()
             server.record_comfy_connection(True)
         except Exception as exception:
@@ -2191,6 +2254,8 @@ async def _refresh_requests_before_restore(server: HomeServer) -> None:
                 except Exception:
                     server.missing_request_since.pop(request["request_id"], None)
                     return None
+                finally:
+                    registration.progress("reading_comfy_history", timeout_seconds=180)
             record = history.get(request["prompt_id"])
             if not record:
                 missing_since = server.missing_request_since.setdefault(request["request_id"], time.monotonic())
@@ -2205,7 +2270,7 @@ async def _refresh_requests_before_restore(server: HomeServer) -> None:
             started_at = comfy_execution_started_at(status_info)
             status_name = str(status_info.get("status_str", ""))
             if status_name == "success":
-                output_paths = await asyncio.to_thread(_history_output_paths, server, record, request["workflow"])
+                output_paths = await complete_thread_call(_history_output_paths, server, record, request["workflow"])
                 return {"request_id": request["request_id"], "status": "completed", "output_paths": output_paths,
                         "started_at": started_at}
             interruption_recorded = any(
@@ -2221,12 +2286,13 @@ async def _refresh_requests_before_restore(server: HomeServer) -> None:
 
         history_updates = await asyncio.gather(*(read_history_state(request) for request in history_requests))
         updates.extend(update for update in history_updates if update is not None)
-        applied_updates = await asyncio.to_thread(server.database.apply_request_states, updates)
+        registration.progress("recording_request_states", timeout_seconds=180)
+        applied_updates = await complete_thread_call(server.database.apply_request_states, updates)
         for update in applied_updates:
             LOGGER.info("요청 상태 갱신: request_id=%s status=%s", update["request_id"], update["status"])
             if update["status"] == "completed":
                 try:
-                    await asyncio.to_thread(server.video_previews.completed_request, update["request_id"])
+                    await complete_thread_call(server.video_previews.completed_request, update["request_id"])
                 except Exception:
                     LOGGER.exception("영상 미리보기 접수 실패: request_id=%s", update["request_id"])
                     server.video_previews.request_scan()
@@ -2235,11 +2301,14 @@ async def _refresh_requests_before_restore(server: HomeServer) -> None:
 async def _monitor_requests(server: HomeServer) -> None:
     """브라우저 접속 여부와 관계없이 활성 작업의 완료 상태를 확인합니다."""
 
+    registration = server.background_tasks.registrations["request-monitor"]
     while True:
+        registration.progress("refreshing_requests", timeout_seconds=180)
         try:
             await _refresh_requests(server)
         except Exception:
             LOGGER.exception("작업 상태 확인 중 오류가 발생했습니다.")
+        registration.progress("waiting_for_request_poll", timeout_seconds=15)
         await asyncio.sleep(1)
 
 

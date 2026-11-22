@@ -4,6 +4,8 @@
 
 ## 2026-11-21 단일 제출 Worker
 
+2026-11-22부터 제출 Worker와 상태 확인·취소 전달·리소스 수집 Task는 [공통 Supervisor](background_task_supervision.md)로 관리합니다. Worker만 비정상 종료되면 현재 Batch의 남은 요청부터 이어가며, 접수 응답 유실은 ComfyUI Metadata 대조로 복구하거나 미확인으로 중단합니다. 아래의 서버 전체 종료·재시작 정책은 유지합니다.
+
 100개씩 연속 접수하면 작업별 Background Task가 HTTP·DB `await` 사이에 실행되어 서로 다른 작업의 Prompt가 ComfyUI Queue에 섞였습니다. 현재는 `home_server/submission_worker.py`의 단일 Worker에 기존 요청 Metadata 참조만 `put_nowait()`로 전달합니다. 내부 접수는 파일·Graph를 새로 읽거나 직렬화하지 않으며 같은 Event loop에서 처리하므로 별도 제출 Lock을 사용하지 않습니다.
 
 일반 생성, 즐겨찾기 복원, 스타일 생성·실패 재시도가 같은 Worker를 사용합니다. 내부 접수 순서대로 한 작업의 전체 요청을 준비·전송하고 접수 ID를 기록한 뒤 다음 작업으로 넘어갑니다. GPU 생성 완료를 기다리는 구조는 아닙니다. API의 입력 Snapshot 복사·검증과 기존 응답 형식은 유지하며, Worker 대기 요청도 DB에서는 기존 `submitting` 상태로 표시합니다. ComfyUI 직접 접속이나 별도 StyleLab 8389의 제출은 이 Worker를 통과하지 않습니다.

@@ -211,6 +211,10 @@ def create_style_project_router(server) -> APIRouter:
         """확인한 RenderPlan을 Home 제출·감시 경로에 연결합니다."""
 
         try:
+            server.submission_worker.ensure_accepting()
+        except RuntimeError as exception:
+            raise HTTPException(503, str(exception)) from exception
+        try:
             await server.style_generation.preflight_plan(project_identifier, plan_identifier, payload.retryFailedOnly)
             job_identifier, requests = await asyncio.to_thread(server.style_generation.submit_plan, project_identifier, plan_identifier, payload)
         except StyleRevisionConflict as exception:
@@ -224,7 +228,10 @@ def create_style_project_router(server) -> APIRouter:
         except httpx.HTTPError as exception:
             raise HTTPException(502, "ComfyUI 사전 확인에 연결하지 못했습니다. 생성 작업은 접수하지 않았습니다.") from exception
         if requests:
-            server.submission_worker.enqueue(requests)
+            try:
+                await server.submission_worker.enqueue_saved(requests)
+            except RuntimeError as exception:
+                raise HTTPException(503, str(exception)) from exception
         return {"jobIdentifier": job_identifier, "requestIdentifiers": [request["request_id"] for request in requests]}
 
     @router.get("/api/style-projects/{project_identifier}/generation-results")

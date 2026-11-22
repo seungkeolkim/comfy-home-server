@@ -157,6 +157,27 @@ class ComfyClient:
 
         return await self.request_json("GET", f"/history/{prompt_id}", timeout=15)
 
+    async def find_request_prompt(self, request_identifier: str) -> str | None:
+        """응답 유실 시 Queue와 최근 History의 CHS Metadata에서 접수 ID를 찾습니다."""
+
+        matching_identifiers: set[str] = set()
+        queue = await self.request_json("GET", "/queue", timeout=15)
+        prompt_records = list(queue.get("queue_running", [])) + list(queue.get("queue_pending", []))
+        history = await self.request_json("GET", "/history", params={"max_items": 200}, timeout=15)
+        prompt_records.extend(record.get("prompt", []) for record in history.values() if isinstance(record, dict))
+        for prompt_record in prompt_records:
+            if not isinstance(prompt_record, (list, tuple)) or len(prompt_record) < 4:
+                continue
+            extra_data = prompt_record[3]
+            if not isinstance(extra_data, dict):
+                continue
+            metadata = extra_data.get("extra_pnginfo", {}).get("home_server_request", {})
+            if metadata.get("request_id") == request_identifier:
+                matching_identifiers.add(str(prompt_record[1]))
+        if len(matching_identifiers) > 1:
+            raise RuntimeError("같은 CHS 요청에 여러 ComfyUI 접수 ID가 있습니다: " + request_identifier)
+        return next(iter(matching_identifiers), None)
+
     async def free_memory(self) -> None:
         """Model unload와 execution cache 해제를 요청하고 빈 성공 응답을 처리합니다."""
 
