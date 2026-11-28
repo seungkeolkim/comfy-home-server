@@ -175,6 +175,7 @@
                   rows="7"
                   placeholder="예: masterpiece, [SCENE]"
                 ></textarea>
+                <p class="hint">여러 Prompt는 한 줄에 -----를 입력해 구분하세요. Prompt마다 별도 작업으로 등록됩니다.</p>
                 <label for="generate-negative">Negative Prompt</label>
                 <textarea
                   id="generate-negative"
@@ -336,7 +337,8 @@
               <p id="preview-hint" class="hint">
                 미리보기는 실제 Impact wildcard 결과를 보여줍니다.
               </p>
-              <p id="generate-count-hint" class="hint">입력한 횟수만큼 개별 요청을 제출합니다. 요청마다 태그 항목과 wildcard를 새로 선택해 한 장씩 생성합니다.</p>
+              <p id="generate-count-hint" class="hint">각 Prompt에 같은 생성 장수를 적용합니다. 이미지마다 태그 항목과 wildcard를 새로 선택합니다.</p>
+              <p id="anima-submit-summary" class="hint" role="status"></p>
               <label for="job-description">작업 설명 · 선택</label>
               <input id="job-description" type="text" maxlength="200" placeholder="예: 아침 조명 비교" />
               <label for="job-history-folder">작업 분류 · 선택</label>
@@ -346,8 +348,8 @@
               <button id="preview-button" class="button subtle" type="button">
                 Prompt 미리보기</button
               ><div id="generate-count-field" class="request-count-field">
-                <label for="generate-count">요청 횟수</label>
-                <input id="generate-count" type="number" min="1" max="100" value="1" />
+                <label for="generate-count">프롬프트당 생성 장수</label>
+                <input id="generate-count" type="number" min="1" max="100" value="1" required />
               </div>
               <button id="submit-button" class="button primary" type="button">
                 작업 제출

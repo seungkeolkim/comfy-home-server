@@ -88,6 +88,18 @@ class SubmissionWorker:
             phase, timeout_seconds=timeout_seconds, idle=idle,
         )
 
+    async def enqueue_saved_batches(self, request_batches: list[list[dict]]) -> None:
+        """연속된 작업을 같은 Event loop 차례에 접수하고 종료 경합 시 전체 미제출을 중단합니다."""
+
+        try:
+            self.ensure_accepting()
+            for requests in request_batches:
+                self.enqueue(requests)
+        except RuntimeError:
+            for requests in request_batches:
+                await self.finish_interrupted_batch(requests, "제출 서비스 종료로 접수되지 않았습니다. 자동 재제출하지 않습니다.")
+            raise
+
     def enqueue(self, requests: list[dict]) -> None:
         """Metadata 참조를 즉시 접수하며 같은 Event loop에서는 별도 Lock을 사용하지 않습니다."""
 

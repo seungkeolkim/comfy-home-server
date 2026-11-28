@@ -1220,6 +1220,7 @@ function fillGenerationPromptFields(body, resetSelectedTags = false) {
   element("generate-anima-prompt").value = body.prompt || "";
   element("generate-negative").value = body.negative || "";
   element("generate-minimax-prompt").value = body.prompt || "";
+  renderAnimaSubmissionSummary();
 }
 
 /** 편집기 입력만 채우고 생성 화면과 태그 선택은 유지합니다. */
@@ -1463,6 +1464,63 @@ function generateBody() {
   };
 }
 
+
+/** 원본 입력의 단독 구분자 줄만 해석하고 단일 Prompt의 공백과 줄바꿈은 보존합니다. */
+function animaPromptSections(promptText) {
+  const rawSections = promptText.split(/^[ \t]*-{5,}[ \t]*\r?$/m);
+  const promptSections = [];
+  for (const rawSection of rawSections) {
+    const sectionText = rawSections.length > 1 ? rawSection.trim() : rawSection;
+    if (sectionText.trim()) promptSections.push(sectionText);
+  }
+  return promptSections;
+}
+
+/** 현재 Anima 원본의 작업 수와 Prompt별 장수를 합산해 제출 전에 표시합니다. */
+function renderAnimaSubmissionSummary() {
+  const summaryElement = element("anima-submit-summary");
+  const isAnima = element("generate-workflow").value === "anima";
+  const usesFavoriteRestoration = Boolean(requestFavoriteState.restoration);
+  summaryElement.classList.toggle("hidden", !isAnima || usesFavoriteRestoration);
+  const submitButton = element("submit-button");
+  if (!isAnima || usesFavoriteRestoration) {
+    if (!submitButton.disabled) submitButton.textContent = "작업 제출";
+    return;
+  }
+  const promptCount = animaPromptSections(element("generate-anima-prompt").value).length;
+  const imagesPerPrompt = Number(element("generate-count").value);
+  const countIsValid = Number.isInteger(imagesPerPrompt) && imagesPerPrompt >= 1 && imagesPerPrompt <= 100;
+  summaryElement.textContent = countIsValid
+    ? `Prompt ${promptCount}개 × 각 ${imagesPerPrompt}장 = 작업 ${promptCount}개 · 총 ${promptCount * imagesPerPrompt}장`
+    : "프롬프트당 생성 장수는 1~100 사이의 정수로 입력해 주세요.";
+  if (!submitButton.disabled) {
+    submitButton.textContent = promptCount > 1 && countIsValid
+      ? `${promptCount}개 작업 · 총 ${promptCount * imagesPerPrompt}장 제출` : "작업 제출";
+  }
+}
+
+/** 전체 Prompt와 선택한 하위 태그에서 아직 후보를 선택하지 않은 참조를 반환합니다. */
+function missingRequiredTagKeys(requiredKeys = requiredTagKeys()) {
+  const missingKeys = [];
+  for (const tagKey of requiredKeys) {
+    const matchingGroups = applicationState.tagGroups.filter(group => group.tag_key === tagKey);
+    const hasSelectedCandidate = matchingGroups.some(group =>
+      sortedTagEntriesInGroup(group.group_id).some(entry => applicationState.selectedTagIds.has(entry.tag_id)));
+    if (!hasSelectedCandidate) missingKeys.push(tagKey);
+  }
+  return missingKeys;
+}
+
+/** 일반 Anima 생성의 전체 Prompt와 태그 선택을 서버 호출 전에 검사합니다. */
+function validateAnimaPromptSubmission() {
+  if (element("generate-workflow").value !== "anima" || requestFavoriteState.restoration) return;
+  if (!animaPromptSections(element("generate-anima-prompt").value).length)
+    throw new Error("Anima Prompt를 입력해 주세요.");
+  const missingKeys = missingRequiredTagKeys();
+  if (missingKeys.length)
+    throw new Error(`${missingKeys.map(tagKey => `[${tagKey}]`).join(", ")} 태그 항목을 선택해 주세요.`);
+}
+
 /** 태그와 표시 그룹을 다시 읽고 현재 선택을 유지합니다. */
 async function loadTags() {
   try {
@@ -1532,6 +1590,7 @@ function activeSelectedTagIds() {
 
 /** 필요한 참조의 선택 상태와 관련 그룹의 checkbox만 표시합니다. */
 function renderGenerateTagGroups() {
+  renderAnimaSubmissionSummary();
   const container = element("generate-tag-groups");
   const requiredKeys = requiredTagKeys();
   if (!requiredKeys.size) {
@@ -1543,9 +1602,7 @@ function renderGenerateTagGroups() {
   }
 
   const relevantGroups = sortedTagGroups().filter((group) => requiredKeys.has(group.tag_key));
-  const missingKeys = [...requiredKeys].filter((tagKey) =>
-    !relevantGroups.some((group) => group.tag_key === tagKey &&
-      sortedTagEntriesInGroup(group.group_id).some((entry) => applicationState.selectedTagIds.has(entry.tag_id))));
+  const missingKeys = missingRequiredTagKeys(requiredKeys);
   element("tag-selection-status").textContent = [...requiredKeys]
     .map((tagKey) => `[${tagKey}] ${missingKeys.includes(tagKey) ? "선택 필요" : "선택됨"}`)
     .join(" · ");
@@ -2383,8 +2440,19 @@ function generationSettings() {
   };
 }
 
-/** 요청별 확정 Prompt 예시를 표시합니다. */
+/** 태그 선택 경로와 양쪽 확정 Prompt를 하나의 미리보기 예시로 표시합니다. */
+function promptPreviewExampleMarkup(example) {
+  const selectedNames = example.selected_path.map((item) => item.name).join(" → ");
+  const negativeNames = (example.negative_selected_path || []).map((item) => item.name).join(" → ");
+  const negativeMarkup = example.negative
+    ? `<div class="preview-negative"><strong>Negative Prompt${negativeNames ? ` · ${escapeHtml(negativeNames)}` : ""}</strong>${escapeHtml(example.negative)}</div>`
+    : "";
+  return `<div class="preview-item"><strong>${example.index}. ${escapeHtml(selectedNames)} · seed ${example.seed}</strong>${escapeHtml(example.prompt)}${negativeMarkup}</div>`;
+}
+
+/** 각 원본 Prompt에 속한 확정 예시를 별도 묶음으로 표시합니다. */
 async function previewPrompt() {
+  validateAnimaPromptSubmission();
   const workflow = element("generate-workflow").value;
   const response = await apiRequest("/api/prompts/preview", {
     method: "POST",
@@ -2396,14 +2464,14 @@ async function previewPrompt() {
     }),
   });
   element("preview-results").classList.remove("hidden");
-  element("preview-results").innerHTML = response.examples.map((example) => {
-    const selectedNames = example.selected_path.map((item) => item.name).join(" → ");
-    const negativeNames = (example.negative_selected_path || []).map((item) => item.name).join(" → ");
-    const negativeMarkup = example.negative
-      ? `<div class="preview-negative"><strong>Negative Prompt${negativeNames ? ` · ${escapeHtml(negativeNames)}` : ""}</strong>${escapeHtml(example.negative)}</div>`
-      : "";
-    return `<div class="preview-item"><strong>${example.index}. ${escapeHtml(selectedNames)} · seed ${example.seed}</strong>${escapeHtml(example.prompt)}${negativeMarkup}</div>`;
-  }).join("");
+  const promptSections = response.prompt_sections || [];
+  if (workflow === "anima" && promptSections.length > 1) {
+    element("preview-results").innerHTML = promptSections.map(section =>
+      `<section class="prompt-preview-section"><h3>Prompt ${section.section_index}/${promptSections.length}</h3>${section.examples.map(promptPreviewExampleMarkup).join("")}</section>`,
+    ).join("");
+  } else {
+    element("preview-results").innerHTML = response.examples.map(promptPreviewExampleMarkup).join("");
+  }
 }
 
 /** 상대 경로의 폴더 구분자는 유지하면서 파일명 특수문자를 URL에 안전하게 넣습니다. */
@@ -2655,7 +2723,10 @@ function bindJobInputPickerEvents() {
 
 /** Batch를 서버에 제출합니다. */
 async function submitBatch() {
+  validateAnimaPromptSubmission();
   const workflow = element("generate-workflow").value;
+  if (workflow === "anima" && !requestFavoriteState.restoration && !element("generate-count").checkValidity())
+    throw new Error("프롬프트당 생성 장수는 1~100 사이의 정수로 입력해 주세요.");
   if (applicationState.selectedLoras.length) {
     validateLoraEntries(applicationState.selectedLoras, workflow);
     const missingLoras = applicationState.loraCatalogAvailable
@@ -2699,14 +2770,14 @@ async function submitBatch() {
         input_job_id: usesCurrentMinimaxInputs ? applicationState.minimaxInputJob?.job_id || null : null,
       }),
     });
-    showNotice(
-      `작업 접수 완료 · 요청 ${response.request_ids.length}건. 진행 상태는 작업 목록에서 확인하세요.`,
-    );
+    const registeredJobCount = response.job_count || 1;
+    showNotice(`작업 ${registeredJobCount}개 접수 완료 · 요청 ${response.request_ids.length}건. 진행 상태는 작업 목록에서 확인하세요.`);
     applicationState.jobsPage = 1;
     await loadJobs();
   } finally {
     submitButton.disabled = false;
     submitButton.textContent = "작업 제출";
+    renderAnimaSubmissionSummary();
   }
 }
 
@@ -3101,6 +3172,7 @@ async function restoreJobGeneration(jobIdentifier) {
   } finally {
     applicationState.restoringJobId = null;
     element("submit-button").disabled = false;
+    renderAnimaSubmissionSummary();
     renderJobsList();
   }
 }
@@ -3113,6 +3185,9 @@ function jobCardMarkup(job, statusNames, openJobIds) {
   const originalNegative = typeof originalBody.negative === "string" ? originalBody.negative : "";
   const promptIsExpanded = applicationState.expandedJobPromptIds.has(job.job_id);
   const loraSummary = jobLoraSummary(summaryDetail);
+  const promptSection = summaryDetail.prompt_section;
+  const promptSectionLabel = promptSection?.section_count > 1
+    ? ` · Prompt ${promptSection.section_index}/${promptSection.section_count}` : "";
   const requestSettings = { ...summaryDetail.settings, ...summaryDetail.resolved?.settings };
   const dimensions = formatDimensions(requestSettings.width, requestSettings.height);
   const completedCount = job.status_counts.completed || 0;
@@ -3143,7 +3218,7 @@ function jobCardMarkup(job, statusNames, openJobIds) {
       <div class="job-selection-heading">
         ${selectionCheckbox}
         <div>
-        <h3>${escapeHtml(job.workflow)}${job.workflow === "minimax_h3" ? ` · ${escapeHtml(requestSettings.generation_mode || "FL2VA")} · ${requestSettings.input_scope === "job" ? "작업 결과 일괄" : requestSettings.input_scope === "folder" ? "폴더 일괄" : "이미지 입력"}` : ""} · 작업 ${escapeHtml(job.job_id)}</h3>
+        <h3>${escapeHtml(job.workflow)}${job.workflow === "minimax_h3" ? ` · ${escapeHtml(requestSettings.generation_mode || "FL2VA")} · ${requestSettings.input_scope === "job" ? "작업 결과 일괄" : requestSettings.input_scope === "folder" ? "폴더 일괄" : "이미지 입력"}` : ""} · 작업 ${escapeHtml(job.job_id)}${escapeHtml(promptSectionLabel)}</h3>
         <p>${escapeHtml(formatKoreanTimestamp(job.created_at))} · ${dimensions.ratio} · ${dimensions.resolution} · CFG ${escapeHtml(requestSettings.cfg ?? "—")} · Steps ${escapeHtml(requestSettings.steps ?? "—")} · ${escapeHtml(progressText)} · ${escapeHtml(loraSummary)}</p>
         <p class="job-description"><span class="job-description-text">${job.description ? escapeHtml(job.description) : "(작업 설명 없음)"}</span><button class="job-description-edit" type="button" data-edit-job-description="${escapeHtml(job.job_id)}" aria-label="작업 설명 수정" title="작업 설명 수정" ${jobSelectionIsBusy() ? "disabled" : ""}><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m16 3 5 5-12 12-6 1 1-6Z"></path><path d="m14 5 5 5"></path></svg></button></p>
         <button class="job-folder-location" data-move-job-folder="${escapeHtml(job.job_id)}" type="button" title="분류 변경" ${job.origin === "style" || jobSelectionIsBusy() ? "disabled" : ""}>📁 ${escapeHtml(jobHistoryFolderLabel(job.folder_id))} <span aria-hidden="true">↗</span></button>
@@ -4502,6 +4577,7 @@ function bindEvents() {
     runAction(loadLoras);
   });
   element("generate-anima-prompt").addEventListener("input", renderGenerateTagGroups);
+  element("generate-count").addEventListener("input", renderAnimaSubmissionSummary);
   element("generate-negative").addEventListener("input", renderGenerateTagGroups);
   element("generate-minimax-prompt").addEventListener("input", renderGenerateTagGroups);
   for (const identifier of ["generate-anima-prompt", "generate-negative", "generate-minimax-prompt"]) {
@@ -5411,6 +5487,7 @@ function clearFavoriteRestoration() {
   element("generate-count").disabled = false;
   element("preview-button").disabled = false;
   element("generate-tag-fields").classList.remove("hidden");
+  renderAnimaSubmissionSummary();
 }
 
 /** 원본과 확정 Prompt를 구분하되 생성 Seed와 단건 제출은 함께 고정합니다. */
@@ -5429,6 +5506,7 @@ function setFavoriteRestoreMode(mode) {
   element("favorite-restore-exact").setAttribute("aria-pressed", String(mode === "exact"));
   element("favorite-restore-source").setAttribute("aria-pressed", String(mode === "source"));
   element("favorite-restoration-summary").textContent = `Seed ${favorite.resolved.settings.seed} 고정 · 요청 1건 · ${mode === "exact" ? "확정 Prompt 사용, 태그·wildcard 재추첨 없음" : "보관된 태그 후보에서 다시 추첨"}${favorite.workflow === "minimax_h3" ? " · 보관된 입력 이미지 사용" : ""}`;
+  renderAnimaSubmissionSummary();
   element("favorite-restoration-original").innerHTML = favoriteOriginalMarkup(favorite);
   element("favorite-restoration-candidates").innerHTML = mode === "source" ? favorite.selected_tags.map(tag => `
     <label class="favorite-snapshot-candidate">

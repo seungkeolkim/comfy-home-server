@@ -723,6 +723,15 @@ class Database:
                     (request["request_id"], upload_id, json.dumps(resolved_result, ensure_ascii=False)),
                 )
 
+    def add_job_batches(
+        self, workflow: str, description: str, request_batches: list[list[dict[str, Any]]], folder_id: str | None = None,
+    ) -> None:
+        """같은 제출에 속한 독립 작업들을 하나의 Transaction으로 저장합니다."""
+
+        with self._connect() as connection:
+            for requests in request_batches:
+                self.add_job(requests[0]["job_id"], workflow, description, requests, folder_id, connection=connection)
+
     def list_jobs(
         self, page: int = 1, page_size: int = 10, job_id: str = "", folder_id: str = "", search: str = "", include_style: bool = False,
     ) -> dict[str, Any]:
@@ -804,7 +813,7 @@ class Database:
                 ).fetchone()
                 common_inputs = json.loads(job_row["input_json"])
                 summary_detail = {}
-                for detail_key in ("body", "settings", "loras", "lora_preset_name"):
+                for detail_key in ("body", "settings", "loras", "lora_preset_name", "prompt_section"):
                     if detail_key in common_inputs:
                         summary_detail[detail_key] = common_inputs[detail_key]
                 resolved_settings = None

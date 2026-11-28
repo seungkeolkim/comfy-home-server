@@ -67,7 +67,11 @@ MiniMax에도 Anima와 같은 태그 선택 영역이 표시됩니다. 예를 �
 
 MiniMax 해상도는 첫 선택 이미지의 실제 크기(EXIF 표시 방향 반영)로 자동 입력하고, 32 단위로 보정한 제출 크기도 표시합니다. 다른 크기의 이미지가 섞이면 알려주며, 각 입력의 비율을 유지해 공통 Canvas에 검은 Pad로 맞춥니다. 너비·높이를 직접 바꾸면 이미지 선택이 바뀌어도 값을 유지하고, `첫 이미지 해상도 다시 적용`으로 자동값에 복귀합니다. 원본 파일과 독립된 임시 Snapshot을 제출 시 만들고 Batch 제출 처리가 끝나면 회수합니다. 작업 이력에는 생성 방식, 원본 출처, 실제 입력 크기와 제출 해상도를 기록합니다. [MiniMax 작업 생성 설계와 구현 기록](docs/minimax_generation_design.md)을 참고하세요.
 
-Anima는 요청 횟수 N을 지정하면 ComfyUI에 N개의 개별 요청을 제출합니다. 각 요청은 태그 항목과 wildcard, random seed를 새로 선택하고 한 장씩 생성합니다.
+Anima의 **프롬프트당 생성 장수** N은 각 Prompt에 적용합니다. Prompt 입력에서 한 줄 전체를 `-----`처럼 하이픈 5개 이상으로 작성하면 별도 Prompt로 나눕니다. 구분자 앞뒤 공백과 Windows 줄바꿈을 허용하고 빈 블록은 건너뜁니다. 문장 중간의 하이픈, Negative Prompt와 태그 확장 결과는 분리하지 않습니다. 화면에서 `Prompt 2개 × 각 3장 = 작업 2개 · 총 6장`처럼 전체 규모를 확인할 수 있습니다.
+
+각 Prompt는 독립된 Job으로 등록하며 입력 순서대로 ComfyUI에 N개의 개별 요청을 제출합니다. 이미지마다 태그 항목과 wildcard, random seed를 새로 선택하고 한 장씩 생성하므로 같은 캐릭터가 우연히 다시 나올 수 있습니다. Negative Prompt·선택한 태그 후보·LoRA·Workflow 옵션·작업 설명·분류는 모든 Job에 공통 적용합니다. 미리보기는 Prompt별로 표시하고 실제 생성 시 다시 추첨합니다. Preset은 구분자가 포함된 전체 원문을 저장하며, 개별 작업의 생성 입력 복원은 해당 Prompt와 장수만 가져옵니다.
+
+`POST /api/batches`는 전체 Prompt를 검증하고 하나의 Transaction으로 모든 Job을 저장한 뒤 Job별 Queue에 연속 접수합니다. 응답의 `jobs`에는 입력 순서대로 `job_id`·`request_ids`·`section_index`가 있고 `job_count`·`request_count`·전체 `request_ids`를 함께 반환합니다. 단일 Job은 기존 `job_id`도 유지합니다. 작업 입력 Metadata와 목록 요약의 `prompt_section`에는 공통 `submission_identifier`와 `section_index`·`section_count`를 저장하며, 작업 카드에 `Prompt 1/2`처럼 표시합니다. 작업마다 취소·삭제·결과 조회가 독립적으로 동작합니다. `POST /api/prompts/preview`의 `count`는 Prompt별 예시 수이며 기존 `examples`와 함께 `prompt_sections`별 예시를 반환합니다.
 
 Anima의 Workflow 옵션에서는 비율을 먼저 고른 뒤 해상도를 선택합니다. 기존 너비·높이 직접 입력은 비율의 `사용자 지정`에서 사용할 수 있습니다. 선택한 너비·높이는 각 요청의 설정과 작업 이력에 저장됩니다.
 
@@ -97,7 +101,7 @@ Prompt 관리의 편집 상태는 생성 화면과 독립적입니다. `＋ 새 
 
 Anima Prompt preset 버전에는 Prompt 본문과 Negative Prompt만 저장합니다. 태그 그룹과 항목은 별도 DB에서 관리하며 생성할 때 현재 정의를 사용합니다. 항목은 소속 그룹의 참조 태그를 따르므로 그룹의 참조 태그를 바꾸거나 항목을 다른 그룹으로 이동하면 다음 생성부터 적용됩니다. 제출한 작업에는 그 시점의 그룹 참조와 태그 정의, 선택 경로 및 확정 Prompt가 남으며 이후 편집의 영향을 받지 않습니다. 기존 `Anima onepiece`의 최신 상황 두 개는 Prompt 본문의 `[SCENE]` 참조, 공통 SCENE 항목과 두 CHR 선택지로 옮겼습니다.
 
-작업 화면에서는 한 번의 제출을 하나의 작업으로 표시합니다. 펼치면 개별 요청을 확인할 수 있고, 작업 결과 보기에서는 완료된 요청의 결과를 함께 보여줍니다. 일부 요청만 완료되거나 실패하면 진행 건수와 `일부 완료` 상태가 표시됩니다.
+작업 화면에서는 같은 원본 Prompt를 사용하는 요청들을 하나의 작업으로 표시합니다. Anima에서 구분자로 여러 Prompt를 제출하면 Prompt마다 별도 작업이 생깁니다. 펼치면 개별 요청을 확인할 수 있고, 작업 결과 보기에서는 완료된 요청의 결과를 함께 보여줍니다. 일부 요청만 완료되거나 실패하면 진행 건수와 `일부 완료` 상태가 표시됩니다.
 
 일반 생성·즐겨찾기 복원·스타일 생성의 ComfyUI 제출은 단일 Worker가 내부 접수 순서대로 처리합니다. API는 기존 입력 Snapshot과 요청 Metadata를 기록한 뒤 응답하고, Worker는 한 작업의 모든 요청을 ComfyUI에 접수한 다음 다음 작업으로 넘어갑니다. 대기 중 필요한 파일·요청이 사라지면 해당 요청만 실패 또는 건너뛰기로 처리합니다. 이미 복사한 입력 Snapshot은 원본 작업·이미지·즐겨찾기 삭제와 독립적으로 유지합니다. 상세 동작은 [제출·취소 처리 기록](docs/job_cancellation_performance_refactor.md#2026-11-21-단일-제출-worker)을 참고하세요.
 

@@ -26,6 +26,7 @@ from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 from .comfy_client import ComfyClient, ComfyHttpError
+from .anima_prompt_sections import split_anima_prompt_sections
 from .administration import AdministrationMaintenance, AdministrationStore, create_administration_router
 from .configuration import AppConfig, PROJECT_DIRECTORY, load_config
 from .database import Database, current_timestamp
@@ -111,6 +112,20 @@ def selected_tag_definitions(
         raise ValueError("삭제되거나 찾을 수 없는 태그 항목이 선택되었습니다. 목록을 새로고침해 주세요.")
     selected_tags = [available_tags[tag_id] for tag_id in selected_tag_ids]
     validate_tag_selection("\n".join([prompt_text, negative_text]), selected_tags)
+    return selected_tags
+
+
+def selected_anima_prompt_section_tags(
+    database: Database, selected_tag_ids: list[str], prompt_sections: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """태그 후보를 한 번 복사하고 모든 Prompt와 공통 Negative의 참조를 검증합니다."""
+
+    selected_tags = selected_tag_definitions(database, selected_tag_ids, "")
+    for section_index, section_body in enumerate(prompt_sections, start=1):
+        try:
+            validate_tag_selection("\n".join([section_body["prompt"], section_body.get("negative", "")]), selected_tags)
+        except ValueError as exception:
+            raise ValueError(f"Prompt {section_index}: {exception}") from exception
     return selected_tags
 
 
@@ -585,10 +600,10 @@ def move_recorded_outputs(server: HomeServer, output_ids: list[int], destination
     }
 
 
-def store_batch_requests(
+def prepare_batch_requests(
     server: HomeServer, payload: BatchInput, selected_tags: list[dict[str, Any]],
-) -> tuple[str, list[dict[str, Any]]]:
-    """이미지 존재 확인·요청 구성·DB 저장을 Worker에서 함께 완료합니다."""
+) -> tuple[str, list[dict[str, Any]], list[dict[str, Any]]]:
+    """입력 이미지를 확인하고 아직 DB에 저장하지 않은 요청과 임시 Snapshot을 구성합니다."""
 
     upload_ids = payload.upload_ids if payload.workflow == "minimax_h3" else [None] * payload.count
     if len(upload_ids) > 100:
@@ -647,11 +662,46 @@ def store_batch_requests(
                            "lora_preset_name": payload.lora_preset_name if payload.loras else None},
             }
             submitted_requests.append(request)
-        server.database.add_job(job_id, payload.workflow, payload.description, submitted_requests, payload.folder_id)
-        return job_id, submitted_requests
+        return job_id, submitted_requests, image_snapshots
     except Exception:
         remove_input_snapshots(image_snapshots)
         raise
+
+
+def store_batch_requests(
+    server: HomeServer, payload: BatchInput, selected_tags: list[dict[str, Any]],
+) -> tuple[str, list[dict[str, Any]]]:
+    """단일 작업을 저장하고 저장 실패 시 이번에 만든 입력 Snapshot만 정리합니다."""
+
+    job_identifier, submitted_requests, image_snapshots = prepare_batch_requests(server, payload, selected_tags)
+    try:
+        server.database.add_job(job_identifier, payload.workflow, payload.description, submitted_requests, payload.folder_id)
+    except Exception:
+        remove_input_snapshots(image_snapshots)
+        raise
+    return job_identifier, submitted_requests
+
+
+def store_anima_prompt_section_requests(
+    server: HomeServer, payload: BatchInput, selected_tags: list[dict[str, Any]],
+    prompt_sections: list[dict[str, Any]],
+) -> list[list[dict[str, Any]]]:
+    """Prompt별 독립 작업을 구성한 뒤 하나의 Transaction으로 전체를 저장합니다."""
+
+    submission_identifier = uuid.uuid4().hex
+    request_batches = []
+    for section_index, section_body in enumerate(prompt_sections, start=1):
+        section_payload = payload.model_copy(update={"body": section_body})
+        _, submitted_requests, _ = prepare_batch_requests(server, section_payload, selected_tags)
+        section_details = {
+            "submission_identifier": submission_identifier,
+            "section_index": section_index, "section_count": len(prompt_sections),
+        }
+        for submitted_request in submitted_requests:
+            submitted_request["detail"]["prompt_section"] = section_details
+        request_batches.append(submitted_requests)
+    server.database.add_job_batches(payload.workflow, payload.description, request_batches, payload.folder_id)
+    return request_batches
 
 
 def find_uploaded_image(upload_directory: Path, upload_id: str) -> Path:
@@ -1001,11 +1051,8 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             if payload.workflow == "minimax_h3":
                 minimax_prompt_template(body)
             else:
-                prompt_text = anima_prompt(body)
-                negative_text = body.get("negative", "")
-                if not isinstance(negative_text, str):
-                    raise ValueError("Negative Prompt 형식이 올바르지 않습니다.")
-                body = {"prompt": prompt_text, "negative": negative_text}
+                split_anima_prompt_sections(body)
+                body = {"prompt": body["prompt"], "negative": body.get("negative", "")}
         except ValueError as exception:
             raise HTTPException(422, str(exception)) from exception
         preset_id = payload.preset_id or uuid.uuid4().hex
@@ -1119,46 +1166,55 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
 
     @app.post("/api/prompts/preview")
     async def preview(payload: PreviewInput):
-        """공통 태그를 요청별로 추첨하고 Anima의 경우에만 wildcard까지 확정해 보여줍니다."""
+        """Anima의 Prompt별 예시를 묶고 각 예시의 태그와 wildcard를 독립 추첨합니다."""
 
         if payload.workflow not in {"anima", "minimax_h3"}:
             raise HTTPException(422, "지원하지 않는 workflow입니다.")
         try:
             if payload.workflow == "anima":
-                prompt_text = anima_prompt(payload.body)
-                negative_text = anima_negative_prompt(payload.body)
+                prompt_sections = split_anima_prompt_sections(payload.body)
+                selected_tags = await asyncio.to_thread(
+                    selected_anima_prompt_section_tags, server.database, payload.selected_tag_ids, prompt_sections,
+                )
             else:
                 prompt_text = minimax_prompt_template(payload.body)
-                negative_text = ""
-            selected_tags = await asyncio.to_thread(
-                selected_tag_definitions, server.database, payload.selected_tag_ids, prompt_text, negative_text,
-            )
+                prompt_sections = [payload.body]
+                selected_tags = await asyncio.to_thread(
+                    selected_tag_definitions, server.database, payload.selected_tag_ids, prompt_text,
+                )
             examples = []
-            for example_index in range(payload.count):
-                prompt_seed = secrets.randbelow(2**31)
-                if payload.workflow == "anima":
-                    template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
-                        resolve_anima_prompts, payload.body, selected_tags, prompt_seed,
-                    )
-                    resolved = await server.comfy.populate_wildcards(template, prompt_seed)
-                    resolved_negative = await server.comfy.populate_wildcards(negative_template, prompt_seed)
-                else:
-                    resolved, selected_path = await asyncio.to_thread(
-                        resolve_tag_text, prompt_text, selected_tags, random.Random(prompt_seed),
-                    )
-                    resolved_negative = ""
-                    negative_selected_path = []
-                examples.append({
-                    "index": example_index + 1, "seed": prompt_seed,
-                    "prompt": resolved, "negative": resolved_negative, "selected_path": selected_path,
-                    "negative_selected_path": negative_selected_path,
-                })
+            section_previews = []
+            for section_index, section_body in enumerate(prompt_sections, start=1):
+                section_examples = []
+                for example_index in range(payload.count):
+                    prompt_seed = secrets.randbelow(2**31)
+                    if payload.workflow == "anima":
+                        template, negative_template, selected_path, negative_selected_path = await asyncio.to_thread(
+                            resolve_anima_prompts, section_body, selected_tags, prompt_seed,
+                        )
+                        resolved = await server.comfy.populate_wildcards(template, prompt_seed)
+                        resolved_negative = await server.comfy.populate_wildcards(negative_template, prompt_seed)
+                    else:
+                        resolved, selected_path = await asyncio.to_thread(
+                            resolve_tag_text, prompt_text, selected_tags, random.Random(prompt_seed),
+                        )
+                        resolved_negative = ""
+                        negative_selected_path = []
+                    section_examples.append({
+                        "index": example_index + 1, "seed": prompt_seed,
+                        "prompt": resolved, "negative": resolved_negative, "selected_path": selected_path,
+                        "negative_selected_path": negative_selected_path,
+                    })
+                examples.extend(section_examples)
+                section_previews.append({"section_index": section_index, "prompt": section_body["prompt"], "examples": section_examples})
         except ValueError as exception:
             raise HTTPException(422, str(exception)) from exception
         except Exception as exception:
             raise HTTPException(502, str(exception)) from exception
         combined_prompt = examples[0]["prompt"] if payload.workflow == "minimax_h3" else None
-        return await asyncio.to_thread(JSONResponse, {"combined_prompt": combined_prompt, "examples": examples})
+        return await asyncio.to_thread(JSONResponse, {
+            "combined_prompt": combined_prompt, "examples": examples, "prompt_sections": section_previews,
+        })
 
     @app.get("/api/loras")
     async def loras():
@@ -1269,6 +1325,7 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
         if any(not re.fullmatch(r"[0-9a-f]{32}", upload_id) for upload_id in payload.upload_ids):
             raise HTTPException(422, "업로드 식별자 형식이 올바르지 않습니다.")
         selected_tags: list[dict[str, Any]] = []
+        prompt_sections = [payload.body]
         try:
             if payload.workflow == "minimax_h3":
                 prompt_text = minimax_prompt_template(payload.body)
@@ -1278,10 +1335,9 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
                 minimax_execution_settings(payload.settings)
                 validate_minimax_loras(payload.loras)
             else:
-                prompt_text = anima_prompt(payload.body)
-                negative_text = anima_negative_prompt(payload.body)
+                prompt_sections = split_anima_prompt_sections(payload.body)
                 selected_tags = await asyncio.to_thread(
-                    selected_tag_definitions, server.database, payload.selected_tag_ids, prompt_text, negative_text,
+                    selected_anima_prompt_section_tags, server.database, payload.selected_tag_ids, prompt_sections,
                 )
             available_loras = set(await server.comfy.list_loras()) if payload.loras else set()
             missing_loras = [selected_lora.get("name") for selected_lora in payload.loras if selected_lora.get("name") not in available_loras]
@@ -1294,17 +1350,38 @@ def create_app(config: AppConfig | None = None) -> FastAPI:
             raise HTTPException(502, str(exception)) from exception
 
         try:
-            job_id, submitted_requests = await asyncio.to_thread(store_batch_requests, server, payload, selected_tags)
+            if len(prompt_sections) > 1:
+                request_batches = await asyncio.to_thread(
+                    store_anima_prompt_section_requests, server, payload, selected_tags, prompt_sections,
+                )
+            else:
+                single_payload = payload.model_copy(update={"body": prompt_sections[0]})
+                _, submitted_requests = await asyncio.to_thread(store_batch_requests, server, single_payload, selected_tags)
+                request_batches = [submitted_requests]
         except ValueError as exception:
             raise HTTPException(422, str(exception)) from exception
         except (OSError, UnidentifiedImageError, Image.DecompressionBombError) as exception:
             raise HTTPException(422, "입력 이미지를 읽거나 임시 저장할 수 없습니다. 다시 선택해 주세요.") from exception
         try:
-            await server.submission_worker.enqueue_saved(submitted_requests)
+            if len(request_batches) > 1:
+                await server.submission_worker.enqueue_saved_batches(request_batches)
+            else:
+                await server.submission_worker.enqueue_saved(request_batches[0])
         except RuntimeError as exception:
             raise HTTPException(503, str(exception)) from exception
-        LOGGER.info("Batch 생성: job_id=%s workflow=%s count=%s", job_id, payload.workflow, len(submitted_requests))
-        return {"job_id": job_id, "request_ids": [request["request_id"] for request in submitted_requests]}
+        jobs = []
+        request_identifiers = []
+        for section_index, requests in enumerate(request_batches, start=1):
+            section_request_identifiers = [request["request_id"] for request in requests]
+            request_identifiers.extend(section_request_identifiers)
+            jobs.append({"job_id": requests[0]["job_id"], "request_ids": section_request_identifiers, "section_index": section_index})
+        LOGGER.info("Batch 생성: job_ids=%s workflow=%s count=%s", [job["job_id"] for job in jobs], payload.workflow, len(request_identifiers))
+        response = {
+            "jobs": jobs, "job_count": len(jobs), "request_ids": request_identifiers, "request_count": len(request_identifiers),
+        }
+        if len(jobs) == 1:
+            response["job_id"] = jobs[0]["job_id"]
+        return response
 
     @app.get("/api/jobs")
     async def jobs(
@@ -2116,6 +2193,8 @@ async def _submit_requests(server: HomeServer, batch: SubmissionBatch) -> None:
                     "source_image": detail.get("resolved", {}).get("source_image"),
                 },
             }
+            if detail.get("prompt_section"):
+                metadata["home_server_request"]["prompt_section"] = detail["prompt_section"]
             if style_prepared:
                 metadata["home_server_request"]["style_context"] = style_prepared["style_context"]
             selected_loras = metadata["home_server_request"]["loras"]
